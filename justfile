@@ -88,19 +88,25 @@ rpm:
     cargo build --release --workspace
     cargo generate-rpm -p crates/azadi
 
-# Tag, wait for CI, then publish PKGBUILD + flake.nix + AUR (usage: just tag v0.2.0)
-tag VERSION:
-    python packaging/update_release.py --tag {{VERSION}}
+# Bump Cargo.toml version first, then: just tag
+# Commits Cargo.lock, tags, waits for CI, publishes PKGBUILD + flake.nix + AUR
+tag:
+    python packaging/update_release.py --tag
 
-# Re-tag HEAD, wait for CI, then publish (usage: just re-tag v0.2.0)
-re-tag VERSION:
-    -git push --delete origin {{VERSION}}
-    -git tag -d {{VERSION}}
-    python packaging/update_release.py --tag {{VERSION}}
+# Re-tag HEAD (same version, re-triggers CI) then publish
+re-tag:
+    #!/usr/bin/env python3
+    import subprocess, re
+    from pathlib import Path
+    version = "v" + re.search(r'^version\s*=\s*"([^"]+)"',
+        Path("Cargo.toml").read_text(), re.MULTILINE).group(1)
+    subprocess.run(["git", "push", "--delete", "origin", version], check=False)
+    subprocess.run(["git", "tag", "-d", version], check=False)
+    subprocess.run(["python", "packaging/update_release.py", "--tag"], check=True)
 
-# Re-run publish only — tag already pushed and CI already done (usage: just update-release 0.2.0)
-update-release VERSION:
-    python packaging/update_release.py {{VERSION}}
+# Re-run publish only — tag already pushed and CI already done
+update-release:
+    python packaging/update_release.py
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

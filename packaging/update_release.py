@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Generate PKGBUILD and flake.nix for a new release, then publish everywhere.
 
+Version is read from [workspace.package] in Cargo.toml (the single source of
+truth).  Bump it there first, then run this script.
+
 Typical usage:
 
-  # Tag already pushed separately (just tag v0.x.y):
-  python packaging/update_release.py 0.x.y
+  # Edit Cargo.toml version, then tag + full publish:
+  just tag
 
-  # Let the script push the tag too:
-  python packaging/update_release.py 0.x.y --tag
+  # Tag already pushed, CI already done — just publish:
+  just update-release
 
-Requires GH_TOKEN or GITHUB_TOKEN in the environment.
+Requires GH_TOKEN or GITHUB_TOKEN in the environment (or gh auth login).
 """
 
 import argparse
@@ -178,24 +181,15 @@ def flake(version: str, sri_azadi: str) -> str:
 """
 
 
-# ── version bump ──────────────────────────────────────────────────────────────
+# ── version (read from Cargo.toml — the SSOT) ────────────────────────────────
 
-def bump_cargo_version(version: str) -> None:
-    """Update [workspace.package] version in Cargo.toml."""
-    cargo_toml = REPO_ROOT / "Cargo.toml"
-    text = cargo_toml.read_text()
+def read_cargo_version() -> str:
     import re
-    patched = re.sub(
-        r'^(version\s*=\s*)"[^"]+"',
-        f'\\1"{version}"',
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if patched == text:
-        raise SystemExit(f"Could not find version field in {cargo_toml}")
-    cargo_toml.write_text(patched)
-    print(f"  Bumped Cargo.toml to {version}")
+    text = (REPO_ROOT / "Cargo.toml").read_text()
+    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if not m:
+        raise SystemExit("Could not read version from Cargo.toml")
+    return m.group(1)
 
 
 # ── subprocess helpers (git, makepkg only) ─────────────────────────────────────
@@ -209,24 +203,28 @@ def run(args: list, cwd: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("version", help="Release version, e.g. 0.2.0")
+    parser.add_argument("version", nargs="?",
+                        help="Release version (default: read from Cargo.toml)")
     parser.add_argument("--tag", action="store_true",
-                        help="Create and push the git tag before waiting for CI")
+                        help="Commit Cargo.lock, push the git tag, then wait for CI")
     parser.add_argument("--dry-run", action="store_true",
                         help="Write files but skip all git/AUR steps")
     args = parser.parse_args()
 
-    version = args.version.lstrip("v")
+    version = (args.version.lstrip("v") if args.version else read_cargo_version())
     aur_dir = REPO_ROOT.parent / "aur-azadi-bin"
     token   = gh_token()
 
+    print(f"Releasing v{version}...")
+
     if args.tag:
-        print(f"Bumping version to {version}...")
-        bump_cargo_version(version)
-        run(["cargo", "build"], cwd=REPO_ROOT)  # update Cargo.lock
-        run(["git", "add", "Cargo.toml", "Cargo.lock"], cwd=REPO_ROOT)
-        run(["git", "commit", "-m", f"chore: bump version to {version}"], cwd=REPO_ROOT)
-        run(["git", "push", "origin", "main"], cwd=REPO_ROOT)
+        run(["cargo", "build"], cwd=REPO_ROOT)  # refresh Cargo.lock
+        run(["git", "add", "Cargo.lock"], cwd=REPO_ROOT)
+        # commit only if there's something staged
+        result = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=REPO_ROOT)
+        if result.returncode != 0:
+            run(["git", "commit", "-m", f"chore: release v{version}"], cwd=REPO_ROOT)
+            run(["git", "push", "origin", "main"], cwd=REPO_ROOT)
         print(f"Tagging v{version}...")
         run(["git", "tag", "-a", f"v{version}", "-m", f"v{version}"], cwd=REPO_ROOT)
         run(["git", "push", "origin", f"v{version}"], cwd=REPO_ROOT)

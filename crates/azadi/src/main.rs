@@ -26,6 +26,7 @@ fn default_pathsep() -> String {
 #[derive(Parser, Debug)]
 #[command(
     name = "azadi",
+    version,
     about = "Macro expander + literate-programming chunk extractor in one pass"
 )]
 struct Cli {

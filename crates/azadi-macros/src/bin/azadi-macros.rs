@@ -34,6 +34,7 @@ fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::R
 #[derive(Parser, Debug)]
 #[command(
     name = "azadi-macros",
+    version,
     about = "Azadi macros translator (Rust)",
     group(ArgGroup::new("source").required(true).args(["inputs", "directory"]))
 )]

@@ -20,6 +20,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -184,7 +185,6 @@ def flake(version: str, sri_azadi: str) -> str:
 # ── version (read from Cargo.toml — the SSOT) ────────────────────────────────
 
 def read_cargo_version() -> str:
-    import re
     text = (REPO_ROOT / "Cargo.toml").read_text()
     m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     if not m:

@@ -315,16 +315,11 @@ fn run(args: Args) -> Result<(), Error> {
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
         
-        let (expanded, map_entries) = azadi_macros::macro_api::process_string_tracing(
+        let expanded = azadi_macros::macro_api::process_string(
             &content,
             Some(full_path),
             &mut evaluator,
         )?;
-        let serialized_entries: Vec<(u32, Vec<u8>)> = map_entries.into_iter()
-            .map(|(li, entry)| (li, postcard::to_allocvec(&entry).unwrap()))
-            .collect();
-        clip.db().set_macro_map_entries(&full_path.to_string_lossy(), &serialized_entries)?;
-        
         let expanded_str = String::from_utf8_lossy(&expanded);
         if args.dump_expanded {
             eprintln!("=== expanded: {} ===", full_path.display());
@@ -372,18 +367,31 @@ fn run(args: Args) -> Result<(), Error> {
     Ok(())
 }
 
+fn build_eval_config(args: &Args) -> azadi_macros::evaluator::EvalConfig {
+    let pathsep = default_pathsep();
+    let include_paths: Vec<std::path::PathBuf> = args.include.split(&pathsep).map(std::path::PathBuf::from).collect();
+    azadi_macros::evaluator::EvalConfig {
+        special_char: args.special,
+        include_paths,
+        discovery_mode: false,
+        allow_env: args.allow_env,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
-    
+
     let result = match cli.command {
         Some(Commands::Trace { out_file, line }) => {
-            run_trace(out_file, line, cli.args.db, cli.args.gen_dir)
+            let eval_config = build_eval_config(&cli.args);
+            run_trace(out_file, line, cli.args.db, cli.args.gen_dir, eval_config)
         }
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
         }
         Some(Commands::Mcp) => {
-            mcp::run_mcp(cli.args.db, cli.args.gen_dir)
+            let eval_config = build_eval_config(&cli.args);
+            mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config)
         }
         Some(Commands::ApplyBack { files, dry_run }) => {
             let opts = apply_back::ApplyBackOptions {
@@ -431,7 +439,7 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
     }
 }
 
-fn run_trace(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), Error> {
+fn run_trace(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::evaluator::EvalConfig) -> Result<(), Error> {
     if !db_path.exists() {
         return Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -440,7 +448,7 @@ fn run_trace(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
     }
     let db = azadi_noweb::db::AzadiDb::open(&db_path)?;
 
-    match lookup::perform_trace(&out_file, line, &db, &gen_dir) {
+    match lookup::perform_trace(&out_file, line, &db, &gen_dir, eval_config) {
         Ok(Some(json)) => {
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             Ok(())

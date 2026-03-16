@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf) -> Result<(), crate::Error> {
+pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::evaluator::EvalConfig) -> Result<(), crate::Error> {
     let stdin = io::stdin();
 
     let db = if db_path.exists() {
@@ -70,7 +70,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf) -> Result<(), crate::Error> {
                         let out_line = input.get("out_line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
 
                         if let Some(ref db) = db {
-                            match lookup::perform_trace(out_file, out_line, db, &gen_dir) {
+                            match lookup::perform_trace(out_file, out_line, db, &gen_dir, eval_config.clone()) {
                                 Ok(Some(res)) => {
                                     send_response(id, json!({
                                         "content": [

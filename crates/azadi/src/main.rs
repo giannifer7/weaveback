@@ -209,10 +209,10 @@ fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Resul
 
 fn run(args: Args) -> Result<(), Error> {
     if args.inputs.is_empty() && args.directory.is_none() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "Missing input files or --dir. Did you mean to run a subcommand like 'azadi trace'?"
-        )));
+        use clap::CommandFactory;
+        Cli::command().print_help().unwrap();
+        println!();
+        std::process::exit(0);
     }
 
     let pathsep = default_pathsep();

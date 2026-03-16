@@ -83,7 +83,7 @@ def download_asset(url: str, token: str) -> bytes:
         return r.read()
 
 
-def wait_for_release(version: str, token: str, timeout: int = 600, poll: int = 20) -> dict:
+def wait_for_release(version: str, token: str, timeout: int = 1800, poll: int = 20) -> dict:
     """Poll the releases API until all needed assets exist; return the release data."""
     tag = f"v{version}"
     deadline = time.monotonic() + timeout

@@ -85,6 +85,7 @@ Delimiters are configurable: `--open-delim`, `--close-delim`, `--chunk-end`.
 %include(path)                  — include another file
 %import(path)                   — include but discard output (load definitions)
 %rhaidef(name, params..., body) — Rhai-scripted macro (logic, arithmetic)
+%pydef(name, params..., body)   — Python-scripted macro (via monty)
 ```
 
 Always wrap macro bodies in `%{ ... %}` — required when they contain commas
@@ -106,7 +107,7 @@ To keep a leading space, use `%{`:
 ```
 Output: `< div> Hello world</ div>`
 
-These calling conventions apply to all macro kinds (`%def`, `%rhaidef`):
+These calling conventions apply to all macro kinds (`%def`, `%rhaidef`, `%pydef`):
 named parameters are matched **by name** (any order), positional args must come
 before named args (Python-style), an unknown name is an error (catches typos),
 extra positional args beyond the declared count are ignored, missing params

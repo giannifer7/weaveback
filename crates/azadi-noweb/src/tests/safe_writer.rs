@@ -241,7 +241,7 @@ fn test_formatter_is_applied() -> Result<(), AzadiError> {
         formatters: formatters2,
     };
     let mut writer =
-        SafeFileWriter::with_config(temp.path().join("gen"), config);
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
 
     let test_file = PathBuf::from("test.txt");
     write_file(&mut writer, &test_file, "original content")?;
@@ -266,7 +266,7 @@ fn test_formatter_error_propagates() -> Result<(), AzadiError> {
         formatters,
     };
     let mut writer =
-        SafeFileWriter::with_config(temp.path().join("gen"), config);
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
 
     let test_file = PathBuf::from("test.txt");
     let result = write_file(&mut writer, &test_file, "some content");
@@ -301,7 +301,7 @@ fn test_formatter_prevents_false_positive() -> Result<(), AzadiError> {
         formatters,
     };
     let mut writer =
-        SafeFileWriter::with_config(temp.path().join("gen"), config);
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
 
     let test_file = PathBuf::from("test.txt");
     write_file(&mut writer, &test_file, "initial content")?;

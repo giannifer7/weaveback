@@ -84,7 +84,7 @@ fn run(args: Args) -> Result<(), AzadiError> {
             formatters,
             ..SafeWriterConfig::default()
         },
-    );
+    )?;
     let mut clipper = Clip::new(
         safe_writer,
         &args.open_delim,

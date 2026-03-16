@@ -10,7 +10,7 @@ pub(crate) fn create_test_writer() -> (TempDir, SafeFileWriter) {
         buffer_size: 8192,
         formatters: std::collections::HashMap::new(),
     };
-    let writer = SafeFileWriter::with_config(temp.path().join("gen"), config);
+    let writer = SafeFileWriter::with_config(temp.path().join("gen"), config).unwrap();
     (temp, writer)
 }
 

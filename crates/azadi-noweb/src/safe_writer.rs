@@ -80,29 +80,33 @@ pub struct SafeFileWriter {
 }
 
 impl SafeFileWriter {
-    pub fn new<P: AsRef<Path>>(gen_base: P) -> Self {
+    pub fn new<P: AsRef<Path>>(gen_base: P) -> Result<Self, SafeWriterError> {
         Self::with_config(gen_base, SafeWriterConfig::default())
     }
 
-    pub fn with_config<P: AsRef<Path>>(gen_base: P, config: SafeWriterConfig) -> Self {
-        fs::create_dir_all(gen_base.as_ref()).expect("Failed to create gen directory");
+    pub fn with_config<P: AsRef<Path>>(
+        gen_base: P,
+        config: SafeWriterConfig,
+    ) -> Result<Self, SafeWriterError> {
+        fs::create_dir_all(gen_base.as_ref())
+            .map_err(|_| SafeWriterError::DirectoryCreationFailed(gen_base.as_ref().to_path_buf()))?;
         let gen_base = gen_base
             .as_ref()
             .canonicalize()
-            .expect("Failed to canonicalize gen directory");
+            .map_err(SafeWriterError::IoError)?;
 
         let instance_id = DB_COUNTER.fetch_add(1, Ordering::Relaxed);
         let db_path = std::env::temp_dir()
             .join(format!("azadi-{}-{}.db", std::process::id(), instance_id));
-        let db = AzadiDb::open(&db_path).expect("Failed to open azadi temp database");
+        let db = AzadiDb::open(&db_path).map_err(SafeWriterError::DbError)?;
 
-        SafeFileWriter {
+        Ok(SafeFileWriter {
             gen_base,
             db,
             db_path,
             config,
             staging: HashMap::new(),
-        }
+        })
     }
 
     fn atomic_copy<P: AsRef<Path>>(&self, source: P, destination: P) -> io::Result<()> {

@@ -13,7 +13,7 @@ impl TestSetup {
         let temp_dir = TempDir::new().unwrap();
         let gen_path = temp_dir.path().join("gen");
         fs::create_dir_all(&gen_path).unwrap();
-        let safe_writer = SafeFileWriter::new(gen_path);
+        let safe_writer = SafeFileWriter::new(gen_path).unwrap();
 
         let comment_markers = comment_markers
             .iter()

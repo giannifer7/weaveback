@@ -261,7 +261,8 @@ fn run(args: Args) -> Result<(), Error> {
             formatters,
             ..SafeWriterConfig::default()
         },
-    );
+    )
+    .map_err(|e| Error::Noweb(e.into()))?;
     let mut clip = Clip::new(
         safe_writer,
         &args.open_delim,

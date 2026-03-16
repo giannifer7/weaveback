@@ -16,13 +16,16 @@ Two levels of provenance are stored:
 # noweb level: chunk name + source file/line
 azadi where <out_file> <line>
 
-# full two-level trace: chunk + macro origin
+# full two-level trace: chunk + macro origin (first byte of line)
 azadi trace <out_file> <line>
+
+# sub-line precision: trace the token covering a specific byte column
+azadi trace <out_file> <line> --col <col>
 ```
 
 Both print JSON to stdout. `<out_file>` is the path of the generated file as
-seen on disk; `<line>` is 1-indexed. They read from `azadi.db` in the current
-working directory.
+seen on disk; `<line>` is 1-indexed, `--col` is 0-indexed byte offset within
+that line. They read from `azadi.db` in the current working directory.
 
 ## Example
 
@@ -67,6 +70,32 @@ azadi trace src/status.c 6
 `trace` adds `src_file`, `src_line`, `src_col`, `kind`, and `macro_name`,
 giving the exact location in the literate source.
 
+### Sub-line precision with `--col`
+
+Without `--col`, `trace` reports the token covering the first byte of the
+output line.  When a line contains multiple macro-generated tokens (a common
+pattern when macro arguments are themselves macro calls), pass the 0-indexed
+byte column to pinpoint the specific token:
+
+```bash
+azadi trace src/rompla/config.nim 178 --col 10
+```
+
+```json
+{
+  "kind": "MacroBody",
+  "macro_name": "cfg_int",
+  "src_file": "/path/to/src/rompla/config.nim.adoc",
+  "src_line": 94,
+  "src_col": 0
+}
+```
+
+Span attribution is threaded through argument evaluation: when a macro
+argument is itself a macro call (e.g. `%wrap(%inner(world))`), the `world`
+token traces back to its original literal position in the source, not to
+the `%inner(world)` call site.
+
 ### `kind` values
 
 | Value | Meaning |
@@ -101,7 +130,8 @@ message per line on stdin/stdout).
     "type": "object",
     "properties": {
       "out_file": { "type": "string" },
-      "out_line": { "type": "integer" }
+      "out_line": { "type": "integer" },
+      "out_col":  { "type": "integer", "description": "Byte column within the output line (0-indexed, default 0). Use to pinpoint a specific token when a line contains multiple macro-generated fragments." }
     },
     "required": ["out_file", "out_line"]
   }

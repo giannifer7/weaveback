@@ -85,7 +85,6 @@ Delimiters are configurable: `--open-delim`, `--close-delim`, `--chunk-end`.
 %include(path)                  — include another file
 %import(path)                   — include but discard output (load definitions)
 %rhaidef(name, params..., body) — Rhai-scripted macro (logic, arithmetic)
-%pydef(name, params..., body)   — Python-scripted macro (via monty)
 ```
 
 Always wrap macro bodies in `%{ ... %}` — required when they contain commas
@@ -107,7 +106,7 @@ To keep a leading space, use `%{`:
 ```
 Output: `< div> Hello world</ div>`
 
-These calling conventions apply to all macro kinds (`%def`, `%rhaidef`, `%pydef`):
+These calling conventions apply to all macro kinds (`%def`, `%rhaidef`):
 named parameters are matched **by name** (any order), positional args must come
 before named args (Python-style), an unknown name is an error (catches typos),
 extra positional args beyond the declared count are ignored, missing params
@@ -154,6 +153,48 @@ custom_target('gen',
 > List only the stamp in `output`, never the `.d` file — Ninja consumes
 > depfiles into its internal database and will rerun forever if the `.d`
 > file is also declared as an output.
+
+## Source tracing
+
+`azadi` records a source map on every run. Use it to find the literate source
+location for any line in a generated file — essential when a compiler points
+at a generated file and you need to fix the literate source.
+
+```bash
+# Which chunk produced this line?
+azadi where src/foo.rs 42
+
+# Full trace: chunk + exact macro source location (first token on the line)
+azadi trace src/foo.rs 42
+
+# Sub-line precision: pinpoint the token at byte column 10
+azadi trace src/foo.rs 42 --col 10
+```
+
+Both read `azadi.db` from the current directory. Pass `--db` and `--gen` if
+the project uses non-default paths (e.g. `azadi --db azadi.db --gen src trace ...`).
+
+**`azadi trace` output fields:**
+
+| Field | Meaning |
+|-------|---------|
+| `src_file` | Literate source file to edit |
+| `src_line` | 1-indexed line in that file |
+| `src_col` | 0-indexed byte column |
+| `kind` | `Literal`, `MacroBody`, `MacroArg`, `VarBinding`, or `Computed` |
+| `macro_name` | Name of the macro (when `kind` is `MacroBody` or `MacroArg`) |
+| `chunk` | Noweb chunk that contains this line |
+| `expanded_file` / `expanded_line` | Noweb-level source (intermediate) |
+
+**Workflow for compiler errors in generated files:**
+
+1. Run `azadi trace <gen_file> <error_line> --col <error_col>`
+2. Open `src_file` at `src_line` — that is where to make the fix
+3. Edit the literate source, regenerate, rebuild
+
+Span attribution is threaded through argument evaluation: if a macro argument
+is itself a macro call, the tokens inside it trace back to their original
+literal positions, not to the call site.
 
 ## Guidelines for agents
 

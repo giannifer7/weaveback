@@ -12,10 +12,17 @@
 //   Level 2 (macro, enabled when eval_config is present):
 //     Call perform_trace() to re-evaluate the driver in tracing mode and pinpoint
 //     the *original* literal source location (src_file:src_line) and kind:
-//       - Literal / MacroBody-without-vars: auto-patch in place
-//       - MacroBody-with-vars: report location, skip auto-patch
-//       - MacroArg: report call-site, skip auto-patch
+//       - Literal / MacroBodyLiteral: auto-patch in place
+//       - MacroBodyWithVars: attempt structural fix + verify; report if it fails
+//       - MacroArg: attempt col-based replacement + verify; report if it fails
 //       - VarBinding / Computed: report, skip
+//
+//   Heuristic patch + oracle verification:
+//     For MacroArg and MacroBodyWithVars, candidate patches are generated
+//     heuristically and then verified by re-running the macro evaluator on the
+//     patched source and confirming the relevant expanded line matches the
+//     desired output.  The oracle makes heuristic application safe — a wrong
+//     candidate simply fails the oracle check and is not applied.
 //
 //   Fuzzy line matching (Rust regex, no external process):
 //     When the exact source line is not found at the expected index, search a
@@ -26,7 +33,8 @@
 //     Update the baseline so the next `azadi` run won't see ModifiedExternally.
 //     If any lines were skipped, the baseline is NOT updated for that file.
 
-use azadi_macros::evaluator::EvalConfig;
+use azadi_macros::evaluator::{EvalConfig, Evaluator};
+use azadi_macros::macro_api::process_string;
 use azadi_noweb::db::{AzadiDb, DbError};
 use regex::Regex;
 use similar::TextDiff;
@@ -86,9 +94,11 @@ enum PatchSource {
     Literal { src_file: String, src_line: usize },
     /// Macro body text with no variable references — safe to auto-patch.
     MacroBodyLiteral { src_file: String, src_line: usize, macro_name: String },
-    /// Macro body text containing `%(...)` references — report only.
+    /// Macro body text containing `%(...)` references.
+    /// Attempt structural fix + oracle verification; report if it fails.
     MacroBodyWithVars { src_file: String, src_line: usize, macro_name: String },
-    /// Argument value at a macro call site — report only, no auto-patch.
+    /// Argument value at a macro call site.
+    /// Attempt col-based replacement + oracle verification; report if it fails.
     MacroArg {
         src_file: String,
         src_line: usize,
@@ -119,6 +129,10 @@ struct Patch {
     old_text: String,
     /// Indent-stripped modified gen/ line (what the source *should become*).
     new_text: String,
+    /// 0-indexed line in the macro-expanded intermediate (= nw_entry.src_line).
+    /// Used as the oracle check point: after patching the source and re-evaluating,
+    /// this line in the expanded output must equal `new_text`.
+    expanded_line: u32,
 }
 
 // ── fuzzy line matching ───────────────────────────────────────────────────────
@@ -152,12 +166,148 @@ fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize)
     found
 }
 
+// ── oracle verification ───────────────────────────────────────────────────────
+
+/// Re-evaluate `src_content` (as if it came from `src_path`) and check that
+/// line `expanded_line` of the output equals `desired`.
+///
+/// Returns `true` if the check passes, `false` on mismatch or evaluation error.
+fn verify_candidate(
+    src_content: &str,
+    src_path: &std::path::Path,
+    eval_config: &EvalConfig,
+    expanded_line: u32,
+    desired: &str,
+) -> bool {
+    let mut evaluator = Evaluator::new(eval_config.clone());
+    match process_string(src_content, Some(src_path), &mut evaluator) {
+        Ok(bytes) => {
+            let s = String::from_utf8_lossy(&bytes);
+            s.lines().nth(expanded_line as usize)
+                .map_or(false, |l| l == desired)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Splice one line in `lines`, join back to a string, and return it.
+fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newline: bool) -> String {
+    let mut out: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+    out[idx] = new_line;
+    let mut s = out.join("\n");
+    if had_trailing_newline { s.push('\n'); }
+    s
+}
+
+// ── heuristic candidates ──────────────────────────────────────────────────────
+
+/// For a `MacroArg` span: the argument value in the source should equal
+/// `old_text` starting at byte column `src_col`.  If it does, return the
+/// line with that range replaced by `new_text`.
+fn attempt_macro_arg_patch(
+    lines: &[String],
+    src_line: usize,
+    src_col: u32,
+    old_text: &str,
+    new_text: &str,
+) -> Option<String> {
+    let line = lines.get(src_line)?;
+    let col = src_col as usize;
+    if col + old_text.len() <= line.len() && &line[col..col + old_text.len()] == old_text {
+        let mut new_line = line.to_string();
+        new_line.replace_range(col..col + old_text.len(), new_text);
+        Some(new_line)
+    } else {
+        None
+    }
+}
+
+/// For a `MacroBodyWithVars` span: given the body template, the old expanded
+/// output, and the desired new output, reconstruct the body template with only
+/// the literal (non-variable) parts updated.
+///
+/// Algorithm:
+///  1. Split `body_line` into alternating literal/variable segments via `%(...)`.
+///  2. Walk `old_expanded` to extract the runtime value of each variable.
+///  3. Walk `new_expanded` to extract the new literal parts (variable values held fixed).
+///  4. Rebuild body using original variable references and new literals.
+///
+/// Returns `None` when the structure cannot be resolved unambiguously (e.g., two
+/// variables with no literal separator, or a variable's value changed).
+fn attempt_macro_body_fix(
+    body_line: &str,
+    old_expanded: &str,
+    new_expanded: &str,
+    special_char: char,
+) -> Option<String> {
+    if old_expanded == new_expanded { return None; }
+
+    let special_esc = regex::escape(&special_char.to_string());
+    let var_re = Regex::new(&format!(r"{}[(][^)]+[)]", special_esc)).ok()?;
+
+    // Decompose body_line into lits[0], var_refs[0], lits[1], ..., lits[N]
+    let mut lits: Vec<&str> = Vec::new();
+    let mut var_refs: Vec<&str> = Vec::new();
+    let mut pos = 0;
+    for m in var_re.find_iter(body_line) {
+        lits.push(&body_line[pos..m.start()]);
+        var_refs.push(m.as_str());
+        pos = m.end();
+    }
+    lits.push(&body_line[pos..]);
+    // lits.len() == var_refs.len() + 1
+
+    if var_refs.is_empty() {
+        // No variables at all — direct replacement.
+        return Some(new_expanded.to_string());
+    }
+
+    // Extract runtime variable values from old_expanded.
+    // old_expanded = lits[0] + v0 + lits[1] + v1 + ... + lits[N]
+    let mut var_vals: Vec<&str> = Vec::new();
+    let mut rem = old_expanded;
+    for i in 0..var_refs.len() {
+        rem = rem.strip_prefix(lits[i])?;
+        let next_lit = lits[i + 1];
+        let end = if next_lit.is_empty() && i + 1 == var_refs.len() {
+            // Last variable: value extends to end of remaining text.
+            rem.len()
+        } else if next_lit.is_empty() {
+            // Adjacent variables with no separator — ambiguous.
+            return None;
+        } else {
+            rem.find(next_lit)?
+        };
+        var_vals.push(&rem[..end]);
+        rem = &rem[end..];
+    }
+    // Consume the trailing literal.
+    if !rem.starts_with(lits[var_refs.len()]) { return None; }
+
+    // Extract new literal parts from new_expanded, using variable values as anchors.
+    // new_expanded = new_lits[0] + v0 + new_lits[1] + v1 + ... + new_lits[N]
+    let mut new_lits: Vec<String> = Vec::new();
+    let mut new_rem = new_expanded;
+    for var_val in &var_vals {
+        let var_pos = new_rem.find(var_val)?;
+        new_lits.push(new_rem[..var_pos].to_string());
+        new_rem = &new_rem[var_pos + var_val.len()..];
+    }
+    new_lits.push(new_rem.to_string());
+
+    // Rebuild body: new_lits[i] + var_refs[i] interleaved.
+    let mut new_body = String::new();
+    for (i, var_ref) in var_refs.iter().enumerate() {
+        new_body.push_str(&new_lits[i]);
+        new_body.push_str(var_ref);
+    }
+    new_body.push_str(&new_lits[var_refs.len()]);
+
+    if new_body == body_line { None } else { Some(new_body) }
+}
+
 // ── resolve macro-level patch source ─────────────────────────────────────────
 
-/// Call `perform_trace` for one output line and return a `PatchSource`
-/// describing where the patch should land.
-///
-/// `special_char` is used to detect unresolved macro references in body text.
 fn resolve_patch_source(
     rel_path: &str,
     out_line_0: u32,
@@ -171,8 +321,8 @@ fn resolve_patch_source(
 ) -> Result<PatchSource, ApplyBackError> {
     let trace = lookup::perform_trace(
         rel_path,
-        out_line_0 + 1, // perform_trace takes 1-indexed line
-        0,              // col=0 gives first-token attribution for the line
+        out_line_0 + 1,
+        0,
         db,
         gen_dir,
         eval_config.clone(),
@@ -207,9 +357,6 @@ fn resolve_patch_source(
         "MacroBody" => {
             let macro_name = obj.get("macro_name")
                 .and_then(|v| v.as_str()).unwrap_or("?").to_string();
-
-            // Check if the source line contains unresolved macro calls.
-            // Use the src_snapshots entry for the canonical (at-generation-time) text.
             let snap_line = snapshot.and_then(|bytes| {
                 let s = String::from_utf8_lossy(bytes);
                 s.lines().nth(src_line_0).map(|l| l.to_string())
@@ -225,9 +372,9 @@ fn resolve_patch_source(
         }
 
         "MacroArg" => {
-            let macro_name  = obj.get("macro_name") .and_then(|v| v.as_str()).unwrap_or("?").to_string();
-            let param_name  = obj.get("param_name") .and_then(|v| v.as_str()).unwrap_or("?").to_string();
-            let src_col     = obj.get("src_col")    .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let macro_name = obj.get("macro_name").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let param_name = obj.get("param_name").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let src_col    = obj.get("src_col")   .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             Ok(PatchSource::MacroArg { src_file, src_line: src_line_0, src_col, macro_name, param_name })
         }
 
@@ -241,35 +388,34 @@ fn resolve_patch_source(
 
 // ── inner patch application ───────────────────────────────────────────────────
 
-/// Try to apply one line replacement to `lines` at the expected `src_line`.
+/// Try to apply one line replacement to `lines` at `src_line`.
 /// Falls back to fuzzy search in a ±15-line window.
-/// `macro_name` is shown in the log when the patch came from a macro body.
 #[allow(clippy::too_many_arguments)]
 fn do_patch(
     src_file: &str,
-    src_line: &usize,
-    patch: &Patch,
+    src_line: usize,
+    old_text: &str,
+    new_text: &str,
     lines: &mut Vec<String>,
     dry_run: bool,
     skipped: &mut usize,
     applied: &mut usize,
     conflicts: &mut usize,
-    macro_name: Option<&str>,
+    label_suffix: Option<&str>,
 ) {
-    let hint = *src_line;
-    let label = match macro_name {
-        Some(m) => format!("{}:{} (macro body `{}`)", src_file, hint + 1, m),
-        None    => format!("{}:{}", src_file, hint + 1),
+    let label = match label_suffix {
+        Some(s) => format!("{}:{} ({})", src_file, src_line + 1, s),
+        None    => format!("{}:{}", src_file, src_line + 1),
     };
 
-    let effective_idx = if hint < lines.len() && lines[hint] == patch.old_text {
-        hint
-    } else if hint < lines.len() && lines[hint] == patch.new_text {
+    let effective_idx = if src_line < lines.len() && lines[src_line] == old_text {
+        src_line
+    } else if src_line < lines.len() && lines[src_line] == new_text {
         println!("  {}: already applied", label);
         return;
     } else {
-        match fuzzy_find_line(lines, hint, &patch.old_text, 15) {
-            Some(fi) if lines[fi] == patch.new_text => {
+        match fuzzy_find_line(lines, src_line, old_text, 15) {
+            Some(fi) if lines[fi] == new_text => {
                 println!("  {}:{}: already applied (fuzzy)", src_file, fi + 1);
                 return;
             }
@@ -277,10 +423,9 @@ fn do_patch(
             None => {
                 eprintln!(
                     "  CONFLICT {}\n    expected: {:?}\n    current:  {:?}\n    desired:  {:?}",
-                    label,
-                    patch.old_text,
-                    lines.get(hint).map(|s| s.as_str()).unwrap_or("<out of range>"),
-                    patch.new_text,
+                    label, old_text,
+                    lines.get(src_line).map(|s| s.as_str()).unwrap_or("<out of range>"),
+                    new_text,
                 );
                 *conflicts += 1;
                 *skipped += 1;
@@ -290,10 +435,9 @@ fn do_patch(
     };
 
     if dry_run {
-        println!("  [dry-run] {}:{}: {:?} → {:?}", src_file, effective_idx + 1,
-                 patch.old_text, patch.new_text);
+        println!("  [dry-run] {}:{}: {:?} → {:?}", src_file, effective_idx + 1, old_text, new_text);
     } else {
-        lines[effective_idx] = patch.new_text.clone();
+        lines[effective_idx] = new_text.to_string();
         println!("  {}: patched", label);
     }
     *applied += 1;
@@ -306,6 +450,8 @@ fn apply_patches_to_file(
     patches: &[Patch],
     dry_run: bool,
     skipped: &mut usize,
+    eval_config: Option<&EvalConfig>,
+    snapshot: Option<&[u8]>,
 ) -> Result<(), ApplyBackError> {
     let content = std::fs::read_to_string(src_file)?;
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
@@ -314,45 +460,103 @@ fn apply_patches_to_file(
     let mut applied = 0;
     let mut conflicts = 0;
 
+    let src_path = std::path::Path::new(src_file);
+
     for patch in patches {
         match &patch.source {
-            PatchSource::MacroBodyWithVars { src_line, macro_name, .. } => {
-                eprintln!(
-                    "  MANUAL {}:{}: macro body `{}` contains variables — edit manually\n    desired: {:?}",
-                    src_file, src_line + 1, macro_name, patch.new_text,
-                );
-                *skipped += 1;
-                continue;
-            }
-
-            PatchSource::MacroArg { src_line, src_col, macro_name, param_name, .. } => {
-                eprintln!(
-                    "  MANUAL {}:{}:{}: argument `{}` of `{}` — edit manually\n    desired: {:?}",
-                    src_file, src_line + 1, src_col, param_name, macro_name, patch.new_text,
-                );
-                *skipped += 1;
-                continue;
-            }
-
             PatchSource::Unpatchable { src_line, kind_label, .. } => {
-                eprintln!(
-                    "  SKIP {}:{}: {} — cannot auto-patch",
-                    src_file, src_line + 1, kind_label,
-                );
+                eprintln!("  SKIP {}:{}: {} — cannot auto-patch", src_file, src_line + 1, kind_label);
                 *skipped += 1;
-                continue;
             }
 
             PatchSource::Noweb { src_line, .. }
             | PatchSource::Literal { src_line, .. } => {
-                do_patch(src_file, src_line, patch, &mut lines,
-                         dry_run, skipped, &mut applied, &mut conflicts, None);
+                do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
+                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts, None);
             }
 
             PatchSource::MacroBodyLiteral { src_line, macro_name, .. } => {
-                do_patch(src_file, src_line, patch, &mut lines,
-                         dry_run, skipped, &mut applied, &mut conflicts,
-                         Some(macro_name.as_str()));
+                do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
+                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts,
+                         Some(&format!("macro body `{}`", macro_name)));
+            }
+
+            PatchSource::MacroBodyWithVars { src_line, macro_name, .. } => {
+                let label = format!("{}:{} (macro body `{}`)", src_file, src_line + 1, macro_name);
+
+                // Try to auto-patch via structural literal-segment replacement + oracle.
+                let body_template = snapshot
+                    .and_then(|b| String::from_utf8_lossy(b).lines().nth(*src_line).map(|l| l.to_string()));
+
+                let candidate = body_template.as_deref().and_then(|tmpl| {
+                    attempt_macro_body_fix(tmpl, &patch.old_text, &patch.new_text, '%')
+                });
+
+                match (candidate, eval_config) {
+                    (Some(new_line), Some(ec)) => {
+                        // Find the source line (with fuzzy fallback).
+                        let hint = *src_line;
+                        let idx = if hint < lines.len() && lines[hint] == patch.old_text {
+                            Some(hint)
+                        } else {
+                            fuzzy_find_line(&lines, hint, &patch.old_text, 15)
+                        };
+                        if let Some(idx) = idx {
+                            let candidate_src = splice_line(&lines, idx, &new_line, had_trailing_newline);
+                            if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
+                                if dry_run {
+                                    println!("  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
+                                } else {
+                                    lines[idx] = new_line;
+                                    println!("  {}: patched (body literal fix)", label);
+                                }
+                                applied += 1;
+                            } else {
+                                eprintln!("  MANUAL {}: body fix candidate did not verify — edit manually\n    desired output: {:?}", label, patch.new_text);
+                                *skipped += 1;
+                            }
+                        } else {
+                            eprintln!("  MANUAL {}: source line not found — edit manually\n    desired output: {:?}", label, patch.new_text);
+                            *skipped += 1;
+                        }
+                    }
+                    _ => {
+                        eprintln!("  MANUAL {}: contains variables — edit manually\n    desired output: {:?}", label, patch.new_text);
+                        *skipped += 1;
+                    }
+                }
+            }
+
+            PatchSource::MacroArg { src_line, src_col, macro_name, param_name, .. } => {
+                let label = format!("{}:{} (arg `{}` of `{}`)", src_file, src_line + 1, param_name, macro_name);
+
+                let candidate = attempt_macro_arg_patch(&lines, *src_line, *src_col, &patch.old_text, &patch.new_text);
+
+                match (candidate, eval_config) {
+                    (Some(new_line), Some(ec)) => {
+                        let candidate_src = splice_line(&lines, *src_line, &new_line, had_trailing_newline);
+                        if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
+                            if dry_run {
+                                println!("  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
+                            } else {
+                                lines[*src_line] = new_line;
+                                println!("  {}: patched (arg replacement)", label);
+                            }
+                            applied += 1;
+                        } else {
+                            eprintln!("  MANUAL {}: arg replacement did not verify — edit manually\n    desired output: {:?}\n    at col {}", label, patch.new_text, src_col);
+                            *skipped += 1;
+                        }
+                    }
+                    (None, _) => {
+                        eprintln!("  MANUAL {}: could not locate arg value at col {} — edit manually\n    desired output: {:?}", label, src_col, patch.new_text);
+                        *skipped += 1;
+                    }
+                    (Some(_), None) => {
+                        eprintln!("  MANUAL {}: no eval config for verification — edit manually\n    desired output: {:?}", label, patch.new_text);
+                        *skipped += 1;
+                    }
+                }
             }
         }
     }
@@ -400,7 +604,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
 
     let special_char = opts.eval_config.as_ref().map_or('%', |ec| ec.special_char);
 
-    // Snapshot cache: driver path → bytes (or None).  Populated lazily.
+    // Snapshot cache: driver path → bytes.  Populated lazily.
     let mut snapshot_cache: HashMap<String, Option<Vec<u8>>> = HashMap::new();
 
     let mut any_changed = false;
@@ -457,7 +661,6 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
                                 let old_text = strip_indent(old_line, &entry.indent).to_string();
                                 let new_text = strip_indent(new_line, &entry.indent).to_string();
 
-                                // Lazy-load snapshot for the source file.
                                 let snap = snapshot_cache
                                     .entry(entry.src_file.clone())
                                     .or_insert_with(|| {
@@ -483,7 +686,12 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
                                 src_patches
                                     .entry(file_key)
                                     .or_default()
-                                    .push(Patch { source, old_text, new_text });
+                                    .push(Patch {
+                                        source,
+                                        old_text,
+                                        new_text,
+                                        expanded_line: entry.src_line,
+                                    });
                             }
                         }
                     }
@@ -509,7 +717,11 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
 
         // Apply collected patches to each source file.
         for (src_file, patches) in &src_patches {
-            apply_patches_to_file(src_file, patches, opts.dry_run, &mut skipped)?;
+            let snap = snapshot_cache.get(src_file.as_str()).and_then(|o| o.as_deref());
+            apply_patches_to_file(
+                src_file, patches, opts.dry_run, &mut skipped,
+                opts.eval_config.as_ref(), snap,
+            )?;
         }
 
         if opts.dry_run {

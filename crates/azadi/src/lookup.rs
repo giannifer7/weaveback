@@ -100,8 +100,15 @@ pub fn perform_trace(
     match process_string_precise(&src_content, Some(src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;
-            if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, col) {
-                append_span_fields(&mut result, span, &evaluator);
+            // `col` is the byte offset in the *output* file line, which has
+            // `nw_entry.indent` prepended by noweb.  The expanded text has no
+            // such indent, so subtract it before querying the span map.
+            let indent_len = nw_entry.indent.len() as u32;
+            if col >= indent_len {
+                let adjusted_col = col - indent_len;
+                if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, adjusted_col) {
+                    append_span_fields(&mut result, span, &evaluator);
+                }
             }
         }
         Err(e) => {

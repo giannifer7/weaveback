@@ -47,7 +47,7 @@ jobs:
           podman rm azadi-export
 
       - name: Upload release assets
-        run: gh release upload "${{ github.ref_name }}" dist/${{ matrix.target }}/*
+        run: gh release upload "${{ github.ref_name }}" dist/${{ matrix.target }}/* --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -71,6 +71,6 @@ jobs:
           copy target\release\azadi-noweb.exe  dist\windows-native\
 
       - name: Upload release assets
-        run: gh release upload "${{ github.ref_name }}" dist/windows-native/*
+        run: gh release upload "${{ github.ref_name }}" dist/windows-native/* --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

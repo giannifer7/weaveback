@@ -129,6 +129,20 @@ impl AzadiDb {
             .map(|v| v.value().to_vec()))
     }
 
+    /// List all (relative-output-path, bytes) pairs in gen_baselines.
+    pub fn list_baselines(&self) -> Result<Vec<(String, Vec<u8>)>, DbError> {
+        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
+        let table = rtxn
+            .open_table(GEN_BASELINES)
+            .map_err(|e| DbError::Db(e.to_string()))?;
+        let mut result = Vec::new();
+        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
+            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
+            result.push((k.value().to_string(), v.value().to_vec()));
+        }
+        Ok(result)
+    }
+
     /// Store `content` as the baseline for `path`.
     pub fn set_baseline(&self, path: &str, content: &[u8]) -> Result<(), DbError> {
         let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
@@ -263,6 +277,18 @@ impl AzadiDb {
     }
 
     // ── src_snapshots ────────────────────────────────────────────────────────
+
+    /// Retrieve the snapshot for `path` (source file path), if stored.
+    pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
+        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
+        let table = rtxn
+            .open_table(SRC_SNAPSHOTS)
+            .map_err(|e| DbError::Db(e.to_string()))?;
+        Ok(table
+            .get(path)
+            .map_err(|e| DbError::Db(e.to_string()))?
+            .map(|v| v.value().to_vec()))
+    }
 
     /// Snapshot `content` under `path` (source file path).
     pub fn set_src_snapshot(&self, path: &str, content: &[u8]) -> Result<(), DbError> {

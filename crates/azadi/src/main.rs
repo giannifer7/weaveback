@@ -12,6 +12,7 @@ use clap::Parser;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+mod apply_back;
 mod lookup;
 mod mcp;
 
@@ -51,6 +52,14 @@ enum Commands {
     },
     /// Run as an MCP server for IDE/agent integration
     Mcp,
+    /// Propagate edits in gen/ back to the literate source
+    ApplyBack {
+        /// Relative paths within gen/ to process (default: all modified files)
+        files: Vec<String>,
+        /// Show what would change without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(clap::Args, Debug)]
@@ -375,6 +384,15 @@ fn main() {
         }
         Some(Commands::Mcp) => {
             mcp::run_mcp(cli.args.db, cli.args.gen_dir)
+        }
+        Some(Commands::ApplyBack { files, dry_run }) => {
+            let opts = apply_back::ApplyBackOptions {
+                db_path: cli.args.db,
+                gen_dir: cli.args.gen_dir,
+                dry_run,
+                files,
+            };
+            apply_back::run_apply_back(opts).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
         }
         None => run(cli.args),
     };

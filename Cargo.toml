@@ -41,6 +41,7 @@ chrono = "0.4"
 
 redb = "2"
 postcard = { version = "1", features = ["alloc"] }
+similar = "2"
 
 rhai = "1"
 monty = { git = "https://github.com/pydantic/monty" }

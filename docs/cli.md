@@ -71,6 +71,34 @@ custom_target('gen',
 
 ---
 
+### Subcommands
+
+```bash
+azadi where <file> <line>        # trace output line to its noweb chunk
+azadi trace <file> <line>        # full two-level trace (noweb + macro)
+azadi apply-back [OPTIONS] [FILES...]  # propagate gen/ edits to literate source
+azadi mcp                        # start MCP server for IDE/agent integration
+```
+
+#### `apply-back`
+
+When you edit a file in `gen/` directly, the next `azadi` run refuses to
+overwrite it (`ModifiedExternally`).  `apply-back` closes the loop: it diffs
+the modified gen/ file against the stored baseline, traces each changed line
+back to its literate source, and patches the source file.
+
+```bash
+azadi apply-back                     # process all modified gen/ files
+azadi apply-back src/foo.c           # process one specific file
+azadi apply-back --dry-run           # show patches without writing
+azadi --gen path/to/gen apply-back   # use non-default gen/ directory
+```
+
+Lines that cannot be automatically patched (deleted/inserted lines, macro-generated
+content) are reported and skipped — edit those in the literate source manually.
+
+---
+
 ## `azadi-macros` — macro expander only
 
 ```bash

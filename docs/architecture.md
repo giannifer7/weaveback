@@ -66,11 +66,39 @@ compares the current `gen/` file against that baseline:
   can decide what to do:
   - To accept the regenerated version: restore the file from version
     control (or delete it) and rerun azadi.
-  - To keep your manual change: edit the literate source to match your
-    intent and rerun azadi.
+  - To keep your manual change: run `azadi apply-back` (see below) to
+    propagate the edit back into the literate source, then rerun azadi.
 
 In CI, start from a clean checkout (no `azadi.db`) so no baseline exists and
 no conflict can arise.
+
+## Propagating gen/ edits back to the source (`apply-back`)
+
+`azadi apply-back` is the inverse of `azadi`: it reads the diff between a
+modified `gen/` file and its stored baseline, uses `noweb_map` to trace each
+changed output line back to the literate source chunk and line that produced
+it, and patches the literate source in place.
+
+```bash
+azadi apply-back                # process all modified gen/ files
+azadi apply-back src/foo.c      # process one file
+azadi apply-back --dry-run      # show what would change without writing
+```
+
+**What it can and cannot handle:**
+
+- **Literal chunk content** (no macros in the chunk body) — patched
+  automatically.
+- **Size-preserving edits** (same number of lines changed) — handled
+  line-by-line.
+- **Added or deleted lines** — reported and skipped; edit the literate
+  source manually for those.
+- **Macro-generated content** (`%def`, `%rhaidef` bodies) — reported as a
+  conflict and skipped.  The source map points through the noweb level only;
+  macro-level back-propagation is not implemented.
+
+After applying, `apply-back` updates the baseline in `azadi.db` so the next
+`azadi` run proceeds without a `ModifiedExternally` error.
 
 ## Build-system integration
 

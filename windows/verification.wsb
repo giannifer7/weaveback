@@ -1,0 +1,14 @@
+<Configuration>
+  <VGpu>Default</VGpu>
+  <Networking>Default</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\prj\azadi</HostFolder>
+      <SandboxFolder>C:\azadi</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -ExecutionPolicy Bypass -NoExit -Command "& C:\azadi\windows\verify.ps1"</Command>
+  </LogonCommand>
+</Configuration>

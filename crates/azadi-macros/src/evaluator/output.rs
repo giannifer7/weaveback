@@ -54,6 +54,12 @@ pub trait EvalOutput {
 
     /// Consume the accumulator and return the rendered string.
     fn finish(self) -> String;
+
+    /// Returns `true` for `PreciseTracingOutput`.
+    /// Used to opt into per-argument span threading in `evaluate_macro_call_to`.
+    fn is_tracing(&self) -> bool {
+        false
+    }
 }
 
 /// Fast-path output accumulator — ignores span info, just collects text.
@@ -309,6 +315,10 @@ impl PreciseTracingOutput {
 }
 
 impl EvalOutput for PreciseTracingOutput {
+    fn is_tracing(&self) -> bool {
+        true
+    }
+
     fn push_str(&mut self, text: &str, span: SourceSpan) {
         if text.is_empty() {
             return;

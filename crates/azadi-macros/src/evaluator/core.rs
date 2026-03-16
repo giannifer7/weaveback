@@ -8,7 +8,7 @@ use std::sync::Arc;
 use super::builtins::{BuiltinFn, default_builtins};
 use super::errors::{EvalError, EvalResult};
 use super::monty_eval::MontyEvaluator;
-use super::output::{EvalOutput, SourceSpan, SpanKind};
+use super::output::{EvalOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
 use super::rhai_eval::{self, RhaiEvaluator};
 use super::state::{EvalConfig, EvaluatorState, MAX_RECURSION_DEPTH, MacroDefinition, ScriptKind};
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
@@ -515,6 +515,14 @@ impl Evaluator {
         }
     }
 
+    /// Evaluate `node` into a `(String, Vec<SpanRange>)` for argument threading.
+    /// Called only on the tracing path (`out.is_tracing() == true`).
+    fn evaluate_arg_to_traced(&mut self, node: &ASTNode) -> EvalResult<(String, Vec<SpanRange>)> {
+        let mut arg_out = PreciseTracingOutput::new();
+        self.evaluate_to(node, &mut arg_out)?;
+        Ok(arg_out.into_parts())
+    }
+
     /// Like `evaluate`, but writes to an `EvalOutput` sink so that span
     /// information is available to the caller.
     pub fn evaluate_to(
@@ -545,17 +553,19 @@ impl Evaluator {
             NodeKind::Var => {
                 let var_name = self.node_text(node);
                 if let Some(tracked) = self.state.get_tracked_variable(&var_name) {
-                    // Variable value is associated with the variable reference span OR
-                    // the span from where the variable was defined (e.g. macro argument).
-                    if let Some(span) = tracked.span {
-                        // The user of the variable isn't necessarily a macro call, it
-                        // might just be a template substituting a global. If it came
-                        // from an argument, `evaluate_macro_call_to` set the kind.
-                        // If it came from `%set`, the kind will be VarBinding.
-                        out.push_str(&tracked.value, span);
-                    } else {
-                        // Untracked variable result (computed or script)
+                    if tracked.spans.is_empty() {
+                        // Untracked: computed/script result or unbound parameter.
                         out.push_untracked(&tracked.value);
+                    } else {
+                        // Replay each attributed range in order.
+                        // Multiple ranges = full per-token threading through argument evaluation.
+                        // Single range covering [0, len] = coarse call-site span (fast path).
+                        for range in &tracked.spans {
+                            out.push_str(
+                                &tracked.value[range.start..range.end],
+                                range.span.clone(),
+                            );
+                        }
                     }
                 }
             }
@@ -640,13 +650,18 @@ impl Evaluator {
 
         for (i, param_node) in param_nodes[..positional_count].iter().enumerate() {
             if let Some(param_name) = mac.params.get(i) {
-                let val = self.evaluate(param_node)?;
-                let mut span = self.span_of(param_node);
-                span.kind = SpanKind::MacroArg {
-                    macro_name: name.to_string(),
-                    param_name: param_name.clone(),
-                };
-                self.state.set_tracked_variable(param_name, &val, Some(span));
+                if out.is_tracing() {
+                    let (val, spans) = self.evaluate_arg_to_traced(param_node)?;
+                    self.state.set_traced_variable(param_name, val, spans);
+                } else {
+                    let val = self.evaluate(param_node)?;
+                    let mut span = self.span_of(param_node);
+                    span.kind = SpanKind::MacroArg {
+                        macro_name: name.to_string(),
+                        param_name: param_name.clone(),
+                    };
+                    self.state.set_tracked_variable(param_name, &val, Some(span));
+                }
                 assigned.insert(param_name.clone());
             }
         }
@@ -667,13 +682,18 @@ impl Evaluator {
                     mac.name
                 )));
             }
-            let val = self.evaluate(param_node)?;
-            let mut span = self.span_of(param_node);
-            span.kind = SpanKind::MacroArg {
-                macro_name: name.to_string(),
-                param_name: arg_name.clone(),
-            };
-            self.state.set_tracked_variable(&arg_name, &val, Some(span));
+            if out.is_tracing() {
+                let (val, spans) = self.evaluate_arg_to_traced(param_node)?;
+                self.state.set_traced_variable(&arg_name, val, spans);
+            } else {
+                let val = self.evaluate(param_node)?;
+                let mut span = self.span_of(param_node);
+                span.kind = SpanKind::MacroArg {
+                    macro_name: name.to_string(),
+                    param_name: arg_name.clone(),
+                };
+                self.state.set_tracked_variable(&arg_name, &val, Some(span));
+            }
             assigned.insert(arg_name);
         }
 

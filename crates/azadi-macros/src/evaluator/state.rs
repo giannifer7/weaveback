@@ -1,6 +1,6 @@
 // crates/azadi-macros/src/evaluator/state.rs
 
-use crate::evaluator::output::SourceSpan;
+use crate::evaluator::output::{SourceSpan, SpanRange};
 use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -51,7 +51,11 @@ pub struct MacroDefinition {
 #[derive(Debug, Clone)]
 pub struct TrackedValue {
     pub value: String,
-    pub span: Option<SourceSpan>,
+    /// Per-token span ranges relative to `value[0]`.
+    /// Empty means untracked (script/builtin result).
+    /// Single entry covering `[0, value.len()]` is the coarse-span fast path.
+    /// Multiple entries carry full per-token attribution threaded through argument evaluation.
+    pub spans: Vec<SpanRange>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -155,19 +159,29 @@ impl EvaluatorState {
             name.into(),
             TrackedValue {
                 value: value.into(),
-                span: None,
+                spans: vec![],
             },
         );
     }
 
-    /// Set a variable with an origin span.
+    /// Set a variable with a single coarse origin span (fast path).
     pub fn set_tracked_variable(&mut self, name: &str, value: &str, span: Option<SourceSpan>) {
+        let spans = if let Some(sp) = span {
+            vec![SpanRange { start: 0, end: value.len(), span: sp }]
+        } else {
+            vec![]
+        };
         self.current_scope_mut().variables.insert(
             name.into(),
-            TrackedValue {
-                value: value.into(),
-                span,
-            },
+            TrackedValue { value: value.into(), spans },
+        );
+    }
+
+    /// Set a variable with full per-token span attribution (precise tracing path).
+    pub fn set_traced_variable(&mut self, name: &str, value: String, spans: Vec<SpanRange>) {
+        self.current_scope_mut().variables.insert(
+            name.into(),
+            TrackedValue { value, spans },
         );
     }
 

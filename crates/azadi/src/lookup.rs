@@ -56,6 +56,7 @@ pub fn perform_where(
 pub fn perform_trace(
     out_file: &str,
     line: u32,
+    col: u32,
     db: &AzadiDb,
     gen_dir: &Path,
     eval_config: EvalConfig,
@@ -99,7 +100,7 @@ pub fn perform_trace(
     match process_string_precise(&src_content, Some(src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;
-            if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0) {
+            if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, col) {
                 append_span_fields(&mut result, span, &evaluator);
             }
         }
@@ -117,9 +118,10 @@ fn span_at_line<'a>(
     expanded: &str,
     ranges: &'a [SpanRange],
     line_0: u32,
+    col: u32,
 ) -> Option<&'a SourceSpan> {
     let byte_offset = if line_0 == 0 {
-        0
+        col as usize
     } else {
         let mut count = 0u32;
         let mut found = None;
@@ -127,7 +129,7 @@ fn span_at_line<'a>(
             if b == b'\n' {
                 count += 1;
                 if count == line_0 {
-                    found = Some(i + 1);
+                    found = Some(i + 1 + col as usize);
                     break;
                 }
             }

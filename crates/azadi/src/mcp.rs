@@ -51,7 +51,8 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::ev
                                 "type": "object",
                                 "properties": {
                                     "out_file": { "type": "string" },
-                                    "out_line": { "type": "integer" }
+                                    "out_line": { "type": "integer" },
+                                    "out_col": { "type": "integer", "description": "Byte column within the output line (0-indexed, default 0)" }
                                 },
                                 "required": ["out_file", "out_line"]
                             }
@@ -68,9 +69,10 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::ev
                     if let Some(input) = input {
                         let out_file = input.get("out_file").and_then(|f| f.as_str()).unwrap_or("");
                         let out_line = input.get("out_line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let out_col = input.get("out_col").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
 
                         if let Some(ref db) = db {
-                            match lookup::perform_trace(out_file, out_line, db, &gen_dir, eval_config.clone()) {
+                            match lookup::perform_trace(out_file, out_line, out_col, db, &gen_dir, eval_config.clone()) {
                                 Ok(Some(res)) => {
                                     send_response(id, json!({
                                         "content": [

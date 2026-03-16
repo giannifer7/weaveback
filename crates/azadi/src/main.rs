@@ -44,6 +44,11 @@ enum Commands {
     Trace {
         out_file: String,
         line: u32,
+        /// Byte column within the output line (0-indexed).
+        /// Defaults to 0 (first byte).  Use this to look past a structural
+        /// wrapper and find the token that produced a specific sub-expression.
+        #[arg(long, default_value = "0")]
+        col: u32,
     },
     /// Find the noweb chunk that produced output line
     Where {
@@ -382,9 +387,9 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Some(Commands::Trace { out_file, line }) => {
+        Some(Commands::Trace { out_file, line, col }) => {
             let eval_config = build_eval_config(&cli.args);
-            run_trace(out_file, line, cli.args.db, cli.args.gen_dir, eval_config)
+            run_trace(out_file, line, col, cli.args.db, cli.args.gen_dir, eval_config)
         }
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
@@ -439,7 +444,7 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
     }
 }
 
-fn run_trace(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::evaluator::EvalConfig) -> Result<(), Error> {
+fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: azadi_macros::evaluator::EvalConfig) -> Result<(), Error> {
     if !db_path.exists() {
         return Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -448,7 +453,7 @@ fn run_trace(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf, ev
     }
     let db = azadi_noweb::db::AzadiDb::open(&db_path)?;
 
-    match lookup::perform_trace(&out_file, line, &db, &gen_dir, eval_config) {
+    match lookup::perform_trace(&out_file, line, col, &db, &gen_dir, eval_config) {
         Ok(Some(json)) => {
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             Ok(())

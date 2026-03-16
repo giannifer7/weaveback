@@ -400,11 +400,13 @@ fn main() {
             mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config)
         }
         Some(Commands::ApplyBack { files, dry_run }) => {
+            let eval_config = build_eval_config(&cli.args);
             let opts = apply_back::ApplyBackOptions {
                 db_path: cli.args.db,
                 gen_dir: cli.args.gen_dir,
                 dry_run,
                 files,
+                eval_config: Some(eval_config),
             };
             apply_back::run_apply_back(opts).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
         }

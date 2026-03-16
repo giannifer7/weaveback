@@ -37,13 +37,14 @@ below).
 project/
 ├── src/                   literate source files
 ├── gen/                   generated output files  ← do not edit
-└── _azadi_work/
-    ├── (scratch files)    intermediate private copies before formatting
-    └── __old__/           last content azadi wrote  ← modification baseline
+└── azadi.db               source-map and modification-baseline database
 ```
 
-The `_azadi_work/` tree is private to the tool. Commit `gen/` to version
-control; ignore `_azadi_work/`.
+`azadi.db` is a [redb](https://github.com/cberner/redb) database written by
+the tool after each run. It stores the modification baseline for every generated
+file (for external-edit detection), source maps for `azadi where`/`trace`, and
+snapshots of the literate sources. Commit `gen/` to version control; add
+`azadi.db` to `.gitignore`.
 
 ## Content-based writes
 
@@ -54,9 +55,9 @@ keeping build-system timestamps stable and avoiding unnecessary recompilation.
 ## What happens when you edit a generated file
 
 Azadi protects generated files from accidental overwriting. After each
-successful run it stores a baseline copy of every file it wrote in
-`_azadi_work/__old__/`. On the next run, before writing, it compares the
-current `gen/` file against that baseline:
+successful run it stores the bytes of every file it wrote as a baseline in
+`azadi.db` (the `gen_baselines` table). On the next run, before writing, it
+compares the current `gen/` file against that baseline:
 
 - **File unchanged since last run** — azadi overwrites it with the new
   content as usual.
@@ -68,8 +69,8 @@ current `gen/` file against that baseline:
   - To keep your manual change: edit the literate source to match your
     intent and rerun azadi.
 
-In CI, start from a clean checkout so `gen/` always matches `_azadi_work/__old__/`
-and no conflict arises.
+In CI, start from a clean checkout (no `azadi.db`) so no baseline exists and
+no conflict can arise.
 
 ## Build-system integration
 
@@ -104,5 +105,5 @@ matching extension before it is compared and written. Example:
 azadi --formatter rs=rustfmt src/main.adoc --gen gen
 ```
 
-The formatter receives the private scratch copy; the formatted result is
-then used for content comparison and written to `gen/`.
+The formatter receives a temporary copy (via `NamedTempFile`); the formatted
+result is then used for content comparison and written to `gen/`.

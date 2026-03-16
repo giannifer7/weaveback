@@ -95,14 +95,7 @@ tag:
 
 # Re-tag HEAD (same version, re-triggers CI) then publish
 re-tag:
-    #!/usr/bin/env python3
-    import subprocess, re
-    from pathlib import Path
-    version = "v" + re.search(r'^version\s*=\s*"([^"]+)"',
-        Path("Cargo.toml").read_text(), re.MULTILINE).group(1)
-    subprocess.run(["git", "push", "--delete", "origin", version], check=False)
-    subprocess.run(["git", "tag", "-d", version], check=False)
-    subprocess.run(["python", "packaging/update_release.py", "--tag"], check=True)
+    python packaging/update_release.py --retag
 
 # Re-run publish only — tag already pushed and CI already done
 update-release:

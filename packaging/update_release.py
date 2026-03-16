@@ -207,6 +207,8 @@ def main() -> None:
                         help="Release version (default: read from Cargo.toml)")
     parser.add_argument("--tag", action="store_true",
                         help="Commit Cargo.lock, push the git tag, then wait for CI")
+    parser.add_argument("--retag", action="store_true",
+                        help="Delete existing tag, then do --tag (re-triggers CI)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Write files but skip all git/AUR steps")
     args = parser.parse_args()
@@ -216,6 +218,12 @@ def main() -> None:
     token   = gh_token()
 
     print(f"Releasing v{version}...")
+
+    if args.retag:
+        tag = f"v{version}"
+        subprocess.run(["git", "push", "--delete", "origin", tag], cwd=REPO_ROOT)
+        subprocess.run(["git", "tag", "-d", tag], cwd=REPO_ROOT)
+        args.tag = True
 
     if args.tag:
         run(["cargo", "build"], cwd=REPO_ROOT)  # refresh Cargo.lock

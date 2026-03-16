@@ -226,14 +226,14 @@ fn test_macro_map_entries() {
     assert_eq!(entry_0.src_col, 0);
     assert!(matches!(entry_0.kind, SpanKind::Literal));
 
-    // Line 2 starts at the newline before it, which is still line 0, column 6
+    // Line 2 starts with "line 2 with", which is on source line 1.
     let (out_line_1, entry_1) = &entries[1];
     assert_eq!(*out_line_1, 1);
-    assert_eq!(entry_1.src_line, 0); // starts with \n
-    
-    // Line 3 starts at the newline before it, which is line 1, column 28
+    assert_eq!(entry_1.src_line, 1);
+
+    // Line 3 is "line 3", which is on source line 2.
     let (out_line_2, entry_2) = &entries[2];
     assert_eq!(*out_line_2, 2);
-    assert_eq!(entry_2.src_line, 1); // starts with \n
+    assert_eq!(entry_2.src_line, 2);
 }
 

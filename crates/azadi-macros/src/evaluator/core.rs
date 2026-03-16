@@ -547,8 +547,29 @@ impl Evaluator {
         match node.kind {
             NodeKind::Text | NodeKind::Space | NodeKind::Ident => {
                 let txt = self.node_text(node);
-                let span = context_span.cloned().unwrap_or_else(|| self.span_of(node));
-                out.push_str(&txt, span);
+                // Build the base span: use the token's own src/pos/length for
+                // exact position, but inherit `kind` from context (e.g. MacroBody).
+                let base_span = if let Some(ctx) = context_span {
+                    let mut s = self.span_of(node);
+                    s.kind = ctx.kind.clone();
+                    s
+                } else {
+                    self.span_of(node)
+                };
+                // Multi-line text tokens (common in macro bodies where the lexer
+                // groups all literal text between two macro calls) have a single
+                // `pos` pointing to the start of the token.  Split at newlines
+                // and advance `pos` by byte offset within the token so that every
+                // line segment resolves to its true source line/col.
+                let base_pos = base_span.pos;
+                let mut offset = 0usize;
+                for segment in txt.split_inclusive('\n') {
+                    let mut seg_span = base_span.clone();
+                    seg_span.pos = base_pos + offset;
+                    seg_span.length = segment.len();
+                    out.push_str(segment, seg_span);
+                    offset += segment.len();
+                }
             }
             NodeKind::Var => {
                 let var_name = self.node_text(node);

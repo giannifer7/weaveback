@@ -290,6 +290,20 @@ impl AzadiDb {
             .map(|v| v.value().to_vec()))
     }
 
+    /// List all stored source snapshots as `(path, bytes)` pairs.
+    pub fn list_src_snapshots(&self) -> Result<Vec<(String, Vec<u8>)>, DbError> {
+        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
+        let table = rtxn
+            .open_table(SRC_SNAPSHOTS)
+            .map_err(|e| DbError::Db(e.to_string()))?;
+        let mut out = Vec::new();
+        for entry in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
+            let (k, v) = entry.map_err(|e| DbError::Db(e.to_string()))?;
+            out.push((k.value().to_string(), v.value().to_vec()));
+        }
+        Ok(out)
+    }
+
     /// Snapshot `content` under `path` (source file path).
     pub fn set_src_snapshot(&self, path: &str, content: &[u8]) -> Result<(), DbError> {
         let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;

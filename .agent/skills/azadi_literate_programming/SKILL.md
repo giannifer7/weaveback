@@ -245,8 +245,11 @@ to reformatting), a ±15-line window search using a whitespace-normalised regex 
 
 ## Guidelines for agents
 
-- The literate document is the **source of truth**. Never edit generated
-  files in `gen/` directly — changes will be overwritten on the next run.
+- The literate document is the **source of truth**. Editing generated files
+  in `gen/` directly is fine as a **debugging shortcut** — run the compiler,
+  iterate fast — but the literate source must be updated before the next
+  `azadi` run or the changes will be overwritten. Use `azadi apply-back`
+  to propagate confirmed gen/ edits back to the literate source automatically.
 - Use the Markdown/AsciiDoc structure to explain *why* the code is
   structured as it is. Chunk names should read as intent, not mechanics.
 - When adding a new output file, declare it as a `<[@file ...]>=` chunk

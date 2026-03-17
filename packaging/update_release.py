@@ -227,7 +227,7 @@ def main() -> None:
 
     if args.tag:
         run(["cargo", "build"], cwd=REPO_ROOT)  # refresh Cargo.lock
-        run(["git", "add", "Cargo.lock"], cwd=REPO_ROOT)
+        run(["git", "add", "Cargo.toml", "Cargo.lock"], cwd=REPO_ROOT)
         # commit only if there's something staged
         result = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=REPO_ROOT)
         if result.returncode != 0:

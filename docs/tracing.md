@@ -5,114 +5,92 @@ Use it to answer *"where did this line in a generated file come from?"*
 
 Tracing is always on — no flag needed.
 
-Two levels of provenance are stored:
-
-- **noweb level** — which literate chunk and source line produced each output line
-- **macro level** — which macro call (body or argument) generated each expanded line
-
-## Query commands
+## Commands
 
 ```bash
-# noweb level: chunk name + source file/line
-azadi where <out_file> <line>
-
-# full two-level trace: chunk + macro origin (first byte of line)
+# Trace a line to its literate source
 azadi trace <out_file> <line>
 
-# sub-line precision: trace the token covering a specific byte column
+# Pinpoint a specific token by column (0-indexed character position)
 azadi trace <out_file> <line> --col <col>
 ```
 
-Both print JSON to stdout. `<out_file>` is the path of the generated file as
-seen on disk; `<line>` is 1-indexed, `--col` is 0-indexed byte offset within
-that line. They read from `azadi.db` in the current working directory.
+Prints JSON to stdout. `<out_file>` is the path of the generated file as seen
+on disk; `<line>` is 1-indexed; `--col` is 0-indexed. Reads `azadi.db` from
+the current working directory.
 
 ## Example
 
 ```bash
 cd examples/c_enum
 azadi status.md --gen .
-
-azadi where src/status.c 6
-```
-
-```json
-{
-  "chunk": "string_cases",
-  "expanded_file": "./status.md",
-  "expanded_line": 44,
-  "indent": "",
-  "out_file": "src/status.c",
-  "out_line": 6
-}
-```
-
-```bash
 azadi trace src/status.c 6
 ```
 
 ```json
 {
   "chunk": "string_cases",
-  "expanded_file": "./status.md",
-  "expanded_line": 44,
-  "indent": "",
   "kind": "MacroBody",
   "macro_name": "enum_val",
-  "out_file": "src/status.c",
-  "out_line": 6,
-  "src_col": 45,
   "src_file": "/path/to/examples/c_enum/status.md",
-  "src_line": 31
+  "src_line": 31,
+  "out_file": "src/status.c",
+  "out_line": 6
 }
 ```
 
-`trace` adds `src_file`, `src_line`, `src_col`, `kind`, and `macro_name`,
-giving the exact location in the literate source.
-
-### Sub-line precision with `--col`
-
-Without `--col`, `trace` reports the token covering the first byte of the
-output line.  When a line contains multiple macro-generated tokens (a common
-pattern when macro arguments are themselves macro calls), pass the 0-indexed
-byte column to pinpoint the specific token:
+When a line contains tokens from different sources, pass `--col` to target
+the specific token you want to change:
 
 ```bash
-azadi trace src/rompla/config.nim 178 --col 10
+azadi trace src/config.nim 178 --col 10
 ```
 
 ```json
 {
-  "kind": "MacroBody",
+  "kind": "MacroArg",
   "macro_name": "cfg_int",
-  "src_file": "/path/to/src/rompla/config.nim.adoc",
-  "src_line": 94,
-  "src_col": 0
+  "param_name": "default_val",
+  "src_file": "/path/to/config.nim.adoc",
+  "src_line": 22
 }
 ```
 
-Span attribution is threaded through argument evaluation: when a macro
-argument is itself a macro call (e.g. `%wrap(%inner(world))`), the `world`
-token traces back to its original literal position in the source, not to
-the `%inner(world)` call site.
+## Output fields
 
-### `kind` values
-
-| Value | Meaning |
+| Field | Meaning |
 |-------|---------|
-| `Literal` | Text copied verbatim from the source |
-| `MacroBody` | Text produced by expanding a macro body |
-| `MacroArg` | Text produced from a macro argument value |
-| `VarBinding` | Text from a `%set` variable |
-| `Computed` | Text produced by a Rhai script or other computed source |
+| `src_file` | Literate source file to edit |
+| `src_line` | 1-indexed line in that file |
+| `kind` | `Literal`, `MacroBody`, `MacroArg`, `VarBinding`, or `Computed` |
+| `macro_name` | Macro name (when `kind` is `MacroBody` or `MacroArg`) |
+| `param_name` | Parameter name (when `kind` is `MacroArg`) |
+| `var_name` | Variable name (when `kind` is `VarBinding`) |
+| `def_locations` | `{file, line}` for every `%def`/`%rhaidef`/`%pydef` that defined this macro (when `kind` is `MacroBody`) |
+| `set_locations` | `{file, line}` for every `%set` that set this variable (when `kind` is `VarBinding`) |
+| `chunk` | Noweb chunk containing this line |
+
+## Reading the result
+
+- **`Literal`**: edit `src_file` at `src_line` directly.
+- **`MacroBody`**: the text is a literal fragment of a macro body.
+  `def_locations` says where the macro was defined.
+- **`MacroArg`**: the text came from an argument at the call site.
+  `src_file:src_line` is that call site; `param_name` names the parameter.
+- **`VarBinding`**: the text came from a `%set` call. `set_locations` lists
+  all assignment sites; `var_name` names the variable.
+
+Span attribution follows arguments through nested macro calls —
+`src_file:src_line` always points to the original literal text, not to
+an intermediate call site.
 
 ---
 
 ## MCP server (`azadi mcp`)
 
 `azadi mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/)
-server over stdin/stdout, exposing the `azadi_trace` tool so IDE extensions and
-AI agents can look up source locations without shelling out.
+server over stdin/stdout, exposing tracing and apply-back tools so IDE
+extensions and AI agents can work with the literate source without shelling out.
 
 ```bash
 azadi --gen . mcp
@@ -121,24 +99,13 @@ azadi --gen . mcp
 The server implements the MCP 2024-11-05 protocol over JSON-RPC 2.0 (one
 message per line on stdin/stdout).
 
-### Tool: `azadi_trace`
+### Tools
 
-```json
-{
-  "name": "azadi_trace",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "out_file": { "type": "string" },
-      "out_line": { "type": "integer" },
-      "out_col":  { "type": "integer", "description": "Byte column within the output line (0-indexed, default 0). Use to pinpoint a specific token when a line contains multiple macro-generated fragments." }
-    },
-    "required": ["out_file", "out_line"]
-  }
-}
-```
-
-Returns the same JSON as `azadi trace`, encoded as a text content item.
+| Tool | Description |
+|------|-------------|
+| `azadi_trace` | Trace a generated file line to its literate source. Accepts `out_file`, `out_line`, and optional `out_col` (0-indexed character column). |
+| `azadi_apply_back` | Propagate all gen/ edits back to the literate source. Accepts optional `files` array and `dry_run` flag. |
+| `azadi_apply_fix` | Apply a single oracle-verified source edit: replace one line in the literate source and confirm it produces the expected output. |
 
 ### Claude Code / Claude Desktop configuration
 

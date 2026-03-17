@@ -6,13 +6,13 @@
   outputs = { self, nixpkgs }:
     let
       pkgs    = nixpkgs.legacyPackages.x86_64-linux;
-      version = "0.2.0";
+      version = "0.2.1";
       base    = "https://github.com/giannifer7/azadi/releases/download/v${version}";
     in {
       packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {
         pname   = "azadi";
         inherit version;
-        src     = pkgs.fetchurl { url = "${base}/azadi-musl"; sha256 = "sha256-2oFpXAhLs82YBAJg68hlGfw3Zjw5bTnfGtP1GfRlNi4="; };
+        src     = pkgs.fetchurl { url = "${base}/azadi-musl"; sha256 = "sha256-R1mzeSq00r3wRhsJh3ruv3FbAuV4qFQ8dqTwiwktKVw="; };
         dontUnpack   = true;
         installPhase = "install -Dm755 $src $out/bin/azadi";
       };

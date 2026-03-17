@@ -196,15 +196,15 @@ the project uses non-default paths (e.g. `azadi --db azadi.db --gen src trace ..
 Multiple definitions are all listed, supporting the common pattern of redefining
 a variable or macro in different contexts.
 
-**Workflow for compiler errors in generated files:**
+**Workflow — navigating from generated output to literate source:**
 
-1. Run `azadi trace <gen_file> <error_line> --col <error_col>`
+1. Run `azadi trace <gen_file> <line> --col <col>`
 2. Read `kind`:
    - `Literal` / `MacroBody` (no `%`-variables): edit `src_file` at `src_line`
    - `MacroArg`: the argument value is at `src_file:src_line`; `param_name` says which parameter
    - `VarBinding`: the variable value is from one of the `set_locations`; `var_name` names it
    - `MacroBody` (with `%`-variables): check `def_locations` for where the macro body was defined
-3. Edit the literate source, regenerate, rebuild
+3. Edit the literate source, regenerate
 
 Span attribution is threaded through argument evaluation: if a macro argument
 is itself a macro call, the tokens inside it trace back to their original
@@ -212,9 +212,12 @@ literal positions, not to the call site.
 
 ## Apply-back
 
-`azadi apply-back` propagates edits made in `gen/` back to the literate source.
-Useful when an external tool (IDE, formatter) modifies a generated file and you
-want to reflect those changes back without hand-copying each line.
+`azadi apply-back` is a **first-class editing workflow**: make changes directly
+in the generated files — using your IDE, language-aware tools, or just your
+editor — then run apply-back to propagate every change back to the literate
+source automatically. This is often faster than locating the right spot in the
+literate document first, especially for mechanical edits (renaming, constant
+updates, formatting changes) across many files.
 
 ```bash
 # Propagate all gen/ edits back to their literate sources
@@ -245,11 +248,11 @@ to reformatting), a ±15-line window search using a whitespace-normalised regex 
 
 ## Guidelines for agents
 
-- The literate document is the **source of truth**. Editing generated files
-  in `gen/` directly is fine as a **debugging shortcut** — run the compiler,
-  iterate fast — but the literate source must be updated before the next
-  `azadi` run or the changes will be overwritten. Use `azadi apply-back`
-  to propagate confirmed gen/ edits back to the literate source automatically.
+- The literate document is the **source of truth**, but editing gen/ files
+  directly is a **supported workflow** — not just a debugging shortcut.
+  Make changes in the generated files using whatever tools work best, then
+  run `azadi apply-back` to sync them back. The next `azadi` run will
+  overwrite gen/ from the updated literate source, closing the loop.
 - Use the Markdown/AsciiDoc structure to explain *why* the code is
   structured as it is. Chunk names should read as intent, not mechanics.
 - When adding a new output file, declare it as a `<[@file ...]>=` chunk

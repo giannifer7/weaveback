@@ -180,8 +180,11 @@ fn verify_candidate(
     expanded_line: u32,
     desired: &str,
 ) -> bool {
+    // Use a synthetic path so parse_string uses src_content directly
+    // rather than re-reading from disk (which would see the original file).
+    let oracle_path = src_path.with_file_name("<oracle>");
     let mut evaluator = Evaluator::new(eval_config.clone());
-    match process_string(src_content, Some(src_path), &mut evaluator) {
+    match process_string(src_content, Some(&oracle_path), &mut evaluator) {
         Ok(bytes) => {
             let s = String::from_utf8_lossy(&bytes);
             s.lines().nth(expanded_line as usize) == Some(desired)

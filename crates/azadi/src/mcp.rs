@@ -10,12 +10,6 @@ use std::path::PathBuf;
 pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), crate::Error> {
     let stdin = io::stdin();
 
-    let db = if db_path.exists() {
-        Some(AzadiDb::open(&db_path)?)
-    } else {
-        None
-    };
-
     for line in stdin.lock().lines() {
         let line = match line {
             Ok(l) => l,
@@ -103,13 +97,17 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let out_line = input.get("out_line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
                         let out_col  = input.get("out_col") .and_then(|c| c.as_u64()).unwrap_or(0) as u32;
 
-                        match &db {
-                            Some(db) => match lookup::perform_trace(out_file, out_line, out_col, db, &gen_dir, eval_config.clone()) {
+                        if !db_path.exists() {
+                            send_error(id, "Database not found. Run azadi on your source files first.");
+                            continue;
+                        }
+                        match AzadiDb::open(&db_path) {
+                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Ok(db) => match lookup::perform_trace(out_file, out_line, out_col, &db, &gen_dir, eval_config.clone()) {
                                 Ok(Some(res)) => send_text(id, &serde_json::to_string(&res).unwrap()),
                                 Ok(None)      => send_error(id, &format!("No mapping found for {}:{}", out_file, out_line)),
                                 Err(e)        => send_error(id, &format!("Lookup error: {:?}", e)),
                             },
-                            None => send_error(id, "Database not found. Run azadi on your source files first."),
                         }
                     }
 
@@ -152,6 +150,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             continue;
                         }
 
+                        let db = if db_path.exists() { AzadiDb::open(&db_path).ok() } else { None };
                         match apply_fix(src_file, src_line_1 - 1, new_src_line, out_file, out_line_1, expected, &db, &gen_dir, &eval_config) {
                             Ok(msg) => send_text(id, &msg),
                             Err(e)  => send_error(id, &e),
@@ -217,9 +216,11 @@ fn apply_fix(
     if had_trailing_newline { patched.push('\n'); }
 
     // Oracle: re-evaluate and check expanded line.
-    let src_path = std::path::Path::new(src_file);
+    // Use a synthetic path so parse_string uses `patched` directly
+    // rather than re-reading the original file from disk.
+    let oracle_path = std::path::Path::new(src_file).with_file_name("<oracle>");
     let mut evaluator = Evaluator::new(eval_config.clone());
-    let expanded_bytes = process_string(&patched, Some(src_path), &mut evaluator)
+    let expanded_bytes = process_string(&patched, Some(&oracle_path), &mut evaluator)
         .map_err(|e| format!("Evaluation error: {e:?}"))?;
     let expanded = String::from_utf8_lossy(&expanded_bytes);
 

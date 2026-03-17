@@ -157,64 +157,49 @@ custom_target('gen',
 
 ## Source tracing
 
-`azadi` records a source map on every run. Use it to find the literate source
-location for any line in a generated file — essential when a compiler points
-at a generated file and you need to fix the literate source.
+`azadi` records a source map on every run. Given a line (and optionally a
+column) in a generated file, `azadi trace` returns the exact literate source
+location — essential when a compiler error points at generated code.
 
 ```bash
-# Which chunk produced this line?
-azadi where src/foo.rs 42
-
-# Full trace: chunk + exact macro source location (first token on the line)
+# Trace line 42 of a generated file
 azadi trace src/foo.rs 42
 
-# Sub-line precision: pinpoint the token at byte column 10
+# Pinpoint a specific token on that line (column is 0-indexed)
 azadi trace src/foo.rs 42 --col 10
-
-# Propagate all gen/ edits back to the literate source
-azadi apply-back
-
-# Dry run
-azadi apply-back --dry-run
 ```
 
-All three read `azadi.db` from the current directory. Pass `--db` and `--gen` if
-the project uses non-default paths (e.g. `azadi --db azadi.db --gen src trace ...`).
+Reads `azadi.db` from the current directory. Pass `--db` and `--gen` for
+non-default paths.
 
-**`azadi trace` output fields:**
+**Output fields:**
 
 | Field | Meaning |
 |-------|---------|
 | `src_file` | Literate source file to edit |
 | `src_line` | 1-indexed line in that file |
-| `src_col` | 0-indexed UTF-8 column |
 | `kind` | `Literal`, `MacroBody`, `MacroArg`, `VarBinding`, or `Computed` |
-| `macro_name` | Name of the macro (when `kind` is `MacroBody` or `MacroArg`) |
-| `param_name` | Macro parameter name (when `kind` is `MacroArg`) |
+| `macro_name` | Macro name (when `kind` is `MacroBody` or `MacroArg`) |
+| `param_name` | Parameter name (when `kind` is `MacroArg`) |
 | `var_name` | Variable name (when `kind` is `VarBinding`) |
-| `def_locations` | Array of `{file, line, col}` for every `%def`/`%rhaidef`/`%pydef` call that defined this macro (when `kind` is `MacroBody`) |
-| `set_locations` | Array of `{file, line, col}` for every `%set` call that defined this variable (when `kind` is `VarBinding`) |
-| `chunk` | Noweb chunk that contains this line |
-| `expanded_file` / `expanded_line` | Noweb-level source (intermediate) |
+| `def_locations` | `{file, line}` for every `%def`/`%rhaidef`/`%pydef` that defined this macro (when `kind` is `MacroBody`) |
+| `set_locations` | `{file, line}` for every `%set` that set this variable (when `kind` is `VarBinding`) |
+| `chunk` | Noweb chunk containing this line |
 
-`def_locations` and `set_locations` are populated from the `azadi.db` source map
-(byte-level positions recorded during the last `azadi` run — no regex scan).
-Multiple definitions are all listed, supporting the common pattern of redefining
-a variable or macro in different contexts.
+**Reading the result:**
 
-**Workflow — navigating from generated output to literate source:**
+- `Literal`: edit `src_file` at `src_line` directly.
+- `MacroBody`: the text is a literal fragment of the macro body. Edit the
+  macro definition — `def_locations` says where it was defined.
+- `MacroArg`: the text came from an argument at the call site.
+  `src_file:src_line` is that call site; `param_name` names the parameter.
+- `VarBinding`: the text came from a `%set` call. `set_locations` lists all
+  assignment sites; `var_name` names the variable.
 
-1. Run `azadi trace <gen_file> <line> --col <col>`
-2. Read `kind`:
-   - `Literal` / `MacroBody` (no `%`-variables): edit `src_file` at `src_line`
-   - `MacroArg`: the argument value is at `src_file:src_line`; `param_name` says which parameter
-   - `VarBinding`: the variable value is from one of the `set_locations`; `var_name` names it
-   - `MacroBody` (with `%`-variables): check `def_locations` for where the macro body was defined
-3. Edit the literate source, regenerate
-
-Span attribution is threaded through argument evaluation: if a macro argument
-is itself a macro call, the tokens inside it trace back to their original
-literal positions, not to the call site.
+When a line contains tokens from different sources, use `--col` to target the
+specific token you want to change. Span attribution follows arguments through
+nested macro calls — `src_file:src_line` always points to the original literal
+text, not to an intermediate call site.
 
 ## Apply-back
 

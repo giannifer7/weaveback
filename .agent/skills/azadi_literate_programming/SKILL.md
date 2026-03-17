@@ -170,9 +170,15 @@ azadi trace src/foo.rs 42
 
 # Sub-line precision: pinpoint the token at byte column 10
 azadi trace src/foo.rs 42 --col 10
+
+# Propagate all gen/ edits back to the literate source
+azadi apply-back
+
+# Dry run
+azadi apply-back --dry-run
 ```
 
-Both read `azadi.db` from the current directory. Pass `--db` and `--gen` if
+All three read `azadi.db` from the current directory. Pass `--db` and `--gen` if
 the project uses non-default paths (e.g. `azadi --db azadi.db --gen src trace ...`).
 
 **`azadi trace` output fields:**
@@ -245,6 +251,24 @@ is rejected — the source is never corrupted by a failed heuristic.
 
 **Fuzzy line matching:** if the expected source line is not at the exact index (e.g. due
 to reformatting), a ±15-line window search using a whitespace-normalised regex finds it.
+
+## MCP server
+
+`azadi mcp` starts an MCP server (stdio transport) exposing three tools for
+IDE/agent integration:
+
+| Tool | Description |
+|------|-------------|
+| `azadi_trace` | Trace a generated file line to its literate source. Returns `src_file`, `src_line`, `src_col`, `kind`, and (depending on kind) `macro_name`, `param_name`, `var_name`, `def_locations`, `set_locations`. |
+| `azadi_apply_back` | Propagate all gen/ edits back to the literate source. Returns a report of what was patched, skipped, or needs manual attention. |
+| `azadi_apply_fix` | Apply a single targeted source edit and verify it produces the expected output line (oracle-verified). |
+
+**Typical agent workflow:**
+
+1. Call `azadi_trace` to locate the literate origin of a generated line.
+2. Read the literate source around that location.
+3. Either edit the source directly and call `azadi_apply_back`, or use
+   `azadi_apply_fix` for a targeted oracle-verified single-line fix.
 
 ## Guidelines for agents
 

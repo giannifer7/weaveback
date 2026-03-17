@@ -1,3 +1,4 @@
+use crate::apply_back::{self, ApplyBackOptions};
 use crate::lookup;
 use azadi_macros::evaluator::{EvalConfig, Evaluator};
 use azadi_macros::macro_api::process_string;
@@ -56,6 +57,18 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             }
                         },
                         {
+                            "name": "azadi_apply_back",
+                            "description": "Propagate edits made in gen/ files back to the literate source. Diffs each modified gen/ file against its stored baseline, traces each changed line to its origin (noweb + macro level), and patches the literate source with oracle verification. Returns a report of what was patched, skipped, or needs manual attention.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "files":   { "type": "array", "items": { "type": "string" }, "description": "Relative paths within gen/ to process (default: all modified files)" },
+                                    "dry_run": { "type": "boolean", "description": "Show what would change without writing (default: false)" }
+                                },
+                                "required": []
+                            }
+                        },
+                        {
                             "name": "azadi_apply_fix",
                             "description": "Apply a source edit and verify it produces the desired output line. Use this after reading the literate source, determining a fix, and wanting to apply it safely. The tool re-evaluates the macro expander as an oracle — the edit is written only if the expected output line is produced.",
                             "inputSchema": {
@@ -97,6 +110,28 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 Err(e)        => send_error(id, &format!("Lookup error: {:?}", e)),
                             },
                             None => send_error(id, "Database not found. Run azadi on your source files first."),
+                        }
+                    }
+
+                    Some("azadi_apply_back") => {
+                        let input = input.cloned().unwrap_or_default();
+                        let files: Vec<String> = input.get("files")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                            .unwrap_or_default();
+                        let dry_run = input.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                        let opts = ApplyBackOptions {
+                            db_path: db_path.clone(),
+                            gen_dir: gen_dir.clone(),
+                            dry_run,
+                            files,
+                            eval_config: Some(eval_config.clone()),
+                        };
+                        let mut buf: Vec<u8> = Vec::new();
+                        match apply_back::run_apply_back(opts, &mut buf) {
+                            Ok(()) => send_text(id, &String::from_utf8_lossy(&buf)),
+                            Err(e) => send_error(id, &format!("{:?}", e)),
                         }
                     }
 

@@ -39,6 +39,7 @@ use azadi_noweb::db::{AzadiDb, DbError};
 use regex::Regex;
 use similar::TextDiff;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::lookup;
@@ -402,6 +403,7 @@ fn do_patch(
     applied: &mut usize,
     conflicts: &mut usize,
     label_suffix: Option<&str>,
+    out: &mut dyn Write,
 ) {
     let label = match label_suffix {
         Some(s) => format!("{}:{} ({})", src_file, src_line + 1, s),
@@ -411,17 +413,17 @@ fn do_patch(
     let effective_idx = if src_line < lines.len() && lines[src_line] == old_text {
         src_line
     } else if src_line < lines.len() && lines[src_line] == new_text {
-        println!("  {}: already applied", label);
+        let _ = writeln!(out, "  {}: already applied", label);
         return;
     } else {
         match fuzzy_find_line(lines, src_line, old_text, 15) {
             Some(fi) if lines[fi] == new_text => {
-                println!("  {}:{}: already applied (fuzzy)", src_file, fi + 1);
+                let _ = writeln!(out, "  {}:{}: already applied (fuzzy)", src_file, fi + 1);
                 return;
             }
             Some(fi) => fi,
             None => {
-                eprintln!(
+                let _ = writeln!(out,
                     "  CONFLICT {}\n    expected: {:?}\n    current:  {:?}\n    desired:  {:?}",
                     label, old_text,
                     lines.get(src_line).map(|s| s.as_str()).unwrap_or("<out of range>"),
@@ -435,10 +437,10 @@ fn do_patch(
     };
 
     if dry_run {
-        println!("  [dry-run] {}:{}: {:?} → {:?}", src_file, effective_idx + 1, old_text, new_text);
+        let _ = writeln!(out, "  [dry-run] {}:{}: {:?} → {:?}", src_file, effective_idx + 1, old_text, new_text);
     } else {
         lines[effective_idx] = new_text.to_string();
-        println!("  {}: patched", label);
+        let _ = writeln!(out, "  {}: patched", label);
     }
     *applied += 1;
 }
@@ -452,6 +454,7 @@ fn apply_patches_to_file(
     skipped: &mut usize,
     eval_config: Option<&EvalConfig>,
     snapshot: Option<&[u8]>,
+    out: &mut dyn Write,
 ) -> Result<(), ApplyBackError> {
     let content = std::fs::read_to_string(src_file)?;
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
@@ -465,20 +468,20 @@ fn apply_patches_to_file(
     for patch in patches {
         match &patch.source {
             PatchSource::Unpatchable { src_line, kind_label, .. } => {
-                eprintln!("  SKIP {}:{}: {} — cannot auto-patch", src_file, src_line + 1, kind_label);
+                let _ = writeln!(out, "  SKIP {}:{}: {} — cannot auto-patch", src_file, src_line + 1, kind_label);
                 *skipped += 1;
             }
 
             PatchSource::Noweb { src_line, .. }
             | PatchSource::Literal { src_line, .. } => {
                 do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
-                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts, None);
+                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts, None, out);
             }
 
             PatchSource::MacroBodyLiteral { src_line, macro_name, .. } => {
                 do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
                          &mut lines, dry_run, skipped, &mut applied, &mut conflicts,
-                         Some(&format!("macro body `{}`", macro_name)));
+                         Some(&format!("macro body `{}`", macro_name)), out);
             }
 
             PatchSource::MacroBodyWithVars { src_line, macro_name, .. } => {
@@ -505,23 +508,23 @@ fn apply_patches_to_file(
                             let candidate_src = splice_line(&lines, idx, &new_line, had_trailing_newline);
                             if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
                                 if dry_run {
-                                    println!("  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
+                                    let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
                                 } else {
                                     lines[idx] = new_line;
-                                    println!("  {}: patched (body literal fix)", label);
+                                    let _ = writeln!(out, "  {}: patched (body literal fix)", label);
                                 }
                                 applied += 1;
                             } else {
-                                eprintln!("  MANUAL {}: body fix candidate did not verify — edit manually\n    desired output: {:?}", label, patch.new_text);
+                                let _ = writeln!(out, "  MANUAL {}: body fix candidate did not verify — edit manually\n    desired output: {:?}", label, patch.new_text);
                                 *skipped += 1;
                             }
                         } else {
-                            eprintln!("  MANUAL {}: source line not found — edit manually\n    desired output: {:?}", label, patch.new_text);
+                            let _ = writeln!(out, "  MANUAL {}: source line not found — edit manually\n    desired output: {:?}", label, patch.new_text);
                             *skipped += 1;
                         }
                     }
                     _ => {
-                        eprintln!("  MANUAL {}: contains variables — edit manually\n    desired output: {:?}", label, patch.new_text);
+                        let _ = writeln!(out, "  MANUAL {}: contains variables — edit manually\n    desired output: {:?}", label, patch.new_text);
                         *skipped += 1;
                     }
                 }
@@ -537,23 +540,23 @@ fn apply_patches_to_file(
                         let candidate_src = splice_line(&lines, *src_line, &new_line, had_trailing_newline);
                         if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
                             if dry_run {
-                                println!("  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
+                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
                             } else {
                                 lines[*src_line] = new_line;
-                                println!("  {}: patched (arg replacement)", label);
+                                let _ = writeln!(out, "  {}: patched (arg replacement)", label);
                             }
                             applied += 1;
                         } else {
-                            eprintln!("  MANUAL {}: arg replacement did not verify — edit manually\n    desired output: {:?}\n    at col {}", label, patch.new_text, src_col);
+                            let _ = writeln!(out, "  MANUAL {}: arg replacement did not verify — edit manually\n    desired output: {:?}\n    at col {}", label, patch.new_text, src_col);
                             *skipped += 1;
                         }
                     }
                     (None, _) => {
-                        eprintln!("  MANUAL {}: could not locate arg value at col {} — edit manually\n    desired output: {:?}", label, src_col, patch.new_text);
+                        let _ = writeln!(out, "  MANUAL {}: could not locate arg value at col {} — edit manually\n    desired output: {:?}", label, src_col, patch.new_text);
                         *skipped += 1;
                     }
                     (Some(_), None) => {
-                        eprintln!("  MANUAL {}: no eval config for verification — edit manually\n    desired output: {:?}", label, patch.new_text);
+                        let _ = writeln!(out, "  MANUAL {}: no eval config for verification — edit manually\n    desired output: {:?}", label, patch.new_text);
                         *skipped += 1;
                     }
                 }
@@ -562,13 +565,13 @@ fn apply_patches_to_file(
     }
 
     if !dry_run && applied > 0 {
-        let mut out = lines.join("\n");
-        if had_trailing_newline { out.push('\n'); }
-        std::fs::write(src_file, out)?;
+        let mut content_out = lines.join("\n");
+        if had_trailing_newline { content_out.push('\n'); }
+        std::fs::write(src_file, content_out)?;
     }
 
     if conflicts > 0 {
-        eprintln!("  {} conflict(s) in {}", conflicts, src_file);
+        let _ = writeln!(out, "  {} conflict(s) in {}", conflicts, src_file);
     }
 
     Ok(())
@@ -582,9 +585,9 @@ fn strip_indent<'a>(line: &'a str, indent: &str) -> &'a str {
 
 // ── main entry point ─────────────────────────────────────────────────────────
 
-pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
+pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(), ApplyBackError> {
     if !opts.db_path.exists() {
-        eprintln!(
+        let _ = writeln!(out,
             "Database not found at {}. Run azadi on your source files first.",
             opts.db_path.display()
         );
@@ -614,7 +617,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
         let current_bytes = match std::fs::read(&gen_path) {
             Ok(b) => b,
             Err(_) => {
-                eprintln!("  skip {}: file not found in gen/", rel_path);
+                let _ = writeln!(out, "  skip {}: file not found in gen/", rel_path);
                 continue;
             }
         };
@@ -622,7 +625,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
         if current_bytes == *baseline_bytes { continue; }
 
         any_changed = true;
-        println!("Processing {}", rel_path);
+        let _ = writeln!(out, "Processing {}", rel_path);
 
         let baseline_str = String::from_utf8_lossy(baseline_bytes);
         let current_str  = String::from_utf8_lossy(&current_bytes);
@@ -640,7 +643,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
 
                 similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
                     if old_len != new_len {
-                        eprintln!(
+                        let _ = writeln!(out,
                             "  skip lines {}-{}: size-changing hunk ({} → {} lines) — edit literate source manually",
                             old_index + 1, old_index + old_len, old_len, new_len,
                         );
@@ -654,7 +657,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
 
                         match db.get_noweb_entry(rel_path, out_line_0)? {
                             None => {
-                                eprintln!("  skip line {}: no source map entry", out_line_0 + 1);
+                                let _ = writeln!(out, "  skip line {}: no source map entry", out_line_0 + 1);
                                 skipped += 1;
                             }
                             Some(entry) => {
@@ -698,7 +701,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
                 }
 
                 similar::DiffOp::Delete { old_index, old_len, .. } => {
-                    eprintln!(
+                    let _ = writeln!(out,
                         "  skip lines {}-{}: {} deleted line(s) — remove from literate source manually",
                         old_index + 1, old_index + old_len, old_len,
                     );
@@ -706,7 +709,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
                 }
 
                 similar::DiffOp::Insert { old_index, new_len, .. } => {
-                    eprintln!(
+                    let _ = writeln!(out,
                         "  skip {} inserted line(s) after gen/ line {} — add to literate source manually",
                         new_len, old_index,
                     );
@@ -720,17 +723,17 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
             let snap = snapshot_cache.get(src_file.as_str()).and_then(|o| o.as_deref());
             apply_patches_to_file(
                 src_file, patches, opts.dry_run, &mut skipped,
-                opts.eval_config.as_ref(), snap,
+                opts.eval_config.as_ref(), snap, out,
             )?;
         }
 
         if opts.dry_run {
-            println!("  [dry-run] would update baseline for {}", rel_path);
+            let _ = writeln!(out, "  [dry-run] would update baseline for {}", rel_path);
         } else if skipped == 0 {
             db.set_baseline(rel_path, &current_bytes)?;
-            println!("  baseline updated for {}", rel_path);
+            let _ = writeln!(out, "  baseline updated for {}", rel_path);
         } else {
-            println!(
+            let _ = writeln!(out,
                 "  baseline NOT updated for {} ({} line(s) could not be applied)",
                 rel_path, skipped,
             );
@@ -738,7 +741,7 @@ pub fn run_apply_back(opts: ApplyBackOptions) -> Result<(), ApplyBackError> {
     }
 
     if !any_changed {
-        println!("No modified gen/ files found.");
+        let _ = writeln!(out, "No modified gen/ files found.");
     }
 
     Ok(())

@@ -426,7 +426,7 @@ fn main() {
                 files,
                 eval_config: Some(eval_config),
             };
-            apply_back::run_apply_back(opts).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+            apply_back::run_apply_back(opts, &mut std::io::stdout()).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
         }
         None => run(cli.args),
     };

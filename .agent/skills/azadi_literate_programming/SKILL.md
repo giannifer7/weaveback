@@ -181,21 +181,67 @@ the project uses non-default paths (e.g. `azadi --db azadi.db --gen src trace ..
 |-------|---------|
 | `src_file` | Literate source file to edit |
 | `src_line` | 1-indexed line in that file |
-| `src_col` | 0-indexed byte column |
+| `src_col` | 0-indexed UTF-8 column |
 | `kind` | `Literal`, `MacroBody`, `MacroArg`, `VarBinding`, or `Computed` |
 | `macro_name` | Name of the macro (when `kind` is `MacroBody` or `MacroArg`) |
+| `param_name` | Macro parameter name (when `kind` is `MacroArg`) |
+| `var_name` | Variable name (when `kind` is `VarBinding`) |
+| `def_locations` | Array of `{file, line, col}` for every `%def`/`%rhaidef`/`%pydef` call that defined this macro (when `kind` is `MacroBody`) |
+| `set_locations` | Array of `{file, line, col}` for every `%set` call that defined this variable (when `kind` is `VarBinding`) |
 | `chunk` | Noweb chunk that contains this line |
 | `expanded_file` / `expanded_line` | Noweb-level source (intermediate) |
+
+`def_locations` and `set_locations` are populated from the `azadi.db` source map
+(byte-level positions recorded during the last `azadi` run — no regex scan).
+Multiple definitions are all listed, supporting the common pattern of redefining
+a variable or macro in different contexts.
 
 **Workflow for compiler errors in generated files:**
 
 1. Run `azadi trace <gen_file> <error_line> --col <error_col>`
-2. Open `src_file` at `src_line` — that is where to make the fix
+2. Read `kind`:
+   - `Literal` / `MacroBody` (no `%`-variables): edit `src_file` at `src_line`
+   - `MacroArg`: the argument value is at `src_file:src_line`; `param_name` says which parameter
+   - `VarBinding`: the variable value is from one of the `set_locations`; `var_name` names it
+   - `MacroBody` (with `%`-variables): check `def_locations` for where the macro body was defined
 3. Edit the literate source, regenerate, rebuild
 
 Span attribution is threaded through argument evaluation: if a macro argument
 is itself a macro call, the tokens inside it trace back to their original
 literal positions, not to the call site.
+
+## Apply-back
+
+`azadi apply-back` propagates edits made in `gen/` back to the literate source.
+Useful when an external tool (IDE, formatter) modifies a generated file and you
+want to reflect those changes back without hand-copying each line.
+
+```bash
+# Propagate all gen/ edits back to their literate sources
+azadi apply-back
+
+# Dry run: show what would change without writing
+azadi apply-back --dry-run
+```
+
+**How it works (two levels):**
+
+1. **Noweb level**: diffs each gen/ file against the stored baseline (from the last run).
+   For each changed line, `noweb_map` identifies the literate source file and line.
+
+2. **Macro level**: for each changed source line, re-evaluates the driver in tracing
+   mode to pinpoint the exact token that produced the output:
+   - `Literal` / `MacroBodyLiteral`: patched in place automatically
+   - `MacroArg`: replaces the argument value at the call site; oracle-verified
+   - `MacroBodyWithVars`: attempts structural patch; oracle-verified
+   - `VarBinding` / `Computed`: reported but not auto-patched (ambiguous)
+
+**Oracle verification:** for `MacroArg` and `MacroBodyWithVars`, the patched source is
+re-evaluated and the relevant output line is checked before writing. A wrong candidate
+is rejected — the source is never corrupted by a failed heuristic.
+
+**Fuzzy line matching:** if the expected source line is not at the exact index (e.g. due
+to reformatting), a ±15-line window search using a whitespace-normalised regex finds it.
 
 ## Guidelines for agents
 

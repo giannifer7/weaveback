@@ -157,8 +157,8 @@ fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize)
     let lo = center.saturating_sub(window);
     let hi = (center + window).min(lines.len().saturating_sub(1));
     let mut found: Option<usize> = None;
-    for i in lo..=hi {
-        if re.is_match(&lines[i]) {
+    for (i, line) in lines.iter().enumerate().take(hi + 1).skip(lo) {
+        if re.is_match(line) {
             if found.is_some() { return None; } // ambiguous
             found = Some(i);
         }
@@ -183,8 +183,7 @@ fn verify_candidate(
     match process_string(src_content, Some(src_path), &mut evaluator) {
         Ok(bytes) => {
             let s = String::from_utf8_lossy(&bytes);
-            s.lines().nth(expanded_line as usize)
-                .map_or(false, |l| l == desired)
+            s.lines().nth(expanded_line as usize) == Some(desired)
         }
         Err(_) => false,
     }
@@ -308,6 +307,7 @@ fn attempt_macro_body_fix(
 
 // ── resolve macro-level patch source ─────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_patch_source(
     rel_path: &str,
     out_line_0: u32,
@@ -362,7 +362,7 @@ fn resolve_patch_source(
                 s.lines().nth(src_line_0).map(|l| l.to_string())
             });
             let has_vars = snap_line.as_deref()
-                .map_or(true, |l| l.contains(special_char));
+                .is_none_or(|l| l.contains(special_char));
 
             if has_vars {
                 Ok(PatchSource::MacroBodyWithVars { src_file, src_line: src_line_0, macro_name })
@@ -396,7 +396,7 @@ fn do_patch(
     src_line: usize,
     old_text: &str,
     new_text: &str,
-    lines: &mut Vec<String>,
+    lines: &mut [String],
     dry_run: bool,
     skipped: &mut usize,
     applied: &mut usize,

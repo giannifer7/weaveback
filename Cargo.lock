@@ -168,6 +168,7 @@ dependencies = [
  "clap",
  "postcard",
  "predicates",
+ "regex",
  "serde_json",
  "similar",
  "tempfile",

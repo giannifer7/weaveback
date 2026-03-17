@@ -110,6 +110,31 @@ impl SourceManager {
     }
 }
 
+/// Raw record of a `%set(var_name, ...)` call site, captured during evaluation.
+/// Positions are absolute byte offsets in the source file (same as Token.pos / Token.length).
+#[derive(Debug, Clone)]
+pub struct VarDefRaw {
+    pub var_name: String,
+    /// Source file index (same as Token.src).
+    pub src: u32,
+    /// Byte offset of the `set` keyword in the source.
+    pub pos: u32,
+    /// Byte length of the whole `set(...)` call.
+    pub length: u32,
+}
+
+/// Raw record of a `%def / %rhaidef / %pydef(name, ...)` call site.
+#[derive(Debug, Clone)]
+pub struct MacroDefRaw {
+    pub macro_name: String,
+    /// Source file index (same as Token.src).
+    pub src: u32,
+    /// Byte offset of the def keyword in the source.
+    pub pos: u32,
+    /// Byte length of the whole def(...) call.
+    pub length: u32,
+}
+
 pub const MAX_RECURSION_DEPTH: usize = 100;
 
 pub struct EvaluatorState {
@@ -123,6 +148,10 @@ pub struct EvaluatorState {
     pub early_exit: bool,
     /// Populated during discovery mode: every path resolved by `%include`/`%import`.
     pub discovered_includes: Vec<PathBuf>,
+    /// Accumulated `%set` call sites for the var_defs_map.
+    pub var_defs: Vec<VarDefRaw>,
+    /// Accumulated `%def/%rhaidef/%pydef` call sites for the macro_defs_map.
+    pub macro_defs: Vec<MacroDefRaw>,
 }
 
 impl EvaluatorState {
@@ -136,7 +165,17 @@ impl EvaluatorState {
             call_depth: 0,
             early_exit: false,
             discovered_includes: Vec::new(),
+            var_defs: Vec::new(),
+            macro_defs: Vec::new(),
         }
+    }
+
+    pub fn drain_var_defs(&mut self) -> Vec<VarDefRaw> {
+        std::mem::take(&mut self.var_defs)
+    }
+
+    pub fn drain_macro_defs(&mut self) -> Vec<MacroDefRaw> {
+        std::mem::take(&mut self.macro_defs)
     }
 
     pub fn push_scope(&mut self) {

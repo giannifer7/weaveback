@@ -153,13 +153,19 @@ fn define_macro(
     )?;
 
     let mac = crate::evaluator::state::MacroDefinition {
-        name: macro_name,
+        name: macro_name.clone(),
         params: param_list,
         body: Arc::new(body_node),
         script_kind: config.script_kind,
         frozen_args: HashMap::new(),
     };
     eval.define_macro(mac);
+    eval.record_macro_def(
+        macro_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
     Ok("".into())
 }
 
@@ -264,6 +270,12 @@ pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let var_name = single_ident_param(eval, &node.parts[0], "var name")?;
     let value = eval.evaluate(&parts[1])?;
     eval.set_variable(&var_name, &value);
+    eval.record_var_def(
+        var_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
     Ok("".into())
 }
 

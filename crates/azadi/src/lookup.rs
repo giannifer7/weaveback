@@ -2,7 +2,6 @@ use azadi_macros::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanKind
 use azadi_macros::evaluator::{EvalConfig, Evaluator};
 use azadi_macros::macro_api::process_string_precise;
 use azadi_noweb::db::AzadiDb;
-use regex::Regex;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -109,27 +108,15 @@ pub fn perform_trace(
                 let adjusted_col = col - indent_len;
                 if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, adjusted_col) {
                     append_span_fields(&mut result, span, &evaluator);
-                    // For VarBinding: locate the %set(var_name, ...) definition.
-                    // For Computed:   locate the %def/%rhaidef/%pydef definition.
                     let obj = result.as_object_mut().unwrap();
-                    let special = eval_config.special_char;
                     match &span.kind {
                         SpanKind::VarBinding { var_name } => {
-                            if let Some((f, l)) = find_set_definition(var_name, special, &db) {
-                                obj.insert("set_file".into(), Value::String(f));
-                                obj.insert("set_line".into(), Value::Number(l.into()));
-                            }
+                            append_def_locations(obj, "set_locations", var_name, db, true);
                         }
                         SpanKind::MacroBody { macro_name } => {
-                            if let Some((f, l)) = find_macro_def(macro_name, special, &db) {
-                                obj.insert("def_file".into(), Value::String(f));
-                                obj.insert("def_line".into(), Value::Number(l.into()));
-                            }
+                            append_def_locations(obj, "def_locations", macro_name, db, false);
                         }
-                        SpanKind::Computed => {
-                            // macro_name not available for Computed; def_file/def_line
-                            // can only be found if the caller already has the name.
-                        }
+                        SpanKind::Computed => {}
                         _ => {}
                     }
                 }
@@ -215,54 +202,37 @@ fn append_span_fields(
     }
 }
 
-/// Search all source snapshots for the first `%set(var_name, ...)` definition.
-/// Returns `(file_path, 1-indexed line)` on the first match.
-pub fn find_set_definition(
-    var_name: &str,
-    special_char: char,
+/// Look up definition sites from the db and append them to `obj` as a JSON array.
+/// Each entry has `file`, `line` (1-indexed), and `col` (UTF-8 char count, 0-indexed).
+/// `use_var_defs`: true → query VAR_DEFS, false → query MACRO_DEFS.
+fn append_def_locations(
+    obj: &mut serde_json::Map<String, Value>,
+    field: &str,
+    name: &str,
     db: &AzadiDb,
-) -> Option<(String, u32)> {
-    let pat = format!(
-        r"{}set\s*\(\s*{}\s*,",
-        regex::escape(&special_char.to_string()),
-        regex::escape(var_name),
-    );
-    let re = Regex::new(&pat).ok()?;
-    let snapshots = db.list_src_snapshots().ok()?;
-    for (path, bytes) in snapshots {
+    use_var_defs: bool,
+) {
+    let entries = if use_var_defs {
+        db.query_var_defs(name)
+    } else {
+        db.query_macro_defs(name)
+    };
+    let Ok(entries) = entries else { return };
+    if entries.is_empty() { return }
+    let locations: Vec<Value> = entries.into_iter().filter_map(|(src_file, pos, _length)| {
+        // Resolve position → (line, col) using the stored snapshot.
+        let bytes = db.get_src_snapshot(&src_file).ok()??;
         let text = String::from_utf8_lossy(&bytes);
-        for (i, line) in text.lines().enumerate() {
-            if re.is_match(line) {
-                return Some((path, i as u32 + 1));
-            }
-        }
+        let (line_0, col) = find_line_col_0_indexed(&text, pos as usize);
+        Some(json!({
+            "file": src_file,
+            "line": line_0 + 1,
+            "col":  col,
+        }))
+    }).collect();
+    if !locations.is_empty() {
+        obj.insert(field.into(), Value::Array(locations));
     }
-    None
-}
-
-/// Search all source snapshots for the first `%rhaidef(name, ...)` or
-/// `%pydef(name, ...)` definition.
-/// Returns `(file_path, 1-indexed line)` on the first match.
-pub fn find_macro_def(
-    macro_name: &str,
-    special_char: char,
-    db: &AzadiDb,
-) -> Option<(String, u32)> {
-    let s = regex::escape(&special_char.to_string());
-    let n = regex::escape(macro_name);
-    // Match %def, %rhaidef, %pydef — any flavour
-    let pat = format!(r"{}(?:rhai|py)?def\s*\(\s*{}\s*,", s, n);
-    let re = Regex::new(&pat).ok()?;
-    let snapshots = db.list_src_snapshots().ok()?;
-    for (path, bytes) in snapshots {
-        let text = String::from_utf8_lossy(&bytes);
-        for (i, line) in text.lines().enumerate() {
-            if re.is_match(line) {
-                return Some((path, i as u32 + 1));
-            }
-        }
-    }
-    None
 }
 
 fn find_line_col_0_indexed(text: &str, byte_offset: usize) -> (u32, u32) {
@@ -270,7 +240,7 @@ fn find_line_col_0_indexed(text: &str, byte_offset: usize) -> (u32, u32) {
     let prefix = &text[..offset];
     let newlines = prefix.bytes().filter(|&b| b == b'\n').count() as u32;
     let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = (offset - line_start) as u32;
+    let col = prefix[line_start..].chars().count() as u32;
     (newlines, col)
 }
 

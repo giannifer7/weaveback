@@ -320,7 +320,7 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 1: macro-expand each driver, feed result to noweb.
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
-        
+
         let expanded = azadi_macros::macro_api::process_string(
             &content,
             Some(full_path),
@@ -333,6 +333,24 @@ fn run(args: Args) -> Result<(), Error> {
             eprintln!("=== end: {} ===", full_path.display());
         }
         clip.read(&expanded_str, &full_path.to_string_lossy());
+
+        // Record %set and %def positions into the db.
+        let src_files = evaluator.sources().source_files().to_vec();
+        let var_defs = evaluator.drain_var_defs();
+        let macro_defs = evaluator.drain_macro_defs();
+        (|| -> Result<(), azadi_noweb::AzadiError> {
+            for vd in var_defs {
+                if let Some(path) = src_files.get(vd.src as usize) {
+                    clip.db().record_var_def(&vd.var_name, &path.to_string_lossy(), vd.pos, vd.length)?;
+                }
+            }
+            for md in macro_defs {
+                if let Some(path) = src_files.get(md.src as usize) {
+                    clip.db().record_macro_def(&md.macro_name, &path.to_string_lossy(), md.pos, md.length)?;
+                }
+            }
+            Ok(())
+        })()?;
     }
 
     // Phase 2: write all @file chunks.

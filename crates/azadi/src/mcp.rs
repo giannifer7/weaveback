@@ -44,7 +44,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                     "tools": [
                         {
                             "name": "azadi_trace",
-                            "description": "Trace an output file line back to its original literate source. Returns src_file/src_line/src_col/kind/macro_name. For VarBinding also returns set_file/set_line pointing to the %set definition.",
+                            "description": "Trace an output file line back to its original literate source. Returns src_file/src_line/src_col/kind. MacroArg spans include macro_name/param_name. MacroBody spans include macro_name and a def_locations array (all %def call sites). VarBinding spans include var_name and a set_locations array (all %set call sites). Use --col for sub-line token precision.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -144,6 +144,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 /// `out_file:out_line_1`, then verifies the expanded output.
 ///
 /// Returns `Ok(message)` on success (file written), `Err(reason)` on failure.
+#[allow(clippy::too_many_arguments)]
 fn apply_fix(
     src_file: &str,
     src_line_0: usize,

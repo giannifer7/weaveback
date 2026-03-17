@@ -253,7 +253,7 @@ fn find_line_col_0_indexed(text: &str, byte_offset: usize) -> (u32, u32) {
     let prefix = &text[..offset];
     let newlines = prefix.bytes().filter(|&b| b == b'\n').count() as u32;
     let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = (offset - line_start) as u32;
+    let col = prefix[line_start..].chars().count() as u32;
     (newlines, col)
 }
 
@@ -323,7 +323,7 @@ impl EvalOutput for PreciseTracingOutput {
         if text.is_empty() {
             return;
         }
-        let same = self.current_span.as_ref().map_or(false, |s| {
+        let same = self.current_span.as_ref().is_some_and(|s| {
             s.src == span.src && s.pos == span.pos && s.length == span.length
         });
         if !same {

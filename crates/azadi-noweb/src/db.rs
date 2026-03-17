@@ -19,6 +19,12 @@ pub const GEN_BASELINES: TableDefinition<&str, &[u8]> = TableDefinition::new("ge
 pub const NOWEB_MAP: TableDefinition<&str, &[u8]> = TableDefinition::new("noweb_map");
 pub const MACRO_MAP: TableDefinition<&str, &[u8]> = TableDefinition::new("macro_map");
 pub const SRC_SNAPSHOTS: TableDefinition<&str, &[u8]> = TableDefinition::new("src_snapshots");
+/// Maps `"{var_name}\x00{src_file}\x00{pos:010}" → postcard(u32 length)`
+/// for every `%set(var_name, ...)` call site recorded during evaluation.
+pub const VAR_DEFS: TableDefinition<&str, &[u8]> = TableDefinition::new("var_defs");
+/// Maps `"{macro_name}\x00{src_file}\x00{pos:010}" → postcard(u32 length)`
+/// for every `%def/%rhaidef/%pydef(name, ...)` call site.
+pub const MACRO_DEFS: TableDefinition<&str, &[u8]> = TableDefinition::new("macro_defs");
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -71,6 +77,16 @@ pub fn macro_key(driver_file: &str, expanded_line: u32) -> String {
     format!("{}\x00{:010}", driver_file, expanded_line)
 }
 
+/// Compose a VAR_DEFS / MACRO_DEFS key.
+pub fn def_key(name: &str, src_file: &str, pos: u32) -> String {
+    format!("{}\x00{}\x00{:010}", name, src_file, pos)
+}
+
+/// Prefix used to scan all entries for a given name.
+pub fn def_prefix(name: &str) -> String {
+    format!("{}\x00", name)
+}
+
 // ---------------------------------------------------------------------------
 // AzadiDb
 // ---------------------------------------------------------------------------
@@ -109,6 +125,10 @@ impl AzadiDb {
         wtxn.open_table(MACRO_MAP)
             .map_err(|e| DbError::Db(e.to_string()))?;
         wtxn.open_table(SRC_SNAPSHOTS)
+            .map_err(|e| DbError::Db(e.to_string()))?;
+        wtxn.open_table(VAR_DEFS)
+            .map_err(|e| DbError::Db(e.to_string()))?;
+        wtxn.open_table(MACRO_DEFS)
             .map_err(|e| DbError::Db(e.to_string()))?;
         wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
 
@@ -262,6 +282,8 @@ impl AzadiDb {
         wtxn.open_table(NOWEB_MAP).map_err(|e| DbError::Db(e.to_string()))?;
         wtxn.open_table(MACRO_MAP).map_err(|e| DbError::Db(e.to_string()))?;
         wtxn.open_table(SRC_SNAPSHOTS).map_err(|e| DbError::Db(e.to_string()))?;
+        wtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
+        wtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
         wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
 
         let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
@@ -271,6 +293,8 @@ impl AzadiDb {
             copy_table(&rtxn, &wtxn, NOWEB_MAP)?;
             copy_table(&rtxn, &wtxn, MACRO_MAP)?;
             copy_table(&rtxn, &wtxn, SRC_SNAPSHOTS)?;
+            copy_table(&rtxn, &wtxn, VAR_DEFS)?;
+            copy_table(&rtxn, &wtxn, MACRO_DEFS)?;
         }
         wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
         Ok(())
@@ -317,5 +341,79 @@ impl AzadiDb {
         }
         wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
         Ok(())
+    }
+
+    // ── var_defs ─────────────────────────────────────────────────────────────
+
+    /// Record a `%set(var_name, ...)` call site.
+    /// `pos` and `length` are absolute byte offsets in `src_file`.
+    pub fn record_var_def(&self, var_name: &str, src_file: &str, pos: u32, length: u32) -> Result<(), DbError> {
+        let key = def_key(var_name, src_file, pos);
+        let val = postcard::to_allocvec(&length).map_err(DbError::Serialize)?;
+        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
+        {
+            let mut table = wtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
+            table.insert(key.as_str(), val.as_slice()).map_err(|e| DbError::Db(e.to_string()))?;
+        }
+        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Return all `(src_file, pos, length)` entries for `var_name`.
+    pub fn query_var_defs(&self, var_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
+        let prefix = def_prefix(var_name);
+        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
+        let table = rtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
+        let mut out = Vec::new();
+        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
+            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
+            let key = k.value();
+            if !key.starts_with(&prefix) { continue; }
+            // key = "{var_name}\x00{src_file}\x00{pos:010}"
+            let rest = &key[prefix.len()..];
+            if let Some(sep) = rest.rfind('\x00') {
+                let src_file = &rest[..sep];
+                let pos: u32 = rest[sep + 1..].parse().unwrap_or(0);
+                let length: u32 = postcard::from_bytes(v.value()).map_err(DbError::Serialize)?;
+                out.push((src_file.to_string(), pos, length));
+            }
+        }
+        Ok(out)
+    }
+
+    // ── macro_defs ────────────────────────────────────────────────────────────
+
+    /// Record a `%def/%rhaidef/%pydef(macro_name, ...)` call site.
+    pub fn record_macro_def(&self, macro_name: &str, src_file: &str, pos: u32, length: u32) -> Result<(), DbError> {
+        let key = def_key(macro_name, src_file, pos);
+        let val = postcard::to_allocvec(&length).map_err(DbError::Serialize)?;
+        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
+        {
+            let mut table = wtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
+            table.insert(key.as_str(), val.as_slice()).map_err(|e| DbError::Db(e.to_string()))?;
+        }
+        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Return all `(src_file, pos, length)` entries for `macro_name`.
+    pub fn query_macro_defs(&self, macro_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
+        let prefix = def_prefix(macro_name);
+        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
+        let table = rtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
+        let mut out = Vec::new();
+        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
+            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
+            let key = k.value();
+            if !key.starts_with(&prefix) { continue; }
+            let rest = &key[prefix.len()..];
+            if let Some(sep) = rest.rfind('\x00') {
+                let src_file = &rest[..sep];
+                let pos: u32 = rest[sep + 1..].parse().unwrap_or(0);
+                let length: u32 = postcard::from_bytes(v.value()).map_err(DbError::Serialize)?;
+                out.push((src_file.to_string(), pos, length));
+            }
+        }
+        Ok(out)
     }
 }

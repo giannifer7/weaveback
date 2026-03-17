@@ -88,6 +88,22 @@ impl Evaluator {
         self.state.set_variable(name, value);
     }
 
+    pub fn record_var_def(&mut self, var_name: String, src: u32, pos: u32, length: u32) {
+        self.state.var_defs.push(super::state::VarDefRaw { var_name, src, pos, length });
+    }
+
+    pub fn record_macro_def(&mut self, macro_name: String, src: u32, pos: u32, length: u32) {
+        self.state.macro_defs.push(super::state::MacroDefRaw { macro_name, src, pos, length });
+    }
+
+    pub fn drain_var_defs(&mut self) -> Vec<super::state::VarDefRaw> {
+        self.state.drain_var_defs()
+    }
+
+    pub fn drain_macro_defs(&mut self) -> Vec<super::state::MacroDefRaw> {
+        self.state.drain_macro_defs()
+    }
+
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
         self.state
             .source_manager
@@ -523,6 +539,30 @@ impl Evaluator {
         Ok(arg_out.into_parts())
     }
 
+    /// Re-tag `raw_spans` to `MacroArg { macro_name, param_name }`.
+    /// If `raw_spans` is empty but `val` is non-empty, creates a single coarse span
+    /// from `param_node` so the tracer can still identify the parameter.
+    fn tag_as_macro_arg(
+        &self,
+        raw_spans: Vec<SpanRange>,
+        val: &str,
+        param_node: &ASTNode,
+        macro_name: &str,
+        param_name: &str,
+    ) -> Vec<SpanRange> {
+        let kind = SpanKind::MacroArg {
+            macro_name: macro_name.to_string(),
+            param_name: param_name.to_string(),
+        };
+        if raw_spans.is_empty() && !val.is_empty() {
+            let mut s = self.span_of(param_node);
+            s.kind = kind;
+            vec![SpanRange { start: 0, end: val.len(), span: s }]
+        } else {
+            raw_spans.into_iter().map(|mut sr| { sr.span.kind = kind.clone(); sr }).collect()
+        }
+    }
+
     /// Like `evaluate`, but writes to an `EvalOutput` sink so that span
     /// information is available to the caller.
     pub fn evaluate_to(
@@ -575,8 +615,26 @@ impl Evaluator {
                 let var_name = self.node_text(node);
                 if let Some(tracked) = self.state.get_tracked_variable(&var_name) {
                     if tracked.spans.is_empty() {
-                        // Untracked: computed/script result or unbound parameter.
-                        out.push_untracked(&tracked.value);
+                        if out.is_tracing() && !tracked.value.is_empty() {
+                            // Emit a coarse VarBinding span so the tracer can identify the
+                            // variable and its `set_locations`.  Position points to the
+                            // %(var_name) token — i.e. the usage site, not the definition.
+                            let value = tracked.value.clone();
+                            let mut base_span = self.span_of(node);
+                            base_span.kind = SpanKind::VarBinding { var_name: var_name.clone() };
+                            let base_pos = base_span.pos;
+                            let mut offset = 0;
+                            for segment in value.split_inclusive('\n') {
+                                let mut seg_span = base_span.clone();
+                                seg_span.pos = base_pos + offset;
+                                seg_span.length = segment.len();
+                                out.push_str(segment, seg_span);
+                                offset += segment.len();
+                            }
+                        } else {
+                            // Untracked: computed/script result or unbound parameter.
+                            out.push_untracked(&tracked.value);
+                        }
                     } else {
                         // Replay each attributed range in order.
                         // Multiple ranges = full per-token threading through argument evaluation.
@@ -672,8 +730,9 @@ impl Evaluator {
         for (i, param_node) in param_nodes[..positional_count].iter().enumerate() {
             if let Some(param_name) = mac.params.get(i) {
                 if out.is_tracing() {
-                    let (val, spans) = self.evaluate_arg_to_traced(param_node)?;
-                    self.state.set_traced_variable(param_name, val, spans);
+                    let (val, raw_spans) = self.evaluate_arg_to_traced(param_node)?;
+                    let tagged = self.tag_as_macro_arg(raw_spans, &val, param_node, name, param_name);
+                    self.state.set_traced_variable(param_name, val, tagged);
                 } else {
                     let val = self.evaluate(param_node)?;
                     let mut span = self.span_of(param_node);
@@ -704,8 +763,9 @@ impl Evaluator {
                 )));
             }
             if out.is_tracing() {
-                let (val, spans) = self.evaluate_arg_to_traced(param_node)?;
-                self.state.set_traced_variable(&arg_name, val, spans);
+                let (val, raw_spans) = self.evaluate_arg_to_traced(param_node)?;
+                let tagged = self.tag_as_macro_arg(raw_spans, &val, param_node, name, &arg_name);
+                self.state.set_traced_variable(&arg_name, val, tagged);
             } else {
                 let val = self.evaluate(param_node)?;
                 let mut span = self.span_of(param_node);

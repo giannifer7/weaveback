@@ -12,7 +12,7 @@
       packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {
         pname   = "azadi";
         inherit version;
-        src     = pkgs.fetchurl { url = "${base}/azadi-musl"; sha256 = "sha256-BGLWp/9nZX3CHj9low7tAKMFQW8WiDBDQzO0kFxMpN0="; };
+        src     = pkgs.fetchurl { url = "${base}/azadi-musl"; sha256 = "sha256-OjlnyNRfbMQgl2MQjIbk2ZFv2M+xW5OEyJk0yE6lgtY="; };
         dontUnpack   = true;
         installPhase = "install -Dm755 $src $out/bin/azadi";
       };

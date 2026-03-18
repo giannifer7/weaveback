@@ -11,7 +11,7 @@ Tracing is always on — no flag needed.
 # Trace a line to its literate source
 azadi trace <out_file> <line>
 
-# Pinpoint a specific token by column (0-indexed character position)
+# Pinpoint a specific token by column (1-indexed character position)
 azadi trace <out_file> <line> --col <col>
 ```
 

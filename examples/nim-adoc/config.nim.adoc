@@ -1,0 +1,733 @@
+= Config — Application Configuration
+:toc: left
+:toclevels: 3
+:source-highlighter: rouge
+:rouge-style: gruvbox
+
+This module loads, validates, and provides defaults for all application
+configuration sourced from a TOML file. It is imported by
+link:main.nim.html[`main.nim`] during startup and by other modules that need
+path or playback settings.
+
+.Section index
+* <<sec-file-structure,File Structure>>
+* <<sec-macros,Config Variable Macros>>
+** <<sec-macro-int,`cfg_int`>> — integer database fields
+** <<sec-macro-float,`cfg_float`>> — float playback fields
+** <<sec-macro-path,`cfg_path`>> — string path fields
+* <<sec-db-fields,Database Fields>>
+* <<sec-path-fields,Path Fields>>
+* <<sec-playback-fields,Playback Fields>>
+* <<sec-types,Types>>
+* <<sec-load,Loading — `loadConfig`>>
+* <<sec-defaults,Defaults — `initDefaults`>>
+* <<sec-parse,Parsing>>
+** <<sec-parse-db,`parseDatabase`>>
+** <<sec-parse-paths,`parsePaths`>>
+** <<sec-parse-playback,`parsePlayback`>>
+** <<sec-parse-sites,`parseSites`>>
+** <<sec-parse-keys,`parseKeys`>>
+* <<sec-generate,Default Config Generation>>
+* <<sec-xdg,XDG Path Discovery>>
+* <<sec-utils,Utilities>>
+* <<sec-imports,Imports>>
+
+
+[[sec-file-structure]]
+== File Structure
+
+[source,nim]
+----
+# <[@file rompla/config.nim]>=
+# <[config preamble]>
+# <[config errors]>
+# <[config types]>
+# <[config xdg helpers]>
+# <[config find path]>
+# <[config toml helpers]>
+# <[config asset dir resolver]>
+# <[config defaults]>
+# <[config generate]>
+# <[config parse]>
+# <[config load]>
+# <[config ensure dirs]>
+# @
+----
+
+
+[[sec-macros]]
+== Config Variable Macros
+
+Each config variable has the same life-cycle: declared in the `Config` type,
+assigned a default in `initDefaults`, read from TOML in a section-specific
+parse proc, and optionally emitted into the generated template config.
+
+The three macros below capture this four-way repetition. Named parameters are
+used throughout for readability.
+
+The `commented` parameter controls the generated config line: pass `""` for a
+required field (shipped uncommented) or `"# "` for an optional field (shipped
+as a comment). The generated expression `%(commented) & "key = " & value & "\n"`
+evaluates correctly in both cases.
+
+
+[[sec-macro-int]]
+=== `cfg_int` — integer database fields
+
+Contributes to `[config db fields]` (type), `[config db defaults]`
+(initDefaults), `[config parse db]` (parseDatabase), and
+`[config generate db]` (generateDefaultConfig).
+
+[source,azadi]
+----
+%def(cfg_int, field, toml_key, default_val, commented, %{
+# <[config db fields]>=
+%(field)*: int
+# @
+# <[config db defaults]>=
+result.%(field) = %(default_val)
+# @
+# <[config parse db]>=
+cfg.%(field) = db.getInt("%(toml_key)", cfg.%(field))
+# @
+# <[config generate db]>=
+result &= %(commented) & "%(toml_key) = " & $cfg.%(field) & "\n"
+# @
+%})
+----
+
+
+[[sec-macro-float]]
+=== `cfg_float` — float playback fields
+
+Contributes to `[config playback fields]` (type), `[config playback defaults]`
+(initDefaults), `[config parse playback]` (parsePlayback), and
+`[config generate playback]` (generateDefaultConfig).
+
+[source,azadi]
+----
+%def(cfg_float, field, toml_key, default_val, commented, %{
+# <[config playback fields]>=
+%(field)*: float
+# @
+# <[config playback defaults]>=
+result.%(field) = %(default_val)
+# @
+# <[config parse playback]>=
+cfg.%(field) = pb.getFloat("%(toml_key)", cfg.%(field))
+# @
+# <[config generate playback]>=
+result &= %(commented) & "%(toml_key) = " & $cfg.%(field) & "\n"
+# @
+%})
+----
+
+
+[[sec-macro-asset-path]]
+=== `cfg_asset_path` — asset directory fields
+
+Like `cfg_path` but also contributes a `of "prefix": cfg.field` arm to the
+`[config asset prefix arms]` chunk, which is assembled into `resolveAssetDir`.
+The `prefix` is the first component of relative asset paths (e.g. `"frames"`,
+which differs from the TOML key `frames_cache`).
+
+[source,azadi]
+----
+%def(cfg_asset_path, field, toml_key, default_expr, commented, prefix, %{
+%cfg_path(field=%(field), toml_key=%(toml_key), default_expr=%(default_expr), commented=%(commented))
+# <[config asset prefix arms]>=
+of "%(prefix)": cfg.%(field)
+# @
+%})
+----
+
+[[sec-macro-data-dir]]
+=== `cfg_data_dir` — standard data subdirectory
+
+Shorthand for the common case where the field, TOML key, asset prefix, and
+default path all share the same name `n`: field `nDir`, TOML key `n`, default
+`dl / "n"`, always commented-out in the generated config.
+
+Also contributes a `cfg.nDir = cfg.dataDir / "n"` line to
+`[config rederive data dirs]`, used in `parsePaths` when the user sets the
+`data` key to relocate the whole media tree at once.
+
+[source,azadi]
+----
+%def(cfg_data_dir, n, %{
+%cfg_asset_path(field=%(n)Dir, toml_key=%(n), default_expr=%{dl / "%(n)"%}, commented="# ", prefix=%(n))
+# <[config rederive data dirs]>=
+cfg.%(n)Dir = cfg.dataDir / "%(n)"
+# @
+# <[config ensure data dirs]>=
+cfg.%(n)Dir,
+# @
+%})
+----
+
+
+[[sec-macro-path]]
+=== `cfg_path` — string path fields
+
+Contributes to `[config path fields]` (type), `[config path defaults]`
+(initDefaults), `[config parse paths overrides]` (parsePaths after the
+`data`-dir re-derivation block), and `[config generate paths]`
+(generateDefaultConfig).
+
+Default expressions are evaluated inside `initDefaults` where `dataHome`
+(XDG data home) and `dl` (`dataHome / "data"`) are in scope.
+
+The macro calls in <<sec-path-fields>> are ordered to match the desired
+section order in the generated config template (required paths first,
+optional paths commented).
+
+[source,azadi]
+----
+%def(cfg_path, field, toml_key, default_expr, commented, %{
+# <[config path fields]>=
+%(field)*: string
+# @
+# <[config path defaults]>=
+result.%(field) = %(default_expr)
+# @
+# <[config parse paths overrides]>=
+cfg.%(field) = p.getStr("%(toml_key)", cfg.%(field))
+# @
+# <[config generate paths]>=
+result &= %(commented) & "%(toml_key) = " & tomlQuote(cfg.%(field)) & "\n"
+# @
+%})
+----
+
+
+[[sec-db-fields]]
+== Database Fields
+
+Batch size for the item query pipeline and look-ahead distance for prefetch.
+Both ship as commented optional overrides in the generated config.
+
+[source,azadi]
+----
+%cfg_int(field=dbBatchSize,   toml_key=db_batch_size,  default_val=300, commented="# ")
+%cfg_int(field=prefetchAhead, toml_key=prefetch_ahead,  default_val=50,  commented="# ")
+----
+
+
+[[sec-path-fields]]
+== Path Fields
+
+All path fields are `string`-typed and resolve to OS-appropriate directories
+via the XDG helpers in <<sec-xdg>>. `dataDir` is handled manually because
+providing it in the config re-derives the subdirectory defaults. `origDbPath`
+is also manual (no generated config entry).
+
+Macro calls are ordered to match the generated config output: required paths
+first, optional paths commented out beneath them.
+
+[source,azadi]
+----
+%cfg_path(field=schema,        toml_key=schema,        default_expr=dataHome / "assets" / "schema.sql",      commented="")
+%cfg_path(field=cacheDir,      toml_key=cache,         default_expr=%{getCacheHome()%},                    commented="")
+%cfg_asset_path(field=framesDir,     toml_key=frames_cache,  default_expr=%{getCacheHome() / "frames"%},         commented="# ", prefix=frames)
+%cfg_path(field=scrapersDir,         toml_key=scrapers,      default_expr=dataHome / "assets" / "scrapers",     commented="")
+%cfg_path(field=dbPath,              toml_key=database,      default_expr=dl / "data.db",                       commented="# ")
+%cfg_data_dir(thumbs)
+%cfg_data_dir(covers)
+%cfg_data_dir(videos)
+%cfg_data_dir(previews)
+%cfg_data_dir(performers)
+%cfg_data_dir(flags)
+%cfg_path(field=scriptsDir,    toml_key=scripts,       default_expr=dataHome / "assets" / "scripts",      commented="")
+----
+
+
+[[sec-playback-fields]]
+== Playback Fields
+
+`wheelSeekAmount` ships as a required entry; volume fields are optional.
+`videoPreferences` is a `seq[int]` whose parse logic does not fit the scalar
+macro pattern and stays manual.
+
+[source,azadi]
+----
+%cfg_float(field=wheelSeekAmount, toml_key=wheel_seek_amount, default_val=5.0,   commented="")
+%cfg_float(field=initialVolume,   toml_key=initial_volume,    default_val=70.0, commented="# ")
+%cfg_float(field=volumeStep,      toml_key=volume_step,       default_val=5.0,   commented="# ")
+----
+
+
+[[sec-types]]
+== Types
+
+`ConfigNotFoundError` is raised by `createDefaultConfig` when no config file
+exists; link:main.nim.html[`main.nim`] catches it to display a helpful
+first-run message.
+
+The `Config` type groups fields by section. The macro-generated slots
+`[config db fields]`, `[config path fields]`, and `[config playback fields]`
+inject fields into their respective groups. `dataDir`, `origDbPath`,
+`videoPreferences`, `logger`, `sites`, and `keys` are declared manually.
+
+[source,nim]
+----
+# <[config errors]>=
+type ConfigNotFoundError* = ref object of CatchableError
+  configPath*: string
+# @
+
+# <[config types]>=
+type
+  SiteConfig* = object
+    name*, url*, scraper*: string
+
+  Config* = object
+    debug*: bool
+    ## Database
+    # <[config db fields]>
+    ## Paths
+    dataDir*: string         ## base data dir; setting it re-derives subdirs
+    # <[config path fields]>
+    origDbPath*: string      ## optional alternate DB path for migration tools
+    ## Playback
+    videoPreferences*: seq[int]
+    # <[config playback fields]>
+    ## Runtime (not persisted)
+    logger*: Logger
+    sites*: seq[SiteConfig]
+    keys*: Table[string, string]
+# @
+----
+
+
+[[sec-load]]
+== Loading — `loadConfig`
+
+`loadConfig` is the public entry point. It builds defaults, resolves the config
+file path (CLI arg → `ROMPLA_CONFIG_PATH` env → XDG locations → `/etc`), then
+applies each TOML section in order. If no config file exists,
+`createDefaultConfig` writes a template and raises `ConfigNotFoundError`.
+
+[source,nim]
+----
+# <[config load]>=
+proc loadConfig*(logger: Logger, path: string): Config =
+  let configPath = findConfigPath(path)
+  if configPath.len > 0:
+    logger.info("[Rompla] Loading configuration from: " & configPath)
+  result = initDefaults()
+  result.logger = logger
+  result.debug = getEnv("ROMPLA_DEBUG") in ["1", "true"]
+  if configPath.len == 0:
+    createDefaultConfig(result)
+  let toml = parsetoml.parseFile(configPath)
+  result.parseDatabase(toml)
+  result.parsePaths(toml)
+  result.parsePlayback(toml)
+  result.parseSites(toml)
+  result.parseKeys(toml)
+# @
+----
+
+
+[[sec-defaults]]
+== Defaults — `initDefaults`
+
+All defaults are computed before any TOML is read. The macro-generated slots
+`[config db defaults]`, `[config path defaults]`, and
+`[config playback defaults]` inject the scalar assignments. `dataDir`,
+`videoPreferences`, and `keys` are initialised manually.
+
+[source,nim]
+----
+# <[config defaults]>=
+proc initDefaults*(): Config =
+  let dataHome = getDataHome()
+  let dl = dataHome / "data"
+  result.dataDir = dl
+  # <[config db defaults]>
+  # <[config path defaults]>
+  result.videoPreferences = @[480, 720, 1080, 360]
+  # <[config playback defaults]>
+  result.keys = initTable[string, string]()
+  let defaultKeysToml = parsetoml.parseString(assets_embedded.defaultKeysData)
+  for key, val in defaultKeysToml.getTable().pairs():
+    if val.kind == TomlValueKind.String:
+      result.keys[key] = val.getStr()
+# @
+----
+
+
+[[sec-parse]]
+== Parsing
+
+Each TOML section is parsed by its own proc so that sections can be added,
+removed, or reordered independently.
+
+
+[[sec-parse-db]]
+=== `parseDatabase`
+
+The macro-generated `[config parse db]` slot expands to one `getInt` call
+per database field.
+
+[source,nim]
+----
+# <[config parse]>=
+proc parseDatabase(cfg: var Config, toml: TomlValueRef) =
+  if not toml.hasKey("database"):
+    return
+  let db = toml["database"]
+  # <[config parse db]>
+# @
+----
+
+
+[[sec-parse-paths]]
+=== `parsePaths`
+
+`data` is processed first. If it is present, the subdirectory defaults are
+re-derived from it so that a single key relocates the whole media tree. The
+macro-generated `[config parse paths overrides]` then applies per-field
+overrides which win over the re-derived values.
+
+[source,nim]
+----
+# <[config parse]>=
+proc parsePaths(cfg: var Config, toml: TomlValueRef) =
+  if not toml.hasKey("paths"):
+    return
+  let p = toml["paths"]
+  cfg.dataDir = p.getStr("data", cfg.dataDir)
+  if p.hasKey("data"):
+    cfg.dbPath = cfg.dataDir / "data.db"
+    # <[config rederive data dirs]>
+  # <[config parse paths overrides]>
+  cfg.origDbPath = p.getStr("orig_database", cfg.origDbPath)
+# @
+----
+
+
+[[sec-parse-playback]]
+=== `parsePlayback`
+
+`videoPreferences` is a list type and must be parsed element-by-element.
+The macro-generated `[config parse playback]` handles the float fields.
+
+[source,nim]
+----
+# <[config parse]>=
+proc parsePlayback(cfg: var Config, toml: TomlValueRef) =
+  if not toml.hasKey("playback"):
+    return
+  let pb = toml["playback"]
+  if pb.hasKey("video_preferences"):
+    cfg.videoPreferences = @[]
+    for item in pb["video_preferences"].getElems():
+      cfg.videoPreferences.add(item.getInt())
+  # <[config parse playback]>
+# @
+----
+
+
+[[sec-parse-sites]]
+=== `parseSites`
+
+Each site entry in the `[sites]` table must be a sub-table with `url` and
+`scraper` keys. Both are required: `url` is the root URL of the site and
+`scraper` is the name of the `.scm` scraper script to use.
+
+[source,nim]
+----
+# <[config parse]>=
+proc parseSites(cfg: var Config, toml: TomlValueRef) =
+  if not toml.hasKey("sites"):
+    return
+  let sitesNode = toml["sites"]
+  if sitesNode.kind == TomlValueKind.Table:
+    for key, val in sitesNode.getTable().pairs():
+      if val.kind == TomlValueKind.Table:
+        cfg.sites.add(SiteConfig(
+          name: key,
+          url: val.getStr("url", ""),
+          scraper: val.getStr("scraper", ""),
+        ))
+# @
+----
+
+
+[[sec-parse-keys]]
+=== `parseKeys`
+
+User key bindings override the defaults loaded in `initDefaults`. Any string
+value in the `[keys]` TOML table is accepted; non-string values are ignored.
+
+[source,nim]
+----
+# <[config parse]>=
+proc parseKeys(cfg: var Config, toml: TomlValueRef) =
+  if not toml.hasKey("keys"):
+    return
+  let keysNode = toml["keys"]
+  if keysNode.kind == TomlValueKind.Table:
+    for key, val in keysNode.getTable().pairs():
+      if val.kind == TomlValueKind.String:
+        cfg.keys[key] = val.getStr()
+# @
+----
+
+
+[[sec-generate]]
+== Default Config Generation
+
+`generateDefaultConfig` emits a commented TOML template for first-run users.
+Required fields ship active; optional fields ship as comments. The
+macro-generated slots inject entries in macro-call order from
+<<sec-db-fields>>, <<sec-path-fields>>, and <<sec-playback-fields>>.
+
+`createDefaultConfig` writes the template to the XDG config home and raises
+`ConfigNotFoundError` so link:main.nim.html[`main.nim`] can show a
+first-run message.
+
+[source,nim]
+----
+# <[config generate]>=
+proc tomlQuote(s: string): string =
+  "\"" & s.replace("\\", "/") & "\""
+
+proc generateDefaultConfig(cfg: Config): string =
+  result = "# Rompla configuration\n"
+  result &= "# Auto-generated for this platform. Edit paths as needed.\n\n"
+  result &= "[database]\n"
+  # <[config generate db]>
+  result &= "\n[paths]\n"
+  result &= "# Base directory for data storage (database, fonts, media).\n"
+  result &= "# All subdirectories below (thumbs, videos, etc.) default to\n"
+  result &= "# being relative to this path. Override individual ones only if needed.\n"
+  result &= "data = " & tomlQuote(cfg.dataDir) & "\n"
+  # <[config generate paths]>
+  result &= "\n[playback]\n"
+  result &= "video_preferences = [480, 720, 1080, 360]\n"
+  # <[config generate playback]>
+  result &= "\n# [sites]\n"
+  result &= "# [sites.site_name]\n"
+  result &= "# url = \"https://example.com\"\n"
+  result &= "# scraper = \"example\"\n"
+  result &= "\n[keys]\n"
+  result &= "# Default key bindings (uncomment to override):\n"
+  for line in assets_embedded.defaultKeysData.splitLines():
+    if line.len == 0 or line.startsWith("#"):
+      result &= line & "\n"
+    else:
+      result &= "# " & line & "\n"
+
+proc createDefaultConfig(cfg: Config) =
+  let configDir = getConfigHome()
+  let targetConfig = configDir / "config.toml"
+  createDir(configDir)
+  writeFile(targetConfig, generateDefaultConfig(cfg))
+  cfg.logger.warn(
+    "No configuration found. A template has been generated at: " & targetConfig
+  )
+  let e = new(ConfigNotFoundError)
+  e.msg =
+    "No configuration file was found. A default template has been created.\n" &
+    "Please edit it to configure your library sites and media directories."
+  e.configPath = targetConfig
+  raise e
+# @
+----
+
+
+[[sec-xdg]]
+== XDG Path Discovery
+
+Platform-aware helpers for locating the config, data, and cache directories.
+On Linux they respect `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and
+`XDG_CACHE_HOME`; on macOS they use `~/Library`; on Windows `APPDATA` and
+`LOCALAPPDATA`.
+
+[source,nim]
+----
+# <[config xdg helpers]>=
+proc expandPath*(path: string): string =
+  if path.startsWith("~/"):
+    getHomeDir() / path[2 ..^ 1]
+  else:
+    path
+
+proc getConfigHome(): string =
+  when defined(windows):
+    result = getEnv("APPDATA")
+    if result.len == 0:
+      result = getHomeDir() / "AppData" / "Roaming"
+    result = result / "rompla"
+  elif defined(macosx):
+    result = getEnv("XDG_CONFIG_HOME")
+    if result.len == 0:
+      result = getHomeDir() / "Library" / "Application Support"
+    result = result / "rompla"
+  else:
+    result = getEnv("XDG_CONFIG_HOME")
+    if result.len == 0:
+      result = getHomeDir() / ".config"
+    result = result / "rompla"
+
+proc getUserInitFile*(): string =
+  getConfigHome() / "init.scm"
+
+proc getDataHome*(): string =
+  when defined(windows):
+    result = getEnv("LOCALAPPDATA")
+    if result.len == 0:
+      result = getHomeDir() / "AppData" / "Local"
+    result = result / "rompla"
+  elif defined(macosx):
+    result = getEnv("XDG_DATA_HOME")
+    if result.len == 0:
+      result = getHomeDir() / "Library" / "Application Support"
+    result = result / "rompla"
+  else:
+    result = getEnv("XDG_DATA_HOME")
+    if result.len == 0:
+      result = getHomeDir() / ".local" / "share"
+    result = result / "rompla"
+
+proc getCacheHome(): string =
+  let appName = "rompla"
+  when defined(windows):
+    result = getEnv("LOCALAPPDATA")
+    if result.len == 0:
+      result = getHomeDir() / "AppData" / "Local"
+    result = result / appName / "cache"
+  elif defined(macosx):
+    result = getHomeDir() / "Library" / "Caches" / appName
+  else:
+    result = getEnv("XDG_CACHE_HOME")
+    if result.len == 0:
+      result = getHomeDir() / ".cache"
+    result = result / appName
+# @
+----
+
+`findConfigPath` searches in order: CLI argument → `ROMPLA_CONFIG_PATH` env →
+`./config.toml` → `../config.toml` → XDG config home →
+`/etc/rompla/config.toml` (non-Windows only).
+
+[source,nim]
+----
+# <[config find path]>=
+proc findConfigPath(userPath: string): string =
+  if userPath.len > 0:
+    return userPath
+  if existsEnv("ROMPLA_CONFIG_PATH"):
+    return getEnv("ROMPLA_CONFIG_PATH")
+  let defaultConfig = "config.toml"
+  for candidate in [
+    defaultConfig, ".." / defaultConfig, getConfigHome() / "config.toml"
+  ]:
+    if fileExists(candidate):
+      return candidate
+  when not defined(windows):
+    let etcPath = "/etc" / "rompla" / "config.toml"
+    if fileExists(etcPath):
+      return etcPath
+  return ""
+# @
+----
+
+
+[[sec-asset-resolver]]
+== Asset Path Resolution
+
+`resolveAssetDir` maps the first component of a relative asset path to the
+corresponding directory. The `case` arms are generated by `cfg_asset_path`
+invocations so that adding a new asset directory automatically extends the
+resolver — no manual update needed.
+
+`absolutizePath` builds on it: absolute paths pass through unchanged; relative
+paths strip the prefix, resolve the base directory, and rejoin the remainder.
+Unrecognised prefixes fall back to `dataDir`.
+
+[source,nim]
+----
+# <[config asset dir resolver]>=
+proc resolveAssetDir*(cfg: Config, prefix: string): string =
+  ## Return the base directory for the given asset path prefix.
+  ## Returns "" for unrecognised prefixes.
+  case prefix
+  # <[config asset prefix arms]>
+  else: ""
+
+proc absolutizePath*(cfg: Config, path: string): string =
+  ## Resolve a relative asset path to an absolute filesystem path.
+  ## The first component selects the base directory; absolute paths pass through.
+  ## Unrecognised prefixes fall back to config.dataDir.
+  if path.isAbsolute:
+    return path
+  let parts = path.split('/')
+  if parts.len == 0:
+    return cfg.dataDir / path
+  let baseDir = cfg.resolveAssetDir(parts[0])
+  if baseDir.len > 0:
+    return baseDir / parts[1 ..^ 1].join("/")
+  return cfg.dataDir / path
+# @
+----
+
+
+[[sec-utils]]
+== Utilities
+
+`getStr`, `getInt`, and `getFloat` are TOML node helpers that return a
+default when the key is absent. `getStr` also expands `~/` prefixes via
+`expandPath`. All three are used by the macro-generated parse lines.
+
+`ensureDirectories` creates all expected directories on first run and
+extracts bundled Scheme scripts into `scriptsDir`.
+
+[source,nim]
+----
+# <[config toml helpers]>=
+proc getStr(node: TomlValueRef, key: string, default: string): string =
+  if node.hasKey(key): expandPath(node[key].getStr()) else: default
+
+proc getInt(node: TomlValueRef, key: string, default: int): int =
+  if node.hasKey(key): node[key].getInt() else: default
+
+proc getFloat(node: TomlValueRef, key: string, default: float): float =
+  if node.hasKey(key): node[key].getFloat() else: default
+# @
+----
+
+[source,nim]
+----
+# <[config ensure dirs]>=
+proc ensureDirectories*(cfg: Config) =
+  ## Create all necessary directories if they don't exist.
+  let dirs = [
+    cfg.dataDir, cfg.cacheDir, cfg.framesDir, cfg.scrapersDir,
+    # <[config ensure data dirs]>
+    cfg.scriptsDir,
+    cfg.dbPath.parentDir(), cfg.schema.parentDir(),
+  ]
+  for d in dirs:
+    if d.len > 0 and not dirExists(d):
+      createDir(d)
+  if cfg.scriptsDir.len > 0 and dirExists(cfg.scriptsDir):
+    for (name, data) in assets_embedded.getEmbeddedScripts():
+      let path = cfg.scriptsDir / name
+      if not fileExists(path):
+        writeFile(path, data)
+# @
+----
+
+
+[[sec-imports]]
+== Imports
+
+[source,nim]
+----
+# <[config preamble]>=
+import os, strutils, parsetoml, tables, types, assets_embedded
+# @
+----

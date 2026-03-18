@@ -62,6 +62,15 @@ noweb FILE:
 example-c-enum:
     cd examples/c_enum && cargo run --package azadi -- status.md --gen .
 
+# Regenerate the nim-adoc example via meson/ninja
+example-nim-adoc:
+    meson setup examples/nim-adoc/build examples/nim-adoc --wipe
+    ninja -C examples/nim-adoc/build
+
+# Remove build intermediates from nim-adoc; keep gen/ and docs/html/ for commit
+example-nim-adoc-clean:
+    rm -rf examples/nim-adoc/build examples/nim-adoc/azadi.db
+
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
 # Build container stage: glibc | musl | windows | fedora

@@ -16,8 +16,10 @@ fn write(dir: &Path, rel: &str, content: &str) {
     fs::write(path, content).unwrap();
 }
 
-fn azadi() -> Command {
-    Command::cargo_bin("azadi").unwrap()
+fn azadi_in(dir: &Path) -> Command {
+    let mut cmd = Command::cargo_bin("azadi").unwrap();
+    cmd.current_dir(dir);
+    cmd
 }
 
 /// Common azadi-noweb delimiters used across tests.
@@ -65,7 +67,7 @@ fn test_directory_mode_processes_drivers() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -94,7 +96,7 @@ fn test_directory_mode_multiple_drivers() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -138,7 +140,7 @@ fn test_directory_mode_import_is_fragment() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -187,7 +189,7 @@ fn test_directory_mode_conditional_include_is_fragment() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -227,7 +229,7 @@ fn test_directory_mode_custom_ext() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--ext")
@@ -258,7 +260,7 @@ fn test_directory_mode_multiple_exts() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--ext")
@@ -295,7 +297,7 @@ fn test_stamp_is_written_on_success() {
 
     let stamp = root.join("build.stamp");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -328,7 +330,7 @@ fn test_env_builtin_with_allow_env() {
 
     let gen_dir = root.join("gen");
 
-    azadi()
+    azadi_in(&root)
         .env("AZADI_TEST_VAR", "hello-from-env")
         .arg("--dir")
         .arg(root.join("src"))
@@ -360,7 +362,7 @@ fn test_env_builtin_disabled_by_default() {
         "# <<@file out.txt>>=\n%env(HOME)\n# @\n",
     );
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -390,7 +392,7 @@ fn test_depfile_lists_source_files() {
     let stamp = root.join("build.stamp");
     let depfile = root.join("build.d");
 
-    azadi()
+    azadi_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")

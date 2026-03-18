@@ -285,6 +285,7 @@ impl AzadiDb {
         // Ensure the target file exists with the correct schema and WAL mode.
         {
             let t = Connection::open(target_path)?;
+            t.busy_timeout(std::time::Duration::from_secs(30))?;
             t.pragma_update(None, "journal_mode", "WAL")?;
             t.pragma_update(None, "synchronous", "NORMAL")?;
             apply_schema(&t)?;
@@ -293,6 +294,9 @@ impl AzadiDb {
         // Attach the target and copy all tables in a single write transaction.
         // Using string interpolation for ATTACH (parameterised ATTACH is not
         // supported by SQLite); single-quotes in the path are escaped.
+        // Set a generous busy_timeout so concurrent azadi processes retry
+        // instead of immediately returning SQLITE_BUSY.
+        self.conn.busy_timeout(std::time::Duration::from_secs(30))?;
         let target_str = target_path.to_string_lossy();
         let escaped = target_str.replace('\'', "''");
         self.conn

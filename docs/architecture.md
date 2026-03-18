@@ -42,8 +42,8 @@ project/
 
 `azadi.db` is a SQLite database (WAL mode) written by the tool after each
 run. It stores the modification baseline for every generated file (for
-external-edit detection), source maps for `azadi where`/`trace`, and
-snapshots of the literate sources.
+external-edit detection), source maps for tracing, and snapshots of the
+literate sources.
 
 Because the database uses WAL mode, concurrent builds (`ninja -j4`) and a
 running MCP server never contend: readers never block writers and writers
@@ -88,10 +88,10 @@ no conflict can arise.
 
 ## Propagating gen/ edits back to the source (`apply-back`)
 
-`azadi apply-back` is the inverse of `azadi`: it reads the diff between a
-modified `gen/` file and its stored baseline, uses `noweb_map` to trace each
-changed output line back to the literate source chunk and line that produced
-it, and patches the literate source in place.
+`azadi apply-back` is the batch inverse of `azadi`: it reads the diff between
+modified `gen/` files and their stored baselines, uses `noweb_map` to trace
+each changed output line back to the literate source chunk and line that
+produced it, and patches the literate source in place.
 
 ```bash
 azadi apply-back                # process all modified gen/ files
@@ -108,11 +108,85 @@ azadi apply-back --dry-run      # show what would change without writing
 - **Added or deleted lines** — reported and skipped; edit the literate
   source manually for those.
 - **Macro-generated content** (`%def`, `%rhaidef` bodies) — reported as a
-  conflict and skipped.  The source map points through the noweb level only;
-  macro-level back-propagation is not implemented.
+  conflict and skipped. The source map points through the noweb level only;
+  macro-level back-propagation is handled surgically via `azadi_apply_fix`
+  in the MCP server (see below).
 
-After applying, `apply-back` updates the baseline in `azadi.db` so the next
+After applying, `apply-back` updates the baselines in `azadi.db` so the next
 `azadi` run proceeds without a `ModifiedExternally` error.
+
+`apply-back` is a **bulk reconciliation** tool: use it when `gen/` files have
+already been edited by hand. For AI-assisted or interactive edits, prefer the
+MCP `azadi_apply_fix` tool instead.
+
+## Source tracing (`azadi trace`)
+
+`azadi` records a full source map on every run. Use it to answer
+*"where in the literate source did this output line come from?"*
+
+```bash
+azadi trace <out_file> <line>
+azadi trace <out_file> <line> --col <col>   # 1-indexed character position
+```
+
+Both line and column numbers are **1-indexed character positions**
+(multi-byte UTF-8 characters count as one position). The trace result
+includes `kind`, `src_file`, `src_line`, and — when `--col` narrows to a
+single token — the exact macro name, parameter name, or variable name that
+produced that token.
+
+See `docs/tracing.md` for the full output schema and examples.
+
+## MCP server (`azadi mcp`)
+
+`azadi mcp` exposes tracing and surgical source-editing over the
+[Model Context Protocol](https://modelcontextprotocol.io/), so IDE
+extensions and AI agents can work with literate sources without shelling out
+or doing a full rebuild.
+
+```bash
+azadi --db azadi.db --gen src mcp
+```
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `azadi_trace` | Trace a generated file line/column to its literate source. |
+| `azadi_apply_fix` | **Preferred edit tool.** Replace a line or range in the literate source and oracle-verify it produces the expected output before writing. Supports single-line (`src_line`) and multi-line (`src_line` + `src_line_end` + `new_src_lines`) replacements. |
+| `azadi_apply_back` | Bulk baseline-reconciliation. Use only when `gen/` files have already been edited by hand. |
+
+### How `azadi_apply_fix` works
+
+1. The agent calls `azadi_trace` to find `src_file:src_line`.
+2. The agent reads the source context and constructs the replacement.
+3. The agent calls `azadi_apply_fix` with:
+   - `src_file`, `src_line` (and optionally `src_line_end` for a range)
+   - `new_src_line` (single line) or `new_src_lines` (array)
+   - `out_file`, `out_line`, `expected_output` — the oracle check
+4. azadi re-expands the affected macro/chunk in memory. If the result at
+   `out_line` matches `expected_output`, the literate source is patched and
+   the baseline updated. Otherwise the call fails with a diff and no files
+   are touched.
+
+This oracle loop gives strong correctness guarantees without a full rebuild.
+
+### Claude Code / Claude Desktop configuration
+
+Add a `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "azadi": {
+      "command": "azadi",
+      "args": ["--db", "azadi.db", "--gen", "src", "mcp"]
+    }
+  }
+}
+```
+
+Adjust `--gen` to match your project's generated-file directory.
 
 ## Build-system integration
 

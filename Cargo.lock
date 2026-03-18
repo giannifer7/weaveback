@@ -160,7 +160,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "azadi"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "assert_cmd",
  "azadi-macros",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "azadi-macros"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "azadi-noweb"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "assert_cmd",
  "chrono",

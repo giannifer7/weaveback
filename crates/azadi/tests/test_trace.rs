@@ -52,6 +52,24 @@ fn where_json(dir: &Path, out_file: &str, line: u32) -> Value {
         .unwrap_or_else(|e| panic!("bad JSON from 'azadi where': {e}\nstdout: {}", String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Run `azadi trace <out_file> <line> --col <col>` from `dir` and parse JSON output.
+fn trace_col_json(dir: &Path, out_file: &str, line: u32, col: u32) -> Value {
+    let out = azadi()
+        .arg("--gen").arg(".")
+        .arg("trace").arg(out_file).arg(line.to_string())
+        .arg("--col").arg(col.to_string())
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "azadi trace --col failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("bad JSON from 'azadi trace --col': {e}\nstdout: {}", String::from_utf8_lossy(&out.stdout)))
+}
+
 /// Run `azadi trace <out_file> <line>` from `dir` and parse JSON output.
 fn trace_json(dir: &Path, out_file: &str, line: u32) -> Value {
     let out = azadi()
@@ -223,6 +241,68 @@ fn test_trace_always_has_macro_fields() {
         "kind should be present, got: {j}");
     assert_eq!(j["kind"], "MacroBody");
     assert_eq!(j["macro_name"], "msg");
+}
+
+// ── Column tracing with multi-byte characters ─────────────────────────────────
+
+/// Output line: "hello 世界!" — ASCII prefix, then two CJK chars (3 bytes each), then '!'.
+/// The macro arg "世界" spans chars 7-8; the surrounding literal spans chars 1-6 and 9.
+/// Verifies that --col with 1-indexed character positions correctly distinguishes spans
+/// across the byte boundary between ASCII and multi-byte characters.
+#[test]
+fn test_trace_col_multibyte_distinguishes_spans() {
+    let tmp = TempDir::new().unwrap();
+    // Output: "hello 世界!"
+    //  char:   123456 78   9
+    //  MacroBody: h,e,l,l,o,' ' (chars 1-6) and '!' (char 9)
+    //  MacroArg:  世,界 (chars 7-8)
+    let root = run_azadi(&tmp,
+        "%def(greet, lang, hello %(lang)!)\n\
+         # <[@file out.txt]>=\n\
+         %greet(世界)\n\
+         # @\n",
+    );
+
+    let j_ascii  = trace_col_json(&root, "out.txt", 1, 1); // 'h' → MacroBody
+    let j_first  = trace_col_json(&root, "out.txt", 1, 7); // '世' → MacroArg
+    let j_second = trace_col_json(&root, "out.txt", 1, 8); // '界' → MacroArg
+    let j_suffix = trace_col_json(&root, "out.txt", 1, 9); // '!' → MacroBody
+
+    assert_eq!(j_ascii["kind"],  "MacroBody", "char 1 ('h'): {j_ascii}");
+    assert_eq!(j_first["kind"],  "MacroArg",  "char 7 ('世'): {j_first}");
+    assert_eq!(j_second["kind"], "MacroArg",  "char 8 ('界'): {j_second}");
+    assert_eq!(j_suffix["kind"], "MacroBody", "char 9 ('!'): {j_suffix}");
+
+    assert_eq!(j_first["param_name"],  "lang", "param_name for '世'");
+    assert_eq!(j_second["param_name"], "lang", "param_name for '界'");
+}
+
+/// Same with 2-byte characters (é = U+00E9): col picks the right span across
+/// a 2-byte boundary.
+#[test]
+fn test_trace_col_two_byte_chars() {
+    let tmp = TempDir::new().unwrap();
+    // Output: "héllo résumé!"
+    // %def(fmt, word, héllo %(word)!)  →  %fmt(résumé)  →  "héllo résumé!"
+    //  h(1)é(2)l(3)l(4)o(5) (6)r(7)é(8)s(9)u(10)m(11)é(12)!(13)
+    //  MacroBody: "héllo " (chars 1-6) and "!" (char 13)
+    //  MacroArg:  "résumé" (chars 7-12)
+    let root = run_azadi(&tmp,
+        "%def(fmt, word, héllo %(word)!)\n\
+         # <[@file out.txt]>=\n\
+         %fmt(résumé)\n\
+         # @\n",
+    );
+
+    let j_body = trace_col_json(&root, "out.txt", 1, 1);  // 'h' → MacroBody
+    let j_arg  = trace_col_json(&root, "out.txt", 1, 7);  // 'r' of résumé → MacroArg
+    let j_e    = trace_col_json(&root, "out.txt", 1, 8);  // 'é' of résumé → MacroArg
+    let j_end  = trace_col_json(&root, "out.txt", 1, 13); // '!' → MacroBody
+
+    assert_eq!(j_body["kind"], "MacroBody", "char 1 ('h'): {j_body}");
+    assert_eq!(j_arg["kind"],  "MacroArg",  "char 7 ('r'): {j_arg}");
+    assert_eq!(j_e["kind"],    "MacroArg",  "char 8 ('é'): {j_e}");
+    assert_eq!(j_end["kind"],  "MacroBody", "char 13 ('!'): {j_end}");
 }
 
 // ── Speed: absolute timing ────────────────────────────────────────────────────

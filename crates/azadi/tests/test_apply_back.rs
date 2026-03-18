@@ -169,44 +169,44 @@ fn test_trace_macro_body_with_def_locations() {
 
 // ── azadi trace --col: MacroArg(field) ───────────────────────────────────────
 
-/// `result.batchSize = 300`:  `result.` is 7 bytes, so col 7 is the first
-/// byte of `batchSize` — a MacroArg bound to the `field` parameter.
+/// `result.batchSize = 300`:  `result.` is 7 chars, so col 8 is the first
+/// character of `batchSize` — a MacroArg bound to the `field` parameter.
 #[test]
 fn test_trace_macro_arg_field_col() {
     let tmp = TempDir::new().unwrap();
     let root = build(&tmp);
 
     //  r e s u l t .  b ...
-    //  0 1 2 3 4 5 6  7
-    let j = trace_at(&root, "config.nim", 1, Some(7));
+    //  1 2 3 4 5 6 7  8    (1-indexed character positions)
+    let j = trace_at(&root, "config.nim", 1, Some(8));
     assert_eq!(j["kind"], "MacroArg",
-        "expected MacroArg at col 7 (batchSize), full trace: {j}");
+        "expected MacroArg at col 8 (batchSize), full trace: {j}");
     assert_eq!(j["macro_name"], "cfg_int");
     assert_eq!(j["param_name"], "field");
 }
 
 // ── azadi trace --col: MacroArg(default_val) ─────────────────────────────────
 
-/// `result.batchSize = 300`:  `result.batchSize = ` is 19 bytes, so col 19
-/// is the first byte of `300` — a MacroArg bound to `default_val`.
+/// `result.batchSize = 300`:  `result.batchSize = ` is 19 chars, so col 20
+/// is the first character of `300` — a MacroArg bound to `default_val`.
 #[test]
 fn test_trace_macro_arg_default_val_col() {
     let tmp = TempDir::new().unwrap();
     let root = build(&tmp);
 
-    //  r e s u l t . b a t c h S i z e   =   3 ...
-    //  0 1 2 3 4 5 6 7 8 9 ...       16 17 18 19
-    let j = trace_at(&root, "config.nim", 1, Some(19));
+    //  r e s u l t . b a t c h S i z e   =   3  ...
+    //  1 2 3 4 5 6 7 8 9 ...           17 18 19 20   (1-indexed)
+    let j = trace_at(&root, "config.nim", 1, Some(20));
     assert_eq!(j["kind"], "MacroArg",
-        "expected MacroArg at col 19 (300), full trace: {j}");
+        "expected MacroArg at col 20 (300), full trace: {j}");
     assert_eq!(j["macro_name"], "cfg_int");
     assert_eq!(j["param_name"], "default_val");
 }
 
 // ── azadi trace --col: VarBinding with set_locations ─────────────────────────
 
-/// `# module: config`:  `# module: ` is 10 bytes, so col 10 is the first
-/// byte of `config` — a VarBinding from `%(module_name)`.
+/// `# module: config`:  `# module: ` is 10 chars, so col 11 is the first
+/// character of `config` — a VarBinding from `%(module_name)`.
 /// The `set_locations` array must point to the `%set(module_name, config)`
 /// call in driver.md.
 #[test]
@@ -214,9 +214,9 @@ fn test_trace_var_binding_with_set_locations() {
     let tmp = TempDir::new().unwrap();
     let root = build(&tmp);
 
-    //  #   m o d u l e :   c ...
-    //  0 1 2 3 4 5 6 7 8 9 10
-    let j = trace_at(&root, "header.nim", 2, Some(10));
+    //  #   m o d u l e :    c  ...
+    //  1 2 3 4 5 6 7 8 9 10 11     (1-indexed character positions)
+    let j = trace_at(&root, "header.nim", 2, Some(11));
     assert_eq!(j["kind"], "VarBinding",
         "expected VarBinding at col 10 (config), full trace: {j}");
     assert_eq!(j["var_name"], "module_name");
@@ -237,24 +237,24 @@ fn test_trace_var_binding_with_set_locations() {
 
 // ── col disambiguation: same line, different tokens ──────────────────────────
 
-/// Verify that col=0 and col=7 on the same output line return different kinds,
-/// confirming sub-line granularity works end-to-end.
+/// Verify that col=1 and col=8 on the same output line return different kinds,
+/// confirming sub-line granularity works end-to-end (all 1-indexed char positions).
 #[test]
 fn test_trace_col_distinguishes_literal_from_arg() {
     let tmp = TempDir::new().unwrap();
     let root = build(&tmp);
 
-    let at_0  = trace_at(&root, "config.nim", 1, Some(0));
-    let at_7  = trace_at(&root, "config.nim", 1, Some(7));
-    let at_19 = trace_at(&root, "config.nim", 1, Some(19));
+    let at_1  = trace_at(&root, "config.nim", 1, Some(1));
+    let at_8  = trace_at(&root, "config.nim", 1, Some(8));
+    let at_20 = trace_at(&root, "config.nim", 1, Some(20));
 
-    assert_eq!(at_0["kind"],  "MacroBody", "col 0: {at_0}");
-    assert_eq!(at_7["kind"],  "MacroArg",  "col 7: {at_7}");
-    assert_eq!(at_19["kind"], "MacroArg",  "col 19: {at_19}");
+    assert_eq!(at_1["kind"],  "MacroBody", "col 1: {at_1}");
+    assert_eq!(at_8["kind"],  "MacroArg",  "col 8: {at_8}");
+    assert_eq!(at_20["kind"], "MacroArg",  "col 20: {at_20}");
 
     // Both MacroArg spans come from different params of the same macro call
-    assert_eq!(at_7["param_name"],  "field",       "col 7 param: {at_7}");
-    assert_eq!(at_19["param_name"], "default_val", "col 19 param: {at_19}");
+    assert_eq!(at_8["param_name"],  "field",       "col 8 param: {at_8}");
+    assert_eq!(at_20["param_name"], "default_val", "col 20 param: {at_20}");
 }
 
 // ── azadi apply-back: literal line ───────────────────────────────────────────

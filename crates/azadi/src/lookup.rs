@@ -100,13 +100,15 @@ pub fn perform_trace(
     match process_string_precise(&src_content, Some(src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;
-            // `col` is the byte offset in the *output* file line, which has
-            // `nw_entry.indent` prepended by noweb.  The expanded text has no
-            // such indent, so subtract it before querying the span map.
-            let indent_len = nw_entry.indent.len() as u32;
-            if col >= indent_len {
-                let adjusted_col = col - indent_len;
-                if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, adjusted_col) {
+            // `col` is a 1-indexed character position in the *output* file line,
+            // which has `nw_entry.indent` prepended by noweb.  Subtract the
+            // indent char count, then convert to 0-indexed before querying the
+            // span map.  col=0 is treated as col=1 (default: start of line).
+            let indent_char_len = nw_entry.indent.chars().count() as u32;
+            let col_1 = col.max(1);
+            if col_1 > indent_char_len {
+                let adjusted_col_0 = col_1 - 1 - indent_char_len;
+                if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, adjusted_col_0) {
                     append_span_fields(&mut result, span, &evaluator);
                     let obj = result.as_object_mut().unwrap();
                     match &span.kind {
@@ -130,16 +132,16 @@ pub fn perform_trace(
     Ok(Some(result))
 }
 
-/// Find the `SourceSpan` covering the first byte of 0-indexed `line_0`
-/// in the given expanded text and span ranges.
+/// Find the `SourceSpan` covering `col_char_0` (0-indexed character position)
+/// of 0-indexed `line_0` in the given expanded text and span ranges.
 fn span_at_line<'a>(
     expanded: &str,
     ranges: &'a [SpanRange],
     line_0: u32,
-    col: u32,
+    col_char_0: u32,
 ) -> Option<&'a SourceSpan> {
-    let byte_offset = if line_0 == 0 {
-        col as usize
+    let line_start = if line_0 == 0 {
+        0usize
     } else {
         let mut count = 0u32;
         let mut found = None;
@@ -147,14 +149,21 @@ fn span_at_line<'a>(
             if b == b'\n' {
                 count += 1;
                 if count == line_0 {
-                    found = Some(i + 1 + col as usize);
+                    found = Some(i + 1);
                     break;
                 }
             }
         }
         found?
     };
-    PreciseTracingOutput::span_at_byte(ranges, byte_offset)
+    // Convert 0-indexed char position to byte offset within the line.
+    let line_text = &expanded[line_start..];
+    let byte_col = line_text
+        .char_indices()
+        .nth(col_char_0 as usize)
+        .map(|(i, _)| i)
+        .unwrap_or(line_text.len());
+    PreciseTracingOutput::span_at_byte(ranges, line_start + byte_col)
 }
 
 /// Append macro-level fields to `result` from `span`.
@@ -171,12 +180,12 @@ fn append_span_fields(
         return;
     };
     let src_content = String::from_utf8_lossy(src_bytes);
-    let (src_line, src_col) = find_line_col_0_indexed(&src_content, span.pos);
+    let (src_line_1, src_col_1) = find_line_col(&src_content, span.pos);
 
     let obj = result.as_object_mut().unwrap();
     obj.insert("src_file".into(), Value::String(src_path.to_string_lossy().into_owned()));
-    obj.insert("src_line".into(), Value::Number((src_line + 1).into()));
-    obj.insert("src_col".into(), Value::Number(src_col.into()));
+    obj.insert("src_line".into(), Value::Number(src_line_1.into()));
+    obj.insert("src_col".into(), Value::Number(src_col_1.into()));
 
     let kind_str = match &span.kind {
         SpanKind::Literal => "Literal",
@@ -203,7 +212,7 @@ fn append_span_fields(
 }
 
 /// Look up definition sites from the db and append them to `obj` as a JSON array.
-/// Each entry has `file`, `line` (1-indexed), and `col` (UTF-8 char count, 0-indexed).
+/// Each entry has `file`, `line` (1-indexed), and `col` (1-indexed character position).
 /// `use_var_defs`: true → query VAR_DEFS, false → query MACRO_DEFS.
 fn append_def_locations(
     obj: &mut serde_json::Map<String, Value>,
@@ -223,11 +232,11 @@ fn append_def_locations(
         // Resolve position → (line, col) using the stored snapshot.
         let bytes = db.get_src_snapshot(&src_file).ok()??;
         let text = String::from_utf8_lossy(&bytes);
-        let (line_0, col) = find_line_col_0_indexed(&text, pos as usize);
+        let (line_1, col_1) = find_line_col(&text, pos as usize);
         Some(json!({
             "file": src_file,
-            "line": line_0 + 1,
-            "col":  col,
+            "line": line_1,
+            "col":  col_1,
         }))
     }).collect();
     if !locations.is_empty() {
@@ -235,13 +244,86 @@ fn append_def_locations(
     }
 }
 
-fn find_line_col_0_indexed(text: &str, byte_offset: usize) -> (u32, u32) {
+/// Returns (line, col) both 1-indexed; col counts UTF-8 characters.
+fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     let offset = byte_offset.min(text.len());
     let prefix = &text[..offset];
-    let newlines = prefix.bytes().filter(|&b| b == b'\n').count() as u32;
+    let line_1 = prefix.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
     let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = prefix[line_start..].chars().count() as u32;
-    (newlines, col)
+    let col_1 = prefix[line_start..].chars().count() as u32 + 1;
+    (line_1, col_1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_line_col;
+
+    // ── ASCII ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ascii_start() {
+        assert_eq!(find_line_col("hello", 0), (1, 1));
+    }
+
+    #[test]
+    fn ascii_middle() {
+        // 'l' at byte 2 is the 3rd character
+        assert_eq!(find_line_col("hello", 2), (1, 3));
+    }
+
+    #[test]
+    fn ascii_end() {
+        // 'o' at byte 4 is the 5th character
+        assert_eq!(find_line_col("hello", 4), (1, 5));
+    }
+
+    #[test]
+    fn ascii_multiline() {
+        let s = "foo\nbar\nbaz";
+        assert_eq!(find_line_col(s, 0), (1, 1)); // 'f'
+        assert_eq!(find_line_col(s, 4), (2, 1)); // 'b' on line 2
+        assert_eq!(find_line_col(s, 6), (2, 3)); // 'r' — col 3 on line 2
+        assert_eq!(find_line_col(s, 8), (3, 1)); // 'b' on line 3
+    }
+
+    // ── 2-byte characters (U+00E9 é = 0xC3 0xA9) ─────────────────────────────
+
+    #[test]
+    fn two_byte_char_positions() {
+        // "héllo": h(0), é(1-2), l(3), l(4), o(5)  — bytes
+        //           1       2     3     4     5      — chars (1-indexed)
+        let s = "héllo";
+        assert_eq!(find_line_col(s, 0), (1, 1)); // 'h'
+        assert_eq!(find_line_col(s, 1), (1, 2)); // 'é' (first byte of é)
+        assert_eq!(find_line_col(s, 3), (1, 3)); // first 'l'
+        assert_eq!(find_line_col(s, 4), (1, 4)); // second 'l'
+        assert_eq!(find_line_col(s, 5), (1, 5)); // 'o'
+    }
+
+    // ── 3-byte characters (CJK, each char = 3 bytes) ─────────────────────────
+
+    #[test]
+    fn three_byte_char_positions() {
+        // "日本語": 日(0-2), 本(3-5), 語(6-8)  — bytes
+        //            1         2        3       — chars (1-indexed)
+        let s = "日本語";
+        assert_eq!(find_line_col(s, 0), (1, 1)); // '日'
+        assert_eq!(find_line_col(s, 3), (1, 2)); // '本'
+        assert_eq!(find_line_col(s, 6), (1, 3)); // '語'
+    }
+
+    // ── Multi-line with multi-byte chars ──────────────────────────────────────
+
+    #[test]
+    fn multiline_mixed() {
+        // line 1: "héllo"  (5 chars, 6 bytes) + '\n' at byte 6
+        // line 2: "日本語" (3 chars, 9 bytes)
+        let s = "héllo\n日本語";
+        assert_eq!(find_line_col(s, 1), (1, 2)); // 'é' → line 1, char 2
+        assert_eq!(find_line_col(s, 7), (2, 1)); // '日' → line 2, char 1
+        assert_eq!(find_line_col(s, 10), (2, 2)); // '本' → line 2, char 2
+        assert_eq!(find_line_col(s, 13), (2, 3)); // '語' → line 2, char 3
+    }
 }
 
 pub fn normalize_path_pub(out_file: &str, gen_dir: &Path) -> String {

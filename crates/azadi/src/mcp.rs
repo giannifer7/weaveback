@@ -45,14 +45,14 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" },
                                     "out_line": { "type": "integer", "description": "1-indexed line number in the generated file" },
-                                    "out_col":  { "type": "integer", "description": "Byte column within the output line (0-indexed, default 0). Use to pinpoint a specific token." }
+                                    "out_col":  { "type": "integer", "description": "1-indexed character position within the output line (default 1). Use to pinpoint a specific token." }
                                 },
                                 "required": ["out_file", "out_line"]
                             }
                         },
                         {
                             "name": "azadi_apply_back",
-                            "description": "Propagate edits made in gen/ files back to the literate source. Diffs each modified gen/ file against its stored baseline, traces each changed line to its origin (noweb + macro level), and patches the literate source with oracle verification. Returns a report of what was patched, skipped, or needs manual attention.",
+                            "description": "Bulk baseline-reconciliation tool: propagate edits already made directly in gen/ files back to the literate source. Use this only when gen/ files have been edited by hand and you need to reconcile the baseline. For intentional fixes where you know what the source should look like, prefer azadi_apply_fix (oracle-verified, surgical, no full rebuild needed). azadi_apply_back diffs each modified gen/ file against its stored baseline, traces each changed line to its noweb+macro origin, and patches the literate source. Returns a report of what was patched, skipped, or needs manual attention.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
@@ -64,18 +64,20 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         },
                         {
                             "name": "azadi_apply_fix",
-                            "description": "Apply a source edit and verify it produces the desired output line. Use this after reading the literate source, determining a fix, and wanting to apply it safely. The tool re-evaluates the macro expander as an oracle — the edit is written only if the expected output line is produced.",
+                            "description": "**Preferred tool for all literate-source edits.** Apply a source edit (single line or multi-line range) and oracle-verify it produces the expected output before writing. Workflow: (1) use azadi_trace to find src_file/src_line, (2) read the source, (3) call this tool with the replacement and the expected output line. The macro expander re-runs as an oracle — the file is written only if the expected output is produced, making the edit safe to apply without a full rebuild. Use apply_back only when you have already edited gen/ files directly and need to reconcile the baseline.",
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
                                     "src_file":        { "type": "string",  "description": "Absolute path of the literate source file to edit" },
-                                    "src_line":        { "type": "integer", "description": "1-indexed line to replace in src_file" },
-                                    "new_src_line":    { "type": "string",  "description": "Replacement text for that line (without trailing newline)" },
+                                    "src_line":        { "type": "integer", "description": "1-indexed first line to replace in src_file" },
+                                    "src_line_end":    { "type": "integer", "description": "1-indexed last line of the replacement range (inclusive, defaults to src_line for single-line edits)" },
+                                    "new_src_line":    { "type": "string",  "description": "Replacement text when replacing a single line (without trailing newline)" },
+                                    "new_src_lines":   { "type": "array", "items": { "type": "string" }, "description": "Replacement lines for multi-line edits (each element is one line without trailing newline); overrides new_src_line when present" },
                                     "out_file":        { "type": "string",  "description": "Generated file path (used for oracle lookup)" },
                                     "out_line":        { "type": "integer", "description": "1-indexed line in the generated file (oracle check point)" },
-                                    "expected_output": { "type": "string",  "description": "The exact output line content expected after the fix (indent-stripped)" }
+                                    "expected_output": { "type": "string",  "description": "The exact content of out_line expected after the fix (indent-stripped); oracle rejects the edit if this does not match" }
                                 },
-                                "required": ["src_file", "src_line", "new_src_line", "out_file", "out_line", "expected_output"]
+                                "required": ["src_file", "src_line", "out_file", "out_line", "expected_output"]
                             }
                         }
                     ]
@@ -138,20 +140,31 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             send_error(id, "Missing arguments");
                             continue;
                         };
-                        let src_file     = input.get("src_file")       .and_then(|v| v.as_str()).unwrap_or("");
-                        let src_line_1   = input.get("src_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                        let new_src_line = input.get("new_src_line")    .and_then(|v| v.as_str()).unwrap_or("");
-                        let out_file     = input.get("out_file")        .and_then(|v| v.as_str()).unwrap_or("");
-                        let out_line_1   = input.get("out_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                        let expected     = input.get("expected_output") .and_then(|v| v.as_str()).unwrap_or("");
+                        let src_file   = input.get("src_file")       .and_then(|v| v.as_str()).unwrap_or("");
+                        let src_line_1 = input.get("src_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let src_line_end_1 = input.get("src_line_end").and_then(|v| v.as_u64())
+                            .map(|v| v as usize).unwrap_or(src_line_1);
+                        let new_lines: Vec<String> = if let Some(arr) = input.get("new_src_lines").and_then(|v| v.as_array()) {
+                            arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+                        } else {
+                            let s = input.get("new_src_line").and_then(|v| v.as_str()).unwrap_or("");
+                            vec![s.to_string()]
+                        };
+                        let out_file   = input.get("out_file")        .and_then(|v| v.as_str()).unwrap_or("");
+                        let out_line_1 = input.get("out_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let expected   = input.get("expected_output") .and_then(|v| v.as_str()).unwrap_or("");
 
                         if src_line_1 == 0 {
                             send_error(id, "src_line must be >= 1");
                             continue;
                         }
+                        if src_line_end_1 < src_line_1 {
+                            send_error(id, "src_line_end must be >= src_line");
+                            continue;
+                        }
 
                         let db = if db_path.exists() { AzadiDb::open_read_only(&db_path).ok() } else { None };
-                        match apply_fix(src_file, src_line_1 - 1, new_src_line, out_file, out_line_1, expected, &db, &gen_dir, &eval_config) {
+                        match apply_fix(src_file, src_line_1, src_line_end_1, &new_lines, out_file, out_line_1, expected, &db, &gen_dir, &eval_config) {
                             Ok(msg) => send_text(id, &msg),
                             Err(e)  => send_error(id, &e),
                         }
@@ -170,19 +183,21 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 
 // ── azadi_apply_fix implementation ───────────────────────────────────────────
 
-/// Read `src_file`, replace line at `src_line_0` with `new_src_line`,
-/// re-evaluate with the macro expander, and check that line `out_line_1`
-/// (1-indexed) of the *expanded intermediate* equals `expected`.
+/// Read `src_file`, replace lines `src_line_1..=src_line_end_1` (1-indexed) with
+/// `new_lines`, re-evaluate with the macro expander, and check that line
+/// `out_line_1` (1-indexed) of the *expanded intermediate* equals `expected`.
 ///
-/// Uses `noweb_map` to find the intermediate line index corresponding to
-/// `out_file:out_line_1`, then verifies the expanded output.
+/// For single-line edits pass `src_line_end_1 == src_line_1`.
+/// All line numbers are 1-indexed (matching editor conventions); conversion to
+/// 0-indexed happens internally.
 ///
 /// Returns `Ok(message)` on success (file written), `Err(reason)` on failure.
 #[allow(clippy::too_many_arguments)]
 fn apply_fix(
     src_file: &str,
-    src_line_0: usize,
-    new_src_line: &str,
+    src_line_1: usize,
+    src_line_end_1: usize,
+    new_lines: &[String],
     out_file: &str,
     out_line_1: u32,
     expected: &str,
@@ -199,24 +214,37 @@ fn apply_fix(
         .map_err(|e| format!("db error: {e}"))?
         .ok_or_else(|| format!("No noweb map entry for {}:{}", out_file, out_line_1))?;
 
-    let expanded_line_0 = nw_entry.src_line as usize;
+    let expanded_line_1 = nw_entry.src_line as usize + 1; // keep 1-indexed for reporting
 
     // Read the source file.
     let content = std::fs::read_to_string(src_file)
         .map_err(|e| format!("Cannot read {src_file}: {e}"))?;
-    let mut lines: Vec<&str> = content.lines().collect();
-    if src_line_0 >= lines.len() {
-        return Err(format!("src_line {} out of range (file has {} lines)", src_line_0 + 1, lines.len()));
+    let orig_lines: Vec<&str> = content.lines().collect();
+    let file_len = orig_lines.len();
+
+    if src_line_1 > file_len {
+        return Err(format!("src_line {src_line_1} out of range (file has {file_len} lines)"));
+    }
+    if src_line_end_1 > file_len {
+        return Err(format!("src_line_end {src_line_end_1} out of range (file has {file_len} lines)"));
     }
 
-    let old_line = lines[src_line_0].to_string();
-    lines[src_line_0] = new_src_line;
+    let lo = src_line_1 - 1;
+    let hi = src_line_end_1 - 1;
+    let removed: Vec<String> = orig_lines[lo..=hi].iter().map(|s| s.to_string()).collect();
+
+    let patched_lines: Vec<&str> = orig_lines[..lo]
+        .iter().copied()
+        .chain(new_lines.iter().map(|s| s.as_str()))
+        .chain(orig_lines[hi + 1..].iter().copied())
+        .collect();
+
     let had_trailing_newline = content.ends_with('\n');
-    let mut patched = lines.join("\n");
+    let mut patched = patched_lines.join("\n");
     if had_trailing_newline { patched.push('\n'); }
 
     // Oracle: re-evaluate and check expanded line.
-    // Use a synthetic path so parse_string uses `patched` directly
+    // Use a synthetic path so process_string uses `patched` directly
     // rather than re-reading the original file from disk.
     let oracle_path = std::path::Path::new(src_file).with_file_name("<oracle>");
     let mut evaluator = Evaluator::new(eval_config.clone());
@@ -224,8 +252,8 @@ fn apply_fix(
         .map_err(|e| format!("Evaluation error: {e:?}"))?;
     let expanded = String::from_utf8_lossy(&expanded_bytes);
 
-    let actual_line = expanded.lines().nth(expanded_line_0)
-        .ok_or_else(|| format!("Expanded output has fewer than {} lines", expanded_line_0 + 1))?;
+    let actual_line = expanded.lines().nth(expanded_line_1 - 1)
+        .ok_or_else(|| format!("Expanded output has fewer than {expanded_line_1} lines"))?;
 
     if actual_line != expected {
         return Err(format!(
@@ -238,9 +266,20 @@ fn apply_fix(
     std::fs::write(src_file, &patched)
         .map_err(|e| format!("Cannot write {src_file}: {e}"))?;
 
+    let range_desc = if src_line_1 == src_line_end_1 {
+        format!("{}:{}", src_file, src_line_1)
+    } else {
+        format!("{}:{}-{}", src_file, src_line_1, src_line_end_1)
+    };
     Ok(format!(
-        "Applied: {}:{} {:?} → {:?}\nOracle verified: expanded line {} = {:?}",
-        src_file, src_line_0 + 1, old_line, new_src_line, expanded_line_0 + 1, expected,
+        "Applied: {} — replaced {} line(s) with {} line(s)\n  old: {}\n  new: {}\nOracle verified: expanded line {} = {:?}",
+        range_desc,
+        removed.len(),
+        new_lines.len(),
+        removed.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", "),
+        new_lines.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>().join(", "),
+        expanded_line_1,
+        expected,
     ))
 }
 

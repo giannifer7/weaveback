@@ -44,10 +44,10 @@ enum Commands {
     Trace {
         out_file: String,
         line: u32,
-        /// Byte column within the output line (0-indexed).
-        /// Defaults to 0 (first byte).  Use this to look past a structural
+        /// 1-indexed character position within the output line.
+        /// Defaults to 1 (first character).  Use this to look past a structural
         /// wrapper and find the token that produced a specific sub-expression.
-        #[arg(long, default_value = "0")]
+        #[arg(long, default_value = "1")]
         col: u32,
     },
     /// Find the noweb chunk that produced output line

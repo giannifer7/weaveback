@@ -190,13 +190,13 @@ fn test_mcp_trace_macro_arg_with_col() {
     build(&root, DRIVER);
 
     // config.nim line 1 = "result.batchSize = 300"
-    // col 7 = 'b' of batchSize → MacroArg(field)
+    // col 8 = 'b' of batchSize (1-indexed char position) → MacroArg(field)
     let mut msgs = handshake();
     msgs.push(json!({
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": {
             "name": "azadi_trace",
-            "arguments": { "out_file": "config.nim", "out_line": 1, "out_col": 7 }
+            "arguments": { "out_file": "config.nim", "out_line": 1, "out_col": 8 }
         }
     }));
 

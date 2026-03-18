@@ -40,11 +40,25 @@ project/
 └── azadi.db               source-map and modification-baseline database
 ```
 
-`azadi.db` is a [redb](https://github.com/cberner/redb) database written by
-the tool after each run. It stores the modification baseline for every generated
-file (for external-edit detection), source maps for `azadi where`/`trace`, and
-snapshots of the literate sources. Commit `gen/` to version control; add
-`azadi.db` to `.gitignore`.
+`azadi.db` is a SQLite database (WAL mode) written by the tool after each
+run. It stores the modification baseline for every generated file (for
+external-edit detection), source maps for `azadi where`/`trace`, and
+snapshots of the literate sources.
+
+Because the database uses WAL mode, concurrent builds (`ninja -j4`) and a
+running MCP server never contend: readers never block writers and writers
+never block readers. Each azadi process accumulates its writes in an
+in-memory database and flushes everything to `azadi.db` in a single
+transaction at the end of the run.
+
+The file is a standard SQLite database and can be inspected directly:
+
+```bash
+sqlite3 azadi.db .tables
+sqlite3 azadi.db "SELECT out_file, out_line, src_file, src_line FROM noweb_map LIMIT 10"
+```
+
+Commit `gen/` to version control; add `azadi.db` to `.gitignore`.
 
 ## Content-based writes
 

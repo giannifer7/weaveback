@@ -1,30 +1,71 @@
-// src/db.rs  —  azadi embedded database (redb-backed)
+// src/db.rs  —  azadi persistent database (SQLite, WAL mode)
 //
 // Tables:
-//   gen_baselines  : relative-output-path → file-content bytes
-//                    Used by SafeFileWriter for modification detection.
-//   noweb_map      : "<out_file>\x00<out_line:010>" → postcard(NowebMapEntry)
-//                    Maps each output line back to its source.
-//   src_snapshots  : source-path → file-content bytes
-//                    Snapshots of input files written at the end of a run.
+//   gen_baselines : path TEXT PK  → content BLOB
+//   noweb_map     : (out_file, out_line) → (src_file, chunk_name, src_line, indent)
+//   macro_map     : (driver_file, expanded_line) → data BLOB
+//   src_snapshots : path TEXT PK  → content BLOB
+//   var_defs      : (var_name, src_file, pos) → length INTEGER
+//   macro_defs    : (macro_name, src_file, pos) → length INTEGER
+//
+// Concurrency model:
+//   azadi runs write to an in-memory temp db (AzadiDb::open_temp), then
+//   merge_into() copies everything into the target file db in a single write
+//   transaction.  Because the target uses WAL mode, read-only connections
+//   (MCP server, apply-back reads) never block merges and merges never block
+//   readers.
 
-use redb::{Database, ReadableTable, TableDefinition};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
-// Table definitions
+// Schema
 // ---------------------------------------------------------------------------
 
-pub const GEN_BASELINES: TableDefinition<&str, &[u8]> = TableDefinition::new("gen_baselines");
-pub const NOWEB_MAP: TableDefinition<&str, &[u8]> = TableDefinition::new("noweb_map");
-pub const MACRO_MAP: TableDefinition<&str, &[u8]> = TableDefinition::new("macro_map");
-pub const SRC_SNAPSHOTS: TableDefinition<&str, &[u8]> = TableDefinition::new("src_snapshots");
-/// Maps `"{var_name}\x00{src_file}\x00{pos:010}" → postcard(u32 length)`
-/// for every `%set(var_name, ...)` call site recorded during evaluation.
-pub const VAR_DEFS: TableDefinition<&str, &[u8]> = TableDefinition::new("var_defs");
-/// Maps `"{macro_name}\x00{src_file}\x00{pos:010}" → postcard(u32 length)`
-/// for every `%def/%rhaidef/%pydef(name, ...)` call site.
-pub const MACRO_DEFS: TableDefinition<&str, &[u8]> = TableDefinition::new("macro_defs");
+const CREATE_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS gen_baselines (
+    path    TEXT PRIMARY KEY NOT NULL,
+    content BLOB NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS noweb_map (
+    out_file   TEXT    NOT NULL,
+    out_line   INTEGER NOT NULL,
+    src_file   TEXT    NOT NULL,
+    chunk_name TEXT    NOT NULL,
+    src_line   INTEGER NOT NULL,
+    indent     TEXT    NOT NULL,
+    PRIMARY KEY (out_file, out_line)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS macro_map (
+    driver_file   TEXT    NOT NULL,
+    expanded_line INTEGER NOT NULL,
+    data          BLOB    NOT NULL,
+    PRIMARY KEY (driver_file, expanded_line)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS src_snapshots (
+    path    TEXT PRIMARY KEY NOT NULL,
+    content BLOB NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS var_defs (
+    var_name TEXT    NOT NULL,
+    src_file TEXT    NOT NULL,
+    pos      INTEGER NOT NULL,
+    length   INTEGER NOT NULL,
+    PRIMARY KEY (var_name, src_file, pos)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS macro_defs (
+    macro_name TEXT    NOT NULL,
+    src_file   TEXT    NOT NULL,
+    pos        INTEGER NOT NULL,
+    length     INTEGER NOT NULL,
+    PRIMARY KEY (macro_name, src_file, pos)
+) STRICT;
+";
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -32,23 +73,27 @@ pub const MACRO_DEFS: TableDefinition<&str, &[u8]> = TableDefinition::new("macro
 
 #[derive(Debug)]
 pub enum DbError {
-    Db(String),
-    Serialize(postcard::Error),
+    Sql(rusqlite::Error),
 }
 
 impl std::fmt::Display for DbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DbError::Db(s) => write!(f, "database error: {s}"),
-            DbError::Serialize(e) => write!(f, "serialization error: {e}"),
+            DbError::Sql(e) => write!(f, "database error: {e}"),
         }
     }
 }
 
 impl std::error::Error for DbError {}
 
+impl From<rusqlite::Error> for DbError {
+    fn from(e: rusqlite::Error) -> Self {
+        DbError::Sql(e)
+    }
+}
+
 // ---------------------------------------------------------------------------
-// NowebMapEntry: one entry per output line in the noweb_map table
+// NowebMapEntry
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -64,124 +109,79 @@ pub struct NowebMapEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Key helpers
-// ---------------------------------------------------------------------------
-
-/// Compose a NOWEB_MAP key from output-file path and 0-indexed output line.
-pub fn noweb_key(out_file: &str, out_line: u32) -> String {
-    format!("{}\x00{:010}", out_file, out_line)
-}
-
-/// Compose a MACRO_MAP key from driver-file path and 0-indexed expanded line.
-pub fn macro_key(driver_file: &str, expanded_line: u32) -> String {
-    format!("{}\x00{:010}", driver_file, expanded_line)
-}
-
-/// Compose a VAR_DEFS / MACRO_DEFS key.
-pub fn def_key(name: &str, src_file: &str, pos: u32) -> String {
-    format!("{}\x00{}\x00{:010}", name, src_file, pos)
-}
-
-/// Prefix used to scan all entries for a given name.
-pub fn def_prefix(name: &str) -> String {
-    format!("{}\x00", name)
-}
-
-// ---------------------------------------------------------------------------
 // AzadiDb
 // ---------------------------------------------------------------------------
 
-fn copy_table(
-    rtxn: &redb::ReadTransaction,
-    wtxn: &redb::WriteTransaction,
-    table: TableDefinition<&str, &[u8]>,
-) -> Result<(), DbError> {
-    let src = rtxn.open_table(table).map_err(|e| DbError::Db(e.to_string()))?;
-    let mut dst = wtxn.open_table(table).map_err(|e| DbError::Db(e.to_string()))?;
-    for item in src.iter().map_err(|e| DbError::Db(e.to_string()))? {
-        let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
-        dst.insert(k.value(), v.value()).map_err(|e| DbError::Db(e.to_string()))?;
-    }
-    Ok(())
+pub struct AzadiDb {
+    conn: Connection,
 }
 
-pub struct AzadiDb {
-    db: Database,
+fn apply_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)
 }
 
 impl AzadiDb {
-    /// Open (or create) the database at `path`.  All three tables are
-    /// initialised on first open.
+    /// Open (or create) the persistent database at `path` with WAL mode.
+    /// Use this for the target `azadi.db` in read-write contexts.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
-        let db = Database::create(path).map_err(|e| DbError::Db(e.to_string()))?;
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        apply_schema(&conn)?;
+        Ok(Self { conn })
+    }
 
-        // Ensure every table exists so later read transactions never fail with
-        // "table not found".
-        let wtxn = db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(GEN_BASELINES)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(NOWEB_MAP)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(MACRO_MAP)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(SRC_SNAPSHOTS)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(VAR_DEFS)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(MACRO_DEFS)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+    /// Open the database read-only.  Never blocks concurrent writers.
+    /// Use this in the MCP server and for apply-back reads.
+    pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        Ok(Self { conn })
+    }
 
-        Ok(Self { db })
+    /// Create an in-memory database for use as a write buffer during an azadi
+    /// run.  Call `merge_into()` at the end to persist to the target file db.
+    /// No temp file, no cleanup needed — the memory is freed on drop.
+    pub fn open_temp() -> Result<Self, DbError> {
+        let conn = Connection::open_in_memory()?;
+        apply_schema(&conn)?;
+        Ok(Self { conn })
     }
 
     // ── gen_baselines ────────────────────────────────────────────────────────
 
-    /// Read the stored baseline for `path` (relative output path).
     pub fn get_baseline(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(GEN_BASELINES)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        Ok(table
-            .get(path)
-            .map_err(|e| DbError::Db(e.to_string()))?
-            .map(|v| v.value().to_vec()))
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT content FROM gen_baselines WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
-    /// List all (relative-output-path, bytes) pairs in gen_baselines.
     pub fn list_baselines(&self) -> Result<Vec<(String, Vec<u8>)>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(GEN_BASELINES)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        let mut result = Vec::new();
-        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
-            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
-            result.push((k.value().to_string(), v.value().to_vec()));
-        }
-        Ok(result)
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, content FROM gen_baselines")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// Store `content` as the baseline for `path`.
     pub fn set_baseline(&self, path: &str, content: &[u8]) -> Result<(), DbError> {
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        {
-            let mut table = wtxn
-                .open_table(GEN_BASELINES)
-                .map_err(|e| DbError::Db(e.to_string()))?;
-            table
-                .insert(path, content)
-                .map_err(|e| DbError::Db(e.to_string()))?;
-        }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO gen_baselines (path, content) VALUES (?1, ?2)",
+            params![path, content],
+        )?;
         Ok(())
     }
 
     // ── noweb_map ────────────────────────────────────────────────────────────
 
     /// Write all source-map entries for one output file in a single transaction.
-    /// `entries` is a slice of `(0-indexed output line, NowebMapEntry)`.
     pub fn set_noweb_entries(
         &self,
         out_file: &str,
@@ -190,43 +190,54 @@ impl AzadiDb {
         if entries.is_empty() {
             return Ok(());
         }
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
+        let tx = self.conn.unchecked_transaction()?;
         {
-            let mut table = wtxn
-                .open_table(NOWEB_MAP)
-                .map_err(|e| DbError::Db(e.to_string()))?;
-            for (line, entry) in entries {
-                let key = noweb_key(out_file, *line);
-                let bytes = postcard::to_allocvec(entry).map_err(DbError::Serialize)?;
-                table
-                    .insert(key.as_str(), bytes.as_slice())
-                    .map_err(|e| DbError::Db(e.to_string()))?;
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO noweb_map
+                 (out_file, out_line, src_file, chunk_name, src_line, indent)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for (line, e) in entries {
+                stmt.execute(params![
+                    out_file,
+                    *line,
+                    e.src_file,
+                    e.chunk_name,
+                    e.src_line,
+                    e.indent
+                ])?;
             }
         }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// Look up a single entry in the noweb_map.
-    pub fn get_noweb_entry(&self, out_file: &str, out_line: u32) -> Result<Option<NowebMapEntry>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(NOWEB_MAP)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        let key = noweb_key(out_file, out_line);
-        let val = table.get(key.as_str()).map_err(|e| DbError::Db(e.to_string()))?;
-        if let Some(v) = val {
-            let entry: NowebMapEntry = postcard::from_bytes(v.value()).map_err(DbError::Serialize)?;
-            Ok(Some(entry))
-        } else {
-            Ok(None)
-        }
+    pub fn get_noweb_entry(
+        &self,
+        out_file: &str,
+        out_line: u32,
+    ) -> Result<Option<NowebMapEntry>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT src_file, chunk_name, src_line, indent
+                 FROM noweb_map WHERE out_file = ?1 AND out_line = ?2",
+                params![out_file, out_line],
+                |row| {
+                    Ok(NowebMapEntry {
+                        src_file: row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        src_line: row.get::<_, u32>(2)?,
+                        indent: row.get(3)?,
+                    })
+                },
+            )
+            .optional()?)
     }
 
     // ── macro_map ────────────────────────────────────────────────────────────
 
-    /// Write pre-serialized source-map entries for the macro map in a single transaction.
-    /// `entries` is a slice of `(expanded_line, serialized_bytes)`.
+    /// Write pre-serialized source-map entries for the macro map.
     pub fn set_macro_map_entries(
         &self,
         driver_file: &str,
@@ -235,185 +246,166 @@ impl AzadiDb {
         if entries.is_empty() {
             return Ok(());
         }
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
+        let tx = self.conn.unchecked_transaction()?;
         {
-            let mut table = wtxn
-                .open_table(MACRO_MAP)
-                .map_err(|e| DbError::Db(e.to_string()))?;
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO macro_map (driver_file, expanded_line, data)
+                 VALUES (?1, ?2, ?3)",
+            )?;
             for (line, bytes) in entries {
-                let key = macro_key(driver_file, *line);
-                table
-                    .insert(key.as_str(), bytes.as_slice())
-                    .map_err(|e| DbError::Db(e.to_string()))?;
+                stmt.execute(params![driver_file, *line, bytes.as_slice()])?;
             }
         }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        tx.commit()?;
         Ok(())
     }
 
-    /// Look up raw macro_map bytes for a driver file and expanded line.
-    pub fn get_macro_map_bytes(&self, driver_file: &str, expanded_line: u32) -> Result<Option<Vec<u8>>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(MACRO_MAP)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        let key = macro_key(driver_file, expanded_line);
-        let val = table.get(key.as_str()).map_err(|e| DbError::Db(e.to_string()))?;
-        Ok(val.map(|v| v.value().to_vec()))
+    pub fn get_macro_map_bytes(
+        &self,
+        driver_file: &str,
+        expanded_line: u32,
+    ) -> Result<Option<Vec<u8>>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT data FROM macro_map
+                 WHERE driver_file = ?1 AND expanded_line = ?2",
+                params![driver_file, expanded_line],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
-    /// Merge all entries from this database into the database at `target_path`.
-    /// Retries if the target is temporarily locked by another process.
-    /// Later-written entries win on key conflicts.
+    // ── merge_into ───────────────────────────────────────────────────────────
+
+    /// Copy all entries from this (in-memory) database into the persistent
+    /// file database at `target_path` in a single write transaction.
+    /// The target is created and WAL-initialised if it does not yet exist.
     pub fn merge_into(&self, target_path: &Path) -> Result<(), DbError> {
-        let target = loop {
-            match Database::create(target_path) {
-                Ok(db) => break db,
-                Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-                Err(e) => return Err(DbError::Db(e.to_string())),
-            }
-        };
-
-        // Ensure all tables exist in target.
-        let wtxn = target.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(GEN_BASELINES).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(NOWEB_MAP).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(MACRO_MAP).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(SRC_SNAPSHOTS).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
-
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let wtxn = target.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
+        // Ensure the target file exists with the correct schema and WAL mode.
         {
-            copy_table(&rtxn, &wtxn, GEN_BASELINES)?;
-            copy_table(&rtxn, &wtxn, NOWEB_MAP)?;
-            copy_table(&rtxn, &wtxn, MACRO_MAP)?;
-            copy_table(&rtxn, &wtxn, SRC_SNAPSHOTS)?;
-            copy_table(&rtxn, &wtxn, VAR_DEFS)?;
-            copy_table(&rtxn, &wtxn, MACRO_DEFS)?;
+            let t = Connection::open(target_path)?;
+            t.pragma_update(None, "journal_mode", "WAL")?;
+            t.pragma_update(None, "synchronous", "NORMAL")?;
+            apply_schema(&t)?;
         }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+
+        // Attach the target and copy all tables in a single write transaction.
+        // Using string interpolation for ATTACH (parameterised ATTACH is not
+        // supported by SQLite); single-quotes in the path are escaped.
+        let target_str = target_path.to_string_lossy();
+        let escaped = target_str.replace('\'', "''");
+        self.conn
+            .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
+
+        let result = self.conn.execute_batch(
+            "BEGIN;
+             INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
+             INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
+             INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
+             INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
+             INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
+             INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
+             COMMIT;",
+        );
+
+        // Always detach, even on error.
+        let _ = self.conn.execute_batch("DETACH DATABASE target");
+        result?;
         Ok(())
     }
 
     // ── src_snapshots ────────────────────────────────────────────────────────
 
-    /// Retrieve the snapshot for `path` (source file path), if stored.
     pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(SRC_SNAPSHOTS)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        Ok(table
-            .get(path)
-            .map_err(|e| DbError::Db(e.to_string()))?
-            .map(|v| v.value().to_vec()))
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT content FROM src_snapshots WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
-    /// List all stored source snapshots as `(path, bytes)` pairs.
     pub fn list_src_snapshots(&self) -> Result<Vec<(String, Vec<u8>)>, DbError> {
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn
-            .open_table(SRC_SNAPSHOTS)
-            .map_err(|e| DbError::Db(e.to_string()))?;
-        let mut out = Vec::new();
-        for entry in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
-            let (k, v) = entry.map_err(|e| DbError::Db(e.to_string()))?;
-            out.push((k.value().to_string(), v.value().to_vec()));
-        }
-        Ok(out)
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, content FROM src_snapshots")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// Snapshot `content` under `path` (source file path).
     pub fn set_src_snapshot(&self, path: &str, content: &[u8]) -> Result<(), DbError> {
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        {
-            let mut table = wtxn
-                .open_table(SRC_SNAPSHOTS)
-                .map_err(|e| DbError::Db(e.to_string()))?;
-            table
-                .insert(path, content)
-                .map_err(|e| DbError::Db(e.to_string()))?;
-        }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO src_snapshots (path, content) VALUES (?1, ?2)",
+            params![path, content],
+        )?;
         Ok(())
     }
 
     // ── var_defs ─────────────────────────────────────────────────────────────
 
-    /// Record a `%set(var_name, ...)` call site.
-    /// `pos` and `length` are absolute byte offsets in `src_file`.
-    pub fn record_var_def(&self, var_name: &str, src_file: &str, pos: u32, length: u32) -> Result<(), DbError> {
-        let key = def_key(var_name, src_file, pos);
-        let val = postcard::to_allocvec(&length).map_err(DbError::Serialize)?;
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        {
-            let mut table = wtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-            table.insert(key.as_str(), val.as_slice()).map_err(|e| DbError::Db(e.to_string()))?;
-        }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+    pub fn record_var_def(
+        &self,
+        var_name: &str,
+        src_file: &str,
+        pos: u32,
+        length: u32,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO var_defs (var_name, src_file, pos, length)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![var_name, src_file, pos, length],
+        )?;
         Ok(())
     }
 
-    /// Return all `(src_file, pos, length)` entries for `var_name`.
     pub fn query_var_defs(&self, var_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
-        let prefix = def_prefix(var_name);
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn.open_table(VAR_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-        let mut out = Vec::new();
-        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
-            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
-            let key = k.value();
-            if !key.starts_with(&prefix) { continue; }
-            // key = "{var_name}\x00{src_file}\x00{pos:010}"
-            let rest = &key[prefix.len()..];
-            if let Some(sep) = rest.rfind('\x00') {
-                let src_file = &rest[..sep];
-                let pos: u32 = rest[sep + 1..].parse().unwrap_or(0);
-                let length: u32 = postcard::from_bytes(v.value()).map_err(DbError::Serialize)?;
-                out.push((src_file.to_string(), pos, length));
-            }
-        }
-        Ok(out)
+        let mut stmt = self.conn.prepare(
+            "SELECT src_file, pos, length FROM var_defs WHERE var_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![var_name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     // ── macro_defs ────────────────────────────────────────────────────────────
 
-    /// Record a `%def/%rhaidef/%pydef(macro_name, ...)` call site.
-    pub fn record_macro_def(&self, macro_name: &str, src_file: &str, pos: u32, length: u32) -> Result<(), DbError> {
-        let key = def_key(macro_name, src_file, pos);
-        let val = postcard::to_allocvec(&length).map_err(DbError::Serialize)?;
-        let wtxn = self.db.begin_write().map_err(|e| DbError::Db(e.to_string()))?;
-        {
-            let mut table = wtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-            table.insert(key.as_str(), val.as_slice()).map_err(|e| DbError::Db(e.to_string()))?;
-        }
-        wtxn.commit().map_err(|e| DbError::Db(e.to_string()))?;
+    pub fn record_macro_def(
+        &self,
+        macro_name: &str,
+        src_file: &str,
+        pos: u32,
+        length: u32,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO macro_defs (macro_name, src_file, pos, length)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![macro_name, src_file, pos, length],
+        )?;
         Ok(())
     }
 
-    /// Return all `(src_file, pos, length)` entries for `macro_name`.
-    pub fn query_macro_defs(&self, macro_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
-        let prefix = def_prefix(macro_name);
-        let rtxn = self.db.begin_read().map_err(|e| DbError::Db(e.to_string()))?;
-        let table = rtxn.open_table(MACRO_DEFS).map_err(|e| DbError::Db(e.to_string()))?;
-        let mut out = Vec::new();
-        for item in table.iter().map_err(|e| DbError::Db(e.to_string()))? {
-            let (k, v) = item.map_err(|e| DbError::Db(e.to_string()))?;
-            let key = k.value();
-            if !key.starts_with(&prefix) { continue; }
-            let rest = &key[prefix.len()..];
-            if let Some(sep) = rest.rfind('\x00') {
-                let src_file = &rest[..sep];
-                let pos: u32 = rest[sep + 1..].parse().unwrap_or(0);
-                let length: u32 = postcard::from_bytes(v.value()).map_err(DbError::Serialize)?;
-                out.push((src_file.to_string(), pos, length));
-            }
-        }
-        Ok(out)
+    pub fn query_macro_defs(
+        &self,
+        macro_name: &str,
+    ) -> Result<Vec<(String, u32, u32)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT src_file, pos, length FROM macro_defs WHERE macro_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![macro_name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }

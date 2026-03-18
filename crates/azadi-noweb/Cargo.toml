@@ -14,8 +14,7 @@ chrono.workspace = true
 clap.workspace = true
 log = "0.4"
 env_logger = "0.10"
-redb.workspace = true
-postcard.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 

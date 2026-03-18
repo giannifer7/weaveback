@@ -101,7 +101,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             send_error(id, "Database not found. Run azadi on your source files first.");
                             continue;
                         }
-                        match AzadiDb::open(&db_path) {
+                        match AzadiDb::open_read_only(&db_path) {
                             Err(e) => send_error(id, &format!("Database error: {e:?}")),
                             Ok(db) => match lookup::perform_trace(out_file, out_line, out_col, &db, &gen_dir, eval_config.clone()) {
                                 Ok(Some(res)) => send_text(id, &serde_json::to_string(&res).unwrap()),
@@ -150,7 +150,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             continue;
                         }
 
-                        let db = if db_path.exists() { AzadiDb::open(&db_path).ok() } else { None };
+                        let db = if db_path.exists() { AzadiDb::open_read_only(&db_path).ok() } else { None };
                         match apply_fix(src_file, src_line_1 - 1, new_src_line, out_file, out_line_1, expected, &db, &gen_dir, &eval_config) {
                             Ok(msg) => send_text(id, &msg),
                             Err(e)  => send_error(id, &e),

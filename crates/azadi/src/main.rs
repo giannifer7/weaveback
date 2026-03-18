@@ -446,7 +446,7 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
             format!("Database not found at {}. Run azadi on your source files first.", db_path.display()),
         )));
     }
-    let db = azadi_noweb::db::AzadiDb::open(&db_path)?;
+    let db = azadi_noweb::db::AzadiDb::open_read_only(&db_path)?;
 
     match lookup::perform_where(&out_file, line, &db, &gen_dir) {
         Ok(Some(json)) => {
@@ -472,7 +472,7 @@ fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: P
             format!("Database not found at {}. Run azadi on your source files first.", db_path.display()),
         )));
     }
-    let db = azadi_noweb::db::AzadiDb::open(&db_path)?;
+    let db = azadi_noweb::db::AzadiDb::open_read_only(&db_path)?;
 
     match lookup::perform_trace(&out_file, line, col, &db, &gen_dir, eval_config) {
         Ok(Some(json)) => {

@@ -15,7 +15,6 @@ path = "src/main.rs"
 azadi-macros.workspace = true
 azadi-noweb.workspace = true
 clap = { workspace = true }
-postcard.workspace = true
 serde_json.workspace = true
 similar.workspace = true
 regex.workspace = true

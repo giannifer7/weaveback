@@ -1,8 +1,5 @@
 use crate::db::{AzadiDb, DbError};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 use std::fs::{self, File};
 use std::io::Read;
 use std::io::{self, BufReader};
@@ -72,7 +69,6 @@ impl Default for SafeWriterConfig {
 pub struct SafeFileWriter {
     gen_base: PathBuf,
     db: AzadiDb,
-    db_path: PathBuf,
     config: SafeWriterConfig,
     /// Staging area: logical file name → temp file on disk.
     /// The NamedTempFile is kept alive here until after_write consumes it.
@@ -95,15 +91,11 @@ impl SafeFileWriter {
             .canonicalize()
             .map_err(SafeWriterError::IoError)?;
 
-        let instance_id = DB_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let db_path = std::env::temp_dir()
-            .join(format!("azadi-{}-{}.db", std::process::id(), instance_id));
-        let db = AzadiDb::open(&db_path).map_err(SafeWriterError::DbError)?;
+        let db = AzadiDb::open_temp().map_err(SafeWriterError::DbError)?;
 
         Ok(SafeFileWriter {
             gen_base,
             db,
-            db_path,
             config,
             staging: HashMap::new(),
         })
@@ -274,22 +266,16 @@ impl SafeFileWriter {
         &self.db
     }
 
-    /// Merge the temp database into `target` (typically `./azadi.db`) and
-    /// delete the temp database file.  Call this after all writes are complete.
+    /// Merge the in-memory database into the target file db and drop it.
+    /// Call this after all writes are complete.
     pub fn finish(self, target: &Path) -> Result<(), SafeWriterError> {
         self.db.merge_into(target).map_err(SafeWriterError::DbError)?;
-        let _ = fs::remove_file(&self.db_path);
         Ok(())
     }
 
     #[cfg(test)]
     pub fn get_gen_base(&self) -> &Path {
         &self.gen_base
-    }
-
-    #[cfg(test)]
-    pub fn db_path(&self) -> &Path {
-        &self.db_path
     }
 
     /// Retrieve the stored baseline bytes for a relative path (test helper).

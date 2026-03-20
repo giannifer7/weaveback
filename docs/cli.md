@@ -1,12 +1,12 @@
 # CLI reference
 
-## `azadi` — combined tool
+## `weaveback` — combined tool
 
 Runs macro expansion and chunk extraction in one pass.
 
 ```bash
-azadi [OPTIONS] <INPUTS>...      # explicit files
-azadi [OPTIONS] --dir <DIR>      # auto-discover driver files
+weaveback [OPTIONS] <INPUTS>...      # explicit files
+weaveback [OPTIONS] --dir <DIR>      # auto-discover driver files
 ```
 
 ### Options
@@ -27,7 +27,7 @@ azadi [OPTIONS] --dir <DIR>      # auto-discover driver files
 | `--ext <EXT>` | `md` | File extension to scan in `--dir` mode; repeatable |
 | `--depfile <PATH>` | | Write a Makefile depfile listing every source file read |
 | `--stamp <PATH>` | | Touch this file on success (build-system stamp) |
-| `--db <PATH>` | `azadi.db` | Path to the source-map database |
+| `--db <PATH>` | `weaveback.db` | Path to the source-map database |
 | `--allow-env` | off | Enable `%env(NAME)` (disabled by default to protect secrets) |
 
 ### Directory mode
@@ -38,14 +38,14 @@ another file), and processes each driver. No changes needed when new files are
 added.
 
 ```bash
-azadi --dir src --include . --gen src
-azadi --dir src --ext adoc --include . --gen src
-azadi --dir src --ext md --ext adoc --include . --gen src
+weaveback --dir src --include . --gen src
+weaveback --dir src --ext adoc --include . --gen src
+weaveback --dir src --ext md --ext adoc --include . --gen src
 ```
 
 `--dump-expanded` is the first thing to check when a chunk can't be found or
 expands unexpectedly — it prints the macro-expanded intermediate text that
-azadi-noweb receives.
+weaveback-tangle receives.
 
 ### Build-system integration
 
@@ -56,7 +56,7 @@ directory of literate sources:
 custom_target('gen',
   output  : ['gen.stamp'],
   depfile : 'gen.d',
-  command : [azadi,
+  command : [weaveback,
              '--dir',     meson.current_source_dir() / 'src',
              '--ext',     'adoc',
              '--include', meson.current_source_dir(),
@@ -74,24 +74,24 @@ custom_target('gen',
 ### Subcommands
 
 ```bash
-azadi where <file> <line>        # trace output line to its noweb chunk
-azadi trace <file> <line>        # full two-level trace (noweb + macro)
-azadi apply-back [OPTIONS] [FILES...]  # propagate gen/ edits to literate source
-azadi mcp                        # start MCP server for IDE/agent integration
+weaveback where <file> <line>        # trace output line to its noweb chunk
+weaveback trace <file> <line>        # full two-level trace (noweb + macro)
+weaveback apply-back [OPTIONS] [FILES...]  # propagate gen/ edits to literate source
+weaveback mcp                        # start MCP server for IDE/agent integration
 ```
 
 #### `apply-back`
 
-When you edit a file in `gen/` directly, the next `azadi` run refuses to
+When you edit a file in `gen/` directly, the next `weaveback` run refuses to
 overwrite it (`ModifiedExternally`).  `apply-back` closes the loop: it diffs
 the modified gen/ file against the stored baseline, traces each changed line
 back to its literate source, and patches the source file.
 
 ```bash
-azadi apply-back                     # process all modified gen/ files
-azadi apply-back src/foo.c           # process one specific file
-azadi apply-back --dry-run           # show patches without writing
-azadi --gen path/to/gen apply-back   # use non-default gen/ directory
+weaveback apply-back                     # process all modified gen/ files
+weaveback apply-back src/foo.c           # process one specific file
+weaveback apply-back --dry-run           # show patches without writing
+weaveback --gen path/to/gen apply-back   # use non-default gen/ directory
 ```
 
 Lines that cannot be automatically patched (deleted/inserted lines, macro-generated
@@ -99,11 +99,11 @@ content) are reported and skipped — edit those in the literate source manually
 
 ---
 
-## `azadi-macros` — macro expander only
+## `weaveback-macro` — macro expander only
 
 ```bash
-azadi-macros [OPTIONS] <INPUTS>...
-azadi-macros [OPTIONS] --dir <DIR>
+weaveback-macro [OPTIONS] <INPUTS>...
+weaveback-macro [OPTIONS] --dir <DIR>
 ```
 
 | Flag | Default | Description |
@@ -119,10 +119,10 @@ azadi-macros [OPTIONS] --dir <DIR>
 
 ---
 
-## `azadi-noweb` — chunk extractor only
+## `weaveback-tangle` — chunk extractor only
 
 ```bash
-azadi-noweb [OPTIONS] <FILES>...
+weaveback-tangle [OPTIONS] <FILES>...
 ```
 
 | Flag | Default | Description |

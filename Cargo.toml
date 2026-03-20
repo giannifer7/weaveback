@@ -4,9 +4,9 @@
 resolver = "2"
 
 members = [
-    "crates/azadi",
-    "crates/azadi-macros",
-    "crates/azadi-noweb",
+    "crates/weaveback",
+    "crates/weaveback-macro",
+    "crates/weaveback-tangle",
 ]
 
 [workspace.package]
@@ -14,7 +14,7 @@ version = "0.3.5"
 edition = "2024"
 authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"
-repository = "https://github.com/giannifer7/azadi"
+repository = "https://github.com/giannifer7/weaveback"
 
 [profile.release]
 strip        = true
@@ -56,5 +56,5 @@ predicates = "3.0"
 escargot = "0.5"
 
 # Internal crate dependencies (points to the sub-crate on disk)
-azadi-macros = { path = "crates/azadi-macros" }
-azadi-noweb = { path = "crates/azadi-noweb" }
+weaveback-macro = { path = "crates/weaveback-macro" }
+weaveback-tangle = { path = "crates/weaveback-tangle" }

@@ -1,4 +1,4 @@
-# Chunk syntax (azadi-noweb)
+# Chunk syntax (weaveback-tangle)
 
 Comment markers (`#` or `//` by default) are stripped before delimiters are
 recognised, so chunks blend into any language's comment syntax.

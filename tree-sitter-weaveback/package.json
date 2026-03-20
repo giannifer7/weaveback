@@ -1,0 +1,23 @@
+{
+  "name": "tree-sitter-weaveback",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Weaveback macro language",
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "weaveback", "macros"],
+  "license": "MIT OR Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.6"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.weaveback",
+      "file-types": ["weaveback"],
+      "injection-regex": "weaveback"
+    }
+  ]
+}

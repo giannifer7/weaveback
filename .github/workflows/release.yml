@@ -37,14 +37,14 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Build container
-        run: podman build --target ${{ matrix.target }} -t azadi-${{ matrix.target }} .
+        run: podman build --target ${{ matrix.target }} -t weaveback-${{ matrix.target }} .
 
       - name: Export artifacts
         run: |
           mkdir -p dist/${{ matrix.target }}
-          podman create --name azadi-export azadi-${{ matrix.target }}
-          podman cp azadi-export:/out/. dist/${{ matrix.target }}/
-          podman rm azadi-export
+          podman create --name weaveback-export weaveback-${{ matrix.target }}
+          podman cp weaveback-export:/out/. dist/${{ matrix.target }}/
+          podman rm weaveback-export
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" dist/${{ matrix.target }}/* --clobber
@@ -66,9 +66,9 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir dist\windows-native
-          copy target\release\azadi.exe        dist\windows-native\
-          copy target\release\azadi-macros.exe dist\windows-native\
-          copy target\release\azadi-noweb.exe  dist\windows-native\
+          copy target\release\weaveback.exe        dist\windows-native\
+          copy target\release\weaveback-macro.exe dist\windows-native\
+          copy target\release\weaveback-tangle.exe  dist\windows-native\
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" dist/windows-native/* --clobber

@@ -131,7 +131,7 @@ output (for loading macro definitions only).
 Requires `--allow-env`; raises an error without it.
 
 ```
-azadi --allow-env notes.md --gen src
+weaveback --allow-env notes.md --gen src
 ```
 
 ```
@@ -179,7 +179,7 @@ call site. Useful for one-time code generation.
 ```
 
 The body is a [Rhai](https://rhai.rs) script evaluated at call time. All
-visible azadi scope variables are injected as Rhai string variables. Wrap the
+visible weaveback scope variables are injected as Rhai string variables. Wrap the
 body in `%{ … %}` when it contains parentheses.
 
 **Registered helpers:**

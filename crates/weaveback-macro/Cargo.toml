@@ -1,0 +1,32 @@
+# crates/weaveback-macro/Cargo.toml
+
+[package]
+name = "weaveback-macro"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core macro processing library for Weaveback"
+
+[dependencies]
+clap.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+lazy_static.workspace = true
+chrono.workspace = true
+rhai.workspace = true
+monty.workspace = true
+wasm-bindgen.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+assert_cmd.workspace = true
+predicates.workspace = true
+escargot.workspace = true
+
+[[bin]]
+name = "weaveback-macro"
+path = "src/bin/weaveback-macro.rs"

@@ -1,4 +1,4 @@
-# justfile — azadi workspace
+# justfile — weaveback workspace
 
 # Default: list available recipes
 default:
@@ -20,13 +20,13 @@ release:
 test:
     cargo test
 
-# Run tests for azadi-macros only
+# Run tests for weaveback-macro only
 test-macros:
-    cargo test --package azadi-macros
+    cargo test --package weaveback-macro
 
-# Run tests for azadi-noweb only
+# Run tests for weaveback-tangle only
 test-noweb:
-    cargo test --package azadi-noweb
+    cargo test --package weaveback-tangle
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
@@ -44,23 +44,23 @@ fmt:
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 
-# Run the combined azadi tool (usage: just azadi src/foo.md)
-azadi FILE:
-    cargo run --package azadi -- "{{FILE}}"
+# Run the combined weaveback tool (usage: just weaveback src/foo.md)
+weaveback FILE:
+    cargo run --package weaveback -- "{{FILE}}"
 
-# Run azadi-macros on a file (usage: just macros src/foo.md)
+# Run weaveback-macro on a file (usage: just macros src/foo.md)
 macros FILE:
-    cargo run --package azadi-macros -- "{{FILE}}"
+    cargo run --package weaveback-macro -- "{{FILE}}"
 
-# Run azadi-noweb on a file (usage: just noweb src/foo.md)
+# Run weaveback-tangle on a file (usage: just noweb src/foo.md)
 noweb FILE:
-    cargo run --package azadi-noweb -- "{{FILE}}"
+    cargo run --package weaveback-tangle -- "{{FILE}}"
 
 # ── Examples ──────────────────────────────────────────────────────────────────
 
 # Regenerate the c_enum example
 example-c-enum:
-    cd examples/c_enum && cargo run --package azadi -- status.md --gen .
+    cd examples/c_enum && cargo run --package weaveback -- status.md --gen .
 
 # Regenerate the nim-adoc example via meson/ninja
 example-nim-adoc:
@@ -69,20 +69,20 @@ example-nim-adoc:
 
 # Remove build intermediates from nim-adoc; keep gen/ and docs/html/ for commit
 example-nim-adoc-clean:
-    rm -rf examples/nim-adoc/build examples/nim-adoc/azadi.db
+    rm -rf examples/nim-adoc/build examples/nim-adoc/weaveback.db
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
 # Build container stage: glibc | musl | windows | fedora
 build-container TARGET:
-    podman build --target {{TARGET}} -t azadi-{{TARGET}} .
+    podman build --target {{TARGET}} -t weaveback-{{TARGET}} .
 
 # Build container and export artifacts into dist/TARGET/
 export TARGET: (build-container TARGET)
     mkdir -p dist/{{TARGET}}
-    podman create --name azadi-export-{{TARGET}} azadi-{{TARGET}}
-    podman cp azadi-export-{{TARGET}}:/out/. dist/{{TARGET}}/
-    podman rm azadi-export-{{TARGET}}
+    podman create --name weaveback-export-{{TARGET}} weaveback-{{TARGET}}
+    podman cp weaveback-export-{{TARGET}}:/out/. dist/{{TARGET}}/
+    podman rm weaveback-export-{{TARGET}}
 
 # Build and export all targets
 export-all: (export "glibc") (export "musl") (export "windows") (export "fedora")
@@ -90,12 +90,12 @@ export-all: (export "glibc") (export "musl") (export "windows") (export "fedora"
 # Build .deb locally (requires cargo-deb)
 deb:
     cargo build --release --workspace
-    cargo deb -p azadi --no-build
+    cargo deb -p weaveback --no-build
 
 # Build .rpm locally (requires cargo-generate-rpm)
 rpm:
     cargo build --release --workspace
-    cargo generate-rpm -p crates/azadi
+    cargo generate-rpm -p crates/weaveback
 
 # Bump Cargo.toml version first, then: just tag
 # Commits Cargo.lock, tags, waits for CI, publishes PKGBUILD + flake.nix + AUR

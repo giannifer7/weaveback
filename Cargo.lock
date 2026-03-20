@@ -159,59 +159,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
-name = "azadi"
-version = "0.3.5"
-dependencies = [
- "assert_cmd",
- "azadi-macros",
- "azadi-noweb",
- "clap",
- "predicates",
- "regex",
- "serde_json",
- "similar",
- "tempfile",
-]
-
-[[package]]
-name = "azadi-macros"
-version = "0.3.5"
-dependencies = [
- "assert_cmd",
- "chrono",
- "clap",
- "escargot",
- "lazy_static",
- "monty",
- "predicates",
- "pretty_assertions",
- "regex",
- "rhai",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "azadi-noweb"
-version = "0.3.5"
-dependencies = [
- "assert_cmd",
- "chrono",
- "clap",
- "env_logger",
- "lazy_static",
- "log",
- "predicates",
- "regex",
- "rusqlite",
- "serde",
- "tempfile",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1671,6 +1618,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a05d73b933a847d6cccdda8f838a22ff101ad9bf93e33684f39c1f5f0eece3d"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "weaveback"
+version = "0.3.5"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "predicates",
+ "regex",
+ "serde_json",
+ "similar",
+ "tempfile",
+ "weaveback-macro",
+ "weaveback-tangle",
+]
+
+[[package]]
+name = "weaveback-macro"
+version = "0.3.5"
+dependencies = [
+ "assert_cmd",
+ "chrono",
+ "clap",
+ "escargot",
+ "lazy_static",
+ "monty",
+ "predicates",
+ "pretty_assertions",
+ "regex",
+ "rhai",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "weaveback-tangle"
+version = "0.3.5"
+dependencies = [
+ "assert_cmd",
+ "chrono",
+ "clap",
+ "env_logger",
+ "lazy_static",
+ "log",
+ "predicates",
+ "regex",
+ "rusqlite",
+ "serde",
+ "tempfile",
 ]
 
 [[package]]

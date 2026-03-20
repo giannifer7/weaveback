@@ -1,4 +1,4 @@
-# Containerfile — multi-stage packaging builds for azadi
+# Containerfile — multi-stage packaging builds for weaveback
 #
 # Stages:
 #   glibc   — Debian binary + .deb  (cargo-deb)  — includes python feature
@@ -7,8 +7,8 @@
 #   fedora  — Fedora binary + .rpm               — includes python feature
 #
 # Usage:
-#   podman build --target glibc  -t azadi-glibc  .
-#   podman build --target fedora -t azadi-fedora .
+#   podman build --target glibc  -t weaveback-glibc  .
+#   podman build --target fedora -t weaveback-fedora .
 
 # ── Rust base (Debian bookworm) ───────────────────────────────────────────────
 FROM debian:bookworm-slim AS rust-base
@@ -43,14 +43,14 @@ RUN cargo chef cook --release --recipe-path recipe.json
 FROM cacher AS glibc
 COPY . .
 RUN cargo build --release --workspace
-RUN cargo deb -p azadi --no-build
+RUN cargo deb -p weaveback --no-build
 RUN mkdir -p /out \
-    && cp target/release/azadi        /out/azadi-glibc \
-    && cp target/release/azadi-macros /out/azadi-macros-glibc \
-    && cp target/release/azadi-noweb  /out/azadi-noweb-glibc \
+    && cp target/release/weaveback        /out/weaveback-glibc \
+    && cp target/release/weaveback-macro /out/weaveback-macro-glibc \
+    && cp target/release/weaveback-tangle  /out/weaveback-tangle-glibc \
     && cp target/debian/*.deb         /out/ \
-    && tar -czf /out/azadi-x86_64-linux.tar.gz \
-         -C target/release azadi azadi-macros azadi-noweb
+    && tar -czf /out/weaveback-x86_64-linux.tar.gz \
+         -C target/release weaveback weaveback-macro weaveback-tangle
 
 # ── musl: static binary (Alpine — musl-native Python for PyO3) ───────────────
 FROM alpine:latest AS musl
@@ -64,9 +64,9 @@ WORKDIR /src
 COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl --workspace
 RUN mkdir -p /out \
-    && cp target/x86_64-unknown-linux-musl/release/azadi        /out/azadi-musl \
-    && cp target/x86_64-unknown-linux-musl/release/azadi-macros /out/azadi-macros-musl \
-    && cp target/x86_64-unknown-linux-musl/release/azadi-noweb  /out/azadi-noweb-musl
+    && cp target/x86_64-unknown-linux-musl/release/weaveback        /out/weaveback-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-macro /out/weaveback-macro-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-tangle  /out/weaveback-tangle-musl
 
 # ── windows: MinGW cross-compilation (Fedora — has mingw64-python3-devel) ────
 FROM fedora:latest AS windows
@@ -91,9 +91,9 @@ RUN PYO3_CROSS_PYTHON_VERSION=$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/includ
     && rustup target add x86_64-pc-windows-gnu \
     && cargo build --release --target x86_64-pc-windows-gnu --workspace
 RUN mkdir -p /out \
-    && cp target/x86_64-pc-windows-gnu/release/azadi.exe        /out/azadi-mingw64.exe \
-    && cp target/x86_64-pc-windows-gnu/release/azadi-macros.exe /out/azadi-macros-mingw64.exe \
-    && cp target/x86_64-pc-windows-gnu/release/azadi-noweb.exe  /out/azadi-noweb-mingw64.exe
+    && cp target/x86_64-pc-windows-gnu/release/weaveback.exe        /out/weaveback-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-macro.exe /out/weaveback-macro-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-tangle.exe  /out/weaveback-tangle-mingw64.exe
 
 # ── fedora: RPM ───────────────────────────────────────────────────────────────
 FROM fedora:latest AS fedora
@@ -107,9 +107,9 @@ RUN cargo install cargo-generate-rpm
 WORKDIR /src
 COPY . .
 RUN cargo build --release --workspace
-RUN cargo generate-rpm -p crates/azadi
+RUN cargo generate-rpm -p crates/weaveback
 RUN mkdir -p /out \
-    && cp target/release/azadi        /out/azadi-fedora \
-    && cp target/release/azadi-macros /out/azadi-macros-fedora \
-    && cp target/release/azadi-noweb  /out/azadi-noweb-fedora \
+    && cp target/release/weaveback        /out/weaveback-fedora \
+    && cp target/release/weaveback-macro /out/weaveback-macro-fedora \
+    && cp target/release/weaveback-tangle  /out/weaveback-tangle-fedora \
     && cp target/generate-rpm/*.rpm   /out/

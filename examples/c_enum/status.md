@@ -6,7 +6,7 @@ list of enum values — each value declared exactly once.
 Run:
 
 ```
-azadi status.md --gen .
+weaveback status.md --gen .
 ```
 
 ## Configuration

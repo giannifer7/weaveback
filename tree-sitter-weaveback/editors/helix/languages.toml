@@ -1,0 +1,18 @@
+# editors/helix/languages.toml
+#
+# Append this to ~/.config/helix/languages.toml
+# then run:  hx --grammar build
+#
+# Prerequisites: a C compiler (cc) in PATH.
+
+[[language]]
+name        = "weaveback"
+scope       = "source.weaveback"
+file-types  = ["weaveback"]
+comment-tokens = ["%#"]
+indent      = { tab-width = 2, unit = "  " }
+grammar     = "weaveback"
+
+[[grammar]]
+name   = "weaveback"
+source = { path = "__GRAMMAR_DIR__" }

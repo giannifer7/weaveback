@@ -1,0 +1,223 @@
+= Weaveback
+
+Weaveback is a bidirectional literate programming toolchain. Write your
+source code inside AsciiDoc (or any text file), expand macros, assemble
+named chunks, and let the tool write the real files — then trace any
+generated line back to its origin, or propagate edits back to the source.
+
+[source,sh]
+----
+weaveback source.adoc --gen src
+----
+
+Under the hood two passes run in sequence:
+
+1. *weaveback-macro* — expands `%macro(...)` calls
+2. *weaveback-tangle* — extracts `<[@file ...]>` chunks and writes them to disk
+
+Both passes run in-process; no intermediate files or subprocesses.
+
+---
+
+== Why weaveback?
+
+Traditional literate programming tools are one-way: you generate code, but
+edits must go back manually. Weaveback makes the pipeline bidirectional:
+
+- *Trace* any generated line back to its source (`weaveback where`)
+- *Propagate* edits from generated files back to the document (`apply-back`)
+- *Integrate* with editors and agents via MCP
+
+The source document is the single source of truth — but never a dead end.
+
+---
+
+== Language-agnostic fan-out
+
+A single document can define data once and fan it out to multiple files in
+multiple languages simultaneously. Add one entry; every target stays in sync.
+
+The example below defines a set of plugin events in AsciiDoc and generates
+a C header, a Rust module, and a SQL seed file from the same macro call.
+Built-in case conversion macros derive every name from two base words —
+no redundant parameters, nothing to get out of sync:
+
+[source,adoc]
+----
+%def(event, id, ns, name, description, %{
+// <[c enum arms]>=
+EVT_%to_screaming_case(%(ns))_%to_screaming_case(%(name)) = %(id),
+// @
+// <[rust enum arms]>=
+%to_pascal_case(%(ns))%to_pascal_case(%(name)),
+// @
+// <[rust display arms]>=
+PluginEvent::%to_pascal_case(%(ns))%to_pascal_case(%(name)) => write!(f, "%(ns).%(name)"),
+// @
+// <[sql rows]>=
+INSERT INTO audit_event_types (id, name, description)
+    VALUES (%(id), '%(ns).%(name)', '%(description)')
+    ON CONFLICT (name) DO NOTHING;
+// @
+// <[c cleanup array]>=
+cleanup_%(ns)_%(name),
+// @
+%})
+
+%event(0, plugin, load,   "Plugin loaded into host")
+%event(1, plugin, unload, "Plugin removed from host")
+%event(2, config, change, "Configuration key changed")
+----
+
+Chunk slots compose recursively and carry indentation from the skeleton,
+so the generated files look exactly as you would write them by hand:
+
+[source,c]
+----
+/* include/events.h — generated */
+typedef enum {
+    EVT_PLUGIN_LOAD   = 0,
+    EVT_PLUGIN_UNLOAD = 1,
+    EVT_CONFIG_CHANGE = 2,
+    EVT__COUNT
+} PluginEvent;
+
+/* @reversed slot — cleanup runs in reverse registration order */
+static const void (*EVT_CLEANUP[])(void) = {
+    cleanup_config_change,
+    cleanup_plugin_unload,
+    cleanup_plugin_load,
+};
+----
+
+[source,rust]
+----
+// src/events.rs — generated
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginEvent {
+    PluginLoad,
+    PluginUnload,
+    ConfigChange,
+}
+
+impl fmt::Display for PluginEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PluginEvent::PluginLoad   => write!(f, "plugin.load"),
+            PluginEvent::PluginUnload => write!(f, "plugin.unload"),
+            PluginEvent::ConfigChange => write!(f, "config.change"),
+        }
+    }
+}
+----
+
+[source,sql]
+----
+-- db/seed_events.sql — generated
+INSERT INTO audit_event_types (id, name, description)
+    VALUES (0, 'plugin.load',   'Plugin loaded into host')
+    ON CONFLICT (name) DO NOTHING;
+INSERT INTO audit_event_types (id, name, description)
+    VALUES (1, 'plugin.unload', 'Plugin removed from host')
+    ON CONFLICT (name) DO NOTHING;
+INSERT INTO audit_event_types (id, name, description)
+    VALUES (2, 'config.change', 'Configuration key changed')
+    ON CONFLICT (name) DO NOTHING;
+----
+
+The `@reversed` slot attribute on `EVT_CLEANUP` expands the accumulated
+chunk in reverse order — destructors fire in the right sequence with no
+manual reordering. See the link:examples/events/[full example] including the
+`justfile` that wires `weaveback`, `meson`, and `asciidoctor` together.
+
+---
+
+== Escape hatches
+
+When built-in macros — case conversion, `%if`, `%equal` — aren't enough,
+the macro language offers two scripted extensions for arbitrary calculation
+and string manipulation:
+
+- *`%rhaidef`* — define a macro whose body is a https://rhai.rs[Rhai] script,
+  a small expression language compiled into the binary. No external runtime.
+- *`%pydef`* — define a macro whose body runs in a sandboxed Python
+  interpreter (monty), also compiled in. No Python installation required.
+
+[source,adoc]
+----
+%rhaidef(offset, base, n, %{(parse_int(base) + parse_int(n)).to_string()%})
+
+%offset(100, 3)
+----
+
+The tradeoff: generated lines that pass through a scripted macro are opaque
+to `weaveback trace` — the expander cannot map them back to a source location.
+Use them where traceability of the expansion itself is not critical.
+
+---
+
+== Install
+
+*Arch Linux:* `paru -S weaveback-bin`
+
+*Nix:* `nix profile install github:giannifer7/weaveback`
+
+*Quick (musl, any Linux):*
+
+[source,sh]
+----
+curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
+     -o /usr/local/bin/weaveback && chmod +x /usr/local/bin/weaveback
+----
+
+→ link:docs/install.adoc[Full installation guide] (all platforms, binaries, musl vs glibc)
+
+---
+
+== Quick start
+
+[source,sh]
+----
+cd examples/events
+weaveback events.adoc --gen .
+----
+
+This expands macros in `events.adoc`, extracts all `@file` chunks, and
+writes them under the current directory.
+
+To see what the macro expander produced before tangle runs:
+
+[source,sh]
+----
+weaveback events.adoc --gen . --dump-expanded 2>expanded.txt
+----
+
+---
+
+== Documentation
+
+[cols="1,3",options="header"]
+|===
+| Document | Contents
+
+| link:docs/cli.adoc[CLI reference]
+| All flags for `weaveback`, `weaveback-macro`, `weaveback-tangle`; directory mode; build-system integration
+
+| link:docs/macros.adoc[Macro language]
+| `%def`, calling conventions, `%if`, `%rhaidef`, `%pydef`, X macro pattern
+
+| link:docs/noweb.adoc[Chunk syntax]
+| `@file`, named chunks, `@replace`, `@reversed`
+
+| link:docs/tracing.adoc[Source tracing]
+| `weaveback where`/`trace`, MCP server for IDE/agent integration
+
+| link:docs/install.adoc[Installation]
+| All platforms, package managers, pre-built binaries
+|===
+
+---
+
+== License
+
+0BSD OR MIT OR Apache-2.0

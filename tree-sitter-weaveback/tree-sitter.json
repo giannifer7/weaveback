@@ -1,0 +1,26 @@
+{
+  "grammars": [
+    {
+      "name": "weaveback",
+      "camelcase": "Weaveback",
+      "scope": "source.weaveback",
+      "file-types": ["weaveback"],
+      "injection-regex": "weaveback",
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT OR Apache-2.0",
+    "description": "Tree-sitter grammar for the Weaveback macro language",
+    "authors": [
+      {
+        "name": "Gianni Ferrarotti",
+        "email": "gianni.ferrarotti@gmail.com"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/giannifer7/weaveback"
+    }
+  }
+}

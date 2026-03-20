@@ -32,13 +32,13 @@ PACKAGING   = Path(__file__).parent
 REPO_ROOT   = PACKAGING.parent
 
 MAINTAINER  = "Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"
-DESCRIPTION = "azadi — literate programming toolchain"
-HOMEPAGE    = "https://github.com/giannifer7/azadi"
+DESCRIPTION = "weaveback — literate programming toolchain"
+HOMEPAGE    = "https://github.com/giannifer7/weaveback"
 RELEASES    = f"{HOMEPAGE}/releases/download"
-REPO        = "giannifer7/azadi"
+REPO        = "giannifer7/weaveback"
 API         = "https://api.github.com"
 
-NEEDED_ASSETS = ["azadi-x86_64-linux.tar.gz", "azadi-musl"]
+NEEDED_ASSETS = ["weaveback-x86_64-linux.tar.gz", "weaveback-musl"]
 
 
 # ── auth ───────────────────────────────────────────────────────────────────────
@@ -125,38 +125,38 @@ def sha256_sri(data: bytes) -> str:
 # ── file generators ────────────────────────────────────────────────────────────
 
 def pkgbuild(version: str, tarball_sha256: str) -> str:
-    source = f"{RELEASES}/v${{pkgver}}/azadi-x86_64-linux.tar.gz"
+    source = f"{RELEASES}/v${{pkgver}}/weaveback-x86_64-linux.tar.gz"
     return f"""\
 # Maintainer: {MAINTAINER}
 #
-# AUR package for azadi — literate programming toolchain.
-# Installs the azadi binary. The separate azadi-macros and azadi-noweb
+# AUR package for weaveback — literate programming toolchain.
+# Installs the weaveback binary. The separate weaveback-macro and weaveback-tangle
 # binaries are available in the GitHub release for advanced pipeline use.
 #
 # Regenerate after each release:
 #   python packaging/update_release.py <version>
 
-pkgname=azadi-bin
+pkgname=weaveback-bin
 pkgver={version}
 pkgrel=1
 pkgdesc="{DESCRIPTION}"
 url="{HOMEPAGE}"
 license=('0BSD' 'MIT' 'Apache-2.0')
 arch=('x86_64')
-provides=('azadi')
-conflicts=('azadi' 'azadi-git')
+provides=('weaveback')
+conflicts=('weaveback' 'weaveback-git')
 depends=('gcc-libs' 'glibc')
 options=('!debug')
-source=("azadi-x86_64-linux.tar.gz::{source}")
+source=("weaveback-x86_64-linux.tar.gz::{source}")
 sha256sums=('{tarball_sha256}')
 
 package() {{
-    install -Dm755 azadi -t "${{pkgdir}}/usr/bin"
+    install -Dm755 weaveback -t "${{pkgdir}}/usr/bin"
 }}
 """
 
 
-def flake(version: str, sri_azadi: str) -> str:
+def flake(version: str, sri_weaveback: str) -> str:
     base = f"{RELEASES}/v${{version}}"
     return f"""\
 {{
@@ -171,11 +171,11 @@ def flake(version: str, sri_azadi: str) -> str:
       base    = "{base}";
     in {{
       packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {{
-        pname   = "azadi";
+        pname   = "weaveback";
         inherit version;
-        src     = pkgs.fetchurl {{ url = "${{base}}/azadi-musl"; sha256 = "{sri_azadi}"; }};
+        src     = pkgs.fetchurl {{ url = "${{base}}/weaveback-musl"; sha256 = "{sri_weaveback}"; }};
         dontUnpack   = true;
-        installPhase = "install -Dm755 $src $out/bin/azadi";
+        installPhase = "install -Dm755 $src $out/bin/weaveback";
       }};
     }};
 }}
@@ -214,7 +214,7 @@ def main() -> None:
     args = parser.parse_args()
 
     version = (args.version.lstrip("v") if args.version else read_cargo_version())
-    aur_dir = REPO_ROOT.parent / "aur-azadi-bin"
+    aur_dir = REPO_ROOT.parent / "aur-weaveback-bin"
     token   = gh_token()
 
     print(f"Releasing v{version}...")
@@ -240,20 +240,20 @@ def main() -> None:
     release = wait_for_release(version, token)
     assets  = fetch_assets(release, token)
 
-    tarball   = assets["azadi-x86_64-linux.tar.gz"]
-    azadi_bin = assets["azadi-musl"]
+    tarball   = assets["weaveback-x86_64-linux.tar.gz"]
+    weaveback_bin = assets["weaveback-musl"]
 
     (PACKAGING / "PKGBUILD").write_text(pkgbuild(version, sha256_hex(tarball)))
     print("  Written packaging/PKGBUILD")
 
-    (REPO_ROOT / "flake.nix").write_text(flake(version, sha256_sri(azadi_bin)))
+    (REPO_ROOT / "flake.nix").write_text(flake(version, sha256_sri(weaveback_bin)))
     print("  Written flake.nix")
 
     if args.dry_run:
         print("\nDry run — skipping git and AUR steps.")
         return
 
-    print("\nCommitting azadi repo...")
+    print("\nCommitting weaveback repo...")
     run(["git", "add", "flake.nix", "packaging/PKGBUILD"], cwd=REPO_ROOT)
     run(["git", "commit", "-m", f"chore: release v{version}"], cwd=REPO_ROOT)
     run(["git", "push", "origin", "main"], cwd=REPO_ROOT)

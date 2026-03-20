@@ -78,7 +78,7 @@ Contributes to `[config db fields]` (type), `[config db defaults]`
 (initDefaults), `[config parse db]` (parseDatabase), and
 `[config generate db]` (generateDefaultConfig).
 
-[source,azadi]
+[source,weaveback]
 ----
 %def(cfg_int, field, toml_key, default_val, commented, %{
 # <[config db fields]>=
@@ -104,7 +104,7 @@ Contributes to `[config playback fields]` (type), `[config playback defaults]`
 (initDefaults), `[config parse playback]` (parsePlayback), and
 `[config generate playback]` (generateDefaultConfig).
 
-[source,azadi]
+[source,weaveback]
 ----
 %def(cfg_float, field, toml_key, default_val, commented, %{
 # <[config playback fields]>=
@@ -131,7 +131,7 @@ Like `cfg_path` but also contributes a `of "prefix": cfg.field` arm to the
 The `prefix` is the first component of relative asset paths (e.g. `"frames"`,
 which differs from the TOML key `frames_cache`).
 
-[source,azadi]
+[source,weaveback]
 ----
 %def(cfg_asset_path, field, toml_key, default_expr, commented, prefix, %{
 %cfg_path(field=%(field), toml_key=%(toml_key), default_expr=%(default_expr), commented=%(commented))
@@ -152,7 +152,7 @@ Also contributes a `cfg.nDir = cfg.dataDir / "n"` line to
 `[config rederive data dirs]`, used in `parsePaths` when the user sets the
 `data` key to relocate the whole media tree at once.
 
-[source,azadi]
+[source,weaveback]
 ----
 %def(cfg_data_dir, n, %{
 %cfg_asset_path(field=%(n)Dir, toml_key=%(n), default_expr=%{dl / "%(n)"%}, commented="# ", prefix=%(n))
@@ -181,7 +181,7 @@ The macro calls in <<sec-path-fields>> are ordered to match the desired
 section order in the generated config template (required paths first,
 optional paths commented).
 
-[source,azadi]
+[source,weaveback]
 ----
 %def(cfg_path, field, toml_key, default_expr, commented, %{
 # <[config path fields]>=
@@ -206,7 +206,7 @@ result &= %(commented) & "%(toml_key) = " & tomlQuote(cfg.%(field)) & "\n"
 Batch size for the item query pipeline and look-ahead distance for prefetch.
 Both ship as commented optional overrides in the generated config.
 
-[source,azadi]
+[source,weaveback]
 ----
 %cfg_int(field=dbBatchSize,   toml_key=db_batch_size,  default_val=300, commented="# ")
 %cfg_int(field=prefetchAhead, toml_key=prefetch_ahead,  default_val=50,  commented="# ")
@@ -224,7 +224,7 @@ is also manual (no generated config entry).
 Macro calls are ordered to match the generated config output: required paths
 first, optional paths commented out beneath them.
 
-[source,azadi]
+[source,weaveback]
 ----
 %cfg_path(field=schema,        toml_key=schema,        default_expr=dataHome / "assets" / "schema.sql",      commented="")
 %cfg_path(field=cacheDir,      toml_key=cache,         default_expr=%{getCacheHome()%},                    commented="")
@@ -248,7 +248,7 @@ first, optional paths commented out beneath them.
 `videoPreferences` is a `seq[int]` whose parse logic does not fit the scalar
 macro pattern and stays manual.
 
-[source,azadi]
+[source,weaveback]
 ----
 %cfg_float(field=wheelSeekAmount, toml_key=wheel_seek_amount, default_val=5.0,   commented="")
 %cfg_float(field=initialVolume,   toml_key=initial_volume,    default_val=70.0, commented="# ")

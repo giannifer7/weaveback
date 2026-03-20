@@ -98,7 +98,7 @@ rpm:
     cargo generate-rpm -p crates/weaveback
 
 # Bump Cargo.toml version first, then: just tag
-# Commits Cargo.lock, tags, waits for CI, publishes PKGBUILD + flake.nix + AUR
+# Commits Cargo.lock, tags, waits for CI, writes PKGBUILD to aur-weaveback-bin/, updates flake.nix
 tag:
     python packaging/update_release.py --tag
 

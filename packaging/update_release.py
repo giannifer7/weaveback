@@ -32,7 +32,7 @@ PACKAGING   = Path(__file__).parent
 REPO_ROOT   = PACKAGING.parent
 
 MAINTAINER  = "Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"
-DESCRIPTION = "weaveback — literate programming toolchain"
+DESCRIPTION = "Bidirectional literate programming toolchain (noweb, macros, source tracing)"
 HOMEPAGE    = "https://github.com/giannifer7/weaveback"
 RELEASES    = f"{HOMEPAGE}/releases/download"
 REPO        = "giannifer7/weaveback"
@@ -129,9 +129,9 @@ def pkgbuild(version: str, tarball_sha256: str) -> str:
     return f"""\
 # Maintainer: {MAINTAINER}
 #
-# AUR package for weaveback — literate programming toolchain.
-# Installs the weaveback binary. The separate weaveback-macro and weaveback-tangle
-# binaries are available in the GitHub release for advanced pipeline use.
+# AUR package for weaveback — bidirectional literate programming toolchain.
+# Installs weaveback (combined), weaveback-macro, and weaveback-tangle from
+# the pre-built x86_64 tarball on the GitHub release.
 #
 # Regenerate after each release:
 #   python packaging/update_release.py <version>
@@ -151,7 +151,9 @@ source=("weaveback-x86_64-linux.tar.gz::{source}")
 sha256sums=('{tarball_sha256}')
 
 package() {{
-    install -Dm755 weaveback -t "${{pkgdir}}/usr/bin"
+    install -Dm755 weaveback        -t "${{pkgdir}}/usr/bin"
+    install -Dm755 weaveback-macro  -t "${{pkgdir}}/usr/bin"
+    install -Dm755 weaveback-tangle -t "${{pkgdir}}/usr/bin"
 }}
 """
 
@@ -243,8 +245,8 @@ def main() -> None:
     tarball   = assets["weaveback-x86_64-linux.tar.gz"]
     weaveback_bin = assets["weaveback-musl"]
 
-    (PACKAGING / "PKGBUILD").write_text(pkgbuild(version, sha256_hex(tarball)))
-    print("  Written packaging/PKGBUILD")
+    (aur_dir / "PKGBUILD").write_text(pkgbuild(version, sha256_hex(tarball)))
+    print("  Written aur-weaveback-bin/PKGBUILD")
 
     (REPO_ROOT / "flake.nix").write_text(flake(version, sha256_sri(weaveback_bin)))
     print("  Written flake.nix")
@@ -254,12 +256,11 @@ def main() -> None:
         return
 
     print("\nCommitting weaveback repo...")
-    run(["git", "add", "flake.nix", "packaging/PKGBUILD"], cwd=REPO_ROOT)
+    run(["git", "add", "flake.nix"], cwd=REPO_ROOT)
     run(["git", "commit", "-m", f"chore: release v{version}"], cwd=REPO_ROOT)
     run(["git", "push", "origin", "main"], cwd=REPO_ROOT)
 
     print("\nUpdating AUR package...")
-    shutil.copy(PACKAGING / "PKGBUILD", aur_dir / "PKGBUILD")
     srcinfo = subprocess.run(
         ["makepkg", "--printsrcinfo"],
         cwd=aur_dir, check=True, capture_output=True, text=True,

@@ -1,9 +1,10 @@
-# Chunk syntax (weaveback-tangle)
+= Chunk syntax (weaveback-tangle)
 
 Comment markers (`#` or `//` by default) are stripped before delimiters are
 recognised, so chunks blend into any language's comment syntax.
 
-```rust
+[source,rust]
+----
 // <[@file src/hello.rs]>=
 fn main() {
     // <[greeting]>
@@ -13,43 +14,48 @@ fn main() {
 // <[greeting]>=
 println!("Hello, world!");
 // @
-```
+----
 
-## Declarations and references
+== Declarations and references
 
-| Syntax | Meaning |
-|--------|---------|
-| `# <[@file path]>=` | Declare a file output chunk |
-| `# <[name]>=` | Declare a named chunk |
-| `# <[name]>` | Reference (expand) a chunk inline; indentation is preserved |
-| `# @` | End the current chunk |
+[cols="2,3",options="header"]
+|===
+| Syntax | Meaning
+
+| `# <[@file path]>=` | Declare a file output chunk
+| `# <[name]>=` | Declare a named chunk
+| `# <[name]>` | Reference (expand) a chunk inline; indentation is preserved
+| `# @` | End the current chunk
+|===
 
 The path in `@file` may begin with `~/` to write to the home directory.
 
-## Modifiers
+== Modifiers
 
-Modifiers go **before** the chunk name, inside the delimiters.
+Modifiers go *before* the chunk name, inside the delimiters.
 
-### `@replace`
+=== `@replace`
 
 Discards all prior definitions of the chunk and starts fresh:
 
-```rust
+[source,rust]
+----
 // <[@replace @file src/main.rs]>=
 … new content …
 // @
-```
+----
 
-### `@reversed`
+=== `@reversed`
 
-On a **reference** line: expands the referenced chunk's accumulated definitions
+On a *reference* line: expands the referenced chunk's accumulated definitions
 in reverse order (last-defined first). Useful for stack / LIFO patterns:
 
-```rust
+[source,rust]
+----
 // <[@reversed items]>
-```
+----
 
-## Multiple definitions
+== Multiple definitions
 
 Chunk definitions accumulate — a chunk may be defined in multiple places and
 all definitions are concatenated in order when the chunk is referenced (unless

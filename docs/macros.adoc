@@ -1,281 +1,299 @@
-# Macro language reference
+= Macro language reference
 
 The macro expander is invoked with `%` by default (change with `--special`).
 
-## Syntax basics
+== Syntax basics
 
-### Argument whitespace
+=== Argument whitespace
 
 Leading whitespace in every argument is stripped, so you can align calls
 without spaces leaking into the output:
 
-```
+----
 %def(tag, name, value, %{<%(name)>%(value)</%(name)>%})
 %tag( div,
       Hello world)
-```
+----
+
 Output: `<div>Hello world</div>`
 
 To include a literal leading space, wrap in a block:
 
-```
+----
 %tag(%{ div%}, %{ Hello world%})
-```
+----
 
-### Named arguments
+=== Named arguments
 
 Any argument may be given a name with `identifier = value`. Named args bind by
 name regardless of position and must come after all positional args:
 
-```
+----
 %def(greet, name, msg, %{Hello, %(name)! %(msg)%})
 %greet(name = Alice, msg = %{Good morning%})
-```
+----
 
-### Comments
+=== Comments
 
-| Syntax | Scope |
-|--------|-------|
-| `%# …` | to end of line |
-| `%// …` | to end of line |
-| `%-- …` | to end of line |
-| `%/* … %*/` | block, nestable |
+[cols="1,2",options="header"]
+|===
+| Syntax | Scope
 
-### Multi-line blocks
+| `%# …` | to end of line
+| `%// …` | to end of line
+| `%-- …` | to end of line
+| `%/* … %*/` | block, nestable
+|===
+
+=== Multi-line blocks
 
 `%{ … %}` delimits a block that may span lines and contain commas and
 parentheses without triggering argument splitting. An optional tag makes
 matching pairs easier to spot:
 
-```
+----
 %def(page, title, body, %page{
 <!DOCTYPE html>
 <html><head><title>%(title)</title></head>
 <body>%(body)</body></html>
 %page})
-```
+----
 
----
+'''
 
-## Built-in macros
+== Built-in macros
 
-### `%def` — define a macro
+=== `%def` — define a macro
 
-```
+----
 %def(name, param1, param2, ..., body)
-```
+----
 
-```
+----
 %def(greet, name, %{Hello, %(name)!%})
 %greet(World)
-```
+----
+
 Output: `Hello, World!`
 
 Macro bodies may call other macros and contain nested `%def` calls.
 Nested definitions are scoped to the invocation; use `%export` to promote them.
 
-### Calling conventions
+=== Calling conventions
 
 These rules apply to all macro kinds:
 
-- Positional args fill declared params left-to-right; extras are silently ignored.
-- Named args (`param = value`) bind by name; an unknown name is an error.
-- Positional args must come before named args.
-- Binding the same param both ways is an error.
-- Missing args default to empty string.
+* Positional args fill declared params left-to-right; extras are silently ignored.
+* Named args (`param = value`) bind by name; an unknown name is an error.
+* Positional args must come before named args.
+* Binding the same param both ways is an error.
+* Missing args default to empty string.
 
-```
+----
 %def(endpoint, method, path, handler, %{%(method) %(path) → %(handler)%})
 %endpoint(GET, path = /users, handler = list_users)
-```
+----
+
 Output: `GET /users → list_users`
 
-### `%set` — set a variable
+=== `%set` — set a variable
 
-```
+----
 %set(version, 1.0.0)
 Version: %(version)
-```
+----
+
 Output: `Version: 1.0.0`
 
-### `%if` — conditional
+=== `%if` — conditional
 
 Empty string is falsy; any non-empty string is truthy.
 
-```
+----
 %set(debug, yes)
 %if(%(debug), [DEBUG MODE], )
-```
+----
+
 Output: `[DEBUG MODE]`
 
-### `%equal` — equality test
+=== `%equal` — equality test
 
 Returns its first argument if both arguments are equal, otherwise empty string.
 
-```
+----
 %equal(%(mode), release)
-```
+----
 
-### `%include` / `%import`
+=== `%include` / `%import`
 
 `%include` expands the file inline. `%import` expands it but discards the
 output (for loading macro definitions only).
 
-```
+----
 %import(macros/common.txt)
 %my_macro(arg)
-```
+----
 
-### `%env` — read an environment variable
+=== `%env` — read an environment variable
 
 Requires `--allow-env`; raises an error without it.
 
-```
+[source,bash]
+----
 weaveback --allow-env notes.md --gen src
-```
+----
 
-```
+----
 Prefix: %env(MY_PREFIX)_
-```
+----
 
-### Case conversion
+=== Case conversion
 
 `%capitalize`, `%decapitalize`, `%to_snake_case`, `%to_camel_case`,
 `%to_pascal_case`, `%to_screaming_case`
 
-```
+----
 %to_snake_case(MyFancyName)
-```
+----
+
 Output: `my_fancy_name`
 
-### `%eval` — indirect macro call
+=== `%eval` — indirect macro call
 
-```
+----
 %eval(%(macro_name), arg1, arg2)
-```
+----
 
-### `%export` — promote to parent scope
+=== `%export` — promote to parent scope
 
-```
+----
 %def(init, %{
   %set(x, 10)
   %export(x)
 %})
 %init()
 x is: %(x)
-```
+----
 
-### `%here` — in-place expansion
+=== `%here` — in-place expansion
 
 Evaluates its argument and writes the result back into the source file at the
 call site. Useful for one-time code generation.
 
----
+'''
 
-## `%rhaidef` — Rhai-scripted macros
+== `%rhaidef` — Rhai-scripted macros
 
-```
+----
 %rhaidef(name, param1, ..., body)
-```
+----
 
-The body is a [Rhai](https://rhai.rs) script evaluated at call time. All
-visible weaveback scope variables are injected as Rhai string variables. Wrap the
-body in `%{ … %}` when it contains parentheses.
+The body is a https://rhai.rs[Rhai] script evaluated at call time. All
+visible weaveback scope variables are injected as Rhai string variables. Wrap
+the body in `%{ … %}` when it contains parentheses.
 
-**Registered helpers:**
+*Registered helpers:*
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `parse_int(s)` | `String → i64` | Parse string to integer (0 on error) |
-| `parse_float(s)` | `String → f64` | Parse string to float (0.0 on error) |
-| `to_hex(n)` | `i64 → String` | Format as `0xHEX` |
+[cols="2,2,3",options="header"]
+|===
+| Function | Signature | Description
 
-```
+| `parse_int(s)` | `String → i64` | Parse string to integer (0 on error)
+| `parse_float(s)` | `String → f64` | Parse string to float (0.0 on error)
+| `to_hex(n)` | `i64 → String` | Format as `0xHEX`
+|===
+
+----
 %rhaidef(double, x, %{(parse_int(x) * 2).to_string()%})
 %double(21)
-```
+----
+
 Output: `42`
 
-```
+----
 %rhaidef(as_hex, n, %{to_hex(parse_int(n))%})
 %as_hex(255)
-```
+----
+
 Output: `0xFF`
 
-### `%rhaiset` / `%rhaiget` / `%rhaiexpr` — typed Rhai store
+=== `%rhaiset` / `%rhaiget` / `%rhaiexpr` — typed Rhai store
 
 A persistent store that survives across all `%rhaidef` calls in a run. Every
 entry is injected into every `%rhaidef` script with its native Rhai type. Store
 keys modified by a script are automatically written back.
 
-```
+----
 %rhaiset(key, value)       — store a string or number (auto-parsed to i64/f64)
 %rhaiget(key)              — read a store value as string
 %rhaiexpr(key, rhai_expr)  — store the result of a Rhai expression
-```
+----
 
-**Counter with auto write-back:**
+*Counter with auto write-back:*
 
-```
+----
 %rhaiset(counter, 0)
 %rhaidef(tick, %{
   counter += 1;
   counter.to_string()
 %})
 %tick() %tick() %tick()
-```
+----
+
 Output: `1 2 3`
 
----
+'''
 
-## `%pydef` — Python-scripted macros
+== `%pydef` — Python-scripted macros
 
-```
+----
 %pydef(name, param1, ..., body)
-```
+----
 
-The body is evaluated by [monty](https://github.com/pydantic/monty), a
+The body is evaluated by https://github.com/pydantic/monty[monty], a
 pure-Rust sandboxed Python interpreter compiled into the binary. No Python
 runtime required. Only declared parameters and `%pyset` store entries are
 available inside the script.
 
-**Note:** monty supports a subset of Python — arithmetic, string ops, `re`,
+NOTE: monty supports a subset of Python — arithmetic, string ops, `re`,
 basic control flow. No third-party libraries, no file I/O, no `print`.
 
-```
+----
 %pydef(double, x, %{str(int(x) * 2)%})
 %double(21)
-```
+----
+
 Output: `42`
 
-### `%pyset` / `%pyget` — Python store
+=== `%pyset` / `%pyget` — Python store
 
-```
+----
 %pyset(key, value)   — write a string into the store
 %pyget(key)          — read from the store (empty string if absent)
-```
+----
 
 Write-back is explicit — capture the return value with `%pyset`:
 
-```
+----
 %pyset(total, 0)
 %pydef(add, n, %{str(int(total) + int(n))%})
 %pyset(total, %add(10))
 %pyset(total, %add(20))
 Total: %pyget(total)
-```
+----
+
 Output: `Total: 30`
 
----
+'''
 
-## Macro redefinition and the X macro pattern
+== Macro redefinition and the X macro pattern
 
 A `%def` with the same name silently replaces the previous definition. This
-enables the [X macro](https://en.wikipedia.org/wiki/X_macro) idiom: define a
+enables the https://en.wikipedia.org/wiki/X_macro[X macro] idiom: define a
 list macro that calls a configurable inner macro `X` for each entry, then
 redefine `X` before each use.
 
-```
+----
 %def(Colors,
   %X(Red)
   %X(Green)
@@ -287,13 +305,15 @@ typedef enum { %Colors() } Color;
 
 %def(X, value, %{[%(value)] = "%(value)",%})
 const char *color_names[] = { %Colors() };
-```
+----
 
 Output:
-```c
+
+[source,c]
+----
 typedef enum { Red, Green, Blue, } Color;
 const char *color_names[] = { [Red] = "Red", [Green] = "Green", [Blue] = "Blue", };
-```
+----
 
 `X` need not be defined before `Colors` is defined — only before `%Colors()` is
 called. Adding an entry to `Colors` automatically propagates to every projection.

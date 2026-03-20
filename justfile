@@ -62,6 +62,10 @@ noweb FILE:
 example-c-enum:
     cd examples/c_enum && cargo run --package weaveback -- status.md --gen .
 
+# Regenerate the events fan-out example
+example-events:
+    cd examples/events && cargo run --package weaveback -- events.adoc --gen .
+
 # Regenerate the nim-adoc example via meson/ninja
 example-nim-adoc:
     meson setup examples/nim-adoc/build examples/nim-adoc --wipe

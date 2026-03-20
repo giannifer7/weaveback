@@ -1,0 +1,127 @@
+= Events fan-out example
+
+A literate demonstration of language-agnostic fan-out.
+One `%%event` call accumulates into five chunk slots simultaneously and generates
+a C header, a Rust module, and an SQL seed file from a single source of truth.
+
+[source,sh]
+----
+weaveback events.adoc --gen .
+----
+
+---
+
+== The `%%event` macro
+
+`%%event(id, ns, name, description)` appends one fragment to each of five
+accumulating slots: the C enum body, the Rust enum body, the Rust `Display`
+match arms, the SQL insert rows, and the C cleanup array.
+
+The body must be wrapped in `%%{...%%}` because it contains parentheses.
+
+[source,adoc]
+----
+%def(event, id, ns, name, description, %{
+// <[c enum arms]>=
+EVT_%to_screaming_case(%(ns))_%to_screaming_case(%(name)) = %(id),
+// @
+// <[rust enum arms]>=
+%to_pascal_case(%(ns))%to_pascal_case(%(name)),
+// @
+// <[rust display arms]>=
+PluginEvent::%to_pascal_case(%(ns))%to_pascal_case(%(name)) => write!(f, "%(ns).%(name)"),
+// @
+// <[sql rows]>=
+INSERT INTO audit_event_types (id, name, description)
+    VALUES (%(id), '%(ns).%(name)', '%(description)')
+    ON CONFLICT (name) DO NOTHING;
+// @
+// <[c cleanup array]>=
+cleanup_%(ns)_%(name),
+// @
+%})
+----
+
+---
+
+== Event declarations
+
+Each event is declared exactly once.
+The `%%event` call simultaneously appends to all five chunk slots.
+
+[source,adoc]
+----
+%event(0, plugin, load,   Plugin loaded into host)
+%event(1, plugin, unload, Plugin removed from host)
+%event(2, config, change, Configuration key changed)
+----
+
+---
+
+== include/events.h
+
+The C header exposes `PluginEvent` and an `EVT_CLEANUP` function-pointer array.
+The `@reversed` modifier on the cleanup reference expands the accumulated
+chunk in reverse order so destructors fire in LIFO sequence.
+
+[source,c]
+----
+// <[@file include/events.h]>=
+/* include/events.h — generated */
+#ifndef EVENTS_H
+#define EVENTS_H
+
+typedef enum {
+    // <[c enum arms]>
+    EVT__COUNT
+} PluginEvent;
+
+/* @reversed slot: cleanup runs in reverse registration order */
+static const void (*EVT_CLEANUP[])(void) = {
+    // <[@reversed c cleanup array]>
+};
+
+#endif /* EVENTS_H */
+// @
+----
+
+---
+
+== src/events.rs
+
+The Rust module derives common traits and implements `fmt::Display`.
+
+[source,rust]
+----
+// <[@file src/events.rs]>=
+// src/events.rs — generated
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginEvent {
+    // <[rust enum arms]>
+}
+
+impl fmt::Display for PluginEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // <[rust display arms]>
+        }
+    }
+}
+// @
+----
+
+---
+
+== db/seed_events.sql
+
+The SQL seed file populates the `audit_event_types` table idempotently.
+
+[source,sql]
+----
+// <[@file db/seed_events.sql]>=
+-- db/seed_events.sql — generated
+// <[sql rows]>
+// @
+----

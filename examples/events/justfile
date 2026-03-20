@@ -1,0 +1,19 @@
+# justfile — events fan-out example
+
+default:
+    @just --list
+
+# Tangle events.adoc into include/events.h, src/events.rs, db/seed_events.sql
+gen:
+    weaveback events.adoc --gen .
+
+# Render events.adoc to HTML (requires asciidoctor)
+docs:
+    asciidoctor events.adoc
+
+# Tangle + render docs
+all: gen docs
+
+# Remove generated artifacts
+clean:
+    rm -rf build/ weaveback.db events.html

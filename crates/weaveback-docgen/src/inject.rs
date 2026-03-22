@@ -21,7 +21,7 @@ pub fn rewrite_adoc_links(out_dir: &Path) {
     let html_files: Vec<_> = walkdir::WalkDir::new(out_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "html"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "html"))
         .map(|e| e.into_path())
         .collect();
 
@@ -51,7 +51,7 @@ pub fn inject_xref(out_dir: &Path, xref: &HashMap<String, XrefEntry>) {
     let html_files: Vec<_> = walkdir::WalkDir::new(out_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "html"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "html"))
         .map(|e| e.into_path())
         .collect();
 

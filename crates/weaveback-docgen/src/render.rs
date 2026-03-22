@@ -203,7 +203,7 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
         .filter(|e| {
             e.path()
                 .extension()
-                .map_or(false, |ext| ext == "adoc")
+                .is_some_and(|ext| ext == "adoc")
         })
         .map(|e| e.into_path())
         .collect();

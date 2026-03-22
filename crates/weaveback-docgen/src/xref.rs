@@ -227,7 +227,7 @@ pub fn build_xref(project_root: &Path) -> HashMap<String, XrefEntry> {
         .into_iter()
         .filter_entry(|e| !is_excluded(e.path()))
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "rs"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
         .map(|e| e.into_path())
         .collect();
     rs_files.sort();
@@ -275,7 +275,7 @@ pub fn build_xref(project_root: &Path) -> HashMap<String, XrefEntry> {
     // Build XrefEntry map
     let make_link = |k: &str| XrefLink {
         key: k.to_string(),
-        label: k.split('/').last().unwrap_or(k).to_string(),
+        label: k.split('/').next_back().unwrap_or(k).to_string(),
         html: html_path_for_key(k),
     };
 

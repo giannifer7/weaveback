@@ -50,8 +50,7 @@ pub struct Token {
 
 #[derive(Debug)]
 pub struct LexerError {
-    pub row: usize,
-    pub col: usize,
+    pub pos: usize,
     pub message: String,
 }
 

@@ -4,6 +4,7 @@ pub use types::*;
 pub mod ast;
 pub mod evaluator;
 pub mod lexer;
+pub mod line_index;
 pub mod macro_api;
 pub mod parser;
 

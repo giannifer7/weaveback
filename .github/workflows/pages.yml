@@ -48,6 +48,9 @@ jobs:
       - name: Generate docs
         run: cargo run --release --package weaveback-docgen
 
+      - name: Create root index
+        run: cp docs/html/README.html docs/html/index.html
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v4

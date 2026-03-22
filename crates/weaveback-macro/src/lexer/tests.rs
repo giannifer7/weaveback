@@ -84,6 +84,23 @@ fn test_error_cases() {
 }
 
 #[test]
+fn test_bare_percent_inside_comment() {
+    // A bare % inside a block comment that is not %/* or %*/ must be
+    // swallowed as comment text, not terminate the comment or error.
+    assert_tokens(
+        "%/* 100% done %*/",
+        &[
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " 100% done "),
+            (TokenKind::CommentClose, "%*/"),
+        ],
+    );
+    // Verify no errors either.
+    let (_, errors) = Lexer::new("%/* 100% done %*/", '%', 0).lex();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+}
+
+#[test]
 fn test_nested_comment() {
     // This input contains a nested comment:
     // Outer comment: starts with "%/*" and ends with "%*/"

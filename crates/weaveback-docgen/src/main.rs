@@ -47,6 +47,9 @@ fn main() {
         Err(e) => eprintln!("xref: serialisation error: {}", e),
     }
 
-    // 4. Inject per-page window.__xref into HTML files that have a matching entry
+    // 4. Rewrite .adoc hrefs to .html in all generated pages
+    inject::rewrite_adoc_links(&out_dir);
+
+    // 5. Inject per-page window.__xref into HTML files that have a matching entry
     inject::inject_xref(&out_dir, &xref);
 }

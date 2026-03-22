@@ -1,7 +1,43 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use regex::Regex;
+use std::sync::OnceLock;
+
 use crate::xref::{html_path_for_key, XrefEntry};
+
+// ── .adoc → .html link rewriting ─────────────────────────────────────────────
+
+fn adoc_href_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // Match href="…something.adoc…" — capture the .adoc extension only
+    RE.get_or_init(|| Regex::new(r#"(href="[^"]*?)\.adoc([^"]*?")"#).unwrap())
+}
+
+/// Rewrite every `href="….adoc…"` to `href="….html…"` in all HTML files
+/// under `out_dir`. Runs after asciidoctor so cross-doc links resolve correctly.
+pub fn rewrite_adoc_links(out_dir: &Path) {
+    let re = adoc_href_re();
+    let html_files: Vec<_> = walkdir::WalkDir::new(out_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "html"))
+        .map(|e| e.into_path())
+        .collect();
+
+    for html_file in html_files {
+        let Ok(content) = std::fs::read_to_string(&html_file) else {
+            continue;
+        };
+        if !content.contains(".adoc") {
+            continue;
+        }
+        let patched = re.replace_all(&content, r#"$1.html$2"#);
+        if patched != content {
+            let _ = std::fs::write(&html_file, patched.as_ref());
+        }
+    }
+}
 
 /// Inject `<script>window.__xref=…</script>` before `</head>` in each HTML
 /// page that has a corresponding xref entry.

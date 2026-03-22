@@ -1,36 +1,26 @@
 // crates/weaveback-macro/src/ast/serialization.rs
 
-use crate::evaluator::EvalError;
-use crate::evaluator::lex_parse_content;
-/*
-use crate::evaluator::lexer_parser::lex_parse_content;
-use crate::evaluator::EvalError;
 use crate::evaluator::{lex_parse_content, EvalError};
-*/
 use crate::types::{ASTNode, Token};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 fn serialize_token(token: &Token) -> String {
-    format!("{},{},{}", token.kind as i32, token.pos, token.length)
+    format!("{},{},{},{}", token.src, token.kind as i32, token.pos, token.length)
 }
 
 pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
     let mut nodes = Vec::new();
-    let mut queue = vec![(root, 0)];
-    let mut next_idx = 1; // Start at 1 because root is index 0
+    // BFS so that child indices assigned as next_idx..next_idx+n are contiguous
+    // and land exactly where each node ends up in the output array.
+    let mut queue: VecDeque<&ASTNode> = VecDeque::new();
+    let mut next_idx = 1usize; // root is index 0
 
     // We don't need to write src because we process one file at a time and the caller knows which
-    while let Some((node, _parent_idx)) = queue.pop() {
-        let node_info = format!(
-            "{},{},{}",
-            node.kind as i32,
-            serialize_token(&node.token),
-            node.end_pos
-        );
-
-        // Calculate child indices starting from next_idx
+    queue.push_back(root);
+    while let Some(node) = queue.pop_front() {
         let child_indices: Vec<usize> = (next_idx..next_idx + node.parts.len()).collect();
         next_idx += node.parts.len();
 
@@ -46,32 +36,38 @@ pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
                     .join(",")
             )
         };
-        nodes.push(format!("[{node_info},{parts}]"));
+        nodes.push(format!(
+            "[{},{},{},{}]",
+            node.kind as i32,
+            serialize_token(&node.token),
+            node.end_pos,
+            parts,
+        ));
 
-        // Queue children in reverse order to maintain order
-        for child in node.parts.iter().rev() {
-            queue.push((child, nodes.len() - 1));
+        for child in &node.parts {
+            queue.push_back(child);
         }
     }
 
     nodes
 }
 
-pub fn write_ast<W: Write>(nodes: &[String], writer: &mut W) -> io::Result<()> {
+pub fn write_ast<W: Write>(header: &str, nodes: &[String], writer: &mut W) -> io::Result<()> {
+    writeln!(writer, "{}", header)?;
     for line in nodes {
         writeln!(writer, "{}", line)?;
     }
     Ok(())
 }
 
-pub fn write_ast_to_file(nodes: &[String], output_path: &PathBuf) -> io::Result<()> {
+pub fn write_ast_to_file(header: &str, nodes: &[String], output_path: &PathBuf) -> io::Result<()> {
     if output_path.to_str() == Some("-") {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
-        write_ast(nodes, &mut handle)
+        write_ast(header, nodes, &mut handle)
     } else {
         let mut file = File::create(output_path)?;
-        write_ast(nodes, &mut file)
+        write_ast(header, nodes, &mut file)
     }
 }
 
@@ -94,13 +90,17 @@ pub fn dump_macro_ast(special: char, input_files: &[PathBuf]) -> Result<(), Eval
         let ast = lex_parse_content(&content, special, 0)?;
         let nodes = serialize_ast_nodes(&ast);
 
-        let output = if input.to_str() == Some("-") {
-            PathBuf::from("-")
+        let (output, src_name) = if input.to_str() == Some("-") {
+            (PathBuf::from("-"), "-".to_string())
         } else {
-            input.with_extension("ast")
+            (input.with_extension("ast"), input.display().to_string())
         };
 
-        write_ast_to_file(&nodes, &output).map_err(|e| {
+        // Header line: maps src indices to source file paths.
+        // Format: # src:<index>=<path>  (one per source file; currently always src:0)
+        let header = format!("# src:0={}", src_name);
+
+        write_ast_to_file(&header, &nodes, &output).map_err(|e| {
             EvalError::Runtime(format!("Failed to write {}: {}", output.display(), e))
         })?;
     }

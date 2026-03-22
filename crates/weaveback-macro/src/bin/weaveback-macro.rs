@@ -77,6 +77,11 @@ struct Args {
     /// Default: md. Example: --ext adoc --ext md to scan both.
     #[arg(long, default_value = "md")]
     ext: Vec<String>,
+
+    /// Dump the parsed AST for each input file to <file>.ast (or stdout for stdin).
+    /// Skips macro evaluation entirely.
+    #[arg(long = "dump-ast")]
+    dump_ast: bool,
 }
 
 fn run(args: Args) -> Result<(), EvalError> {
@@ -137,6 +142,10 @@ fn run(args: Args) -> Result<(), EvalError> {
         }
         inputs
     };
+
+    if args.dump_ast {
+        return weaveback_macro::ast::dump_macro_ast(args.special, &final_inputs);
+    }
 
     weaveback_macro::macro_api::process_files_from_config(&final_inputs, &args.output, config)
 }

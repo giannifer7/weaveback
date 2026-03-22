@@ -114,6 +114,16 @@ re-tag:
 update-release:
     python packaging/update_release.py
 
+# ── Literate programming ──────────────────────────────────────────────────────
+
+# Tangle all .adoc literate sources under crates/ into generated Rust files
+tangle:
+    python3 scripts/tangle.py
+
+# Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
+docs:
+    cargo run --release --package weaveback-docgen
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 # cargo clean + dist/

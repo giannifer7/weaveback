@@ -4,7 +4,7 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path};
 use std::rc::Rc;
 
@@ -816,10 +816,17 @@ impl Clip {
     }
 
     /// Read from a file on disk, storing chunk definitions.
+    /// Pass `"-"` to read from stdin.
     pub fn read_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), WeavebackError> {
         let fname = path.as_ref().to_string_lossy().to_string();
         let idx = self.store.add_file_name(&fname);
-        let text = fs::read_to_string(&path)?;
+        let text = if path.as_ref() == Path::new("-") {
+            let mut buf = String::new();
+            io::stdin().lock().read_to_string(&mut buf)?;
+            buf
+        } else {
+            fs::read_to_string(&path)?
+        };
         self.store.read(&text, idx);
         Ok(())
     }

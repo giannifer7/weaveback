@@ -25,6 +25,8 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum NodeKind {
+    /// Discriminant 0 is intentionally reserved so Rust and Python discriminants align:
+    /// Python IntEnum starts at 1 by default, matching Text=1 here.
     NotUsed = 0,
     Text = 1,
     Space = 2,
@@ -33,11 +35,9 @@ pub enum NodeKind {
     BlockComment = 5,
     Var = 6,
     Equal = 7,
-    Punct = 8,
-    Composite = 9,
-    Param = 10,
-    Macro = 11,
-    Block = 12,
+    Param = 8,
+    Macro = 9,
+    Block = 10,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +46,25 @@ pub struct Token {
     pub src: u32,
     pub pos: usize,
     pub length: usize,
+}
+
+impl Token {
+    /// One-past-the-end byte offset: `pos + length`.
+    pub fn end(&self) -> usize {
+        self.pos + self.length
+    }
+
+    /// Create a zero-length synthetic token for structural parse nodes that
+    /// have no corresponding source token (root block, implicit first param).
+    /// `pos` anchors the node in the source for `end_pos` computation.
+    pub fn synthetic(src: u32, pos: usize) -> Self {
+        Token {
+            kind: TokenKind::Text,
+            src,
+            pos,
+            length: 0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -110,11 +129,9 @@ impl TryFrom<i32> for NodeKind {
             5 => Ok(NodeKind::BlockComment),
             6 => Ok(NodeKind::Var),
             7 => Ok(NodeKind::Equal),
-            8 => Ok(NodeKind::Punct),
-            9 => Ok(NodeKind::Composite),
-            10 => Ok(NodeKind::Param),
-            11 => Ok(NodeKind::Macro),
-            12 => Ok(NodeKind::Block),
+            8 => Ok(NodeKind::Param),
+            9 => Ok(NodeKind::Macro),
+            10 => Ok(NodeKind::Block),
             _ => Err(format!("Invalid NodeKind: {value}")),
         }
     }

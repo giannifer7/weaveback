@@ -102,7 +102,11 @@ impl SafeFileWriter {
     }
 
     fn atomic_copy<P: AsRef<Path>>(&self, source: P, destination: P) -> io::Result<()> {
-        let temp_path = destination.as_ref().with_extension("tmp");
+        let destination = destination.as_ref();
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let temp_path = destination.with_extension("tmp");
 
         if temp_path.exists() {
             let _ = fs::remove_file(&temp_path);

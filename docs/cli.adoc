@@ -137,6 +137,7 @@ weaveback-macro [OPTIONS] --dir <DIR>
 [source,bash]
 ----
 weaveback-tangle [OPTIONS] <FILES>...
+weaveback-tangle [OPTIONS] -              # read from stdin
 ----
 
 [cols="3,1,4",options="header"]

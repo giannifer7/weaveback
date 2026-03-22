@@ -1,0 +1,55 @@
+name: Docs → GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Rust build cache — cuts rebuild time on subsequent runs
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docgen
+
+      - name: Install asciidoctor + gems
+        run: |
+          sudo gem install asciidoctor asciidoctor-diagram rouge --no-document
+
+      - name: Install PlantUML
+        run: sudo apt-get install -y plantuml
+
+      - name: Build weaveback-docgen
+        run: cargo build --release --package weaveback-docgen
+
+      - name: Generate docs
+        run: cargo run --release --package weaveback-docgen
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/html
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

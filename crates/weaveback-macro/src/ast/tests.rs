@@ -509,3 +509,206 @@ fn test_param_with_nested_macro() {
     assert_eq!(result.parts.len(), 1); // Just the macro after name=
     check_node(&result.parts[0], NodeKind::Macro, 1); // Macro has 1 parameter
 }
+
+// -----------------------------------------------------------------------
+// NodeKind discriminant values — regression guard for renumbering
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_node_kind_discriminants() {
+    // NotUsed=0 is intentional: Python IntEnum starts at 1 by default,
+    // so reserving 0 keeps Rust and Python discriminants aligned.
+    assert_eq!(NodeKind::NotUsed as i32, 0);
+    assert_eq!(NodeKind::Text as i32, 1);
+    assert_eq!(NodeKind::Space as i32, 2);
+    assert_eq!(NodeKind::Ident as i32, 3);
+    assert_eq!(NodeKind::LineComment as i32, 4);
+    assert_eq!(NodeKind::BlockComment as i32, 5);
+    assert_eq!(NodeKind::Var as i32, 6);
+    assert_eq!(NodeKind::Equal as i32, 7);
+    assert_eq!(NodeKind::Param as i32, 8);
+    assert_eq!(NodeKind::Macro as i32, 9);
+    assert_eq!(NodeKind::Block as i32, 10);
+}
+
+// -----------------------------------------------------------------------
+// serialize_ast_nodes — BFS ordering correctness
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_serialize_bfs_child_indices() {
+    // Tree: Root[A, B], A[C, D], B[], C[], D[]
+    // With the old DFS traversal B landed at index 4 instead of 2.
+    // BFS guarantees: Root→[1,2], A→[3,4], B/C/D are leaves at 2/3/4.
+    let tok =
+        |pos| Token { src: 0, kind: TokenKind::Text, pos, length: 1 };
+
+    let c = ASTNode { kind: NodeKind::Text,  src: 0, token: tok(3), end_pos: 4, parts: vec![], name: None };
+    let d = ASTNode { kind: NodeKind::Text,  src: 0, token: tok(4), end_pos: 5, parts: vec![], name: None };
+    let b = ASTNode { kind: NodeKind::Text,  src: 0, token: tok(2), end_pos: 3, parts: vec![], name: None };
+    let a = ASTNode { kind: NodeKind::Macro, src: 0, token: tok(1), end_pos: 6, parts: vec![c, d], name: None };
+    let root = ASTNode { kind: NodeKind::Block, src: 0, token: tok(0), end_pos: 7, parts: vec![a, b], name: None };
+
+    let nodes = serialize_ast_nodes(&root);
+    assert_eq!(nodes.len(), 5);
+    assert!(nodes[0].contains("[1,2]"),  "root children: {}", nodes[0]);
+    assert!(nodes[1].contains("[3,4]"),  "A children: {}",    nodes[1]);
+    assert!(nodes[2].ends_with(",[]]"), "B should be leaf: {}", nodes[2]);
+    assert!(nodes[3].ends_with(",[]]"), "C should be leaf: {}", nodes[3]);
+    assert!(nodes[4].ends_with(",[]]"), "D should be leaf: {}", nodes[4]);
+}
+
+#[test]
+fn test_serialize_token_src_field_present() {
+    // token.src must appear in the output so external evaluators can trace
+    // which source file a node came from.
+    let root = ASTNode {
+        kind: NodeKind::Block,
+        src: 0,
+        token: Token { src: 2, kind: TokenKind::Text, pos: 5, length: 3 },
+        end_pos: 8,
+        parts: vec![],
+        name: None,
+    };
+    let nodes = serialize_ast_nodes(&root);
+    assert_eq!(nodes.len(), 1);
+    // Format: [node_kind, token_src, token_kind, token_pos, token_length, end_pos, []]
+    // node_kind=10(Block), token_src=2, token_kind=0(Text), pos=5, len=3, end_pos=8
+    assert!(nodes[0].starts_with("[10,2,"), "token src not present: {}", nodes[0]);
+}
+
+// -----------------------------------------------------------------------
+// strip_space_before_comments
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_strip_removes_space_node_before_line_comment() {
+    // [Text, Space, LineComment] → Space removed from parts.
+    let content = b"hello %// comment\n";
+    let mut parser = Parser::new();
+    let text_idx    = n(&mut parser, NodeKind::Text,        0,  5, vec![]);
+    let space_idx   = n(&mut parser, NodeKind::Space,       5,  1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 6, 12, vec![]);
+    let root_idx    = n(&mut parser, NodeKind::Block,       0, 18, vec![text_idx, space_idx, comment_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts.len(), 2);
+    assert_eq!(root.parts[0], text_idx);
+    assert_eq!(root.parts[1], comment_idx);
+}
+
+#[test]
+fn test_strip_trims_trailing_spaces_in_text_before_line_comment() {
+    // Text "hello   " (trailing spaces) before LineComment → length trimmed to "hello".
+    let content = b"hello   %// comment\n";
+    let mut parser = Parser::new();
+    let text_idx    = n(&mut parser, NodeKind::Text,        0,  8, vec![]); // "hello   "
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 8, 12, vec![]);
+    let root_idx    = n(&mut parser, NodeKind::Block,       0, 20, vec![text_idx, comment_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts.len(), 2); // Text kept, just trimmed
+    let text = parser.get_node(text_idx).unwrap();
+    assert_eq!(text.token.length, 5, "trailing spaces should be stripped from text");
+}
+
+#[test]
+fn test_strip_removes_space_before_block_comment_followed_by_newline() {
+    // Block comment whose end_pos is followed by '\n' counts as line-ending → preceding Space removed.
+    // content: " %/* c %*/\nmore"  — BlockComment(1..10), content[10]=='\n'
+    let content = b" %/* c %*/\nmore";
+    let mut parser = Parser::new();
+    let space_idx   = n(&mut parser, NodeKind::Space,        0,  1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 1,  9, vec![]); // end_pos=10
+    let text_idx    = n(&mut parser, NodeKind::Text,        11,  4, vec![]);
+    let root_idx    = n(&mut parser, NodeKind::Block,        0, 15,
+                        vec![space_idx, comment_idx, text_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts.len(), 2); // Space removed
+    assert_eq!(root.parts[0], comment_idx);
+    assert_eq!(root.parts[1], text_idx);
+}
+
+#[test]
+fn test_no_strip_before_inline_block_comment() {
+    // Block comment NOT followed by '\n' (inline) → preceding Space is kept.
+    // content: " %/* c %*/ more"  — BlockComment(1..10), content[10]==' '
+    let content = b" %/* c %*/ more";
+    let mut parser = Parser::new();
+    let space_idx   = n(&mut parser, NodeKind::Space,        0,  1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 1,  9, vec![]); // end_pos=10
+    let text_idx    = n(&mut parser, NodeKind::Text,        10,  5, vec![]);
+    let root_idx    = n(&mut parser, NodeKind::Block,        0, 15,
+                        vec![space_idx, comment_idx, text_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts.len(), 3); // Space kept — inline comment
+}
+
+// -----------------------------------------------------------------------
+// Full pipeline: lex → parse → strip → AST (via lex_parse_content)
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_pipeline_plain_text() {
+    use crate::evaluator::lex_parse_content;
+    let ast = lex_parse_content("hello world", '%', 0).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 1);
+    assert_eq!(ast.parts[0].kind, NodeKind::Text);
+}
+
+#[test]
+fn test_pipeline_comments_stripped_from_ast() {
+    use crate::evaluator::lex_parse_content;
+    let ast = lex_parse_content("before %// comment\nafter", '%', 0).unwrap();
+    // Comments must not appear anywhere in the AST.
+    fn no_comments(node: &ASTNode) {
+        assert_ne!(node.kind, NodeKind::LineComment, "LineComment leaked into AST");
+        assert_ne!(node.kind, NodeKind::BlockComment, "BlockComment leaked into AST");
+        for child in &node.parts { no_comments(child); }
+    }
+    no_comments(&ast);
+    assert!(ast.parts.iter().any(|n| n.kind == NodeKind::Text));
+}
+
+#[test]
+fn test_pipeline_var_node() {
+    use crate::evaluator::lex_parse_content;
+    let ast = lex_parse_content("%(x)", '%', 0).unwrap();
+    assert!(ast.parts.iter().any(|n| n.kind == NodeKind::Var));
+}
+
+#[test]
+fn test_pipeline_macro_with_named_param() {
+    use crate::evaluator::lex_parse_content;
+    // %foo(a, b=val) → root Block → Macro → [Param(unnamed "a"), Param(name="b", value="val")]
+    let ast = lex_parse_content("%foo(a, b=val)", '%', 0).unwrap();
+    let mac = ast.parts.iter().find(|n| n.kind == NodeKind::Macro)
+        .expect("expected Macro node");
+    assert_eq!(mac.parts.len(), 2);
+    let unnamed = mac.parts.iter().find(|p| p.name.is_none()).expect("unnamed param");
+    let named   = mac.parts.iter().find(|p| p.name.is_some()).expect("named param");
+    // "b" is 1 byte
+    assert_eq!(named.name.unwrap().length, 1);
+    // unnamed param contains "a"
+    assert!(unnamed.parts.iter().any(|n| n.kind == NodeKind::Ident || n.kind == NodeKind::Text));
+}
+
+#[test]
+fn test_pipeline_tagged_block() {
+    use crate::evaluator::lex_parse_content;
+    let ast = lex_parse_content("%foo{ content %foo}", '%', 0).unwrap();
+    let block = ast.parts.iter().find(|n| n.kind == NodeKind::Block)
+        .expect("expected Block node");
+    assert!(!block.parts.is_empty());
+}

@@ -34,7 +34,7 @@ pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
         .get_root_index()
         .ok_or_else(|| ASTError::Parser("Empty parse tree".into()))?;
 
-    build_clean_ast(parser, root_idx)?
+    clean_node(parser, root_idx)?
         .ok_or_else(|| ASTError::Parser("Root node was skipped".into()))
 }
 
@@ -165,19 +165,13 @@ fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTEr
     }))
 }
 
-/// Process a complete AST tree including space stripping
-pub fn build_clean_ast(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
-    clean_node(parser, node_idx)
-}
-
 pub fn strip_space_before_comments(
     content: &[u8],
     parser: &mut Parser,
     node_idx: usize,
 ) -> Result<(), ASTError> {
-    let mut to_remove = None;
-    let mut spaces_to_strip = None;
-    let mut nodes_to_process = None;
+    let mut to_remove: Vec<usize> = Vec::new();
+    let mut spaces_to_strip: Vec<usize> = Vec::new();
 
     // Analysis phase
     {
@@ -191,13 +185,6 @@ pub fn strip_space_before_comments(
             let part = parser
                 .get_node(part_idx)
                 .ok_or(ASTError::NodeNotFound(part_idx))?;
-
-            if !node.parts.is_empty() {
-                if nodes_to_process.is_none() {
-                    nodes_to_process = Some(Vec::with_capacity(node.parts.len()));
-                }
-                nodes_to_process.as_mut().unwrap().push(part_idx);
-            }
 
             let is_line_comment = part.kind == NodeKind::LineComment;
             let is_block_comment = part.kind == NodeKind::BlockComment;
@@ -216,18 +203,8 @@ pub fn strip_space_before_comments(
                         .ok_or(ASTError::NodeNotFound(prev_idx))?;
 
                     match prev.kind {
-                        NodeKind::Space => {
-                            if to_remove.is_none() {
-                                to_remove = Some(Vec::new());
-                            }
-                            to_remove.as_mut().unwrap().push(i - 1);
-                        }
-                        NodeKind::Text => {
-                            if spaces_to_strip.is_none() {
-                                spaces_to_strip = Some(Vec::new());
-                            }
-                            spaces_to_strip.as_mut().unwrap().push(prev_idx);
-                        }
+                        NodeKind::Space => to_remove.push(i - 1),
+                        NodeKind::Text => spaces_to_strip.push(prev_idx),
                         _ => {}
                     }
                 }
@@ -237,27 +214,27 @@ pub fn strip_space_before_comments(
     }
 
     // Modification phase
-    if let Some(indices) = to_remove {
+    if !to_remove.is_empty() {
         let node = parser
             .get_node_mut(node_idx)
             .ok_or(ASTError::NodeNotFound(node_idx))?;
-        for &idx in indices.iter().rev() {
+        for &idx in to_remove.iter().rev() {
             node.parts.remove(idx);
         }
     }
 
-    // Strip spaces
-    if let Some(indices) = spaces_to_strip {
-        for idx in indices {
-            parser.strip_ending_space(content, idx)?;
-        }
+    for idx in spaces_to_strip {
+        parser.strip_ending_space(content, idx)?;
     }
 
-    // Process child nodes
-    if let Some(children) = nodes_to_process {
-        for child_idx in children {
-            strip_space_before_comments(content, parser, child_idx)?;
-        }
+    // Recurse into children (re-read after modification to skip removed nodes)
+    let children: Vec<usize> = parser
+        .get_node(node_idx)
+        .ok_or(ASTError::NodeNotFound(node_idx))?
+        .parts
+        .clone();
+    for child_idx in children {
+        strip_space_before_comments(content, parser, child_idx)?;
     }
 
     Ok(())

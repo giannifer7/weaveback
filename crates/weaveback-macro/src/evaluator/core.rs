@@ -154,7 +154,7 @@ impl Evaluator {
                 let expansion = self.evaluate_macro_call(node, &name)?;
                 out.push_str(&expansion);
             }
-            NodeKind::Composite | NodeKind::Block | NodeKind::Param => {
+            NodeKind::Block | NodeKind::Param => {
                 for child in &node.parts {
                     let s = self.evaluate(child)?;
                     out.push_str(&s);
@@ -652,7 +652,7 @@ impl Evaluator {
                 let name = self.node_text(node);
                 self.evaluate_macro_call_to(node, &name, out)?;
             }
-            NodeKind::Composite | NodeKind::Block | NodeKind::Param => {
+            NodeKind::Block | NodeKind::Param => {
                 for child in &node.parts {
                     self.evaluate_to_with_context(child, out, context_span)?;
                 }

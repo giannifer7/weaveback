@@ -45,7 +45,7 @@ struct Args {
     #[arg(long, value_name = "EXT=CMD")]
     formatter: Vec<String>,
 
-    /// Input files
+    /// Input files (use - for stdin)
     #[arg(required = true)]
     files: Vec<PathBuf>,
 }

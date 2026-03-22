@@ -1,0 +1,258 @@
+<style>
+/* ── Gruvbox Dark Hard ────────────────────────────────────────── */
+:root {
+  --bg:     #1d2021;
+  --bg1:    #282828;
+  --bg2:    #3c3836;
+  --bg3:    #504945;
+  --fg:     #ebdbb2;
+  --fg2:    #d5c4a1;
+  --gray:   #928374;
+  --red:    #fb4934;
+  --green:  #b8bb26;
+  --yellow: #fabd2f;
+  --blue:   #83a598;
+  --purple: #d3869b;
+  --aqua:   #8ec07c;
+  --orange: #fe8019;
+}
+
+/* ── Nuke black text from the inline default stylesheet ───────── */
+html, body,
+blockquote, blockquote p,
+pre, code, kbd,
+p, li, dt, dd, ol, ul,
+table tr th, table tr td,
+table thead tr th, table thead tr td,
+table tfoot tr th, table tfoot tr td,
+tbody tr th, tbody tr th p, tfoot tr th, tfoot tr th p,
+#header > h1:first-child,
+#header .details, #header .details span.email a,
+#content > h1:first-child:not([class]),
+#footer, #footer-text,
+.admonitionblock > table td.content,
+.literalblock.output pre,
+.quoteblock blockquote, .quoteblock p,
+.quoteblock blockquote::before,
+.verseblock pre,
+.quoteblock .attribution cite, .verseblock .attribution cite,
+.conum[data-value],
+.paragraph, .sect1, .sectionbody,
+.admonitionblock > table td.content > .paragraph > p {
+  color: var(--fg) !important;
+}
+
+/* ── Base ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  background: var(--bg) !important;
+  font-family: "Noto Serif", Georgia, serif;
+  font-size: 16px;
+  line-height: 1.65;
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+/* ── Full-width layout ────────────────────────────────────────── */
+#header, #content, #footnotes, #footer {
+  max-width: none !important;
+  width: 100% !important;
+  padding-left: 2.5rem !important;
+  padding-right: 2.5rem !important;
+  margin: 0 !important;
+}
+
+#header  { padding-top: 1.5rem !important; padding-bottom: 1rem !important;
+           border-bottom: 2px solid var(--bg2) !important;
+           background: var(--bg) !important; }
+#content { padding-top: 1.5rem !important; background: var(--bg) !important; }
+#footer  { padding-top: 0.75rem !important; padding-bottom: 1rem !important;
+           border-top: 1px solid var(--bg2) !important;
+           color: var(--gray) !important; background: var(--bg) !important; }
+
+/* ── Links ────────────────────────────────────────────────────── */
+a           { color: var(--blue) !important; text-decoration: none; }
+a:hover     { color: var(--aqua) !important; text-decoration: underline; }
+a:visited   { color: var(--purple) !important; }
+
+/* ── Headings ─────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6,
+#header h1, #content > h1:first-child:not([class]) {
+  color: var(--yellow) !important;
+  border-bottom-color: var(--bg2) !important;
+}
+h2, h3 { border-bottom: 1px solid var(--bg2) !important;
+          padding-bottom: .2em; margin-top: 1.8em; }
+#header .details { color: var(--gray) !important; font-size: .9em; }
+
+/* ── TOC (inline / top) ───────────────────────────────────────── */
+#toc      { background: var(--bg1) !important; border: 1px solid var(--bg2) !important;
+            border-radius: 4px; padding: 1rem; display: inline-block;
+            min-width: 260px; margin-bottom: 1.5rem; }
+#toctitle { color: var(--orange) !important; font-weight: bold; margin-bottom: .5rem; }
+#toc a    { color: var(--blue) !important; }
+#toc ul   { margin: 0; padding-left: 1.2rem; }
+#toc li   { margin: .15rem 0; }
+
+/* ── TOC left panel (toc2 / :toc: left) ──────────────────────── */
+#toc.toc2 {
+  width: 14em !important;
+  position: fixed !important;
+  left: 0 !important; top: 0 !important; bottom: 0 !important;
+  overflow-y: auto !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid var(--bg2) !important;
+  display: block !important;
+  min-width: 0 !important;
+  transition: left .2s ease;
+}
+/* body.toc2 has higher specificity than body so this wins over padding:0 */
+body.toc2 { padding-left: 14em !important; transition: padding-left .2s ease; }
+
+/* collapsed state */
+body.toc2.toc-collapsed #toc.toc2 { left: -14em !important; }
+body.toc2.toc-collapsed            { padding-left: 0 !important; }
+
+/* toggle button — lives inside #toc.toc2, top-right corner */
+#toc-toggle {
+  display: none;
+  position: absolute;
+  top: 0; right: 0;
+  z-index: 1002;
+  background: var(--bg2); color: var(--fg);
+  border: none;
+  border-left: 1px solid var(--bg3);
+  border-bottom: 1px solid var(--bg3);
+  border-radius: 0 0 0 4px;
+  padding: .25rem .5rem;
+  cursor: pointer; font-size: .75em; line-height: 1;
+}
+body.toc2 #toc-toggle { display: block; }
+/* when collapsed the TOC is off-screen — re-anchor button to viewport */
+body.toc2.toc-collapsed #toc-toggle {
+  position: fixed;
+  top: 0; left: 0; right: auto;
+  border: none;
+  border-right: 1px solid var(--bg3);
+  border-bottom: 1px solid var(--bg3);
+  border-radius: 0 0 4px 0;
+}
+
+/* ── Inline code ──────────────────────────────────────────────── */
+code, kbd {
+  background: var(--bg) !important;
+  color: var(--green) !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: .88em;
+}
+
+/* ── Listing / literal blocks ─────────────────────────────────── */
+.listingblock > .content,
+.literalblock > .content { padding: 0 !important; }
+
+.listingblock pre,
+.literalblock pre {
+  background: var(--bg1) !important;
+  border: 1px solid var(--bg2) !important;
+  border-left: 3px solid var(--bg3) !important;
+  border-radius: 4px !important;
+  padding: .9em 1.1em !important;
+  overflow-x: auto;
+  margin: 0 !important;
+  color: var(--fg) !important;
+}
+
+.listingblock pre code,
+.literalblock pre code {
+  background: transparent !important;
+  color: var(--fg) !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: .88em;
+  line-height: 1.5;
+}
+
+.listingblock .title,
+.imageblock .title { color: var(--gray) !important; font-style: italic; font-size: .9em; }
+
+/* ── Admonitions ──────────────────────────────────────────────── */
+.admonitionblock > table {
+  background: var(--bg1) !important; border: 1px solid var(--bg2) !important;
+  border-radius: 4px; border-left: 4px solid var(--bg3) !important;
+  width: 100%; margin: 1rem 0;
+}
+.admonitionblock.note      > table { border-left-color: var(--blue) !important; }
+.admonitionblock.tip       > table { border-left-color: var(--green) !important; }
+.admonitionblock.warning   > table { border-left-color: var(--yellow) !important; }
+.admonitionblock.caution   > table { border-left-color: var(--orange) !important; }
+.admonitionblock.important > table { border-left-color: var(--red) !important; }
+.admonitionblock td.icon   { padding: .75rem 1rem !important; background: var(--bg1) !important; }
+.admonitionblock td.icon .title { font-weight: bold; color: var(--fg) !important;
+                                   text-transform: uppercase; font-size: .85em; }
+
+/* ── Tables ───────────────────────────────────────────────────── */
+table.tableblock               { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+table.tableblock th            { background: var(--bg2) !important; color: var(--yellow) !important;
+                                  padding: .5rem .75rem; border: 1px solid var(--bg3) !important; }
+table.tableblock td            { padding: .5rem .75rem; border: 1px solid var(--bg2) !important;
+                                  color: var(--fg) !important; background: var(--bg) !important; }
+table.tableblock tbody tr:nth-child(even) td { background: var(--bg1) !important; }
+
+/* ── Sidebar / quote ──────────────────────────────────────────── */
+.sidebarblock          { background: var(--bg1) !important; border: 1px solid var(--bg3) !important;
+                         border-radius: 4px; padding: 1rem; margin: 1rem 0; }
+.quoteblock blockquote { border-left: 3px solid var(--bg3) !important;
+                          padding-left: 1rem; color: var(--fg2) !important; }
+.attribution           { color: var(--gray) !important; font-style: italic; }
+
+/* ── Misc ─────────────────────────────────────────────────────── */
+hr { border: none !important; border-top: 1px solid var(--bg2) !important; margin: 1.5rem 0; }
+
+/* ── Scrollbars ───────────────────────────────────────────────── */
+::-webkit-scrollbar       { background: var(--bg1); width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
+</style>
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!document.querySelector('#toc.toc2')) return;
+
+    var btn = document.createElement('button');
+    btn.id = 'toc-toggle';
+    btn.setAttribute('aria-label', 'Toggle table of contents');
+    document.querySelector('#toc.toc2').appendChild(btn);
+
+    var collapsed = localStorage.getItem('weaveback-toc-collapsed') === '1';
+
+    function apply() {
+      if (collapsed) {
+        document.body.classList.add('toc-collapsed');
+        btn.textContent = '▶';
+      } else {
+        document.body.classList.remove('toc-collapsed');
+        btn.textContent = '◀';
+      }
+    }
+
+    apply();
+
+    btn.addEventListener('click', function () {
+      collapsed = !collapsed;
+      localStorage.setItem('weaveback-toc-collapsed', collapsed ? '1' : '0');
+      apply();
+    });
+  });
+})();
+</script>
+<style>
+/* ── Weaveback chunk refs/defs are line comments — highlight green */
+pre.rouge .c1, pre.rouge .c, pre.rouge .cm,
+pre.rouge .cs, pre.rouge .ch {
+  color: #b8bb26;
+  font-style: normal;
+}
+</style>

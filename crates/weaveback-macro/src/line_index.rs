@@ -1,5 +1,7 @@
 // crates/weaveback-macro/src/line_index.rs
 
+use memchr::memchr_iter;
+
 /// Converts byte offsets to 1-indexed (line, column) pairs on demand.
 ///
 /// Construct once per source string; each lookup is O(log n) via binary search
@@ -11,11 +13,12 @@ pub struct LineIndex {
 
 impl LineIndex {
     pub fn new(source: &str) -> Self {
-        let newlines = source
-            .bytes()
-            .enumerate()
-            .filter_map(|(i, b)| if b == b'\n' { Some(i) } else { None })
-            .collect();
+        let newlines = memchr_iter(b'\n', source.as_bytes()).collect();
+        Self { newlines }
+    }
+
+    pub fn from_bytes(source: &[u8]) -> Self {
+        let newlines = memchr_iter(b'\n', source).collect();
         Self { newlines }
     }
 

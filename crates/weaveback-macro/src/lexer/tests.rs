@@ -112,9 +112,44 @@ fn test_nested_comment() {
 
 #[test]
 fn test_unfinished_special() {
-    // Input that does not match any recognized pattern after the special char,
-    // so it should be treated as plain text.
+    // %identifier not followed by ( { } is plain text, no error.
     assert_tokens("%something", &[(TokenKind::Text, "%something")]);
+}
+
+#[test]
+fn test_percent_identifier_no_error() {
+    let (_, errors) = Lexer::new("%something", '%', 0).lex();
+    assert!(errors.is_empty(), "expected no errors for %identifier, got: {:?}", errors);
+}
+
+#[test]
+fn test_percent_identifier_mid_text() {
+    // %identifier mid-document must not truncate the rest of the input.
+    assert_tokens(
+        "%something more text",
+        &[
+            (TokenKind::Text, "%something"),
+            (TokenKind::Text, " more text"),
+        ],
+    );
+}
+
+#[test]
+fn test_printf_format_specifiers() {
+    // printf-style %x specifiers must pass through as plain text without errors.
+    let input = "%d %s %f";
+    let (_, errors) = Lexer::new(input, '%', 0).lex();
+    assert!(errors.is_empty(), "expected no errors for printf specifiers, got: {:?}", errors);
+    assert_tokens(
+        input,
+        &[
+            (TokenKind::Text, "%d"),
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%s"),
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%f"),
+        ],
+    );
 }
 
 #[test]

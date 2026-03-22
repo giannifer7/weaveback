@@ -158,28 +158,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Helper: when an identifier following a special char is not followed by a recognized character,
-    /// report an error and emit the token as plain text.
-    /// The `context` parameter should be either "block" or "macro".
-    fn unrecognized_after_pct(
-        &mut self,
-        token_start: usize,
-        error_line: usize,
-        error_col: usize,
-        context: &str,
-    ) -> bool {
-        self.error_here(
-            error_line,
-            error_col,
-            &format!(
-                "Unrecognized char after '{}' in {}",
-                self.special_char, context
-            ),
-        );
-        self.emit_token(token_start, self.pos - token_start, TokenKind::Text);
-        false
-    }
-
     /// Emit a token (unless length is zero and the kind is not EOF).
     fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
         if length == 0 && kind != TokenKind::EOF {
@@ -361,11 +339,14 @@ impl<'a> Lexer<'a> {
                                 self.state_stack.push(State::Macro);
                                 return true;
                             } else {
-                                return self
-                                    .unrecognized_after_pct(after_pct, a_line, a_col, "block");
+                                self.emit_token(
+                                    after_pct,
+                                    self.pos - after_pct,
+                                    TokenKind::Text,
+                                );
                             }
                         } else {
-                            return self.unrecognized_after_pct(after_pct, a_line, a_col, "block");
+                            self.emit_token(after_pct, self.pos - after_pct, TokenKind::Text);
                         }
                     } else {
                         self.error_here(
@@ -578,11 +559,14 @@ impl<'a> Lexer<'a> {
                                 self.state_stack.push(State::Macro);
                                 return true;
                             } else {
-                                return self
-                                    .unrecognized_after_pct(after_pct, p_line, p_col, "macro");
+                                self.emit_token(
+                                    after_pct,
+                                    self.pos - after_pct,
+                                    TokenKind::Text,
+                                );
                             }
                         } else {
-                            return self.unrecognized_after_pct(after_pct, p_line, p_col, "macro");
+                            self.emit_token(after_pct, self.pos - after_pct, TokenKind::Text);
                         }
                     } else {
                         self.error_here(

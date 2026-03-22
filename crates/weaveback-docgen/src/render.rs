@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "docs"];
+const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
 
 fn diagram_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();

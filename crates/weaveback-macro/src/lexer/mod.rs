@@ -254,7 +254,7 @@ impl<'a> Lexer<'a> {
                 self.emit_token(start, 1, TokenKind::Equal);
             } else if is_whitespace(b) {
                 let ws_start = self.pos;
-                while self.peek_byte().map_or(false, is_whitespace) {
+                while self.peek_byte().is_some_and(is_whitespace) {
                     self.advance();
                 }
                 self.emit_token(ws_start, self.pos - ws_start, TokenKind::Space);
@@ -449,7 +449,7 @@ impl<'a> Lexer<'a> {
         } else {
             self.error_at(
                 pct_start,
-                &format!("Var missing identifier after '{}('", sc as char),
+                &format!("Var missing identifier after '{}('", sc),
             );
         }
         self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);

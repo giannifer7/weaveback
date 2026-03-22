@@ -1,6 +1,7 @@
 // crates/weaveback-macro/src/lexer/mod.rs
 
 use crate::types::{LexerError, Token, TokenKind};
+use memchr::memchr;
 
 #[cfg(test)]
 mod tests;
@@ -158,30 +159,31 @@ impl<'a> Lexer<'a> {
     // -------------------------------------------------------------------------
 
     fn run_block_state(&mut self) -> bool {
-        let mut text_start = self.pos;
-
-        while let Some(ch) = self.peek_char() {
-            if ch == self.special_char {
-                if self.pos > text_start {
-                    self.emit_token(text_start, self.pos - text_start, TokenKind::Text);
+        let sc = self.special_char as u8;
+        loop {
+            let rest = self.input.as_bytes()[self.pos..].as_ref();
+            let text_len = match memchr(sc, rest) {
+                Some(i) => i,
+                None => {
+                    if !rest.is_empty() {
+                        self.emit_token(self.pos, rest.len(), TokenKind::Text);
+                        self.pos = self.input.len();
+                    }
+                    return false;
                 }
-                let pct_start = self.pos;
-                self.advance();
-                match self.handle_after_special(pct_start) {
-                    SpecialAction::Push => return true,
-                    SpecialAction::Pop => return false,
-                    SpecialAction::Continue => {}
-                }
-                text_start = self.pos;
-            } else {
-                self.advance();
+            };
+            if text_len > 0 {
+                self.emit_token(self.pos, text_len, TokenKind::Text);
+                self.pos += text_len;
+            }
+            let pct_start = self.pos;
+            self.advance(); // consume the special char
+            match self.handle_after_special(pct_start) {
+                SpecialAction::Push => return true,
+                SpecialAction::Pop => return false,
+                SpecialAction::Continue => {}
             }
         }
-
-        if self.pos > text_start {
-            self.emit_token(text_start, self.pos - text_start, TokenKind::Text);
-        }
-        false
     }
 
     // -------------------------------------------------------------------------
@@ -405,12 +407,19 @@ impl<'a> Lexer<'a> {
     // -------------------------------------------------------------------------
 
     fn run_comment_state(&mut self) -> bool {
-        // Capture lengths up front to avoid repeated format! and borrow conflicts.
+        let sc = self.special_char as u8;
         let open_len = self.open_comment.len();
         let close_len = self.close_comment.len();
         let comment_text_start = self.pos;
 
-        while self.pos < self.input.len() {
+        loop {
+            // Jump to the next special char — only it can start a delimiter.
+            let rest = self.input.as_bytes()[self.pos..].as_ref();
+            let Some(i) = memchr(sc, rest) else {
+                break; // EOF inside comment
+            };
+            self.pos += i;
+
             if self.starts_with(&self.open_comment) {
                 if self.pos > comment_text_start {
                     self.emit_token(
@@ -438,9 +447,11 @@ impl<'a> Lexer<'a> {
                 self.emit_token(delim_start, close_len, TokenKind::CommentClose);
                 return false;
             }
+            // Special char that isn't a comment delimiter — skip it and continue.
             self.advance();
         }
 
+        // EOF: unclosed comment.
         if self.pos > comment_text_start {
             self.emit_token(
                 comment_text_start,

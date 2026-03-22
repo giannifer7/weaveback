@@ -42,6 +42,7 @@ chrono = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 similar = "2"
 
+memchr = "2"
 rhai = "1"
 monty = { git = "https://github.com/pydantic/monty" }
 

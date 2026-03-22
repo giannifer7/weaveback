@@ -203,6 +203,21 @@ Add a `.mcp.json` in your project root:
 
 Adjust `--gen` to match your project's generated-file directory.
 
+== Weaveback's own implementation
+
+Parts of weaveback-macro are themselves written as literate AsciiDoc sources.
+The generated `.rs` files live next to them in the tree; `just tangle`
+regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
+
+.Literate sources
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-macro/src/parser/parser.adoc[weaveback-macro parser]
+| `crates/weaveback-macro/src/parser/mod.rs`
+|===
+
 == Build-system integration
 
 `--depfile` writes a Makefile-format depfile after each run; `--stamp`

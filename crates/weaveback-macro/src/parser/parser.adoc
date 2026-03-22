@@ -84,8 +84,6 @@ with `Macro` on top is an internal invariant violation.
 
 == File Structure
 
-TIP: Regenerate `mod.rs` from this file with `just tangle`.
-
 The single output file is assembled from all the chunks defined below.
 
 // <<@file weaveback-macro/src/parser/mod.rs>>=

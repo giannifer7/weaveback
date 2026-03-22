@@ -7,7 +7,6 @@ The weaveback-macro parser transforms a flat token stream produced by the lexer
 into a tree of `ParseNode` values.  It is a hand-written deterministic pushdown
 automaton (DPDA): each state owns its set of termination tokens and delegates
 everything else to a shared opener/leaf fallthrough handler.
-Regenerate `mod.rs` with `just tangle`.
 
 [plantuml,parser-states,svg]
 ....
@@ -84,6 +83,8 @@ Every other token falls through to the opener/leaf handler in `parse()`.
 with `Macro` on top is an internal invariant violation.
 
 == File Structure
+
+TIP: Regenerate `mod.rs` from this file with `just tangle`.
 
 The single output file is assembled from all the chunks defined below.
 

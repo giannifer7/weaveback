@@ -248,12 +248,43 @@ IDE/agent integration:
 | `weaveback_apply_back` | Propagate all gen/ edits back to the literate source. Returns a report of what was patched, skipped, or needs manual attention. |
 | `weaveback_apply_fix` | Apply a single targeted source edit and verify it produces the expected output line (oracle-verified). |
 
-**Typical agent workflow:**
+**Recommended agent workflow (use this order):**
 
-1. Call `weaveback_trace` to locate the literate origin of a generated line.
-2. Read the literate source around that location.
-3. Either edit the source directly and call `weaveback_apply_back`, or use
-   `weaveback_apply_fix` for a targeted oracle-verified single-line fix.
+1. Call `weaveback_trace` with the generated file and line number to get the
+   exact `src_file`/`src_line`. No grep required — works across multi-file
+   chunks and macro expansions.
+2. Read a few lines around `src_line` in the literate source to understand
+   the chunk structure and surrounding prose.
+3. Call `weaveback_apply_fix` with the replacement text and the exact output
+   line you expect. The macro expander re-runs as an oracle; the file is
+   written only if the output matches. No full build needed.
+4. Re-read the prose section surrounding `src_line` in the literate source.
+   Verify it still accurately describes the changed code.
+   **This step is not optional.** The literate document is both code and
+   documentation; a fix that leaves stale prose is incomplete.
+5. Use a plain `Edit` if the surrounding prose is stale. No oracle needed
+   for prose that doesn't affect generated output.
+6. Run the project build. Only linking and type-checking remain;
+   correctness was already oracle-verified in step 3.
+
+**`weaveback_apply_back` is the escape hatch, not the normal path.**
+Use it only when gen/ files have already been edited directly (by hand,
+by a language tool, or by an IDE) and need to be synced back. In a normal
+agent workflow where no gen/ files were edited directly, use trace →
+apply_fix instead.
+
+## Gotchas
+
+**Line number drift:** `weaveback_apply_fix` uses source line numbers from
+the current state of the literate file. If the file was edited directly before
+calling the tool, line numbers reported by `trace` may have shifted. Always
+re-read the target line before calling `apply_fix` to confirm it still contains
+the expected content.
+
+**Formatter interaction:** when `--formatter` is configured (e.g. `rs=rustfmt`),
+the baseline in `weaveback.db` is the _formatted_ output. The oracle also
+produces formatted output. Pass the formatted line as `expected_output`, not
+the raw macro expansion.
 
 ## Guidelines for agents
 

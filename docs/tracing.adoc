@@ -127,15 +127,56 @@ message per line on stdin/stdout).
 
 === Recommended agent workflow
 
-1. *Locate the source*: call `weaveback_trace` with the generated file and line number.
-2. *Read the source*: open `src_file` at `src_line` (and surrounding context).
-3. *Apply the fix*: call `weaveback_apply_fix` with the replacement text and the
+1. *Locate*: call `weaveback_trace` with the generated file and line number.
+   Returns the exact `src_file`/`src_line`, even across multi-file chunk
+   definitions and macro expansions. No grep required.
+2. *Read*: open `src_file` at `src_line` and read the surrounding context.
+3. *Fix code*: call `weaveback_apply_fix` with the replacement text and the
    exact output line you expect. The macro expander re-runs as an oracle —
-   the file is written only if the expected output is produced.
+   the file is written only if the output matches. No build needed.
+4. *Check prose*: re-read the prose section around `src_line` in the literate
+   source and verify it still accurately describes the changed code.
+   *This step is not optional.* The literate document is both code and
+   documentation; a fix that leaves stale prose is incomplete.
+5. *Fix prose*: use a plain `Edit` if the surrounding prose is stale.
+   No oracle is needed — prose changes do not affect generated output.
+6. *Build*: run the project build. Only linking and type-checking remain;
+   correctness was already oracle-verified in step 3.
 
-`weaveback_apply_fix` works for both single-line replacements (`src_line` only) and
+`weaveback_apply_fix` works for single-line replacements (`src_line` only) and
 multi-line ranges (`src_line` + `src_line_end` + `new_src_lines` array).
-No full rebuild is needed to verify the edit.
+
+.Why this is faster than editing the literate source directly
+[%collapsible]
+====
+- *No grep hunting* — trace gives the exact file and line instantly.
+- *Fast feedback* — the oracle rejects wrong edits before the build.
+- *Prose location is free* — trace lands you next to the relevant doc section.
+- *Atomic* — fix and baseline update happen together; `apply_back` is never
+  needed in the normal flow.
+====
+
+=== `weaveback_apply_back` — escape hatch, not the normal path
+
+`weaveback_apply_back` is for one specific situation: a generated file was
+already edited directly (by hand, by a language tool, or by an IDE).
+Use it to bulk-propagate those edits back to the literate source.
+
+It is *not* the primary edit path in an agent workflow.
+If no gen/ files were edited directly, use trace → apply_fix instead.
+
+=== Gotchas
+
+*Line number drift:* `weaveback_apply_fix` uses source line numbers from
+the current state of the literate file. If the file was edited directly
+before calling the tool, line numbers reported by `trace` may have shifted.
+Always re-read the target line before calling `apply_fix` to confirm it still
+contains the expected content.
+
+*Formatter interaction:* when `--formatter` is configured (e.g. `rs=rustfmt`),
+the baseline stored in `weaveback.db` is the _formatted_ output. The oracle
+also produces formatted output. Pass the formatted line as `expected_output`,
+not the raw macro expansion.
 
 === Claude Code / Claude Desktop configuration
 

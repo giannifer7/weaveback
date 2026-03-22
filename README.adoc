@@ -218,6 +218,23 @@ weaveback events.adoc --gen . --dump-expanded 2>expanded.txt
 
 ---
 
+== Agent and IDE integration
+
+`weaveback mcp` starts an MCP server over stdin/stdout, exposing three tools
+so AI agents and IDE extensions can work directly with the literate source:
+
+- `weaveback_trace` — find the exact source line behind any generated line
+- `weaveback_apply_fix` — oracle-verified edit (no rebuild needed to confirm)
+- `weaveback_apply_back` — propagate bulk gen/ edits back to source
+
+The recommended agent workflow is: *trace → read context → apply_fix → check prose → build*.
+`apply_fix` re-runs the macro expander as an oracle and writes the file only
+if the expected output is produced — catching wrong edits before the build.
+See link:docs/tracing.adoc[Source tracing] for the full workflow, gotchas, and
+`.mcp.json` configuration.
+
+---
+
 == License
 
 0BSD OR MIT OR Apache-2.0

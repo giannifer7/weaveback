@@ -1,5 +1,4 @@
-// crates/weaveback-macro/src/lexer/mod.rs
-
+// crates/weaveback-macro/src/lexer/mod.rs — generated from lexer.adoc
 use crate::types::{LexerError, Token, TokenKind};
 use memchr::memchr;
 
@@ -72,26 +71,24 @@ impl<'a> Lexer<'a> {
         lexer.state_stack.push(State::Block(0));
         lexer
     }
-
+    
     pub fn lex(mut self) -> (Vec<Token>, Vec<LexerError>) {
         self.run();
         (self.tokens, self.errors)
     }
 
-    // -------------------------------------------------------------------------
-    // Low-level input helpers
-    // -------------------------------------------------------------------------
-
+    // ── Low-level cursor ──────────────────────────────────────────────────
+    
     fn peek_byte(&self) -> Option<u8> {
         self.bytes.get(self.pos).copied()
     }
-
+    
     fn advance(&mut self) -> Option<u8> {
         let b = self.bytes.get(self.pos).copied()?;
         self.pos += 1;
         Some(b)
     }
-
+    
     /// Advance past the rest of the current line (through `\n` or to EOF).
     fn skip_line_comment(&mut self) {
         let rest = &self.bytes[self.pos..];
@@ -100,7 +97,7 @@ impl<'a> Lexer<'a> {
             None => self.pos = self.bytes.len(),
         }
     }
-
+    
     /// Returns the byte index just past the end of an identifier starting at `start`.
     fn get_identifier_end(&self, start: usize) -> usize {
         let bytes = self.bytes;
@@ -113,12 +110,12 @@ impl<'a> Lexer<'a> {
         }
         end
     }
-
+    
     fn starts_with_bytes(&self, pat: &[u8]) -> bool {
         self.bytes[self.pos..].starts_with(pat)
     }
-
-    /// Extract the identifier tag from a `%tag{` or `%tag}` opening position.
+    
+    /// Extract the identifier tag from a `%tag{` or `%tag}` position.
     /// `pct_start` is the byte offset of `%`. Returns `""` for anonymous `%{`/`%}`.
     fn block_tag_at(&self, pct_start: usize) -> &str {
         let start = pct_start + 1; // skip `%`
@@ -129,31 +126,26 @@ impl<'a> Lexer<'a> {
         std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
     }
 
-    // -------------------------------------------------------------------------
-    // Token / error emission
-    // -------------------------------------------------------------------------
-
+    // ── Emission ──────────────────────────────────────────────────────────
+    
     fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
         if length == 0 && kind != TokenKind::EOF {
             return;
         }
         self.tokens.push(Token { kind, src: self.src, pos, length });
     }
-
+    
     fn error_at(&mut self, pos: usize, message: &str) {
         self.errors.push(LexerError { pos, message: message.to_string() });
     }
 
-    // -------------------------------------------------------------------------
-    // Main driver
-    // -------------------------------------------------------------------------
-
+    // ── Main driver ───────────────────────────────────────────────────────
+    
     pub fn run(&mut self) {
         loop {
             // EOF is driven by input exhaustion, not by stack state.
             if self.pos >= self.bytes.len() {
                 // Collect before borrowing &mut self for error_at.
-                // Collect before taking &mut self for error_at.
                 let unclosed: Vec<(String, usize)> = self.state_stack
                     .get(1..)
                     .unwrap_or(&[])
@@ -200,10 +192,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // BLOCK STATE
-    // -------------------------------------------------------------------------
-
+    // ── Block state ───────────────────────────────────────────────────────
+    
     fn run_block_state(&mut self) -> bool {
         let sc = self.special_char;
         loop {
@@ -232,10 +222,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // MACRO STATE
-    // -------------------------------------------------------------------------
-
+    // ── Macro arg state ───────────────────────────────────────────────────
+    
     fn run_macro_state(&mut self) -> bool {
         let sc = self.special_char;
         while let Some(b) = self.peek_byte() {
@@ -284,7 +272,7 @@ impl<'a> Lexer<'a> {
                 }
                 self.emit_token(start, self.pos - start, TokenKind::Text);
             }
-
+    
             if !matches!(self.state_stack.last(), Some(State::Macro(_))) {
                 return false;
             }
@@ -296,13 +284,11 @@ impl<'a> Lexer<'a> {
         false
     }
 
-    // -------------------------------------------------------------------------
-    // Shared special-sequence handler
+    // ── Shared special-sequence handler ──────────────────────────────────
     //
     // Called after the special char has been consumed.
     // `pct_start` is the byte offset of the special char itself.
-    // -------------------------------------------------------------------------
-
+    
     fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
         let sc = self.special_char;
         match self.peek_byte() {
@@ -431,7 +417,7 @@ impl<'a> Lexer<'a> {
             }
         }
     }
-
+    
     /// Handle a `%(varname)` sequence. `pct_start` is the byte offset of the `%`.
     fn handle_var(&mut self, pct_start: usize) {
         let sc = self.special_char as char;
@@ -455,15 +441,13 @@ impl<'a> Lexer<'a> {
         self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
     }
 
-    // -------------------------------------------------------------------------
-    // COMMENT STATE
-    // -------------------------------------------------------------------------
-
+    // ── Comment state ─────────────────────────────────────────────────────
+    
     fn run_comment_state(&mut self) -> bool {
         let sc = self.special_char;
         const DELIM_LEN: usize = 3; // [sc, x, y]
         let comment_text_start = self.pos;
-
+    
         loop {
             // Jump to the next special char — only it can start a delimiter.
             let rest = &self.bytes[self.pos..];
@@ -471,7 +455,7 @@ impl<'a> Lexer<'a> {
                 break; // EOF inside comment
             };
             self.pos += i;
-
+    
             if self.starts_with_bytes(&self.open_comment) {
                 if self.pos > comment_text_start {
                     self.emit_token(
@@ -502,7 +486,7 @@ impl<'a> Lexer<'a> {
             // Special char that isn't a comment delimiter — skip past it.
             self.pos += 1;
         }
-
+    
         // EOF: unclosed comment.
         if self.pos > comment_text_start {
             self.emit_token(

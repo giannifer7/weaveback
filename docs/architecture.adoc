@@ -216,6 +216,10 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 
 | link:../crates/weaveback-macro/src/parser/parser.adoc[weaveback-macro parser]
 | `crates/weaveback-macro/src/parser/mod.rs`
+
+| link:../crates/weaveback-macro/src/lexer/lexer.adoc[weaveback-macro lexer]
+| `crates/weaveback-macro/src/lexer/mod.rs` +
+  `crates/weaveback-macro/src/lexer/tests.rs`
 |===
 
 == Build-system integration

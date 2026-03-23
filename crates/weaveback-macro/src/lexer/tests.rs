@@ -32,13 +32,11 @@ fn assert_tokens(input: &str, expected: &[(TokenKind, &str)]) {
     );
 
     for (i, (token, (exp_kind, exp_text))) in tokens.iter().zip(expected.iter()).enumerate() {
-        // Check the kind.
         assert_eq!(
             token.kind, *exp_kind,
             "Token {} kind mismatch: expected {:?}, got {:?}",
             i, exp_kind, token.kind
         );
-        // Check the textual length.
         let got_len = token.length;
         let exp_len = exp_text.len();
         assert_eq!(
@@ -55,7 +53,6 @@ fn assert_tokens(input: &str, expected: &[(TokenKind, &str)]) {
 
 #[test]
 fn test_error_cases() {
-    // Incomplete block: "%{incomplete" should produce a BlockOpen token and then a Text token.
     assert_tokens(
         "%{incomplete",
         &[
@@ -63,8 +60,6 @@ fn test_error_cases() {
             (TokenKind::Text, "incomplete"),
         ],
     );
-
-    // Incomplete macro: "%macro(incomplete" should produce a Macro token and then an Ident token.
     assert_tokens(
         "%macro(incomplete",
         &[
@@ -72,8 +67,6 @@ fn test_error_cases() {
             (TokenKind::Ident, "incomplete"),
         ],
     );
-
-    // Unclosed comment: "%/* unfinished" should produce a CommentOpen token and then a Text token.
     assert_tokens(
         "%/* unfinished",
         &[
@@ -85,8 +78,6 @@ fn test_error_cases() {
 
 #[test]
 fn test_bare_percent_inside_comment() {
-    // A bare % inside a block comment that is not %/* or %*/ must be
-    // swallowed as comment text, not terminate the comment or error.
     assert_tokens(
         "%/* 100% done %*/",
         &[
@@ -95,33 +86,22 @@ fn test_bare_percent_inside_comment() {
             (TokenKind::CommentClose, "%*/"),
         ],
     );
-    // Verify no errors either.
     let (_, errors) = Lexer::new("%/* 100% done %*/", '%', 0).lex();
     assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
 }
 
 #[test]
 fn test_nested_comment() {
-    // This input contains a nested comment:
-    // Outer comment: starts with "%/*" and ends with "%*/"
-    // Inside the outer comment, a nested comment is opened with "%/*" and closed with "%*/".
     let input = "%/* outer comment %/* inner %*/ outer %*/";
     assert_tokens(
         input,
         &[
-            // From the block state.
             (TokenKind::CommentOpen, "%/*"),
-            // Outer comment text up to the nested comment open.
             (TokenKind::Text, " outer comment "),
-            // Nested comment open.
             (TokenKind::CommentOpen, "%/*"),
-            // Nested comment text.
             (TokenKind::Text, " inner "),
-            // Nested comment close.
             (TokenKind::CommentClose, "%*/"),
-            // Outer comment text after the nested comment.
             (TokenKind::Text, " outer "),
-            // Outer comment close.
             (TokenKind::CommentClose, "%*/"),
         ],
     );
@@ -129,7 +109,6 @@ fn test_nested_comment() {
 
 #[test]
 fn test_unfinished_special() {
-    // %identifier not followed by ( { } is plain text, no error.
     assert_tokens("%something", &[(TokenKind::Text, "%something")]);
 }
 
@@ -141,7 +120,6 @@ fn test_percent_identifier_no_error() {
 
 #[test]
 fn test_percent_identifier_mid_text() {
-    // %identifier mid-document must not truncate the rest of the input.
     assert_tokens(
         "%something more text",
         &[
@@ -153,7 +131,6 @@ fn test_percent_identifier_mid_text() {
 
 #[test]
 fn test_printf_format_specifiers() {
-    // printf-style %x specifiers must pass through as plain text without errors.
     let input = "%d %s %f";
     let (_, errors) = Lexer::new(input, '%', 0).lex();
     assert!(errors.is_empty(), "expected no errors for printf specifiers, got: {:?}", errors);
@@ -171,16 +148,12 @@ fn test_printf_format_specifiers() {
 
 #[test]
 fn test_simple_completion() {
-    // Just ensure we don't crash on a single character
     let result = collect_tokens_with_timeout("a");
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_basic_tokens() {
-    // "Hello %name(world)"
-    // We expect:
-    //   (Text, "Hello "), (Macro, "%name("), (Ident, "world"), (CloseParen, ")")
     assert_tokens(
         "Hello %name(world)",
         &[
@@ -194,7 +167,6 @@ fn test_basic_tokens() {
 
 #[test]
 fn test_comments() {
-    // line comment
     assert_tokens(
         "text %// line comment\nmore text",
         &[
@@ -203,8 +175,6 @@ fn test_comments() {
             (TokenKind::Text, "more text"),
         ],
     );
-
-    // block comment
     assert_tokens(
         "before %/* multi\nline %*/ after",
         &[
@@ -219,7 +189,6 @@ fn test_comments() {
 
 #[test]
 fn test_nested_blocks() {
-    // nested blocks => %{outer %{inner%}%}
     assert_tokens(
         "%{outer %{inner%}%}",
         &[
@@ -235,7 +204,6 @@ fn test_nested_blocks() {
 
 #[test]
 fn test_macro_with_args() {
-    // e.g. "%func(a, b, c)"
     assert_tokens(
         "%func(a, b, c)",
         &[
@@ -254,13 +222,11 @@ fn test_macro_with_args() {
 
 #[test]
 fn test_unicode() {
-    // if your lexer doesn't do real unicode id parsing, it might treat "名前" as text
     assert_tokens(
         "Hello 世界 %macro(名前)",
         &[
             (TokenKind::Text, "Hello 世界 "),
             (TokenKind::Macro, "%macro("),
-            // "名前" might become (Text, "名前") or (Ident, "名前") depending on your code
             (TokenKind::Text, "名前"),
             (TokenKind::CloseParen, ")"),
         ],
@@ -269,7 +235,6 @@ fn test_unicode() {
 
 #[test]
 fn test_special_sequences() {
-    // double '%'
     assert_tokens(
         "%%double",
         &[(TokenKind::Special, "%%"), (TokenKind::Text, "double")],
@@ -278,7 +243,6 @@ fn test_special_sequences() {
 
 #[test]
 fn test_comment_styles() {
-    // multiple line comment styles
     assert_tokens(
         "%# hash comment\n%// double slash\n%-- dash comment",
         &[
@@ -291,19 +255,12 @@ fn test_comment_styles() {
 
 #[test]
 fn test_lexer_completion() {
-    // empty
     assert_tokens("", &[]);
-
-    // single char
     assert_tokens("a", &[(TokenKind::Text, "a")]);
-
-    // "text%"
     assert_tokens(
         "text%",
         &[(TokenKind::Text, "text"), (TokenKind::Text, "%")],
     );
-
-    // "text %"
     assert_tokens(
         "text %",
         &[(TokenKind::Text, "text "), (TokenKind::Text, "%")],
@@ -312,7 +269,6 @@ fn test_lexer_completion() {
 
 #[test]
 fn test_lexer_buffer_boundaries() {
-    // %token( rest
     assert_tokens(
         "%token( rest",
         &[
@@ -321,14 +277,10 @@ fn test_lexer_buffer_boundaries() {
             (TokenKind::Ident, "rest"),
         ],
     );
-
-    // start %token(
     assert_tokens(
         "start %token(",
         &[(TokenKind::Text, "start "), (TokenKind::Macro, "%token(")],
     );
-
-    // " % "
     assert_tokens(
         " % ",
         &[
@@ -341,13 +293,11 @@ fn test_lexer_buffer_boundaries() {
 
 #[test]
 fn test_leading_trailing_spaces() {
-    // Should see (Text, "   Hello   ")
     assert_tokens("   Hello   ", &[(TokenKind::Text, "   Hello   ")]);
 }
 
 #[test]
 fn test_macro_without_arguments() {
-    // e.g. "%macro()"
     assert_tokens(
         "%macro()",
         &[(TokenKind::Macro, "%macro("), (TokenKind::CloseParen, ")")],
@@ -370,7 +320,6 @@ fn test_comment_immediately_following_block() {
 
 #[test]
 fn test_multiple_unmatched_percents() {
-    // "text % some % more"
     assert_tokens(
         "text % some % more",
         &[
@@ -385,12 +334,10 @@ fn test_multiple_unmatched_percents() {
 
 #[test]
 fn test_unicode_identifier_in_macro() {
-    // e.g. "%macro(привет)"
     assert_tokens(
         "%macro(привет)",
         &[
             (TokenKind::Macro, "%macro("),
-            // "привет" might be (Text, "привет") or (Ident, "привет")
             (TokenKind::Text, "привет"),
             (TokenKind::CloseParen, ")"),
         ],
@@ -399,7 +346,6 @@ fn test_unicode_identifier_in_macro() {
 
 #[test]
 fn test_trailing_whitespace_before_comment() {
-    // e.g. "%{ hi %}  %//comment\nleftover"
     assert_tokens(
         "%{ hi %}  %//comment\nleftover",
         &[
@@ -415,7 +361,6 @@ fn test_trailing_whitespace_before_comment() {
 
 #[test]
 fn test_named_block() {
-    // e.g. "%blockName{ inside content %blockName}"
     assert_tokens(
         "%blockName{ inside content %blockName}",
         &[
@@ -428,13 +373,11 @@ fn test_named_block() {
 
 #[test]
 fn test_simple_var() {
-    // e.g. "%(foo)"
     assert_tokens("%(foo)", &[(TokenKind::Var, "%(foo)")]);
 }
 
 #[test]
 fn test_var_in_block() {
-    // e.g. "%{ hello %(abc) world %}"
     assert_tokens(
         "%{ hello %(abc) world %}",
         &[
@@ -449,7 +392,6 @@ fn test_var_in_block() {
 
 #[test]
 fn test_var_in_macro() {
-    // e.g. "%func( %(myVar), 123 )"
     assert_tokens(
         "%func( %(myVar), 123 )",
         &[
@@ -467,7 +409,6 @@ fn test_var_in_macro() {
 
 #[test]
 fn test_multiple_vars_in_text() {
-    // "Here %(x) and %(y) then done"
     assert_tokens(
         "Here %(x) and %(y) then done",
         &[
@@ -482,7 +423,6 @@ fn test_multiple_vars_in_text() {
 
 #[test]
 fn test_incomplete_var() {
-    // e.g. "%( %(abc something %( )"
     assert_tokens(
         "%( %(abc something %( )",
         &[
@@ -498,7 +438,6 @@ fn test_incomplete_var() {
 
 #[test]
 fn test_real_world_macro_with_block_and_vars() {
-    // just an example of a real input
     let input = r#"%def(shortTopCase,  case,  ch, impl, %blk{
 // <[Macro_case]>=
 case %(ch): {%(impl)}
@@ -535,7 +474,6 @@ case %(ch): {%(impl)}
 
 #[test]
 fn test_escaped_pubfunc_not_macro() {
-    // "%%pubfunc(%(name), Allocator* allo, %%{"
     assert_tokens(
         "%%pubfunc(%(name), Allocator* allo, %%{",
         &[
@@ -551,10 +489,8 @@ fn test_escaped_pubfunc_not_macro() {
 
 #[test]
 fn test_no_error() {
-    // Just ensure the lexer doesn't produce errors or crash
     let input = "Hello %macro(arg)";
     let tokens_res = collect_tokens_with_timeout(input);
-
     assert!(tokens_res.is_ok());
     let tokens = tokens_res.unwrap();
     assert!(!tokens.is_empty());

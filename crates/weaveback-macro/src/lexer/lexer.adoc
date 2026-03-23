@@ -114,24 +114,23 @@ state "Comment" as C {
 
 [*] --> B : initial push
 
-B -right-> M  : %name(\nMacro [push]
-B -down->  C  : %/*\nCommentOpen [push]
-B -left->  B  : %{ or %name{\nBlockOpen [push]
-B -up->    B  : %} or %name}\nBlockClose [pop]
+B --> M : %name( push
+B --> C : %/* push
+B --> B : %name-open push
+B --> B : %name-close pop
 
-M -down->  C  : %/*\nCommentOpen [push]
-M -right-> B  : %{ or %name{\nBlockOpen [push]
-M -left->  M  : %name( [push]
-M -up->    M  : ) CloseParen [pop]
+M --> C : %/* push
+M --> B : %name-open push
+M --> M : %name( push
+M --> M : ) pop
 
-C -left->  C  : %/* [push]
-C -right-> C  : %*/ CommentClose [pop]
+C --> C : %/* push
+C --> C : %*/ pop
 
-note bottom
-  **push** — new frame placed on stack; current handler returns immediately.
-  **pop** — handler returns false; driver removes top frame and resumes
-  the frame below, which may be Block, Macro, or Comment.
-  Block and Macro share handle_after_special for the % dispatch.
+note as N
+  push: new frame on stack, resume on return
+  pop: driver removes top frame, resumes frame below
+  Block and Macro share handle_after_special
 end note
 @enduml
 ....

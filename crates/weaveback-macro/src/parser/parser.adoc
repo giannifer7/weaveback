@@ -57,9 +57,9 @@ note right of P
   when a token arrives.
 end note
 
-note bottom
-  **BlockClose** pops Block, **CloseParen** pops Param+Macro,
-  **CommentClose** pops Comment — each resumes the frame below.
+note as N
+  BlockClose pops Block, CloseParen pops Param+Macro,
+  CommentClose pops Comment — each resumes the frame below.
 end note
 @enduml
 ....

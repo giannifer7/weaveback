@@ -30,7 +30,6 @@ mod tests {
         );
     }
 
-    /// Test that calling %export with an incorrect number of arguments produces an error.
     #[test]
     fn test_export_wrong_number_of_args() {
         let source = "%export(foo, bar)";

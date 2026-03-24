@@ -7,7 +7,6 @@ mod pydef_tests {
         Evaluator::new(EvalConfig::default())
     }
 
-    // README example 1: basic arithmetic
     #[test]
     fn test_double() {
         let mut ev = evaluator();
@@ -17,7 +16,6 @@ mod pydef_tests {
         assert_eq!(result.trim(), "42");
     }
 
-    // README example 2: multi-param offset
     #[test]
     fn test_offset() {
         let mut ev = evaluator();
@@ -29,7 +27,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "320");
     }
 
-    // README example 3: string concatenation
     #[test]
     fn test_greet() {
         let mut ev = evaluator();
@@ -41,7 +38,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "Hello, world!");
     }
 
-    // Only declared params are available — weaveback scope is not injected
     #[test]
     fn test_only_declared_params_visible() {
         let mut ev = evaluator();
@@ -52,7 +48,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "visible");
     }
 
-    // Error from bad Python propagates
     #[test]
     fn test_error_propagation() {
         let mut ev = evaluator();
@@ -64,7 +59,6 @@ str(int(base) + int(size))
 
     // --- store tests ---
 
-    // %pyset writes, %pyget reads
     #[test]
     fn test_pyset_pyget_roundtrip() {
         let mut ev = evaluator();
@@ -74,7 +68,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "red");
     }
 
-    // Store persists across separate pydef calls
     #[test]
     fn test_store_persists_across_calls() {
         let mut ev = evaluator();
@@ -87,7 +80,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "2");
     }
 
-    // Store is visible inside the script as a plain variable
     #[test]
     fn test_store_visible_in_script() {
         let mut ev = evaluator();
@@ -98,7 +90,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "item_count");
     }
 
-    // Declared param shadows a store key with the same name
     #[test]
     fn test_param_shadows_store_key() {
         let mut ev = evaluator();
@@ -109,7 +100,6 @@ str(int(base) + int(size))
         assert_eq!(result.trim(), "param_value");
     }
 
-    // Accumulate a running sum via the store
     #[test]
     fn test_running_sum() {
         let mut ev = evaluator();

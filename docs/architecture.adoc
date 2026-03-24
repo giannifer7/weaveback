@@ -225,6 +225,36 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 | `crates/weaveback-macro/src/ast/mod.rs` +
   `crates/weaveback-macro/src/ast/serialization.rs` +
   `crates/weaveback-macro/src/ast/tests.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/evaluator.adoc[weaveback-macro evaluator (index)]
+| `crates/weaveback-macro/src/evaluator/mod.rs` +
+  `crates/weaveback-macro/src/evaluator/errors.rs` +
+  `crates/weaveback-macro/src/evaluator/lexer_parser.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/state.adoc[evaluator state]
+| `crates/weaveback-macro/src/evaluator/state.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/output.adoc[evaluator output sinks]
+| `crates/weaveback-macro/src/evaluator/output.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/core.adoc[evaluator core]
+| `crates/weaveback-macro/src/evaluator/core.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/builtins.adoc[evaluator builtins]
+| `crates/weaveback-macro/src/evaluator/builtins.rs` +
+  `crates/weaveback-macro/src/evaluator/case_conversion.rs` +
+  `crates/weaveback-macro/src/evaluator/source_utils.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/scripting.adoc[evaluator script back-ends]
+| `crates/weaveback-macro/src/evaluator/rhai_eval.rs` +
+  `crates/weaveback-macro/src/evaluator/monty_eval.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[evaluator public API]
+| `crates/weaveback-macro/src/evaluator/eval_api.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests]
+| `crates/weaveback-macro/src/evaluator/test_utils.rs` +
+  `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 |===
 
 == Build-system integration

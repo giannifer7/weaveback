@@ -1,7 +1,6 @@
 // crates/weaveback-macro/src/evaluator/case_conversion.rs
 
 use std::str::FromStr;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Case {
     Lower,          // lowercase
@@ -36,7 +35,6 @@ impl FromStr for Case {
         }
     }
 }
-
 #[derive(Debug)]
 struct WordSplitter<'a> {
     input: &'a str,
@@ -116,7 +114,6 @@ impl<'a> Iterator for WordSplitter<'a> {
         Some(&self.input[start..start + last_pos + 1])
     }
 }
-
 pub fn convert_case_str(input: &str, target_case: &str) -> Result<String, String> {
     let case = target_case.parse::<Case>()?;
     Ok(convert_case(input, case))
@@ -183,7 +180,6 @@ pub fn convert_case(input: &str, target_case: Case) -> String {
             .join("_"),
     }
 }
-
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {

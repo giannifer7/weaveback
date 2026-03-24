@@ -2,7 +2,6 @@ use crate::macro_api::process_string_defaults;
 
 #[test]
 fn test_simple_variable_substitution() {
-    // Test simple variable substitution
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -18,7 +17,6 @@ fn test_simple_variable_substitution() {
 
 #[test]
 fn test_nested_variable_substitution() {
-    // Test nested variable substitution
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -41,7 +39,6 @@ fn test_nested_variable_substitution() {
 
 #[test]
 fn test_variable_substitution_with_whitespace() {
-    // Test variable substitution with whitespace
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -57,7 +54,6 @@ fn test_variable_substitution_with_whitespace() {
 
 #[test]
 fn test_variable_substitution_with_empty_string() {
-    // Test variable substitution with an empty string
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -73,7 +69,6 @@ fn test_variable_substitution_with_empty_string() {
 
 #[test]
 fn test_variable_substitution_with_multiple_arguments() {
-    // Test variable substitution with multiple arguments
     let result = process_string_defaults(
         r#"
         %def(greet, name, greeting, %{
@@ -89,7 +84,6 @@ fn test_variable_substitution_with_multiple_arguments() {
 
 #[test]
 fn test_variable_substitution_with_macro_in_argument() {
-    // Test variable substitution with a macro as an argument
     let result = process_string_defaults(
         r#"
         %def(get_name, %{
@@ -111,7 +105,6 @@ fn test_variable_substitution_with_macro_in_argument() {
 
 #[test]
 fn test_variable_substitution_with_conditional_logic() {
-    // Test variable substitution with conditional logic
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -131,7 +124,6 @@ fn test_variable_substitution_with_conditional_logic() {
 
 #[test]
 fn test_variable_substitution_with_conditional_logic_empty() {
-    // Test variable substitution with conditional logic and an empty string
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{

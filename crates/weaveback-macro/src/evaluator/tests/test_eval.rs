@@ -2,7 +2,6 @@ use crate::macro_api::process_string_defaults;
 
 #[test]
 fn test_eval_simple_macro_call() {
-    // Test evaluating a simple macro call
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -18,7 +17,6 @@ fn test_eval_simple_macro_call() {
 
 #[test]
 fn test_eval_macro_call_with_multiple_arguments() {
-    // Test evaluating a macro call with multiple arguments
     let result = process_string_defaults(
         r#"
         %def(greet, name, greeting, %{
@@ -34,7 +32,6 @@ fn test_eval_macro_call_with_multiple_arguments() {
 
 #[test]
 fn test_eval_macro_call_with_nested_macros() {
-    // Test evaluating a macro call with nested macros
     let result = process_string_defaults(
         r#"
         %def(get_name, %{
@@ -56,7 +53,6 @@ fn test_eval_macro_call_with_nested_macros() {
 
 #[test]
 fn test_eval_macro_call_with_conditional_logic() {
-    // Test evaluating a macro call with conditional logic
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -76,7 +72,6 @@ fn test_eval_macro_call_with_conditional_logic() {
 
 #[test]
 fn test_eval_macro_call_with_empty_arguments() {
-    // Test evaluating a macro call with empty arguments
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -92,7 +87,6 @@ fn test_eval_macro_call_with_empty_arguments() {
 
 #[test]
 fn test_eval_macro_call_with_whitespace_in_arguments() {
-    // Test evaluating a macro call with whitespace in arguments
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{
@@ -108,7 +102,6 @@ fn test_eval_macro_call_with_whitespace_in_arguments() {
 
 #[test]
 fn test_eval_macro_call_with_dynamic_macro_name() {
-    // Test evaluating a macro call with a dynamic macro name
     let result = process_string_defaults(
         r#"
         %def(greet, name, %{

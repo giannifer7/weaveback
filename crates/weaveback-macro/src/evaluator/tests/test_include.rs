@@ -20,13 +20,11 @@ fn test_include_basic() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create a test file `header.txt` in the temporary directory
     let header_path = temp_dir_path.join("header.txt");
     fs::write(&header_path, "Hello from header.txt").expect("Failed to write header.txt");
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test including a file
     let result = process_string("%include(header.txt)", None, &mut evaluator).unwrap();
     assert_eq!(String::from_utf8(result).unwrap(), "Hello from header.txt");
 }
@@ -36,7 +34,6 @@ fn test_include_with_macros() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create a test file `macros.txt` in the temporary directory
     let macros_path = temp_dir_path.join("macros.txt");
     fs::write(
         &macros_path,
@@ -53,7 +50,6 @@ fn test_include_with_macros() {
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test including a file with macros
     let result = process_string(
         r#"
         %include(macros.txt)
@@ -65,7 +61,6 @@ fn test_include_with_macros() {
     )
     .unwrap();
 
-    // Trim the result to remove extra whitespace and newlines
     let trimmed_result = String::from_utf8(result).unwrap().trim().to_string();
 
     assert_eq!(
@@ -81,7 +76,6 @@ fn test_include_missing_file() {
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test including a non-existent file
     let result = process_string("%include(missing.txt)", None, &mut evaluator);
     assert!(matches!(result, Err(EvalError::IncludeNotFound(_))));
 }
@@ -91,14 +85,12 @@ fn test_include_self_inclusion() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create a test file `self_include.txt` that includes itself
     let self_include_path = temp_dir_path.join("self_include.txt");
     fs::write(&self_include_path, "%include(self_include.txt)")
         .expect("Failed to write self_include.txt");
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test self-inclusion
     let result = process_string("%include(self_include.txt)", None, &mut evaluator);
     assert!(matches!(result, Err(EvalError::CircularInclude(_))));
 }
@@ -108,7 +100,6 @@ fn test_include_mutual_inclusion() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create two files that include each other
     let file_a_path = temp_dir_path.join("file_a.txt");
     fs::write(&file_a_path, "%include(file_b.txt)").expect("Failed to write file_a.txt");
 
@@ -117,7 +108,6 @@ fn test_include_mutual_inclusion() {
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test mutual inclusion
     let result = process_string("%include(file_a.txt)", None, &mut evaluator);
     assert!(matches!(result, Err(EvalError::CircularInclude(_))));
 }
@@ -127,7 +117,6 @@ fn test_include_with_symlink() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // Create a target file and a symlink to it
     let target_path = temp_dir_path.join("target.txt");
     fs::write(&target_path, "Hello from target.txt").expect("Failed to write target.txt");
 
@@ -136,34 +125,10 @@ fn test_include_with_symlink() {
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // Test including a symlink
     let result = process_string("%include(symlink.txt)", None, &mut evaluator).unwrap();
     assert_eq!(String::from_utf8(result).unwrap(), "Hello from target.txt");
 }
 
-/// Test that an %include inside a macro correctly scopes the included %defs.
-///
-/// The test simulates the following source:
-///
-/// ```text
-/// %def(macro_with_include, param, %{
-///     %include(TEMP_PATH)
-///     %included_macro(%(param))
-/// %})
-/// %macro_with_include(test)
-///
-/// %included_macro(outside)
-/// ```
-///
-/// Where the file at TEMP_PATH contains:
-///
-///     %def(included_macro, x, Included says: %(x)!)
-///
-/// The expected expansion is:
-///
-///     Included says: test
-///
-/// (The call to `%included_macro(outside)` outside the macro should produce nothing.)
 /// Regression test for Bug 6: open_includes was not cleaned up when an include failed,
 /// causing a spurious CircularInclude error on any subsequent include of the same file.
 #[test]
@@ -171,13 +136,11 @@ fn test_include_path_cleaned_up_on_error() {
     let temp_dir = TempDir::new().expect("Failed to create temporary directory");
     let temp_dir_path = temp_dir.path();
 
-    // A file that triggers an evaluation error (undefined macro call)
     let bad_file_path = temp_dir_path.join("bad.txt");
     fs::write(&bad_file_path, "%undefined_macro()").expect("Failed to write bad.txt");
 
     let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
 
-    // First include should fail with UndefinedMacro, not CircularInclude
     let result1 = process_string("%include(bad.txt)", None, &mut evaluator);
     assert!(
         matches!(result1, Err(EvalError::UndefinedMacro(_))),
@@ -185,9 +148,6 @@ fn test_include_path_cleaned_up_on_error() {
         result1
     );
 
-    // Second include of the same file must also fail with UndefinedMacro.
-    // Before the fix it raised CircularInclude because the path was never
-    // removed from open_includes after the first failure.
     let result2 = process_string("%include(bad.txt)", None, &mut evaluator);
     assert!(
         matches!(result2, Err(EvalError::UndefinedMacro(_))),
@@ -198,16 +158,11 @@ fn test_include_path_cleaned_up_on_error() {
 
 #[test]
 fn test_include_scope() {
-    // Create a temporary file that will act as our included definitions.
     let mut tmp = NamedTempFile::new().expect("Failed to create temp file");
-    // Write a macro definition into the temporary file.
-    // This defines a macro 'included_macro' that takes one parameter `x`.
     writeln!(tmp, "%def(included_macro, x, Included says: %(x)!)")
         .expect("Failed to write to temp file");
-    // Get the path to the temporary file.
     let tmp_path = tmp.path().to_str().expect("Invalid temp file path");
 
-    // Build a source string that defines a macro which includes our temporary file.
     let source = format!(
         r#"
 %def(macro_with_include, param, %{{

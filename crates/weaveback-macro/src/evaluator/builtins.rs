@@ -9,7 +9,6 @@ use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
 use super::state::ScriptKind;
 use crate::types::{ASTNode, NodeKind};
-
 /// Type for a builtin macro function: (Evaluator, node) -> String
 pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
 
@@ -60,7 +59,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("env".to_string(), builtin_env as BuiltinFn);
     map
 }
-
 struct DefMacroConfig {
     min_params_error: String,
     name_param_context: String,
@@ -68,7 +66,6 @@ struct DefMacroConfig {
     duplicate_param_error: String,
     script_kind: ScriptKind,
 }
-
 /// Helper: Checks that a Param node contains exactly one identifier child
 fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> EvalResult<String> {
     if param_node.kind != NodeKind::Param {
@@ -123,7 +120,6 @@ fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> Eva
 
     Ok(text)
 }
-
 fn define_macro(
     eval: &mut Evaluator,
     node: &ASTNode,
@@ -168,7 +164,6 @@ fn define_macro(
     );
     Ok("".into())
 }
-
 pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
@@ -210,7 +205,6 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         },
     )
 }
-
 fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -230,7 +224,6 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
     let _ = process_include_file(eval, node)?;
     Ok("".into())
 }
-
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
@@ -261,7 +254,6 @@ pub fn builtin_equal(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     let b = eval.evaluate(&parts[1])?;
     if a == b { Ok(a) } else { Ok("".into()) }
 }
-
 pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -335,7 +327,6 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     eval.set_early_exit();
     Ok("".into())
 }
-
 pub fn builtin_capitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -361,7 +352,6 @@ pub fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<
     let first = chars.next().unwrap().to_lowercase().to_string();
     Ok(format!("{}{}", first, chars.collect::<String>()))
 }
-
 pub fn builtin_convert_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -420,7 +410,6 @@ pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalRe
     }
     Ok(convert_case_str(&original, "screaming")?)
 }
-
 pub fn builtin_rhaiset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -455,7 +444,6 @@ pub fn builtin_rhaiget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Strin
     let key = single_ident_param(eval, &node.parts[0], "store key")?;
     Ok(eval.rhaistore_get(&key))
 }
-
 pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -476,7 +464,6 @@ pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     let key = single_ident_param(eval, &node.parts[0], "store key")?;
     Ok(eval.pystore_get(&key))
 }
-
 pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if !eval.allow_env() {
         return Err(EvalError::InvalidUsage(

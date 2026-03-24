@@ -2,7 +2,6 @@
 
 use rhai::{Dynamic, Engine, Scope};
 use std::collections::HashMap;
-
 pub struct RhaiEvaluator {
     engine: Engine,
 }
@@ -12,7 +11,6 @@ impl Default for RhaiEvaluator {
         Self::new()
     }
 }
-
 impl RhaiEvaluator {
     pub fn new() -> Self {
         let mut engine = Engine::new();
@@ -84,7 +82,6 @@ impl RhaiEvaluator {
         Ok(dynamic_to_string(result))
     }
 }
-
 pub fn dynamic_to_string(d: Dynamic) -> String {
     if d.is::<String>() {
         d.cast::<String>()

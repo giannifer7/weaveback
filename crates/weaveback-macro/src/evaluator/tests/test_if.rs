@@ -2,7 +2,6 @@ use crate::macro_api::process_string_defaults;
 
 #[test]
 fn test_if_condition_true() {
-    // Test a simple if condition that evaluates to true
     let result = process_string_defaults(
         r#"
         %if(true, %{
@@ -20,7 +19,6 @@ fn test_if_condition_true() {
 
 #[test]
 fn test_if_condition_false() {
-    // Test a simple if condition that evaluates to false
     let result = process_string_defaults(
         r#"
         %if(  , %{
@@ -35,7 +33,6 @@ fn test_if_condition_false() {
 
 #[test]
 fn test_if_else_condition_true() {
-    // Test an if-else condition where the if block is true
     let result = process_string_defaults(
         r#"
         %if(true, %{
@@ -55,7 +52,6 @@ fn test_if_else_condition_true() {
 
 #[test]
 fn test_if_else_condition_false() {
-    // Test an if-else condition where the if block is false
     let result = process_string_defaults(
         r#"
         %if(, %{
@@ -75,7 +71,6 @@ fn test_if_else_condition_false() {
 
 #[test]
 fn test_nested_if_conditions() {
-    // Test nested if conditions
     let result = process_string_defaults(
         r#"
         %if(true, %{

@@ -119,9 +119,7 @@ fn spy_output_captures_literal_spans() {
     eval.evaluate_to(&ast, &mut spy).unwrap();
 
     assert_eq!(spy.buf, "abc");
-    // At least one span should have been recorded
     assert!(!spy.spans.is_empty(), "no spans were recorded");
-    // The span should reference the right source bytes
     let (text, span) = &spy.spans[0];
     assert_eq!(text, "abc");
     assert_eq!(span.pos, 0);
@@ -138,8 +136,6 @@ fn spy_output_builtin_goes_through_untracked() {
     eval.evaluate_to(&ast, &mut spy).unwrap();
 
     assert_eq!(spy.buf, "val");
-    // %set is a builtin → its empty result goes through untracked.
-    // %(x) is a variable set by a builtin (span: None) → goes through untracked.
     let untracked_texts: Vec<&str> = spy.untracked.iter().map(|t| t.as_str()).collect();
     assert!(
         untracked_texts.contains(&"val"),
@@ -158,8 +154,6 @@ fn spy_output_user_macro_is_tracked() {
     eval.evaluate_to(&ast, &mut spy).unwrap();
 
     assert_eq!(spy.buf, "[hi]");
-    // The "hi" text should come from a tracked span (variable substitution)
-    // and the "[" and "]" from literal spans in the macro body
     let tracked_texts: Vec<&str> = spy.spans.iter().map(|(t, _)| t.as_str()).collect();
     assert!(
         tracked_texts.contains(&"["),
@@ -182,8 +176,6 @@ use crate::evaluator::output::TracingOutput;
 
 #[test]
 fn tracing_output_single_line_gets_an_entry() {
-    // Output is "[hello]" — a single line (no trailing newline).
-    // The macro_map should contain exactly one entry for line 0 with a MacroBody kind.
     let src = "%def(wrap, x, %{[%(x)]%})%wrap(hi)";
     let mut eval = Evaluator::new(EvalConfig::default());
     let path = PathBuf::from("test.md");
@@ -191,13 +183,11 @@ fn tracing_output_single_line_gets_an_entry() {
     let mut out = TracingOutput::new();
     eval.evaluate_to(&ast, &mut out).unwrap();
 
-    // into_macro_map_entries must be called before finish() (which consumes out).
     let entries = out.into_macro_map_entries(eval.sources());
     assert_eq!(out.finish(), "[hi]");
     assert_eq!(entries.len(), 1, "expected one line entry, got: {entries:?}");
     let (out_line, entry) = &entries[0];
     assert_eq!(*out_line, 0);
-    // The first tracked span on the line comes from the macro body literal "[".
     assert!(
         matches!(&entry.kind, SpanKind::MacroBody { macro_name } if macro_name == "wrap"),
         "expected MacroBody(wrap), got: {:?}", entry.kind
@@ -212,13 +202,11 @@ fn test_macro_map_entries() {
     let ast = eval.parse_string(src, &path).unwrap();
     let mut out = TracingOutput::new();
     eval.evaluate_to(&ast, &mut out).unwrap();
-    
+
     let entries = out.into_macro_map_entries(eval.sources());
-    
-    // There are 3 lines in the output
+
     assert_eq!(entries.len(), 3);
-    
-    // Line 1 should map to test.md line 0, col 0
+
     let (out_line_0, entry_0) = &entries[0];
     assert_eq!(*out_line_0, 0);
     assert!(entry_0.src_file.ends_with("test.md"));
@@ -226,14 +214,11 @@ fn test_macro_map_entries() {
     assert_eq!(entry_0.src_col, 0);
     assert!(matches!(entry_0.kind, SpanKind::Literal));
 
-    // Line 2 starts with "line 2 with", which is on source line 1.
     let (out_line_1, entry_1) = &entries[1];
     assert_eq!(*out_line_1, 1);
     assert_eq!(entry_1.src_line, 1);
 
-    // Line 3 is "line 3", which is on source line 2.
     let (out_line_2, entry_2) = &entries[2];
     assert_eq!(*out_line_2, 2);
     assert_eq!(entry_2.src_line, 2);
 }
-

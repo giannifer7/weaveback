@@ -86,7 +86,6 @@ fn test_store_counter_auto_writeback() {
 %tick()
 %tick()"#;
     let result = eval_string(src, None, &mut ev).expect("eval failed");
-    // Each call emits the new counter value; trim whitespace between them
     let values: Vec<&str> = result.split_whitespace().collect();
     assert_eq!(values, ["1", "2", "3"]);
 }
@@ -110,8 +109,6 @@ fn test_store_integer_type_preserved() {
 
 #[test]
 fn test_store_map_tree() {
-    // Build a tree as nested Rhai maps, then query it across calls.
-    // %rhaiexpr initialises the store key with a typed Rhai value.
     let mut ev = evaluator();
     let src = r#"%rhaiexpr(root, #{})
 %rhaidef(build_tree, %{
@@ -135,8 +132,6 @@ fn test_store_map_tree() {
 
 #[test]
 fn test_store_array_accumulation() {
-    // Accumulate items into a Rhai array across calls.
-    // %rhaiexpr initialises `items` as a typed Rhai array, not a string.
     let mut ev = evaluator();
     let src = r#"%rhaiexpr(items, [])
 %rhaidef(push_item, x, %{

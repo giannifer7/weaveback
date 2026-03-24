@@ -139,7 +139,6 @@ mod screaming_kebab_specific {
 
     #[test]
     fn test_to_screaming_kebab_from_various_cases() {
-        // From different cases
         assert_eq!(
             convert_case("hello-world", Case::ScreamingKebab),
             "HELLO-WORLD"

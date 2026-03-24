@@ -1,3 +1,127 @@
+= Evaluator core
+:toc:
+:toc-placement: preamble
+
+`core.rs` defines the `Evaluator` struct — the central object that owns all
+mutable state and implements macro expansion.  It exposes two evaluation
+paths (plain `String` and `EvalOutput`-sink) and handles macro call dispatch,
+scope management, `%include` processing, and lexical closure (freeze).
+
+== Design rationale
+
+=== Two evaluation paths sharing one scope
+
+`evaluate(node) -> String` and `evaluate_to(node, &mut dyn EvalOutput)` cover
+the same AST node types but differ in how they emit text.  Both paths push and
+pop the same scope stack and execute the same parameter-binding logic.  The
+duplication in `evaluate_macro_call` / `evaluate_macro_call_to` is real but
+bounded: the tracing path adds per-argument `SpanRange` threading that has no
+counterpart in the plain path.
+
+=== `evaluate_to_with_context`: threading `MacroBody` attribution
+
+When evaluating a macro body on the tracing path, literal text tokens inside
+the body need to be attributed to `SpanKind::MacroBody` rather than
+`SpanKind::Literal`.  A `context_span` parameter threads this annotation down
+the recursive calls without changing the token's own source position.  Only
+the `kind` field of the span is overridden.
+
+=== Multi-line text tokens: splitting at newlines
+
+A single `Text` token in a macro body may span multiple lines (the lexer groups
+all literal bytes between two macro calls).  Emitting it as one span would give
+the tracer a single position for all those lines.  Instead, `evaluate_to`
+splits the text at `\n` boundaries and emits each segment with an adjusted
+`pos` (byte offset within the token), so every line resolves to its true source
+line.
+
+=== `freeze_macro_definition`: poor-man's closure
+
+`%export` captures the exported macro's body AST and walks it looking for `Var`
+nodes that are not declared parameters.  Their current values are copied into
+`frozen_args`.  On a later call to the exported macro, `frozen_args` are
+installed first in the new scope — before parameter binding — so the macro
+sees the same variable values it had at export time.  This is a shallow
+snapshot, not a full closure chain.
+
+=== `do_include` cleanup on error
+
+`do_include` inserts the resolved path into `open_includes` before recursing,
+and removes it afterwards — even if the include raises an error — via a
+dedicated result-processing closure.  This prevents a failing include from
+permanently blocking future includes of the same file (regression guard for
+bug #6).
+
+== Evaluation dispatch overview
+
+.`evaluate()` dispatch by NodeKind
+[plantuml]
+----
+@startuml
+start
+:node.kind?;
+switch (NodeKind)
+case (Text / Space / Ident)
+  :push literal text;
+case (Var)
+  :look up in scope stack;
+  :push value;
+case (Macro)
+  :evaluate_macro_call;
+  switch (builtin?)
+  case (yes)
+    :call BuiltinFn;
+  case (no)
+    :look up MacroDefinition;
+    :push_scope;
+    :bind parameters;
+    :evaluate body;
+    if (ScriptKind::Rhai?) then (yes)
+      :run Rhai engine;
+    else if (ScriptKind::Python?) then (yes)
+      :run Monty engine;
+    endif
+    :pop_scope;
+  endswitch
+case (Block / Param)
+  :evaluate children;
+case (LineComment / BlockComment)
+  :skip;
+endswitch
+stop
+@enduml
+----
+
+== File structure
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/evaluator/core.rs>>=
+// <<core preamble>>
+// <<evaluator struct>>
+// <<evaluator new and accessors>>
+// <<evaluator rhai store>>
+// <<evaluator py store>>
+// <<evaluator macro and var>>
+// <<evaluator source and file>>
+// <<evaluator plain evaluate>>
+// <<evaluator node text>>
+// <<evaluator extract name>>
+// <<evaluator macro call plain>>
+// <<evaluator export and freeze>>
+// <<evaluator parse string and find file>>
+// <<evaluator do include>>
+// <<evaluator tracing helpers>>
+// <<evaluator evaluate to>>
+// <<evaluator macro call to>>
+// @
+----
+
+== Preamble
+
+[source,rust]
+----
+// <<core preamble>>=
 // crates/weaveback-macro/src/evaluator/core.rs
 
 use std::collections::{HashMap, HashSet};
@@ -12,6 +136,14 @@ use super::output::{EvalOutput, PreciseTracingOutput, SourceSpan, SpanKind, Span
 use super::rhai_eval::{self, RhaiEvaluator};
 use super::state::{EvalConfig, EvaluatorState, MAX_RECURSION_DEPTH, MacroDefinition, ScriptKind};
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
+// @
+----
+
+== `Evaluator` struct
+
+[source,rust]
+----
+// <<evaluator struct>>=
 pub struct Evaluator {
     state: EvaluatorState,
     builtins: HashMap<String, BuiltinFn>,
@@ -20,6 +152,14 @@ pub struct Evaluator {
     monty_evaluator: MontyEvaluator,
     py_store: HashMap<String, String>,
 }
+// @
+----
+
+== Constructor and accessors
+
+[source,rust]
+----
+// <<evaluator new and accessors>>=
 impl Evaluator {
     pub fn new(config: EvalConfig) -> Self {
         Evaluator {
@@ -36,6 +176,19 @@ impl Evaluator {
     pub fn sources(&self) -> &crate::evaluator::state::SourceManager {
         &self.state.source_manager
     }
+// @
+----
+
+== Rhai store
+
+The Rhai store persists typed `rhai::Dynamic` values across `%rhaidef` calls.
+Numeric strings are auto-promoted to `i64` or `f64` so that arithmetic works
+inside scripts without explicit conversion.  `rhaistore_set_expr` uses the Rhai
+engine itself to evaluate a typed initialiser (e.g. `[]` for an array).
+
+[source,rust]
+----
+// <<evaluator rhai store>>=
     /// Insert a value into the Rhai store.
     /// Integers and floats are stored with their native Rhai type so that
     /// arithmetic operators work inside scripts without explicit conversion.
@@ -68,6 +221,14 @@ impl Evaluator {
             .map(|d| rhai_eval::dynamic_to_string(d.clone()))
             .unwrap_or_default()
     }
+// @
+----
+
+== Python store
+
+[source,rust]
+----
+// <<evaluator py store>>=
     pub fn pystore_set(&mut self, key: String, value: String) {
         self.py_store.insert(key, value);
     }
@@ -75,6 +236,17 @@ impl Evaluator {
     pub fn pystore_get(&self, key: &str) -> String {
         self.py_store.get(key).cloned().unwrap_or_default()
     }
+// @
+----
+
+== Macro and variable delegation
+
+These thin methods forward to `EvaluatorState` and also handle call-site
+recording for the tracing maps.
+
+[source,rust]
+----
+// <<evaluator macro and var>>=
     pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) {
         self.state.define_macro(mac);
     }
@@ -98,6 +270,14 @@ impl Evaluator {
     pub fn drain_macro_defs(&mut self) -> Vec<super::state::MacroDefRaw> {
         self.state.drain_macro_defs()
     }
+// @
+----
+
+== Source and file management
+
+[source,rust]
+----
+// <<evaluator source and file>>=
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
         self.state
             .source_manager
@@ -135,6 +315,17 @@ impl Evaluator {
     pub fn num_source_files(&self) -> usize {
         self.state.source_manager.num_sources()
     }
+// @
+----
+
+== Plain `evaluate` path
+
+The plain path returns a `String`.  Comments are silently dropped.  All other
+node kinds recurse over their children.
+
+[source,rust]
+----
+// <<evaluator plain evaluate>>=
     pub fn evaluate(&mut self, node: &ASTNode) -> EvalResult<String> {
         if self.state.early_exit {
             return Ok(String::new());
@@ -171,6 +362,20 @@ impl Evaluator {
         }
         Ok(out)
     }
+// @
+----
+
+== `node_text` and `extract_name_value`
+
+These helpers slice the raw source bytes using the token's `pos`/`length`.
+`node_text` strips the surrounding delimiters for `Macro` (`%name(`→`name`),
+`Var` (`%(name)`→`name`), `BlockOpen`/`BlockClose`, and `Special` tokens.
+`extract_name_value` returns the raw bytes for a plain `Ident` token (no
+stripping needed).
+
+[source,rust]
+----
+// <<evaluator node text>>=
     pub fn node_text(&self, node: &ASTNode) -> String {
         if let Some(source) = self.state.source_manager.get_source(node.token.src) {
             let start = node.token.pos;
@@ -215,6 +420,9 @@ impl Evaluator {
             "".into()
         }
     }
+// @
+
+// <<evaluator extract name>>=
     pub fn extract_name_value(&self, name_token: &Token) -> String {
         if let Some(source) = self.state.source_manager.get_source(name_token.src) {
             let start = name_token.pos;
@@ -238,6 +446,19 @@ impl Evaluator {
             "".into()
         }
     }
+// @
+----
+
+== `evaluate_macro_call` — plain path
+
+The plain path uses Python-style parameter binding (see
+link:state.adoc[state.adoc] design rationale for full rules).  After binding,
+`evaluate(&mac.body)` is called, then the result is passed through the script
+engine if `script_kind` is Rhai or Python.
+
+[source,rust]
+----
+// <<evaluator macro call plain>>=
     pub fn evaluate_macro_call(&mut self, node: &ASTNode, name: &str) -> EvalResult<String> {
         if let Some(bf) = self.builtins.get(name) {
             return bf(self, node);
@@ -376,6 +597,23 @@ impl Evaluator {
 
         Ok(result)
     }
+// @
+----
+
+== `%export` and `freeze_macro_definition`
+
+`export` copies one binding from the current (innermost) frame into the parent
+frame.  Both variable and macro bindings are supported.  Macros are passed
+through `freeze_macro_definition` first so they carry a snapshot of any free
+variables from the exporting scope.
+
+`collect_freeze_vars` walks the body AST, finds `Var` nodes that are not
+declared parameters, and evaluates them in the current scope, capturing their
+current values.  The result is stored in `frozen_args`.
+
+[source,rust]
+----
+// <<evaluator export and freeze>>=
     pub fn export(&mut self, name: &str) {
         let stack_len = self.state.scope_stack.len();
         if stack_len <= 1 {
@@ -450,6 +688,26 @@ impl Evaluator {
             self.collect_freeze_vars(child, keep, frozen);
         }
     }
+// @
+----
+
+== `parse_string`, `find_file`, and `do_include`
+
+`parse_string` reads (or re-uses) the source bytes from the `SourceManager`,
+then chains `lex_parse_content`.  If the path points to an existing file the
+file is registered by canonical path (deduplication); otherwise the in-memory
+bytes are registered directly (for string-only evaluations in tests).
+
+`find_file` searches the configured `include_paths` in order, returning the
+first match.  Absolute paths are accepted as-is.
+
+`do_include` tracks currently-open includes in `open_includes` to detect
+cycles.  The path is always removed on exit — whether the include succeeds or
+fails — to prevent a failed include from permanently blocking re-includes.
+
+[source,rust]
+----
+// <<evaluator parse string and find file>>=
     pub fn parse_string(&mut self, text: &str, path: &PathBuf) -> Result<ASTNode, EvalError> {
         let src = match fs::metadata(path) {
             Ok(md) if md.is_file() => self.add_source_if_not_present(path.clone())?,
@@ -477,6 +735,9 @@ impl Evaluator {
         }
         Err(EvalError::IncludeNotFound(filename.into()))
     }
+// @
+
+// <<evaluator do include>>=
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;
 
@@ -505,6 +766,21 @@ impl Evaluator {
     pub fn take_discovered_includes(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.state.discovered_includes)
     }
+// @
+----
+
+== Tracing helpers
+
+These private helpers are used exclusively by `evaluate_to` and
+`evaluate_macro_call_to`.  `span_of` builds a `SourceSpan` from an AST node's
+token with `SpanKind::Literal`.  `evaluate_arg_to_traced` evaluates one
+argument into a `PreciseTracingOutput` to get both the value string and its
+`SpanRange` list.  `tag_as_macro_arg` re-tags those spans with
+`MacroArg { macro_name, param_name }`.
+
+[source,rust]
+----
+// <<evaluator tracing helpers>>=
     // ---- Tracked evaluation (EvalOutput) ------------------------------------
 
     /// Build a `SourceSpan` from the token of an AST node, defaulting to Literal.
@@ -548,6 +824,24 @@ impl Evaluator {
             raw_spans.into_iter().map(|mut sr| { sr.span.kind = kind.clone(); sr }).collect()
         }
     }
+// @
+----
+
+== `evaluate_to` — tracing path
+
+`evaluate_to` and its internal `evaluate_to_with_context` mirror `evaluate`
+but push text to an `EvalOutput` sink rather than accumulating a `String`.
+The `context_span` parameter carries `MacroBody` attribution down the recursion:
+literal text tokens in the body inherit the macro name from the context span
+while keeping their own `pos`/`length` for exact line resolution.
+
+Multi-line `Text` tokens are split at `\n` boundaries, each segment emitted
+with its own adjusted `pos` within the original token, so every output line
+maps to the correct source line.
+
+[source,rust]
+----
+// <<evaluator evaluate to>>=
     /// Like `evaluate`, but writes to an `EvalOutput` sink so that span
     /// information is available to the caller.
     pub fn evaluate_to(
@@ -651,6 +945,21 @@ impl Evaluator {
         }
         Ok(())
     }
+// @
+----
+
+== `evaluate_macro_call_to` — tracing path for macro calls
+
+Built-in macro calls are delegated to the plain `evaluate_macro_call` and the
+result is pushed as `push_untracked`.  User-defined macros go through the full
+parameter-binding and tracing machinery.  The body is evaluated with a
+`MacroBody` context span; script-kind macros use the same note as in the plain
+path — they arrive through the builtin map, so the `ScriptKind::Rhai` /
+`ScriptKind::Python` branches here are currently unreachable.
+
+[source,rust]
+----
+// <<evaluator macro call to>>=
     /// Like `evaluate_macro_call`, but writes to an `EvalOutput` sink.
     pub fn evaluate_macro_call_to(
         &mut self,
@@ -811,3 +1120,5 @@ impl Evaluator {
         Ok(())
     }
 }
+// @
+----

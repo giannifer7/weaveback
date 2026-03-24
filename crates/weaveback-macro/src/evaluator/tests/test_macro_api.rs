@@ -26,20 +26,16 @@ fn test_process_string_basic() {
 fn test_include_basic() -> Result<(), Box<dyn std::error::Error>> {
     let temp_dir = TempDir::new()?;
 
-    // Create an included file
     let _include_file = create_temp_file(&temp_dir, "include.txt", "test");
 
-    // Create our test source that includes it
     let main_file = create_temp_file(&temp_dir, "main.txt", "%include(include.txt)");
 
-    // Set up config with include path
     let mut config = EvalConfig::default();
     config.include_paths = vec![temp_dir.path().to_path_buf()];
     let mut evaluator = Evaluator::new(config);
 
     let output_file = temp_dir.path().join("output.txt");
 
-    // Process using the file API
     process_file(&main_file, &output_file, &mut evaluator)?;
 
     let result = fs::read_to_string(output_file)?;
@@ -86,21 +82,14 @@ fn test_process_string_with_special_chars() {
 #[test]
 fn test_process_files_with_shared_macros() {
     let temp_dir = TempDir::new().unwrap();
-    // First file defines a macro
     let file1 = create_temp_file(&temp_dir, "file1.txt", "%def(shared, Shared content)");
-    // Second file uses the macro
     let file2 = create_temp_file(&temp_dir, "file2.txt", "%shared()");
 
-    // Create output file path instead of output directory
     let output_file = temp_dir.path().join("output.txt");
 
-    // Process files to a single output file
     let config = EvalConfig::default();
     process_files_from_config(&[file1, file2], &output_file, config).unwrap();
 
-    // Verify the combined output
     let output = fs::read_to_string(&output_file).unwrap();
-    // First file should have empty output, second file should have "Shared content"
-    // So the combined output should be "Shared content" (possibly with some whitespace)
     assert_eq!(output.trim(), "Shared content");
 }

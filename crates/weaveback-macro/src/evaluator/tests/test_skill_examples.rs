@@ -6,13 +6,6 @@ use crate::evaluator::EvalError;
 use crate::macro_api::process_string_defaults;
 
 /// SKILL.md — positional params, multi-line call, leading space stripped, %# comments stripped.
-///
-/// ```
-/// %def(tag, name, value, %{<%(name)>%(value)</%(name)>%})
-/// %tag( div,         %# element name — leading space stripped
-///       Hello world) %# value        — leading space stripped
-/// ```
-/// Output: `<div>Hello world</div>`
 #[test]
 fn test_tag_positional_space_stripped() {
     let input = "%def(tag, name, value, %{<%(name)>%(value)</%(name)>%})\n\
@@ -27,11 +20,6 @@ fn test_tag_positional_space_stripped() {
 }
 
 /// SKILL.md — %{ %} wrapping preserves the leading space inside the block.
-///
-/// ```
-/// %tag(%{ div%}, %{ Hello world%})
-/// ```
-/// Output: `< div> Hello world</ div>`
 #[test]
 fn test_tag_block_preserves_leading_space() {
     let input = "%def(tag, name, value, %{<%(name)>%(value)</%(name)>%})\n\
@@ -45,18 +33,6 @@ fn test_tag_block_preserves_leading_space() {
 }
 
 /// SKILL.md — named parameters on multiple lines with interspersed whitespace.
-///
-/// ```
-/// %def(http_endpoint, method, path, handler, %{
-/// %(method) %(path) → %(handler)
-/// %})
-///
-/// %http_endpoint(
-///     method  = GET,
-///     path    = /api/users,
-///     handler = list_users)
-/// ```
-/// Output: `GET /api/users → list_users`
 #[test]
 fn test_http_endpoint_named_params() {
     let input = "%def(http_endpoint, method, path, handler, %{\n\
@@ -75,12 +51,9 @@ fn test_http_endpoint_named_params() {
     );
 }
 
-// ── Arity behaviour ──────────────────────────────────────────────────────────
-
 /// Too few arguments: missing params silently become empty strings.
 #[test]
 fn test_too_few_args_become_empty() {
-    // %greet(name, msg) called with only one arg → msg is ""
     let result = process_string_defaults(
         "%def(greet, name, msg, Hello %(name)%(msg)!)\n\
          %greet(Alice)",
@@ -102,7 +75,6 @@ fn test_too_many_args_ignored() {
     )
     .unwrap();
     let s = std::str::from_utf8(&result).unwrap();
-    // Only the first arg is bound; Bob and Charlie are discarded.
     assert!(
         s.contains("Hello Alice!"),
         "expected 'Hello Alice!' (extras ignored), got: {s:?}"
@@ -113,11 +85,9 @@ fn test_too_many_args_ignored() {
     );
 }
 
-/// %def uses *dynamic* scoping for outer variables: the value at *call* time is used,
-/// not the value at definition time.  Only %export freezes variables lexically.
+/// %def uses *dynamic* scoping for outer variables: the value at *call* time is used.
 #[test]
 fn test_outer_variable_is_dynamic() {
-    // `greeting` is redefined between %def and the call → dynamic lookup picks up "Bye".
     let result = process_string_defaults(
         "%set(greeting, Hi)\n\
          %def(greet, name, %(greeting) %(name)!)\n\
@@ -132,7 +102,7 @@ fn test_outer_variable_is_dynamic() {
     );
 }
 
-/// Named params are matched by *name*; any order among named args is valid.
+/// Named params are matched by name; any order among named args is valid.
 #[test]
 fn test_named_params_any_order() {
     let result = process_string_defaults(
@@ -201,4 +171,3 @@ fn test_unknown_named_param_is_error() {
         "expected InvalidUsage for unknown named arg, got: {result:?}"
     );
 }
-

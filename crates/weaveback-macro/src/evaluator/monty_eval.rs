@@ -2,7 +2,6 @@
 
 use monty::{MontyObject, MontyRun};
 use std::collections::{HashMap, HashSet};
-
 pub struct MontyEvaluator;
 
 impl Default for MontyEvaluator {
@@ -10,7 +9,6 @@ impl Default for MontyEvaluator {
         Self::new()
     }
 }
-
 impl MontyEvaluator {
     pub fn new() -> Self {
         Self
@@ -53,7 +51,6 @@ impl MontyEvaluator {
         Ok(monty_object_to_string(result))
     }
 }
-
 fn monty_object_to_string(obj: MontyObject) -> String {
     match obj {
         MontyObject::String(s) => s,

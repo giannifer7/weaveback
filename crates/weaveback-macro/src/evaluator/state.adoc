@@ -1,3 +1,135 @@
+= Evaluator state
+:toc:
+:toc-placement: preamble
+
+`state.rs` defines all the mutable data that the evaluator carries through an
+expansion run: configuration, the scope stack of variables and macros, the
+source-file registry, and call-site records for the tracing infrastructure.
+
+== Design rationale
+
+=== Scope stack instead of a hash-chain
+
+`EvaluatorState` keeps a `Vec<ScopeFrame>`.  Each macro call pushes a new
+`ScopeFrame` and pops it on return.  Variable and macro lookups walk the
+stack from top (innermost scope) to bottom (global scope), returning the first
+match.  This gives correct lexical shadowing without the overhead of cloning
+entire hash maps or maintaining parent pointers.
+
+`%export` exploits the flat Vec: it copies a binding one index down
+(`stack_len - 2`) into the parent frame, making the binding survive the
+child's pop.
+
+=== TrackedValue: three span-density levels
+
+`TrackedValue` wraps a `String` value with a `Vec<SpanRange>` that carries
+source attribution:
+
+* **Empty spans** — untracked (script/builtin result).  The value is pushed
+  to the output sink as `push_untracked`, contributing no source information.
+* **One coarse span** covering `[0, value.len()]` — the fast path.  The tracer
+  knows the value came from a particular token but does not record per-character
+  attribution.
+* **Multiple spans** — full per-token threading.  Each element covers a
+  sub-range of `value` and attributes it to a different source token.  This
+  is produced only on the `PreciseTracingOutput` path when argument evaluation
+  returns a `Vec<SpanRange>`.
+
+=== SourceManager: u32 indices into a byte registry
+
+`SourceManager` stores raw `Vec<u8>` (not `String`) because the lexer operates
+on byte slices.  Each source file gets a `u32` index that fits in `Token.src`.
+Canonical paths are used as the deduplication key so that including the same
+file through two different relative paths resolves to the same index.
+
+=== VarDefRaw / MacroDefRaw: call-site byte offsets
+
+These records capture the exact byte position of every `%set` or `%def` call
+so that the MCP tracing tools can answer "where was this variable set?" or
+"where was this macro defined?" without a full re-parse.
+
+== State type overview
+
+.Main state types and their relationships
+[plantuml]
+----
+@startuml
+class EvalConfig {
+  +special_char: char
+  +include_paths: Vec<PathBuf>
+  +discovery_mode: bool
+  +allow_env: bool
+}
+
+class ScopeFrame {
+  +variables: HashMap<String, TrackedValue>
+  +macros: HashMap<String, MacroDefinition>
+}
+
+class TrackedValue {
+  +value: String
+  +spans: Vec<SpanRange>
+}
+
+class MacroDefinition {
+  +name: String
+  +params: Vec<String>
+  +body: Arc<ASTNode>
+  +script_kind: ScriptKind
+  +frozen_args: HashMap<String, String>
+}
+
+class SourceManager {
+  -source_files: Vec<Vec<u8>>
+  -file_names: Vec<PathBuf>
+  -sources_by_path: HashMap<PathBuf, usize>
+}
+
+class EvaluatorState {
+  +config: EvalConfig
+  +scope_stack: Vec<ScopeFrame>
+  +open_includes: HashSet<PathBuf>
+  +current_file: PathBuf
+  +source_manager: SourceManager
+  +call_depth: usize
+  +early_exit: bool
+  +discovered_includes: Vec<PathBuf>
+  +var_defs: Vec<VarDefRaw>
+  +macro_defs: Vec<MacroDefRaw>
+}
+
+EvaluatorState *-- EvalConfig
+EvaluatorState *-- "1..*" ScopeFrame
+EvaluatorState *-- SourceManager
+ScopeFrame o-- TrackedValue
+ScopeFrame o-- MacroDefinition
+@enduml
+----
+
+== File structure
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/evaluator/state.rs>>=
+// <<state preamble>>
+// <<eval config>>
+// <<script kind>>
+// <<macro definition>>
+// <<tracked value>>
+// <<scope frame>>
+// <<source manager>>
+// <<var def raw>>
+// <<macro def raw>>
+// <<max recursion>>
+// <<evaluator state>>
+// @
+----
+
+== Preamble
+
+[source,rust]
+----
+// <<state preamble>>=
 // crates/weaveback-macro/src/evaluator/state.rs
 
 use crate::evaluator::output::{SourceSpan, SpanRange};
@@ -5,6 +137,27 @@ use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+// @
+----
+
+== `EvalConfig` — per-run configuration
+
+`EvalConfig` is created once per evaluation run (or shared across a batch of
+files via `eval_files`).  It is immutable after construction; all mutable
+per-call state lives in `EvaluatorState`.
+
+`discovery_mode` is a special flag used by the directory-scan driver: instead
+of recursively evaluating `%include`/`%import` files, the evaluator records the
+resolved paths in `discovered_includes` and returns.  This allows collecting
+all input file dependencies without side effects.
+
+`allow_env` gates access to environment variables via `%env(NAME)`.  It is
+disabled by default so templates cannot silently exfiltrate secrets without
+an explicit `--allow-env` flag.
+
+[source,rust]
+----
+// <<eval config>>=
 #[derive(Debug, Clone)]
 pub struct EvalConfig {
     pub special_char: char,
@@ -30,12 +183,40 @@ impl Default for EvalConfig {
         }
     }
 }
+// @
+----
+
+== `ScriptKind` — which engine evaluates a macro body
+
+After the body text is expanded (variable substitution etc.), `ScriptKind`
+determines whether the result is returned as-is (`None`) or passed through
+a scripting engine (`Rhai`, `Python`).
+
+[source,rust]
+----
+// <<script kind>>=
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptKind {
     None,
     Rhai,
     Python,
 }
+// @
+----
+
+== `MacroDefinition` — stored macro
+
+`MacroDefinition` is cloned out of the scope stack at every call site.
+`body` is an `Arc<ASTNode>` so cloning is cheap (no deep copy of the AST).
+
+`frozen_args` is populated by `Evaluator::freeze_macro_definition` when a
+macro is exported via `%export`.  It maps variable names that appear in the
+body (but are not declared parameters) to their values at export time,
+implementing a lexical closure without a reference to the enclosing scope.
+
+[source,rust]
+----
+// <<macro definition>>=
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
     pub name: String,
@@ -44,6 +225,14 @@ pub struct MacroDefinition {
     pub script_kind: ScriptKind,
     pub frozen_args: HashMap<String, String>,
 }
+// @
+----
+
+== `TrackedValue` — value with optional source attribution
+
+[source,rust]
+----
+// <<tracked value>>=
 #[derive(Debug, Clone)]
 pub struct TrackedValue {
     pub value: String,
@@ -53,11 +242,36 @@ pub struct TrackedValue {
     /// Multiple entries carry full per-token attribution threaded through argument evaluation.
     pub spans: Vec<SpanRange>,
 }
+// @
+----
+
+== `ScopeFrame` — one lexical scope level
+
+Each macro call creates a new `ScopeFrame`.  A frame holds the variables bound
+by that call's parameter list (and by `%set` calls within the macro body) and
+any macros defined inside the call body via `%def`.
+
+[source,rust]
+----
+// <<scope frame>>=
 #[derive(Debug, Default, Clone)]
 pub struct ScopeFrame {
     pub variables: HashMap<String, TrackedValue>,
     pub macros: HashMap<String, MacroDefinition>,
 }
+// @
+----
+
+== `SourceManager` — source file registry
+
+`SourceManager` stores the raw bytes of every source file that has been read
+during this evaluation run.  Files are deduplicated by canonical path so that
+including the same file through two different relative paths yields the same
+`u32` index.
+
+[source,rust]
+----
+// <<source manager>>=
 pub struct SourceManager {
     source_files: Vec<Vec<u8>>,
     file_names: Vec<PathBuf>,
@@ -103,6 +317,19 @@ impl SourceManager {
         &self.file_names
     }
 }
+// @
+----
+
+== `VarDefRaw` and `MacroDefRaw` — call-site records
+
+These lightweight structs record the byte position of every `%set` and `%def`
+call encountered during evaluation.  The MCP server drains them after each run
+to build the `var_defs_map` and `macro_defs_map` that answer "where was this
+symbol defined?".
+
+[source,rust]
+----
+// <<var def raw>>=
 /// Raw record of a `%set(var_name, ...)` call site, captured during evaluation.
 /// Positions are absolute byte offsets in the source file (same as Token.pos / Token.length).
 #[derive(Debug, Clone)]
@@ -115,6 +342,9 @@ pub struct VarDefRaw {
     /// Byte length of the whole `set(...)` call.
     pub length: u32,
 }
+// @
+
+// <<macro def raw>>=
 /// Raw record of a `%def / %rhaidef / %pydef(name, ...)` call site.
 #[derive(Debug, Clone)]
 pub struct MacroDefRaw {
@@ -126,7 +356,31 @@ pub struct MacroDefRaw {
     /// Byte length of the whole def(...) call.
     pub length: u32,
 }
+// @
+----
+
+== Recursion depth guard
+
+[source,rust]
+----
+// <<max recursion>>=
 pub const MAX_RECURSION_DEPTH: usize = 100;
+// @
+----
+
+== `EvaluatorState` — full mutable evaluation state
+
+`EvaluatorState` owns all mutable state.  `Evaluator` (in `core.rs`) holds an
+`EvaluatorState` plus the stateless singletons (`RhaiEvaluator`,
+`MontyEvaluator`, `builtins` map).
+
+The helper methods on `EvaluatorState` encapsulate common patterns: the three
+`set_*_variable` variants manage the span-density levels of `TrackedValue`,
+and `get_variable` / `get_macro` both walk the scope stack from top to bottom.
+
+[source,rust]
+----
+// <<evaluator state>>=
 pub struct EvaluatorState {
     pub config: EvalConfig,
     pub scope_stack: Vec<ScopeFrame>,
@@ -253,3 +507,5 @@ impl EvaluatorState {
         vec![self.config.special_char as u8]
     }
 }
+// @
+----

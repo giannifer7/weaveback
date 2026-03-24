@@ -44,3 +44,54 @@ fn test_here_with_macros() {
 
     assert!(result.is_ok());
 }
+
+#[test]
+fn test_here_idempotency_already_patched_file() {
+    // Running on a file that already has %%here (the neutralised form) must
+    // be a no-op: the file must not be modified a second time.
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("patched.txt");
+
+    // Write a file that already has %%here (neutralised) — simulating the state
+    // after a previous successful run.
+    let already_patched =
+        "%def(msg, hello world)\n%%here(msg)\nhello world\nrest of file";
+    fs::write(&test_file, already_patched).unwrap();
+
+    let content = fs::read_to_string(&test_file).unwrap();
+    let mut ev = create_evaluator_with_temp_dir(temp_dir.path());
+    let result = process_string(&content, Some(&test_file), &mut ev);
+
+    // Must succeed (%%here is literal text, not a macro call).
+    assert!(result.is_ok(), "already-patched file should expand without error: {:?}", result);
+
+    // File must be unchanged — no second patch.
+    let after = fs::read_to_string(&test_file).unwrap();
+    assert_eq!(after, already_patched, "idempotency violated: file was modified again");
+}
+
+#[test]
+fn test_here_only_first_fires_in_file() {
+    // A file with two %here calls: only the first should fire.
+    // After the first %here sets early_exit, the second is never reached.
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("two_here.txt");
+
+    let content =
+        "%def(a, first)\n%def(b, second)\n%here(a)\n%here(b)";
+    fs::write(&test_file, content).unwrap();
+
+    let src = fs::read_to_string(&test_file).unwrap();
+    let mut ev = create_evaluator_with_temp_dir(temp_dir.path());
+    process_string(&src, Some(&test_file), &mut ev).unwrap();
+
+    let modified = fs::read_to_string(&test_file).unwrap();
+    // Only the first %here should have been neutralised (%%here) and expanded.
+    assert!(modified.contains("%%here(a)"), "first %here should be neutralised");
+    // Second %here must still be a live call (not neutralised) because early_exit
+    // stopped evaluation before reaching it.
+    assert!(
+        modified.contains("%here(b)") && !modified.contains("%%here(b)"),
+        "second %here should be untouched (early_exit prevented it from firing)"
+    );
+}

@@ -78,6 +78,42 @@ closures).  When a macro call node is encountered, the hash map is checked
 first; only if the name is absent do we look in the scope stack for a
 user-defined macro.  This prevents user macros from shadowing built-ins.
 
+=== Evaluation model
+
+The evaluator is **strict** (call-by-value): all macro arguments are expanded
+to strings before the macro body runs.  At a `%foo(a, b)` call site the
+sequence is:
+
+1. A new `ScopeFrame` is pushed onto the scope stack.
+2. Each argument node is evaluated left-to-right *inside that new frame*,
+   producing a `String`; the string is then bound to the corresponding
+   formal parameter in the same frame.
+3. The macro body is evaluated inside the frame.
+4. The frame is popped.
+5. For `%rhaidef`/`%pydef` macros, the _already-expanded_ body string is then
+   passed to the Rhai or Python engine; there is no lazy re-expansion.
+
+The critical subtlety about step 1: **the scope is pushed before arguments are
+evaluated**.  A `%set(x, v)` call inside an argument expression therefore mutates
+the _callee's_ scope frame, not the caller's.  Those mutations disappear when
+the frame is popped in step 4.  This is intentional: arguments should not have
+invisible caller-scope side effects.  (Use `%export` to deliberately propagate
+a value from the callee to the caller.)
+
+Consequences worth knowing:
+
+* **Eager, not lazy.**  Argument expressions are fully expanded before the body
+  runs, so argument side-effects fire in left-to-right call order.
+* **Argument side-effects are scoped.**  `%set` inside an argument lives in
+  the callee's frame and does not bleed into the caller (see above).
+* **Recursion depth limit.**  A macro calling itself (directly or indirectly)
+  will hit `MAX_RECURSION_DEPTH = 100` and return a runtime error rather than
+  stack-overflow.
+* **`early_exit` stops everything.**  Once `%here` sets `early_exit = true`,
+  every subsequent call to `evaluate()` or `evaluate_to()` returns an empty
+  string immediately.  No further macro calls, no further argument evaluation,
+  no further output — the file is considered fully processed.
+
 === Script back-ends as pluggable singletons
 
 `RhaiEvaluator` (Rhai) and `MontyEvaluator` (Python via monty) live as fields

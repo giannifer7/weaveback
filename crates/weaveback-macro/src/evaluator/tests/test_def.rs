@@ -1,7 +1,7 @@
 // crates/weaveback-macro/src/evaluator/tests/test_def.rs
 
-use crate::evaluator::EvalError;
-use crate::macro_api::process_string_defaults;
+use crate::evaluator::{EvalConfig, EvalError, Evaluator};
+use crate::macro_api::{process_string, process_string_defaults};
 
 #[test]
 fn test_def_macro_other_errors() {
@@ -112,4 +112,89 @@ fn test_def_macro_nested() {
         std::str::from_utf8(&result).unwrap(),
         "\n         \n         Hello **dear World**!"
     );
+}
+
+#[test]
+fn test_recursion_depth_limit_returns_error() {
+    // A directly self-recursive macro must hit MAX_RECURSION_DEPTH (100) and
+    // return a Runtime error rather than stack-overflowing the process.
+    let result = process_string_defaults("%def(loop, %loop())\n%loop()");
+    assert!(
+        matches!(result, Err(EvalError::Runtime(_))),
+        "expected Runtime error for infinite recursion, got {:?}", result
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("recursion") || msg.contains("depth"),
+        "error message should mention recursion depth: {}", msg
+    );
+}
+
+#[test]
+fn test_mutual_recursion_depth_limit() {
+    // Mutually recursive macros: %a calls %b, %b calls %a.
+    let src = "%def(a, %b())\n%def(b, %a())\n%a()";
+    let result = process_string_defaults(src);
+    assert!(
+        matches!(result, Err(EvalError::Runtime(_))),
+        "expected Runtime error for mutual recursion, got {:?}", result
+    );
+}
+
+#[test]
+fn test_redefine_macro_with_different_script_kind() {
+    // Redefining a macro with a different ScriptKind (def → rhaidef) should
+    // silently replace it; the second definition wins.
+    let src = "%def(compute, x, %(x))\n%rhaidef(compute, x, x + \"!\")\n%compute(hello)";
+    let result = process_string_defaults(src).unwrap();
+    let output = String::from_utf8(result).unwrap();
+    // The rhaidef version appends "!" to its argument.
+    assert_eq!(output.trim(), "hello!", "rhaidef should shadow earlier %def");
+}
+
+#[test]
+fn test_param_with_hyphen_is_rejected() {
+    // Hyphens lex as Special tokens; `single_ident_param` must reject them.
+    let result = process_string_defaults("%def(foo, my-param, body)");
+    assert!(
+        matches!(result, Err(EvalError::InvalidUsage(_))),
+        "expected InvalidUsage for hyphenated param name, got {:?}", result
+    );
+}
+
+#[test]
+fn test_eager_argument_evaluation_order() {
+    // Arguments are evaluated eagerly (to strings) before the macro body runs,
+    // but argument evaluation occurs INSIDE the callee's new scope frame.
+    //
+    // Consequence: %set inside an argument mutates the callee's scope, not the
+    // caller's.  The caller's scope is unchanged — so `%(counter)` still reads
+    // the caller's value (0), not the callee-scoped mutation (1).
+    let src =
+        "%def(id, x, %(x))\n\
+         %set(counter, 0)\n\
+         %id(%set(counter, 1))\n\
+         %(counter)";
+    let mut ev = Evaluator::new(EvalConfig::default());
+    let result = process_string(src, None, &mut ev).unwrap();
+    let output = String::from_utf8(result).unwrap();
+    // counter in the caller's (global) scope is unchanged — still 0.
+    assert!(
+        output.trim_end().ends_with('0'),
+        "expected counter=0 (caller scope unchanged), got: {:?}", output
+    );
+}
+
+#[test]
+fn test_arguments_evaluated_before_body() {
+    // Verify strictness: argument expressions are fully expanded to strings
+    // before the macro body executes.
+    let src =
+        "%def(loud, x, %(x)!)\n\
+         %def(join, a, b, %(a)%(b))\n\
+         %join(%loud(hi), %loud(there))";
+    let result = process_string_defaults(src).unwrap();
+    let output = String::from_utf8(result).unwrap();
+    assert_eq!(output.trim(), "hi!there!",
+        "expected eager evaluation: hi! and there! expanded before join body runs");
 }

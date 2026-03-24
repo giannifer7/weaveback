@@ -35,15 +35,45 @@ Accepting `=`-style params here would silently interpret `%def(foo, x=y, body)`
 as a named argument assignment rather than a parameter name, which would be
 confusing.
 
+Allowed identifier charset (enforced jointly by the lexer and this validator):
+
+* **Start**: `[A-Za-z_]` — the lexer never emits an `Ident` token whose first
+  byte is a digit or a special character.
+* **Continue**: `[A-Za-z0-9_]` — digits are allowed after the first character.
+* `single_ident_param` additionally rejects names that start with an ASCII digit
+  even if the text somehow arrived as an `Ident` node, matching the "no leading
+  digit" convention of most programming languages.
+
+Practical consequence: `foo`, `_bar`, `my_param2` are valid; `foo-bar`,
+`2fast`, `foo bar`, and `x=y` are all rejected with `InvalidUsage`.
+Hyphens are `Special` tokens in the lexer, so `foo-bar` would lex as three
+separate tokens (`foo`, `-`, `bar`) and the "exactly one non-space child" check
+would fire.
+
 === `%here`: the one side-effecting builtin
 
 `%here(macro_name, args...)` calls `builtin_eval` to get the expansion, then
 uses `modify_source` to patch the current source file in place — prepending the
 special char before the `%here` token (to neutralise the call site) and
 appending the expanded text after it, skipping the rest of the line.  It then
-sets `early_exit` so the evaluator stops cleanly.  This is intentionally
-one-shot: re-running on the already-patched file is a no-op because `%%here`
-(double special char) is literal text, not a macro call.
+sets `early_exit` so the evaluator stops cleanly.
+
+The three safety properties and how they are guaranteed:
+
+**Single-fire per run.**  After `modify_source` writes the file, `set_early_exit()`
+flips a flag that makes every subsequent `evaluate()` / `evaluate_to()` call
+return immediately.  Even if a file contains multiple `%here` calls, only the
+first one encountered reaches `builtin_here`; all later ones are unreachable.
+
+**Source-position stability.**  The AST built before the call is now stale
+(byte offsets no longer match the modified file), but `early_exit` ensures no
+further evaluation touches it.  The next tool run starts fresh with a new
+`Evaluator`, re-parses the modified file, and sees the neutralised call site.
+
+**Idempotency.**  The prepend step inserts one extra special char, turning
+`%here(...)` into `%%here(...)`.  A double special char is lexed as literal
+text (the escape sequence for a single `%`), so re-running on the already-patched
+file produces no macro call and no second patch.
 
 === Case conversion: `WordSplitter` iterator
 

@@ -40,7 +40,15 @@ jobs:
           sudo gem install asciidoctor asciidoctor-diagram rouge --no-document
 
       - name: Install PlantUML
-        run: sudo apt-get install -y plantuml
+        run: |
+          sudo apt-get install -y default-jre graphviz
+          mkdir -p /opt/plantuml
+          curl -L https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
+               -o /opt/plantuml/plantuml.jar
+          printf '#!/bin/sh\nexec java -jar /opt/plantuml/plantuml.jar "$@"\n' \
+            | sudo tee /usr/local/bin/plantuml > /dev/null
+          sudo chmod +x /usr/local/bin/plantuml
+          plantuml -version
 
       - name: Build weaveback-docgen
         run: cargo build --release --package weaveback-docgen

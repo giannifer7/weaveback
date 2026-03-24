@@ -962,12 +962,18 @@ maps to the correct source line.
 
 == `evaluate_macro_call_to` — tracing path for macro calls
 
-Built-in macro calls are delegated to the plain `evaluate_macro_call` and the
-result is pushed as `push_untracked`.  User-defined macros go through the full
-parameter-binding and tracing machinery.  The body is evaluated with a
-`MacroBody` context span; script-kind macros use the same note as in the plain
-path — they arrive through the builtin map, so the `ScriptKind::Rhai` /
-`ScriptKind::Python` branches here are currently unreachable.
+Built-in macro calls are delegated to the plain `evaluate_macro_call`.
+If the result is non-empty it is pushed with `SpanKind::Computed` so the
+tracer knows the output line and byte range even though the content was
+produced programmatically.  Builtins that return `""` (`%set`, `%def`,
+`%include`, …) produce no output, so the `is_empty()` guard is a no-op
+for them.
+
+User-defined macros go through the full parameter-binding and tracing
+machinery.  The body is evaluated with a `MacroBody` context span;
+script-kind macros use the same note as in the plain path — they arrive
+through the builtin map, so the `ScriptKind::Rhai` / `ScriptKind::Python`
+branches here are currently unreachable.
 
 [source,rust]
 ----
@@ -979,10 +985,16 @@ path — they arrive through the builtin map, so the `ScriptKind::Rhai` /
         name: &str,
         out: &mut dyn EvalOutput,
     ) -> EvalResult<()> {
-        // Builtins: delegate to existing evaluate_macro_call, push result untracked
+        // Builtins: delegate to plain path, then emit with a Computed span so
+        // the tracer attributes the call-site line/byte position.
+        // Builtins that return "" (set, def, include, …) produce no output.
         if self.builtins.contains_key(name) {
             let result = self.evaluate_macro_call(node, name)?;
-            out.push_untracked(&result);
+            if !result.is_empty() {
+                let mut span = self.span_of(node);
+                span.kind = SpanKind::Computed;
+                out.push_str(&result, span);
+            }
             return Ok(());
         }
 

@@ -24,8 +24,11 @@ child's pop.
 `TrackedValue` wraps a `String` value with a `Vec<SpanRange>` that carries
 source attribution:
 
-* **Empty spans** — untracked (script/builtin result).  The value is pushed
-  to the output sink as `push_untracked`, contributing no source information.
+* **Empty spans** — untracked (Rhai/Python script result).  The value is
+  pushed to the output sink as `push_untracked`, contributing no source
+  information.  Built-in macro results are no longer in this category: they
+  are pushed with `SpanKind::Computed` pointing to the call site (see
+  `evaluate_macro_call_to` in `core.rs`).
 * **One coarse span** covering `[0, value.len()]` — the fast path.  The tracer
   knows the value came from a particular token but does not record per-character
   attribution.

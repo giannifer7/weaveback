@@ -2191,7 +2191,10 @@ fn spy_output_captures_literal_spans() {
 }
 
 #[test]
-fn spy_output_builtin_goes_through_untracked() {
+fn spy_output_set_variable_lookup_is_untracked() {
+    // %set stores a variable with no span; %(x) therefore goes through
+    // push_untracked (no origin token to attribute).  Note: %set itself
+    // returns "" so it produces no output at all.
     let src = "%set(x, val)%(x)";
     let mut eval = Evaluator::new(EvalConfig::default());
     let path = PathBuf::from("<test>");
@@ -2206,6 +2209,28 @@ fn spy_output_builtin_goes_through_untracked() {
         "variable expansion without origin span should be untracked, got: {:?}",
         untracked_texts
     );
+}
+
+#[test]
+fn spy_output_builtin_result_is_tracked_as_computed() {
+    // Builtins that return non-empty strings (e.g. %capitalize) must emit
+    // push_str with SpanKind::Computed, not push_untracked.
+    // This ensures the tracer can attribute the output line to the call site.
+    let src = "%capitalize(hello)";
+    let mut eval = Evaluator::new(EvalConfig::default());
+    let path = PathBuf::from("<test>");
+    let ast = eval.parse_string(src, &path).unwrap();
+    let mut spy = SpyOutput::new();
+    eval.evaluate_to(&ast, &mut spy).unwrap();
+
+    assert_eq!(spy.buf, "Hello");
+    assert!(spy.untracked.is_empty(), "builtin result should not be untracked");
+    let (text, span) = spy.spans.iter()
+        .find(|(t, _)| t == "Hello")
+        .expect("tracked span for 'Hello' not found");
+    assert_eq!(text, "Hello");
+    assert_eq!(span.kind, SpanKind::Computed,
+        "builtin result should carry SpanKind::Computed");
 }
 
 #[test]

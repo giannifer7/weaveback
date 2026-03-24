@@ -658,10 +658,16 @@ impl Evaluator {
         name: &str,
         out: &mut dyn EvalOutput,
     ) -> EvalResult<()> {
-        // Builtins: delegate to existing evaluate_macro_call, push result untracked
+        // Builtins: delegate to plain path, then emit with a Computed span so
+        // the tracer attributes the call-site line/byte position.
+        // Builtins that return "" (set, def, include, …) produce no output.
         if self.builtins.contains_key(name) {
             let result = self.evaluate_macro_call(node, name)?;
-            out.push_untracked(&result);
+            if !result.is_empty() {
+                let mut span = self.span_of(node);
+                span.kind = SpanKind::Computed;
+                out.push_str(&result, span);
+            }
             return Ok(());
         }
 

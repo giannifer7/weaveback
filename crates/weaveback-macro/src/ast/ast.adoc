@@ -817,10 +817,15 @@ Key tests and what they guard:
 * **`test_serialize_token_src_field_present`** — `token.src` must appear
   in the output so external evaluators can trace which source file a node
   came from.
-* **`test_strip_*`** — cover the five cases of `strip_space_before_comments`:
+* **`test_strip_*`** — cover the cases of `strip_space_before_comments`:
   Space node removed, Text node trimmed, block comment followed by newline
-  (stripped), block comment not followed by newline (kept), and multiple
-  consecutive Space nodes all removed before a comment.
+  (stripped), block comment not followed by newline (kept), multiple
+  consecutive Space nodes all removed before a comment, tab trimming, and
+  spaces before two consecutive line comments both removed.
+* **DFA edge cases** — `test_param_double_equals_value_starts_with_equal`
+  (Equal as first value token), `test_param_var_as_first_token_is_positional`,
+  `test_param_block_as_first_token_is_positional` — confirm the invariant
+  that only `Ident` opens the named-detection path.
 * **`test_pipeline_*`** — integration tests through the full
   lex → parse → strip → AST pipeline.
 * **`test_strip_is_idempotent`** — running `strip_space_before_comments`
@@ -1224,6 +1229,61 @@ fn test_param_with_nested_macro() {
     check_node(&result.parts[0], NodeKind::Macro, 1);
 }
 
+// ── DFA edge cases ─────────────────────────────────────────────────────
+
+#[test]
+fn test_param_double_equals_value_starts_with_equal() {
+    // `ident = = text`: second Equal is the first value token.
+    // Distinct from test_param_multiple_equals which is `ident = text = text`.
+    let mut parser = Parser::new();
+    let mut builder = NodeBuilder::new();
+    builder.ident(3);  // foo
+    builder.equals();  // first =  → SeenEqual
+    builder.equals();  // second = → first_good_after_equal, value starts here
+    builder.text(3);   // bar
+    let param_idx = builder.param(&mut parser);
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert!(result.name.is_some(), "should be named param");
+    assert_eq!(result.name.unwrap().length, 3, "name should be 'foo'");
+    // Value part list starts at the second Equal, so parts = [Equal, Text].
+    assert_eq!(result.parts.len(), 2);
+    check_node(&result.parts[0], NodeKind::Equal, 0);
+    check_node(&result.parts[1], NodeKind::Text,  0);
+}
+
+#[test]
+fn test_param_var_as_first_token_is_positional() {
+    // Only Ident can start the named-detection branch; Var must produce positional.
+    let mut parser = Parser::new();
+    let var_idx   = n(&mut parser, NodeKind::Var,   0, 5, vec![]);
+    let text_idx  = n(&mut parser, NodeKind::Text,  5, 3, vec![]);
+    let param_idx = n(&mut parser, NodeKind::Param, 0, 8, vec![var_idx, text_idx]);
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert!(result.name.is_none(), "Var-prefixed param should be positional");
+    assert_eq!(result.parts.len(), 2);
+    check_node(&result.parts[0], NodeKind::Var,  0);
+    check_node(&result.parts[1], NodeKind::Text, 0);
+}
+
+#[test]
+fn test_param_block_as_first_token_is_positional() {
+    // Block before Ident: DFA breaks immediately in Start state.
+    // Even though `= text` follows, the whole param is positional.
+    let mut parser = Parser::new();
+    let inner_idx = n(&mut parser, NodeKind::Text,  1, 3, vec![]);
+    let block_idx = n(&mut parser, NodeKind::Block, 0, 5, vec![inner_idx]);
+    let equal_idx = n(&mut parser, NodeKind::Equal, 5, 1, vec![]);
+    let text_idx  = n(&mut parser, NodeKind::Text,  7, 3, vec![]);
+    let param_idx = n(&mut parser, NodeKind::Param, 0, 10,
+                      vec![block_idx, equal_idx, text_idx]);
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert!(result.name.is_none(), "Block-prefixed param should be positional");
+    assert_eq!(result.parts.len(), 3);
+    check_node(&result.parts[0], NodeKind::Block, 1); // block with its inner Text
+    check_node(&result.parts[1], NodeKind::Equal, 0);
+    check_node(&result.parts[2], NodeKind::Text,  0);
+}
+
 // ── NodeKind discriminants — regression guard ──────────────────────────
 
 #[test]
@@ -1263,6 +1323,23 @@ fn test_serialize_bfs_child_indices() {
     assert!(nodes[2].ends_with(",[]]"), "B should be leaf: {}", nodes[2]);
     assert!(nodes[3].ends_with(",[]]"), "C should be leaf: {}", nodes[3]);
     assert!(nodes[4].ends_with(",[]]"), "D should be leaf: {}", nodes[4]);
+}
+
+#[test]
+fn test_serialize_bfs_deep_linear_chain() {
+    // A → B → C → D (linear, each node has exactly one child).
+    // BFS guarantees: A's child is at index 1, B's at 2, C's at 3, D is a leaf.
+    let tok = |pos| Token { src: 0, kind: TokenKind::Text, pos, length: 1 };
+    let d = ASTNode { kind: NodeKind::Text,  src: 0, token: tok(3), end_pos: 4, parts: vec![], name: None };
+    let c = ASTNode { kind: NodeKind::Macro, src: 0, token: tok(2), end_pos: 4, parts: vec![d], name: None };
+    let b = ASTNode { kind: NodeKind::Macro, src: 0, token: tok(1), end_pos: 4, parts: vec![c], name: None };
+    let a = ASTNode { kind: NodeKind::Block, src: 0, token: tok(0), end_pos: 4, parts: vec![b], name: None };
+    let nodes = serialize_ast_nodes(&a);
+    assert_eq!(nodes.len(), 4);
+    assert!(nodes[0].contains("[1]"), "A should point to child at 1: {}", nodes[0]);
+    assert!(nodes[1].contains("[2]"), "B should point to child at 2: {}", nodes[1]);
+    assert!(nodes[2].contains("[3]"), "C should point to child at 3: {}", nodes[2]);
+    assert!(nodes[3].ends_with(",[]]"), "D should be a leaf: {}", nodes[3]);
 }
 
 #[test]
@@ -1363,6 +1440,52 @@ fn test_strip_removes_multiple_spaces_before_line_comment() {
         "expected 2 parts after stripping two spaces, got {}", root.parts.len());
     assert_eq!(root.parts[0], text_idx);
     assert_eq!(root.parts[1], comment_idx);
+}
+
+#[test]
+fn test_strip_trims_trailing_tab_in_text_before_comment() {
+    // `strip_ending_space` should strip tabs as well as ASCII spaces.
+    // "hello\t" followed by a line comment — the tab must be stripped.
+    let content = b"hello\t%// c\n";
+    let mut parser = Parser::new();
+    // Text token covers "hello\t" (6 bytes), comment token covers "%// c\n" (6 bytes).
+    let text_idx    = n(&mut parser, NodeKind::Text,        0, 6, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 6, 6, vec![]);
+    let root_idx    = n(&mut parser, NodeKind::Block,       0, 12,
+                        vec![text_idx, comment_idx]);
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+    let text = parser.get_node(text_idx).unwrap();
+    assert_eq!(text.token.length, 5,
+        "trailing tab should be stripped — expected length 5, got {}", text.token.length);
+}
+
+#[test]
+fn test_strip_removes_spaces_before_multiple_consecutive_comments() {
+    // Text / Space / Comment1 / Space / Comment2:
+    // both Space nodes must be removed (one before each comment).
+    // Content layout: "text %// c1\n %// c2\n"
+    //   0..4  "text"   (Text)
+    //   4     " "      (Space1)
+    //   5..11 "%// c1" (LineComment1, ends at 11; next byte is \n at 11 but
+    //                   we don't need newline accuracy for LineComment)
+    //   12    " "      (Space2)
+    //   13..19"%// c2" (LineComment2)
+    let content = b"text %// c1\n %// c2\n";
+    let mut parser = Parser::new();
+    let text_idx     = n(&mut parser, NodeKind::Text,        0,  4, vec![]);
+    let space1_idx   = n(&mut parser, NodeKind::Space,       4,  1, vec![]);
+    let comment1_idx = n(&mut parser, NodeKind::LineComment, 5,  7, vec![]);
+    let space2_idx   = n(&mut parser, NodeKind::Space,      12,  1, vec![]);
+    let comment2_idx = n(&mut parser, NodeKind::LineComment,13,  7, vec![]);
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 20,
+                     vec![text_idx, space1_idx, comment1_idx, space2_idx, comment2_idx]);
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts.len(), 3,
+        "expected [text, comment1, comment2], got {} parts", root.parts.len());
+    assert_eq!(root.parts[0], text_idx);
+    assert_eq!(root.parts[1], comment1_idx);
+    assert_eq!(root.parts[2], comment2_idx);
 }
 
 // ── Full pipeline ──────────────────────────────────────────────────────

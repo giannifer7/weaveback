@@ -1,6 +1,5 @@
 = Public macro API
-:toc:
-:toc-placement: preamble
+:toc: left
 
 `macro_api.rs` is the byte-oriented public interface used by the combined
 `weaveback` binary and external callers.  It wraps the string-based

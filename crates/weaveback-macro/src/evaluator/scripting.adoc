@@ -1,6 +1,5 @@
 = Script back-ends: Rhai and Python
-:toc:
-:toc-placement: preamble
+:toc: left
 
 `rhai_eval.rs` wraps the embedded Rhai scripting engine.  `monty_eval.rs`
 wraps the monty crate, which compiles a Python function body to bytecode

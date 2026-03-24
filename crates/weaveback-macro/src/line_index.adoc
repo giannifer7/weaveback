@@ -1,6 +1,5 @@
 = Line index — byte offset to (line, column)
-:toc:
-:toc-placement: preamble
+:toc: left
 
 `line_index.rs` provides `LineIndex`: a small helper that converts absolute
 byte offsets into 1-indexed `(line, column)` pairs.  It is used by the

@@ -1,6 +1,5 @@
 = Evaluator core
-:toc:
-:toc-placement: preamble
+:toc: left
 
 `core.rs` defines the `Evaluator` struct — the central object that owns all
 mutable state and implements macro expansion.  It exposes two evaluation

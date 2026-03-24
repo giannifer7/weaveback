@@ -30,17 +30,48 @@ A macro argument can be either positional (`value`) or named
 (`name = value`).  Detecting a named parameter requires recognising the
 pattern `[spaces/comments] Ident [spaces/comments] Equal [...]` at the
 start of the children list — and then deciding where the _value_ begins.
-A single forward scan accumulates state flags (`seen_equal`,
-`param_name`, `first_good_after_equal`) and then a second loop converts
-children starting at the computed `start_idx`.  This avoids backtracking
-while keeping the code readable.
+A forward scan through a three-state DFA accumulates the result; a second
+loop then converts children starting at the computed `start_idx`.  This
+avoids backtracking while making all legal transitions explicit.
 
-=== Why `NOT_FOUND = -1`?
+=== `ParamState` — making the DFA explicit
 
-`analyze_param` tracks several "first seen" positions as `i32` with `-1`
-as sentinel.  Using `i32` throughout the scan loop avoids constant
-wrapping/unwrapping of `Option<usize>`, and the comparisons read as
-straightforward index arithmetic.
+The first pass of `analyze_param` is a three-state machine:
+
+[cols="1,2,2",options="header"]
+|===
+| State | Transitions in | Carries
+
+| `Start`
+| initial state
+| —
+
+| `SeenName`
+| `Start` + `Ident` token
+| the `name: Token` and its `name_idx: usize`
+
+| `SeenEqual`
+| `SeenName` + `Equal` token
+| the `name: Token`
+|===
+
+Any non-skip, non-transition token causes an immediate `break`.  The final
+state after the scan — combined with whether `first_good_after_equal` was
+set — fully determines the output case without any boolean flags.
+
+Positions (`first_not_skippable`, `first_good_after_equal`) remain
+`Option<usize>` rather than `i32` sentinels: no casting, no sentinel bugs,
+idiomatic Rust.
+
+=== `process_ast` as the single safe entry point
+
+`strip_space_before_comments` mutates the parser's arena before `build_ast`
+converts it to a tree.  Calling `build_ast` without the preceding strip
+produces correct but polluted output.  `Parser::process_ast` (in
+`parser/mod.rs`) is the one place in the codebase that sequences both calls
+in the right order.  `Parser::build_ast` is also exposed for tests that
+want to inspect the un-stripped parse tree.  Any external caller that
+wants clean output must go through `process_ast`.
 
 === Why strip whitespace before comments?
 
@@ -125,7 +156,16 @@ pub mod serialization;
 
 pub use serialization::{dump_macro_ast, serialize_ast_nodes};
 
-const NOT_FOUND: i32 = -1;
+/// Three-state DFA used by `analyze_param` to classify a parameter node.
+#[derive(Debug)]
+enum ParamState {
+    /// Initial state — no significant token seen yet.
+    Start,
+    /// Saw `Ident`; waiting for `=` or a non-skip token that ends the scan.
+    SeenName { name: Token, name_idx: usize },
+    /// Saw `Ident =`; waiting for the first non-skip value token.
+    SeenEqual { name: Token },
+}
 
 #[cfg(test)]
 mod tests;
@@ -220,20 +260,18 @@ processed by `clean_node` in the second pass.
 [source,rust]
 ----
 // <<ast analyze param>>=
-/// Analyze a parameter node to find name, equals, and determine the parts
+/// Analyse a parameter node: classify as positional or named and collect parts.
 fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
     let node = parser
         .get_node(node_idx)
         .ok_or(ASTError::NodeNotFound(node_idx))?;
 
-    let mut param_name: Option<Token> = None;
-    let mut first_not_skippable = NOT_FOUND;
-    let mut name_index = NOT_FOUND;
-    let mut first_good_after_equal = NOT_FOUND;
-    let mut seen_equal = false;
+    let mut state = ParamState::Start;
+    let mut first_not_skippable: Option<usize> = None;
+    let mut first_good_after_equal: Option<usize> = None;
 
-    // First pass: analyze structure
-    for (i, &part_idx) in node.parts.iter().enumerate() {
+    // First pass: walk children through a three-state DFA.
+    'scan: for (i, &part_idx) in node.parts.iter().enumerate() {
         let part = parser
             .get_node(part_idx)
             .ok_or(ASTError::NodeNotFound(part_idx))?;
@@ -245,57 +283,67 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
             continue;
         }
 
-        if first_not_skippable == NOT_FOUND {
-            first_not_skippable = i as i32;
-        }
+        first_not_skippable.get_or_insert(i);
 
-        if param_name.is_none() && !seen_equal && part.kind == NodeKind::Ident {
-            param_name = Some(part.token);
-            name_index = i as i32;
-            continue;
+        match &state {
+            ParamState::Start => {
+                if part.kind == NodeKind::Ident {
+                    state = ParamState::SeenName { name: part.token, name_idx: i };
+                    // keep scanning — an `=` may follow
+                } else {
+                    break 'scan; // positional: first non-skip is not an Ident
+                }
+            }
+            ParamState::SeenName { name, .. } => {
+                if part.kind == NodeKind::Equal {
+                    let name = *name; // Token is Copy
+                    state = ParamState::SeenEqual { name };
+                    // keep scanning — a value item may follow
+                } else {
+                    break 'scan; // positional: Ident not followed by =
+                }
+            }
+            ParamState::SeenEqual { .. } => {
+                first_good_after_equal = Some(i);
+                break 'scan; // named param; value starts here
+            }
         }
-
-        if param_name.is_some() && !seen_equal && part.kind == NodeKind::Equal {
-            seen_equal = true;
-            continue;
-        }
-
-        if seen_equal {
-            first_good_after_equal = i as i32;
-        }
-        break;
     }
 
-    // Determine which parts to process
-    let start_idx = if seen_equal && first_good_after_equal != NOT_FOUND {
-        first_good_after_equal as usize
-    } else if seen_equal && first_good_after_equal == NOT_FOUND {
-        // name = <blank>
-        return Ok(Some(ASTNode {
-            kind: NodeKind::Param,
-            src: node.src,
-            token: node.token,
-            end_pos: node.end_pos,
-            parts: vec![],
-            name: param_name,
-        }));
-    } else if first_not_skippable == NOT_FOUND {
-        // completely empty
-        return Ok(Some(ASTNode {
-            kind: NodeKind::Param,
-            src: node.src,
-            token: node.token,
-            end_pos: node.end_pos,
-            parts: vec![],
-            name: None,
-        }));
-    } else if param_name.is_some() {
-        name_index as usize
-    } else {
-        first_not_skippable as usize
+    // Determine start index and param name from the final DFA state.
+    let (start_idx, param_name) = match state {
+        ParamState::Start => match first_not_skippable {
+            None => {
+                // Completely empty param.
+                return Ok(Some(ASTNode {
+                    kind: NodeKind::Param,
+                    src: node.src,
+                    token: node.token,
+                    end_pos: node.end_pos,
+                    parts: vec![],
+                    name: None,
+                }));
+            }
+            Some(i) => (i, None), // positional: starts from first non-skip
+        },
+        ParamState::SeenName { name_idx, .. } => (name_idx, None),
+        ParamState::SeenEqual { name } => match first_good_after_equal {
+            None => {
+                // Named param with blank value: `foo =`.
+                return Ok(Some(ASTNode {
+                    kind: NodeKind::Param,
+                    src: node.src,
+                    token: node.token,
+                    end_pos: node.end_pos,
+                    parts: vec![],
+                    name: Some(name),
+                }));
+            }
+            Some(i) => (i, Some(name)),
+        },
     };
 
-    // Process the parts
+    // Second pass: collect and clean the value parts.
     let mut value_parts = Vec::new();
     for &part_idx in &node.parts[start_idx..] {
         if let Some(part_node) = clean_node(parser, part_idx)? {
@@ -309,7 +357,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
         token: node.token,
         end_pos: node.end_pos,
         parts: value_parts,
-        name: if seen_equal { param_name } else { None },
+        name: param_name,
     }))
 }
 // @
@@ -323,26 +371,47 @@ The recursive engine of `build_ast`.  It returns `None` for comment nodes
 and are reconstructed as `ASTNode` values.  The `name` field is always
 `None` here — it is only populated by `analyze_param`.
 
+A `debug_assert!` enforces that leaf node kinds (`Equal`, `Ident`, `Text`,
+`Space`) arrive with no children.  The assertion fires only in debug builds
+and catches parser regressions immediately rather than producing a
+silently-wrong AST.
+
 [source,rust]
 ----
 // <<ast clean node>>=
-/// Create clean AST node, skipping comments
+/// Recursively convert a `ParseNode` arena entry to an owned `ASTNode` tree.
+///
+/// Returns `None` for comment nodes (stripped from the AST entirely) and
+/// delegates `Param` nodes to `analyze_param`.
 fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
     let node = parser
         .get_node(node_idx)
         .ok_or(ASTError::NodeNotFound(node_idx))?;
 
-    // Skip comments
+    // Strip comments entirely.
     if matches!(node.kind, NodeKind::LineComment | NodeKind::BlockComment) {
         return Ok(None);
     }
 
-    // Special handling for parameters
+    // Parameter nodes require name/value analysis.
     if node.kind == NodeKind::Param {
         return analyze_param(parser, node_idx);
     }
 
-    // Process children recursively
+    // Structural invariant: leaf node kinds should never have children.
+    // A violation here indicates a parser bug, not user input.
+    debug_assert!(
+        !matches!(
+            node.kind,
+            NodeKind::Equal | NodeKind::Ident | NodeKind::Text | NodeKind::Space
+        ) || node.parts.is_empty(),
+        "leaf {:?} node at index {} should have no children, found {}",
+        node.kind,
+        node_idx,
+        node.parts.len()
+    );
+
+    // Recurse into children.
     let mut child_nodes = Vec::new();
     for &child_idx in &node.parts {
         if let Some(child) = clean_node(parser, child_idx)? {
@@ -516,11 +585,17 @@ fn serialize_token(token: &Token) -> String {
 
 === BFS node serialization
 
-Each node is encoded as a JSON-like array:
+Each node is encoded as a JSON-like array.  The token tuple is expanded
+_inline_ by `serialize_token` (which returns a comma-separated string), so
+the full wire format is:
 
 ----
 [node_kind, token_src, token_kind, token_pos, token_length, end_pos, [child_indices...]]
 ----
+
+The `format!` call has four `{}` slots — `node_kind`, `serialize_token(…)`,
+`end_pos`, and `parts` — but `serialize_token` itself emits four
+comma-separated fields, yielding seven fields total in the output line.
 
 BFS traversal (via `VecDeque`) ensures that child indices are always a
 contiguous range starting at `next_idx`.  The root is always at index 0.
@@ -679,6 +754,10 @@ Key tests and what they guard:
   (stripped), block comment not followed by newline (kept).
 * **`test_pipeline_*`** — integration tests through the full
   lex → parse → strip → AST pipeline.
+* **`test_strip_is_idempotent`** — running `strip_space_before_comments`
+  twice produces the same result as running it once (no double-trim).
+* **`test_ast_no_comments_invariant`** — `lex_parse_content` leaves no
+  `LineComment` or `BlockComment` nodes anywhere in the AST tree.
 
 [source,rust]
 ----
@@ -1248,6 +1327,52 @@ fn test_pipeline_tagged_block() {
     let block = ast.parts.iter().find(|n| n.kind == NodeKind::Block)
         .expect("expected Block node");
     assert!(!block.parts.is_empty());
+}
+
+#[test]
+fn test_strip_is_idempotent() {
+    use crate::Lexer;
+    use crate::parser::Parser;
+    let src = "hello %// comment\nworld";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let li = crate::line_index::LineIndex::new(src);
+
+    let mut parser = Parser::new();
+    parser.parse(&tokens, src.as_bytes(), &li).unwrap();
+    let root = 0;
+
+    // First strip
+    strip_space_before_comments(src.as_bytes(), &mut parser, root).unwrap();
+    let ast1 = crate::ast::build_ast(&parser).unwrap();
+
+    // Second strip on already-stripped parser
+    strip_space_before_comments(src.as_bytes(), &mut parser, root).unwrap();
+    let ast2 = crate::ast::build_ast(&parser).unwrap();
+
+    // Both ASTs should have the same number of top-level parts
+    assert_eq!(ast1.parts.len(), ast2.parts.len(), "strip is not idempotent");
+}
+
+#[test]
+fn test_ast_no_comments_invariant() {
+    use crate::evaluator::lex_parse_content;
+    fn check_no_comments(node: &ASTNode) {
+        assert!(
+            !matches!(node.kind, NodeKind::LineComment | NodeKind::BlockComment),
+            "comment node {:?} leaked into AST",
+            node.kind
+        );
+        for child in &node.parts { check_no_comments(child); }
+    }
+    for src in &[
+        "plain text",
+        "before %// line comment\nafter",
+        "before %/* block %*/ mid after",
+        "%def(foo, body) %foo()",
+    ] {
+        let ast = lex_parse_content(src, '%', 0).unwrap();
+        check_no_comments(&ast);
+    }
 }
 // @
 ----

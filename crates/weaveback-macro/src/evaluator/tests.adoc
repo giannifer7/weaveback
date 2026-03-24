@@ -1,6 +1,5 @@
 = Evaluator tests
-:toc:
-:toc-placement: preamble
+:toc: left
 
 The evaluator test suite covers every built-in macro, the Rhai and Python
 scripting back-ends, the output-sink tracing infrastructure, and the public

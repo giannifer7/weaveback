@@ -6,7 +6,16 @@ pub mod serialization;
 
 pub use serialization::{dump_macro_ast, serialize_ast_nodes};
 
-const NOT_FOUND: i32 = -1;
+/// Three-state DFA used by `analyze_param` to classify a parameter node.
+#[derive(Debug)]
+enum ParamState {
+    /// Initial state — no significant token seen yet.
+    Start,
+    /// Saw `Ident`; waiting for `=` or a non-skip token that ends the scan.
+    SeenName { name: Token, name_idx: usize },
+    /// Saw `Ident =`; waiting for the first non-skip value token.
+    SeenEqual { name: Token },
+}
 
 #[cfg(test)]
 mod tests;
@@ -37,20 +46,18 @@ pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
         .ok_or_else(|| ASTError::Parser("Root node was skipped".into()))
 }
 
-/// Analyze a parameter node to find name, equals, and determine the parts
+/// Analyse a parameter node: classify as positional or named and collect parts.
 fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
     let node = parser
         .get_node(node_idx)
         .ok_or(ASTError::NodeNotFound(node_idx))?;
 
-    let mut param_name: Option<Token> = None;
-    let mut first_not_skippable = NOT_FOUND;
-    let mut name_index = NOT_FOUND;
-    let mut first_good_after_equal = NOT_FOUND;
-    let mut seen_equal = false;
+    let mut state = ParamState::Start;
+    let mut first_not_skippable: Option<usize> = None;
+    let mut first_good_after_equal: Option<usize> = None;
 
-    // First pass: analyze structure
-    for (i, &part_idx) in node.parts.iter().enumerate() {
+    // First pass: walk children through a three-state DFA.
+    'scan: for (i, &part_idx) in node.parts.iter().enumerate() {
         let part = parser
             .get_node(part_idx)
             .ok_or(ASTError::NodeNotFound(part_idx))?;
@@ -62,57 +69,67 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
             continue;
         }
 
-        if first_not_skippable == NOT_FOUND {
-            first_not_skippable = i as i32;
-        }
+        first_not_skippable.get_or_insert(i);
 
-        if param_name.is_none() && !seen_equal && part.kind == NodeKind::Ident {
-            param_name = Some(part.token);
-            name_index = i as i32;
-            continue;
+        match &state {
+            ParamState::Start => {
+                if part.kind == NodeKind::Ident {
+                    state = ParamState::SeenName { name: part.token, name_idx: i };
+                    // keep scanning — an `=` may follow
+                } else {
+                    break 'scan; // positional: first non-skip is not an Ident
+                }
+            }
+            ParamState::SeenName { name, .. } => {
+                if part.kind == NodeKind::Equal {
+                    let name = *name; // Token is Copy
+                    state = ParamState::SeenEqual { name };
+                    // keep scanning — a value item may follow
+                } else {
+                    break 'scan; // positional: Ident not followed by =
+                }
+            }
+            ParamState::SeenEqual { .. } => {
+                first_good_after_equal = Some(i);
+                break 'scan; // named param; value starts here
+            }
         }
-
-        if param_name.is_some() && !seen_equal && part.kind == NodeKind::Equal {
-            seen_equal = true;
-            continue;
-        }
-
-        if seen_equal {
-            first_good_after_equal = i as i32;
-        }
-        break;
     }
 
-    // Determine which parts to process
-    let start_idx = if seen_equal && first_good_after_equal != NOT_FOUND {
-        first_good_after_equal as usize
-    } else if seen_equal && first_good_after_equal == NOT_FOUND {
-        // name = <blank>
-        return Ok(Some(ASTNode {
-            kind: NodeKind::Param,
-            src: node.src,
-            token: node.token,
-            end_pos: node.end_pos,
-            parts: vec![],
-            name: param_name,
-        }));
-    } else if first_not_skippable == NOT_FOUND {
-        // completely empty
-        return Ok(Some(ASTNode {
-            kind: NodeKind::Param,
-            src: node.src,
-            token: node.token,
-            end_pos: node.end_pos,
-            parts: vec![],
-            name: None,
-        }));
-    } else if param_name.is_some() {
-        name_index as usize
-    } else {
-        first_not_skippable as usize
+    // Determine start index and param name from the final DFA state.
+    let (start_idx, param_name) = match state {
+        ParamState::Start => match first_not_skippable {
+            None => {
+                // Completely empty param.
+                return Ok(Some(ASTNode {
+                    kind: NodeKind::Param,
+                    src: node.src,
+                    token: node.token,
+                    end_pos: node.end_pos,
+                    parts: vec![],
+                    name: None,
+                }));
+            }
+            Some(i) => (i, None), // positional: starts from first non-skip
+        },
+        ParamState::SeenName { name_idx, .. } => (name_idx, None),
+        ParamState::SeenEqual { name } => match first_good_after_equal {
+            None => {
+                // Named param with blank value: `foo =`.
+                return Ok(Some(ASTNode {
+                    kind: NodeKind::Param,
+                    src: node.src,
+                    token: node.token,
+                    end_pos: node.end_pos,
+                    parts: vec![],
+                    name: Some(name),
+                }));
+            }
+            Some(i) => (i, Some(name)),
+        },
     };
 
-    // Process the parts
+    // Second pass: collect and clean the value parts.
     let mut value_parts = Vec::new();
     for &part_idx in &node.parts[start_idx..] {
         if let Some(part_node) = clean_node(parser, part_idx)? {
@@ -126,27 +143,43 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
         token: node.token,
         end_pos: node.end_pos,
         parts: value_parts,
-        name: if seen_equal { param_name } else { None },
+        name: param_name,
     }))
 }
 
-/// Create clean AST node, skipping comments
+/// Recursively convert a `ParseNode` arena entry to an owned `ASTNode` tree.
+///
+/// Returns `None` for comment nodes (stripped from the AST entirely) and
+/// delegates `Param` nodes to `analyze_param`.
 fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
     let node = parser
         .get_node(node_idx)
         .ok_or(ASTError::NodeNotFound(node_idx))?;
 
-    // Skip comments
+    // Strip comments entirely.
     if matches!(node.kind, NodeKind::LineComment | NodeKind::BlockComment) {
         return Ok(None);
     }
 
-    // Special handling for parameters
+    // Parameter nodes require name/value analysis.
     if node.kind == NodeKind::Param {
         return analyze_param(parser, node_idx);
     }
 
-    // Process children recursively
+    // Structural invariant: leaf node kinds should never have children.
+    // A violation here indicates a parser bug, not user input.
+    debug_assert!(
+        !matches!(
+            node.kind,
+            NodeKind::Equal | NodeKind::Ident | NodeKind::Text | NodeKind::Space
+        ) || node.parts.is_empty(),
+        "leaf {:?} node at index {} should have no children, found {}",
+        node.kind,
+        node_idx,
+        node.parts.len()
+    );
+
+    // Recurse into children.
     let mut child_nodes = Vec::new();
     for &child_idx in &node.parts {
         if let Some(child) = clean_node(parser, child_idx)? {

@@ -1,6 +1,5 @@
 = Weaveback — project index
-:toc:
-:toc-placement: preamble
+:toc: left
 
 Weaveback is a literate-programming toolchain written in Rust.  Source files
 are authored as annotated documents (AsciiDoc or Markdown); weaveback expands

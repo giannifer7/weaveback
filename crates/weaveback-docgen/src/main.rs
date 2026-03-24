@@ -28,7 +28,12 @@ fn main() {
     let theme_dir = root.join("scripts").join("asciidoc-theme");
 
     // 1. Render .adoc → HTML
-    render::render_docs(&root, &theme_dir, &out_dir);
+    let all_html = render::render_docs(&root, &theme_dir, &out_dir);
+    let existing_html: std::collections::HashSet<String> = all_html
+        .iter()
+        .filter_map(|p| p.strip_prefix(&out_dir).ok())
+        .map(|r| r.to_string_lossy().replace('\\', "/"))
+        .collect();
 
     // 2. Build Rust xref graph from crates/**/*.rs
     println!("xref: analysing crates...");
@@ -52,7 +57,7 @@ fn main() {
     inject::rewrite_adoc_links(&out_dir);
 
     // 5. Inject per-page window.__xref into HTML files that have a matching entry
-    inject::inject_xref(&out_dir, &xref);
+    inject::inject_xref(&out_dir, &xref, &existing_html);
 
     // 6. Generate literate source index and link it from README.html
     literate_index::generate_and_inject(&out_dir);

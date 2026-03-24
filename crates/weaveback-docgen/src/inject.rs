@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use regex::Regex;
@@ -41,7 +41,13 @@ pub fn rewrite_adoc_links(out_dir: &Path) {
 
 /// Inject `<script>window.__xref=…</script>` before `</head>` in each HTML
 /// page that has a corresponding xref entry.
-pub fn inject_xref(out_dir: &Path, xref: &HashMap<String, XrefEntry>) {
+/// `existing_html` is the set of HTML paths (relative to `out_dir`, `/`-separated)
+/// that were actually rendered; links to absent pages are filtered out.
+pub fn inject_xref(
+    out_dir: &Path,
+    xref: &HashMap<String, XrefEntry>,
+    existing_html: &HashSet<String>,
+) {
     // Build a reverse map: html relative path (normalized with /) → key
     let mut html_to_key: HashMap<String, &str> = HashMap::new();
     for key in xref.keys() {
@@ -66,11 +72,11 @@ pub fn inject_xref(out_dir: &Path, xref: &HashMap<String, XrefEntry>) {
             continue;
         };
         let Some(entry) = xref.get(key) else { continue };
-        do_inject(&html_file, entry);
+        do_inject(&html_file, entry, existing_html);
     }
 }
 
-fn do_inject(html_file: &Path, entry: &XrefEntry) {
+fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String>) {
     let content = match std::fs::read_to_string(html_file) {
         Ok(c) => c,
         Err(_) => return,
@@ -79,12 +85,28 @@ fn do_inject(html_file: &Path, entry: &XrefEntry) {
         return;
     }
 
-    // Build a compact per-page xref object.
-    // html paths are relative to docs/html/ — JavaScript can resolve from there.
+    // Remove ALL previously injected xref scripts so re-runs stay idempotent.
+    let mut content = content;
+    while let Some(start) = content.find("<script>window.__xref=") {
+        let Some(rel_end) = content[start..].find("</script>") else { break };
+        let end = start + rel_end + "</script>".len();
+        let end = if content.as_bytes().get(end) == Some(&b'\n') { end + 1 } else { end };
+        content = format!("{}{}", &content[..start], &content[end..]);
+    }
+
+    // Build a compact per-page xref object, filtering out links whose target
+    // HTML page was not rendered (module has .rs but no .adoc literate source).
+    let imports: Vec<_> = entry.imports.iter()
+        .filter(|l| existing_html.contains(&l.html))
+        .collect();
+    let imported_by: Vec<_> = entry.imported_by.iter()
+        .filter(|l| existing_html.contains(&l.html))
+        .collect();
+
     let xref_obj = serde_json::json!({
         "self":       entry.html,
-        "imports":    entry.imports,
-        "importedBy": entry.imported_by,
+        "imports":    imports,
+        "importedBy": imported_by,
         "symbols":    entry.symbols,
     });
 

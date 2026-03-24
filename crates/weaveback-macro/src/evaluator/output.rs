@@ -25,7 +25,7 @@ pub enum SpanKind {
 /// Byte-offset span referencing the source token that produced a piece of output.
 ///
 /// Fields mirror `Token.src`, `Token.pos`, `Token.length` — no conversion needed.
-/// Line/col can be derived on demand by scanning `source[..pos]` for `\n`.
+/// Line/col can be derived on demand via `LineIndex`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SourceSpan {
     /// Source file index (same as `Token.src`).
@@ -192,6 +192,7 @@ pub struct MacroMapEntry {
     pub kind: SpanKind,
 }
 use crate::evaluator::state::SourceManager;
+use crate::line_index::LineIndex;
 
 impl TracingOutput {
     /// Convert the per-line span records into `MacroMapEntry`s suitable for
@@ -216,38 +217,35 @@ impl TracingOutput {
             None => Box::new(base),
         };
 
+        // Cache one LineIndex per source file so repeated lookups into the same
+        // file are O(log n) rather than O(n).
+        let mut line_index_cache: std::collections::HashMap<u32, LineIndex> =
+            std::collections::HashMap::new();
         let mut results = Vec::new();
         for (line_idx, maybe_span) in all.enumerate() {
             let Some(span) = maybe_span else { continue };
             let Some(src_path) = sources.source_files().get(span.src as usize) else {
                 continue;
             };
-            let Some(src_content_bytes) = sources.get_source(span.src) else {
+            let Some(src_bytes) = sources.get_source(span.src) else {
                 continue;
             };
-            let src_content = String::from_utf8_lossy(src_content_bytes);
-            let (src_line, src_col) = find_line_col_0_indexed(&src_content, span.pos);
+            let line_index = line_index_cache
+                .entry(span.src)
+                .or_insert_with(|| LineIndex::from_bytes(src_bytes));
+            let (line_1, col_1) = line_index.line_col(span.pos);
             results.push((
                 line_idx as u32,
                 MacroMapEntry {
                     src_file: src_path.to_string_lossy().into_owned(),
-                    src_line,
-                    src_col,
+                    src_line: (line_1 - 1) as u32,
+                    src_col: (col_1 - 1) as u32,
                     kind: span.kind.clone(),
                 },
             ));
         }
         results
     }
-}
-/// Helper to convert a byte offset into a 0-indexed (line, col)
-fn find_line_col_0_indexed(text: &str, byte_offset: usize) -> (u32, u32) {
-    let offset = byte_offset.min(text.len());
-    let prefix = &text[..offset];
-    let newlines = prefix.bytes().filter(|&b| b == b'\n').count() as u32;
-    let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = prefix[line_start..].chars().count() as u32;
-    (newlines, col)
 }
 /// A contiguous byte range in the output attributed to one source token.
 /// Gaps (script/builtin results) are absent from the list.

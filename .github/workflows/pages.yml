@@ -45,15 +45,14 @@ jobs:
           mkdir -p /opt/plantuml
           curl -L https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
                -o /opt/plantuml/plantuml.jar
-          printf '#!/bin/sh\nexec java -jar /opt/plantuml/plantuml.jar "$@"\n' \
-            | sudo tee /usr/local/bin/plantuml > /dev/null
-          sudo chmod +x /usr/local/bin/plantuml
-          plantuml -version
+          java -jar /opt/plantuml/plantuml.jar -version
 
       - name: Build weaveback-docgen
         run: cargo build --release --package weaveback-docgen
 
       - name: Generate docs
+        env:
+          DIAGRAM_PLANTUML_CLASSPATH: /opt/plantuml/plantuml.jar
         run: cargo run --release --package weaveback-docgen
 
       - name: Create root index

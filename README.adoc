@@ -1,5 +1,8 @@
 = Weaveback
 
+link:https://giannifer7.github.io/weaveback/[📖 Documentation]
+| link:https://giannifer7.github.io/weaveback/literate-index.html[🔧 Implementation]
+
 Weaveback is a bidirectional literate programming toolchain. Write your
 source code inside AsciiDoc (or any text file), expand macros, assemble
 named chunks, and let the tool write the real files — then trace any

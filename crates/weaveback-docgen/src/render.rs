@@ -27,20 +27,6 @@ fn mtime(path: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn find_plantuml_jar() -> String {
-    let candidates = [
-        "/usr/share/java/plantuml/plantuml.jar".to_string(),
-        format!(
-            "{}/.local/share/plantuml/plantuml.jar",
-            std::env::var("HOME").unwrap_or_default()
-        ),
-    ];
-    candidates
-        .iter()
-        .find(|c| Path::new(c).is_file())
-        .cloned()
-        .unwrap_or_else(|| candidates[0].clone())
-}
 
 fn find_plantuml_native() -> Option<String> {
     let candidates = [
@@ -71,10 +57,6 @@ fn theme_max_mtime(theme_dir: &Path) -> SystemTime {
 pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec<PathBuf> {
     std::fs::create_dir_all(out_dir).ok();
 
-    let plantuml_jar = find_plantuml_jar();
-    if Path::new(&plantuml_jar).is_file() {
-        unsafe { std::env::set_var("DIAGRAM_PLANTUML_CLASSPATH", &plantuml_jar) };
-    }
     let plantuml_native = find_plantuml_native();
 
     let mut base_args: Vec<String> = vec![

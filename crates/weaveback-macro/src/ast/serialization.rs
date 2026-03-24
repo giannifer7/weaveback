@@ -1,5 +1,4 @@
-// crates/weaveback-macro/src/ast/serialization.rs
-
+// crates/weaveback-macro/src/ast/serialization.rs — generated from ast.adoc
 use crate::evaluator::{lex_parse_content, EvalError};
 use crate::types::{ASTNode, Token};
 use std::collections::VecDeque;

@@ -1,5 +1,4 @@
-// src/ast/mod.rs
-
+// crates/weaveback-macro/src/ast/mod.rs — generated from ast.adoc
 use crate::parser::Parser;
 use crate::types::{ASTNode, NodeKind, Token};
 use thiserror::Error;

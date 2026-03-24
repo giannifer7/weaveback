@@ -1,3 +1,688 @@
+= weaveback-macro AST
+:description: Literate source for crates/weaveback-macro/src/ast/
+:toc: left
+:toclevels: 3
+
+The AST phase sits between the parser and the evaluator.  The parser
+produces a `ParseNode` arena (a flat `Vec` indexed by integer, built by
+the push-down state machine).  The evaluator needs an owned, recursive
+`ASTNode` tree with comments stripped and named parameters resolved.
+`build_ast` bridges the two representations in a single tree walk.
+
+The module also contains the serialization layer used to dump the AST to
+a line-oriented text format for external consumers (Python evaluator,
+diagnostic tools).
+
+== Design rationale
+
+=== Why arena → owned tree?
+
+The parser's arena model is ideal for the push-down parser: nodes are
+appended cheaply, back-references are just indices.  But the evaluator
+benefits from owned children — no lifetime ties to the source string, no
+index arithmetic, direct recursive descent.  `clean_node` converts each
+`ParseNode` (by index) into an `ASTNode` (owned), recursing through
+children and dropping comments on the way.
+
+=== Why two-pass `analyze_param`?
+
+A macro argument can be either positional (`value`) or named
+(`name = value`).  Detecting a named parameter requires recognising the
+pattern `[spaces/comments] Ident [spaces/comments] Equal [...]` at the
+start of the children list — and then deciding where the _value_ begins.
+A single forward scan accumulates state flags (`seen_equal`,
+`param_name`, `first_good_after_equal`) and then a second loop converts
+children starting at the computed `start_idx`.  This avoids backtracking
+while keeping the code readable.
+
+=== Why `NOT_FOUND = -1`?
+
+`analyze_param` tracks several "first seen" positions as `i32` with `-1`
+as sentinel.  Using `i32` throughout the scan loop avoids constant
+wrapping/unwrapping of `Option<usize>`, and the comparisons read as
+straightforward index arithmetic.
+
+=== Why strip whitespace before comments?
+
+In idiomatic weaveback source, comments appear on their own line:
+
+----
+some text %// strip me
+----
+
+The space before `%//` is syntactically part of the preceding `Text` or
+`Space` node.  If left in, it pollutes the generated output.
+`strip_space_before_comments` removes preceding `Space` nodes entirely
+and trims trailing spaces off preceding `Text` nodes.  Block comments are
+treated identically when they are followed by a newline (i.e. they fill
+the rest of the line).
+
+=== Why BFS serialization?
+
+The AST is serialized to a line-per-node text format for external
+evaluators.  BFS guarantees that a node at output index `i` always has its
+children at a contiguous range `next_idx..next_idx+n`, where `next_idx`
+is computed by accumulating child counts during the traversal.  DFS would
+place children non-contiguously, forcing consumers to store and scan back-
+references.
+
+== File structure
+
+Three files are generated from this document.
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/ast/mod.rs>>=
+// crates/weaveback-macro/src/ast/mod.rs — generated from ast.adoc
+// <<ast preamble>>
+
+// <<ast error>>
+
+// <<ast build>>
+
+// <<ast analyze param>>
+
+// <<ast clean node>>
+
+// <<ast strip spaces>>
+// @
+----
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/ast/serialization.rs>>=
+// crates/weaveback-macro/src/ast/serialization.rs — generated from ast.adoc
+// <<ast serialization preamble>>
+
+// <<ast serialize token>>
+
+// <<ast serialize nodes>>
+
+// <<ast write ast>>
+
+// <<ast read input>>
+
+// <<ast dump>>
+// @
+----
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/ast/tests.rs>>=
+// <<ast tests>>
+// @
+----
+
+== Module preamble
+
+[source,rust]
+----
+// <<ast preamble>>=
+use crate::parser::Parser;
+use crate::types::{ASTNode, NodeKind, Token};
+use thiserror::Error;
+pub mod serialization;
+
+pub use serialization::{dump_macro_ast, serialize_ast_nodes};
+
+const NOT_FOUND: i32 = -1;
+
+#[cfg(test)]
+mod tests;
+// @
+----
+
+== Error type
+
+`ASTError` covers the three failure modes: the parser produced nothing
+(`Parser`), an index lookup missed (`NodeNotFound`), and a generic
+catch-all for other processing problems.  `From<String>` lets `?` on
+`String`-returning helpers propagate into `ASTError::Other` without noise.
+
+[source,rust]
+----
+// <<ast error>>=
+#[derive(Error, Debug)]
+pub enum ASTError {
+    #[error("Parser error: {0}")]
+    Parser(String),
+    #[error("Node not found: {0}")]
+    NodeNotFound(usize),
+    #[error("Processing error: {0}")]
+    Other(String),
+}
+
+impl From<String> for ASTError {
+    fn from(error: String) -> Self {
+        ASTError::Other(error)
+    }
+}
+// @
+----
+
+== Public entry point: `build_ast`
+
+The single public function that callers use.  It asks the parser for its
+root index (which may be absent if the source was empty), then delegates
+to `clean_node`.  A `None` result from `clean_node` — which can only
+happen if the root itself is a comment node, an unlikely but legal state —
+is reported as an error rather than silently returning an empty tree.
+
+[source,rust]
+----
+// <<ast build>>=
+/// Main entry point that unwraps the Option
+pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
+    let root_idx = parser
+        .get_root_index()
+        .ok_or_else(|| ASTError::Parser("Empty parse tree".into()))?;
+
+    clean_node(parser, root_idx)?
+        .ok_or_else(|| ASTError::Parser("Root node was skipped".into()))
+}
+// @
+----
+
+== Parameter analysis: `analyze_param`
+
+The most complex function in the module.  It handles the three structural
+cases of a macro parameter:
+
+[cols="1,3",options="header"]
+|===
+| Pattern | Result
+
+| `[spaces] Ident [spaces] = value...`
+| Named param — `name` token set, parts start after `=`
+
+| `[spaces] Ident [spaces] =` (nothing after `=`)
+| Named param with blank value — `name` set, `parts` empty
+
+| anything else
+| Positional param — `name` is `None`, parts start from first non-skippable node
+|===
+
+The first pass (lines labelled "First pass") scans children, skipping
+`Space`, `LineComment`, and `BlockComment` nodes.  It sets four state
+variables:
+
+* `param_name` — set to the first `Ident` token seen before any `=`
+* `name_index` — its position in the children array
+* `seen_equal` — set when `=` is found after the first `Ident`
+* `first_good_after_equal` — position of the first non-skippable node after `=`
+* `first_not_skippable` — position of the first non-skippable node overall
+
+The `break` at line `if seen_equal { ... } break` is intentional: once the
+pattern `Ident = first-value-item` is fully determined, further scanning
+would only add complexity.  Everything from `start_idx` onwards is
+processed by `clean_node` in the second pass.
+
+[source,rust]
+----
+// <<ast analyze param>>=
+/// Analyze a parameter node to find name, equals, and determine the parts
+fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
+    let node = parser
+        .get_node(node_idx)
+        .ok_or(ASTError::NodeNotFound(node_idx))?;
+
+    let mut param_name: Option<Token> = None;
+    let mut first_not_skippable = NOT_FOUND;
+    let mut name_index = NOT_FOUND;
+    let mut first_good_after_equal = NOT_FOUND;
+    let mut seen_equal = false;
+
+    // First pass: analyze structure
+    for (i, &part_idx) in node.parts.iter().enumerate() {
+        let part = parser
+            .get_node(part_idx)
+            .ok_or(ASTError::NodeNotFound(part_idx))?;
+
+        if matches!(
+            part.kind,
+            NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment
+        ) {
+            continue;
+        }
+
+        if first_not_skippable == NOT_FOUND {
+            first_not_skippable = i as i32;
+        }
+
+        if param_name.is_none() && !seen_equal && part.kind == NodeKind::Ident {
+            param_name = Some(part.token);
+            name_index = i as i32;
+            continue;
+        }
+
+        if param_name.is_some() && !seen_equal && part.kind == NodeKind::Equal {
+            seen_equal = true;
+            continue;
+        }
+
+        if seen_equal {
+            first_good_after_equal = i as i32;
+        }
+        break;
+    }
+
+    // Determine which parts to process
+    let start_idx = if seen_equal && first_good_after_equal != NOT_FOUND {
+        first_good_after_equal as usize
+    } else if seen_equal && first_good_after_equal == NOT_FOUND {
+        // name = <blank>
+        return Ok(Some(ASTNode {
+            kind: NodeKind::Param,
+            src: node.src,
+            token: node.token,
+            end_pos: node.end_pos,
+            parts: vec![],
+            name: param_name,
+        }));
+    } else if first_not_skippable == NOT_FOUND {
+        // completely empty
+        return Ok(Some(ASTNode {
+            kind: NodeKind::Param,
+            src: node.src,
+            token: node.token,
+            end_pos: node.end_pos,
+            parts: vec![],
+            name: None,
+        }));
+    } else if param_name.is_some() {
+        name_index as usize
+    } else {
+        first_not_skippable as usize
+    };
+
+    // Process the parts
+    let mut value_parts = Vec::new();
+    for &part_idx in &node.parts[start_idx..] {
+        if let Some(part_node) = clean_node(parser, part_idx)? {
+            value_parts.push(part_node);
+        }
+    }
+
+    Ok(Some(ASTNode {
+        kind: NodeKind::Param,
+        src: node.src,
+        token: node.token,
+        end_pos: node.end_pos,
+        parts: value_parts,
+        name: if seen_equal { param_name } else { None },
+    }))
+}
+// @
+----
+
+== Tree conversion: `clean_node`
+
+The recursive engine of `build_ast`.  It returns `None` for comment nodes
+(they are stripped from the AST entirely) and delegates `Param` nodes to
+`analyze_param`.  All other nodes have their children recursively cleaned
+and are reconstructed as `ASTNode` values.  The `name` field is always
+`None` here — it is only populated by `analyze_param`.
+
+[source,rust]
+----
+// <<ast clean node>>=
+/// Create clean AST node, skipping comments
+fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
+    let node = parser
+        .get_node(node_idx)
+        .ok_or(ASTError::NodeNotFound(node_idx))?;
+
+    // Skip comments
+    if matches!(node.kind, NodeKind::LineComment | NodeKind::BlockComment) {
+        return Ok(None);
+    }
+
+    // Special handling for parameters
+    if node.kind == NodeKind::Param {
+        return analyze_param(parser, node_idx);
+    }
+
+    // Process children recursively
+    let mut child_nodes = Vec::new();
+    for &child_idx in &node.parts {
+        if let Some(child) = clean_node(parser, child_idx)? {
+            child_nodes.push(child);
+        }
+    }
+
+    Ok(Some(ASTNode {
+        kind: node.kind,
+        src: node.src,
+        token: node.token,
+        end_pos: node.end_pos,
+        parts: child_nodes,
+        name: None,
+    }))
+}
+// @
+----
+
+== Whitespace stripping
+
+=== `strip_space_before_comments`
+
+Walks the children of `node_idx` and removes whitespace that immediately
+precedes comments.  Two sub-cases:
+
+* **`Space` node before comment** — the `Space` node is removed from
+  `parts` by recording its index in `to_remove` and splicing it out after
+  the analysis loop (to avoid mutating while iterating).
+* **`Text` node before comment** — trailing spaces are trimmed in-place
+  via `parser.strip_ending_space`, which shortens the token's `length`
+  field without reallocating.
+
+Block comments are treated as line-ending only when the byte immediately
+after their `end_pos` is `\n`; inline block comments (`%/* ... %*/ more`)
+are left alone.
+
+The function then recurses into all surviving children.  Note that
+children are re-read after the removal loop — the `children` Vec is
+cloned _after_ splicing so removed nodes are not visited.
+
+=== `is_followed_by_newline`
+
+Tiny helper: checks whether the byte at `node.end_pos` in the raw content
+buffer is `\n`.  Kept separate to keep `strip_space_before_comments`
+readable.
+
+[source,rust]
+----
+// <<ast strip spaces>>=
+pub fn strip_space_before_comments(
+    content: &[u8],
+    parser: &mut Parser,
+    node_idx: usize,
+) -> Result<(), ASTError> {
+    let mut to_remove: Vec<usize> = Vec::new();
+    let mut spaces_to_strip: Vec<usize> = Vec::new();
+
+    // Analysis phase
+    {
+        let node = parser
+            .get_node(node_idx)
+            .ok_or(ASTError::NodeNotFound(node_idx))?;
+
+        let mut i = 0;
+        while i < node.parts.len() {
+            let part_idx = node.parts[i];
+            let part = parser
+                .get_node(part_idx)
+                .ok_or(ASTError::NodeNotFound(part_idx))?;
+
+            let is_line_comment = part.kind == NodeKind::LineComment;
+            let is_block_comment = part.kind == NodeKind::BlockComment;
+
+            if is_line_comment || is_block_comment {
+                let block_comment_newline = if is_block_comment {
+                    is_followed_by_newline(content, parser, part_idx)?
+                } else {
+                    false
+                };
+
+                if (is_line_comment || block_comment_newline) && i > 0 {
+                    let prev_idx = node.parts[i - 1];
+                    let prev = parser
+                        .get_node(prev_idx)
+                        .ok_or(ASTError::NodeNotFound(prev_idx))?;
+
+                    match prev.kind {
+                        NodeKind::Space => to_remove.push(i - 1),
+                        NodeKind::Text => spaces_to_strip.push(prev_idx),
+                        _ => {}
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
+
+    // Modification phase
+    if !to_remove.is_empty() {
+        let node = parser
+            .get_node_mut(node_idx)
+            .ok_or(ASTError::NodeNotFound(node_idx))?;
+        for &idx in to_remove.iter().rev() {
+            node.parts.remove(idx);
+        }
+    }
+
+    for idx in spaces_to_strip {
+        parser.strip_ending_space(content, idx)?;
+    }
+
+    // Recurse into children (re-read after modification to skip removed nodes)
+    let children: Vec<usize> = parser
+        .get_node(node_idx)
+        .ok_or(ASTError::NodeNotFound(node_idx))?
+        .parts
+        .clone();
+    for child_idx in children {
+        strip_space_before_comments(content, parser, child_idx)?;
+    }
+
+    Ok(())
+}
+
+fn is_followed_by_newline(
+    content: &[u8],
+    parser: &Parser,
+    node_idx: usize,
+) -> Result<bool, ASTError> {
+    let node = parser
+        .get_node(node_idx)
+        .ok_or(ASTError::NodeNotFound(node_idx))?;
+    let end_pos = node.end_pos;
+
+    Ok(end_pos < content.len() && content[end_pos] == b'\n')
+}
+// @
+----
+
+== Serialization (`serialization.rs`)
+
+=== Preamble
+
+[source,rust]
+----
+// <<ast serialization preamble>>=
+use crate::evaluator::{lex_parse_content, EvalError};
+use crate::types::{ASTNode, Token};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::PathBuf;
+// @
+----
+
+=== Token serialization
+
+Tokens are encoded as a comma-separated tuple: `src,kind,pos,length`.
+`src` is a file-index integer assigned by the lexer; `kind` is the
+`TokenKind` discriminant cast to `i32` for a stable numeric wire format.
+
+[source,rust]
+----
+// <<ast serialize token>>=
+fn serialize_token(token: &Token) -> String {
+    format!("{},{},{},{}", token.src, token.kind as i32, token.pos, token.length)
+}
+// @
+----
+
+=== BFS node serialization
+
+Each node is encoded as a JSON-like array:
+
+----
+[node_kind, token_src, token_kind, token_pos, token_length, end_pos, [child_indices...]]
+----
+
+BFS traversal (via `VecDeque`) ensures that child indices are always a
+contiguous range starting at `next_idx`.  The root is always at index 0.
+`next_idx` is advanced by `node.parts.len()` for each dequeued node,
+mirroring the order in which children are enqueued.
+
+[source,rust]
+----
+// <<ast serialize nodes>>=
+pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
+    let mut nodes = Vec::new();
+    // BFS so that child indices assigned as next_idx..next_idx+n are contiguous
+    // and land exactly where each node ends up in the output array.
+    let mut queue: VecDeque<&ASTNode> = VecDeque::new();
+    let mut next_idx = 1usize; // root is index 0
+
+    // We don't need to write src because we process one file at a time and the caller knows which
+    queue.push_back(root);
+    while let Some(node) = queue.pop_front() {
+        let child_indices: Vec<usize> = (next_idx..next_idx + node.parts.len()).collect();
+        next_idx += node.parts.len();
+
+        let parts = if child_indices.is_empty() {
+            "[]".to_string()
+        } else {
+            format!(
+                "[{}]",
+                child_indices
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        nodes.push(format!(
+            "[{},{},{},{}]",
+            node.kind as i32,
+            serialize_token(&node.token),
+            node.end_pos,
+            parts,
+        ));
+
+        for child in &node.parts {
+            queue.push_back(child);
+        }
+    }
+
+    nodes
+}
+// @
+----
+
+=== Writing AST output
+
+`write_ast` is the generic writer; `write_ast_to_file` adds stdout-vs-file
+dispatch based on the `-` convention used throughout the codebase.
+
+[source,rust]
+----
+// <<ast write ast>>=
+pub fn write_ast<W: Write>(header: &str, nodes: &[String], writer: &mut W) -> io::Result<()> {
+    writeln!(writer, "{}", header)?;
+    for line in nodes {
+        writeln!(writer, "{}", line)?;
+    }
+    Ok(())
+}
+
+pub fn write_ast_to_file(header: &str, nodes: &[String], output_path: &PathBuf) -> io::Result<()> {
+    if output_path.to_str() == Some("-") {
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        write_ast(header, nodes, &mut handle)
+    } else {
+        let mut file = File::create(output_path)?;
+        write_ast(header, nodes, &mut file)
+    }
+}
+// @
+----
+
+=== Input reading
+
+`read_input` applies the same `-`-means-stdin convention to the input side.
+
+[source,rust]
+----
+// <<ast read input>>=
+fn read_input(input: &PathBuf) -> io::Result<String> {
+    if input.to_str() == Some("-") {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        Ok(buffer)
+    } else {
+        std::fs::read_to_string(input)
+    }
+}
+// @
+----
+
+=== CLI dump entry point
+
+`dump_macro_ast` is the public API called by the binary.  For each input
+file it lexes, parses, and serializes the AST, then writes it alongside
+the source with a `.ast` extension (or to stdout for `-`).
+
+The header line carries a `# src:0=<path>` annotation so external
+consumers can map the `src` field of each token back to the originating
+file.
+
+[source,rust]
+----
+// <<ast dump>>=
+pub fn dump_macro_ast(special: char, input_files: &[PathBuf]) -> Result<(), EvalError> {
+    for input in input_files {
+        let content = read_input(input).map_err(|e| {
+            EvalError::Runtime(format!("Failed to read {}: {}", input.display(), e))
+        })?;
+
+        let ast = lex_parse_content(&content, special, 0)?;
+        let nodes = serialize_ast_nodes(&ast);
+
+        let (output, src_name) = if input.to_str() == Some("-") {
+            (PathBuf::from("-"), "-".to_string())
+        } else {
+            (input.with_extension("ast"), input.display().to_string())
+        };
+
+        // Header line: maps src indices to source file paths.
+        // Format: # src:<index>=<path>  (one per source file; currently always src:0)
+        let header = format!("# src:0={}", src_name);
+
+        write_ast_to_file(&header, &nodes, &output).map_err(|e| {
+            EvalError::Runtime(format!("Failed to write {}: {}", output.display(), e))
+        })?;
+    }
+    Ok(())
+}
+// @
+----
+
+== Tests
+
+Key tests and what they guard:
+
+* **`test_node_kind_discriminants`** — regression guard for the numeric
+  discriminant values.  `NodeKind::NotUsed = 0` is intentional: Python's
+  `IntEnum` starts at 1, so reserving 0 keeps the wire format aligned.
+* **`test_serialize_bfs_child_indices`** — verifies BFS ordering.  With
+  an old DFS implementation, node B landed at index 4 instead of 2.
+* **`test_serialize_token_src_field_present`** — `token.src` must appear
+  in the output so external evaluators can trace which source file a node
+  came from.
+* **`test_strip_*`** — cover the four cases of `strip_space_before_comments`:
+  Space node removed, Text node trimmed, block comment followed by newline
+  (stripped), block comment not followed by newline (kept).
+* **`test_pipeline_*`** — integration tests through the full
+  lex → parse → strip → AST pipeline.
+
+[source,rust]
+----
+// <<ast tests>>=
 // src/ast/tests.rs
 use super::*;
 use crate::ParseNode;
@@ -564,3 +1249,5 @@ fn test_pipeline_tagged_block() {
         .expect("expected Block node");
     assert!(!block.parts.is_empty());
 }
+// @
+----

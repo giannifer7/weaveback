@@ -220,6 +220,11 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 | link:../crates/weaveback-macro/src/lexer/lexer.adoc[weaveback-macro lexer]
 | `crates/weaveback-macro/src/lexer/mod.rs` +
   `crates/weaveback-macro/src/lexer/tests.rs`
+
+| link:../crates/weaveback-macro/src/ast/ast.adoc[weaveback-macro AST]
+| `crates/weaveback-macro/src/ast/mod.rs` +
+  `crates/weaveback-macro/src/ast/serialization.rs` +
+  `crates/weaveback-macro/src/ast/tests.rs`
 |===
 
 == Build-system integration

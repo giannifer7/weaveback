@@ -72,7 +72,9 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
     std::fs::create_dir_all(out_dir).ok();
 
     let plantuml_jar = find_plantuml_jar();
-    unsafe { std::env::set_var("DIAGRAM_PLANTUML_CLASSPATH", &plantuml_jar) };
+    if Path::new(&plantuml_jar).is_file() {
+        unsafe { std::env::set_var("DIAGRAM_PLANTUML_CLASSPATH", &plantuml_jar) };
+    }
     let plantuml_native = find_plantuml_native();
 
     let mut base_args: Vec<String> = vec![

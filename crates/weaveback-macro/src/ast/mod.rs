@@ -20,6 +20,14 @@ enum ParamState {
 #[cfg(test)]
 mod tests;
 
+/// Returns `true` for node kinds that are transparent in both parameter
+/// scanning (`analyze_param`) and whitespace stripping
+/// (`strip_space_before_comments`): `Space`, `LineComment`, `BlockComment`.
+#[inline]
+fn is_skippable(kind: NodeKind) -> bool {
+    matches!(kind, NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment)
+}
+
 #[derive(Error, Debug)]
 pub enum ASTError {
     #[error("Parser error: {0}")]
@@ -62,10 +70,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
             .get_node(part_idx)
             .ok_or(ASTError::NodeNotFound(part_idx))?;
 
-        if matches!(
-            part.kind,
-            NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment
-        ) {
+        if is_skippable(part.kind) {
             continue;
         }
 
@@ -205,7 +210,8 @@ pub fn strip_space_before_comments(
     let mut to_remove: Vec<usize> = Vec::new();
     let mut spaces_to_strip: Vec<usize> = Vec::new();
 
-    // Analysis phase
+    // Analysis phase: walk forward; when we hit a comment, walk back over
+    // all consecutive Space nodes preceding it.
     {
         let node = parser
             .get_node(node_idx)
@@ -228,16 +234,25 @@ pub fn strip_space_before_comments(
                     false
                 };
 
-                if (is_line_comment || block_comment_newline) && i > 0 {
-                    let prev_idx = node.parts[i - 1];
-                    let prev = parser
-                        .get_node(prev_idx)
-                        .ok_or(ASTError::NodeNotFound(prev_idx))?;
-
-                    match prev.kind {
-                        NodeKind::Space => to_remove.push(i - 1),
-                        NodeKind::Text => spaces_to_strip.push(prev_idx),
-                        _ => {}
+                if is_line_comment || block_comment_newline {
+                    // Walk back over ALL consecutive Space nodes.
+                    let mut j = i;
+                    while j > 0 {
+                        let prev_idx = node.parts[j - 1];
+                        let prev = parser
+                            .get_node(prev_idx)
+                            .ok_or(ASTError::NodeNotFound(prev_idx))?;
+                        if prev.kind == NodeKind::Space {
+                            to_remove.push(j - 1);
+                            j -= 1;
+                        } else {
+                            // Not a Space — trim trailing spaces from a
+                            // preceding Text node, then stop.
+                            if prev.kind == NodeKind::Text {
+                                spaces_to_strip.push(prev_idx);
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -247,6 +262,9 @@ pub fn strip_space_before_comments(
 
     // Modification phase
     if !to_remove.is_empty() {
+        // De-duplicate (a single Space may be adjacent to two comments).
+        to_remove.sort_unstable();
+        to_remove.dedup();
         let node = parser
             .get_node_mut(node_idx)
             .ok_or(ASTError::NodeNotFound(node_idx))?;

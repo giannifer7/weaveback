@@ -3,11 +3,14 @@
 :toc: left
 :toclevels: 3
 
-The AST phase sits between the parser and the evaluator.  The parser
-produces a `ParseNode` arena (a flat `Vec` indexed by integer, built by
-the push-down state machine).  The evaluator needs an owned, recursive
-`ASTNode` tree with comments stripped and named parameters resolved.
-`build_ast` bridges the two representations in a single tree walk.
+The AST phase sits between the parser and the evaluator — it is the
+_normalization_ (or _lowering_) step.  The parser produces a `ParseNode`
+arena (a flat `Vec` indexed by integer, built by the push-down state
+machine) that is structurally correct but not yet clean: it still contains
+comment nodes and unresolved whitespace artefacts.  The evaluator needs an
+owned, recursive `ASTNode` tree where those details have been stripped and
+named parameters have been resolved.  `build_ast` bridges the two
+representations in a single tree walk.
 
 The module also contains the serialization layer used to dump the AST to
 a line-oriented text format for external consumers (Python evaluator,
@@ -55,6 +58,12 @@ The first pass of `analyze_param` is a three-state machine:
 | the `name: Token`
 |===
 
+The `SeenName` state has two exits: `Equal` advances to `SeenEqual`; any
+other non-skip token `break`s the scan and the parameter is classified as
+_positional_.  This means `foo bar` is positional (with `foo` as its
+first non-skippable token), never named, even though `foo` looks like a
+name — only `foo = ...` is named.
+
 Any non-skip, non-transition token causes an immediate `break`.  The final
 state after the scan — combined with whether `first_good_after_equal` was
 set — fully determines the output case without any boolean flags.
@@ -87,6 +96,15 @@ The space before `%//` is syntactically part of the preceding `Text` or
 and trims trailing spaces off preceding `Text` nodes.  Block comments are
 treated identically when they are followed by a newline (i.e. they fill
 the rest of the line).
+
+The backward walk scans over _all_ consecutive `Space` nodes before a
+comment, not just the one immediately adjacent.  A sequence such as
+`Text("hello") / Space / Space / %// comment` would otherwise leave a
+dangling `Space` node in the output.
+
+`is_skippable` centralises the three-way `Space | LineComment | BlockComment`
+predicate so both `strip_space_before_comments` and `analyze_param` use
+the same definition.
 
 === Why BFS serialization?
 
@@ -169,6 +187,14 @@ enum ParamState {
 
 #[cfg(test)]
 mod tests;
+
+/// Returns `true` for node kinds that are transparent in both parameter
+/// scanning (`analyze_param`) and whitespace stripping
+/// (`strip_space_before_comments`): `Space`, `LineComment`, `BlockComment`.
+#[inline]
+fn is_skippable(kind: NodeKind) -> bool {
+    matches!(kind, NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment)
+}
 // @
 ----
 
@@ -276,10 +302,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
             .get_node(part_idx)
             .ok_or(ASTError::NodeNotFound(part_idx))?;
 
-        if matches!(
-            part.kind,
-            NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment
-        ) {
+        if is_skippable(part.kind) {
             continue;
         }
 
@@ -470,7 +493,8 @@ pub fn strip_space_before_comments(
     let mut to_remove: Vec<usize> = Vec::new();
     let mut spaces_to_strip: Vec<usize> = Vec::new();
 
-    // Analysis phase
+    // Analysis phase: walk forward; when we hit a comment, walk back over
+    // all consecutive Space nodes preceding it.
     {
         let node = parser
             .get_node(node_idx)
@@ -493,16 +517,25 @@ pub fn strip_space_before_comments(
                     false
                 };
 
-                if (is_line_comment || block_comment_newline) && i > 0 {
-                    let prev_idx = node.parts[i - 1];
-                    let prev = parser
-                        .get_node(prev_idx)
-                        .ok_or(ASTError::NodeNotFound(prev_idx))?;
-
-                    match prev.kind {
-                        NodeKind::Space => to_remove.push(i - 1),
-                        NodeKind::Text => spaces_to_strip.push(prev_idx),
-                        _ => {}
+                if is_line_comment || block_comment_newline {
+                    // Walk back over ALL consecutive Space nodes.
+                    let mut j = i;
+                    while j > 0 {
+                        let prev_idx = node.parts[j - 1];
+                        let prev = parser
+                            .get_node(prev_idx)
+                            .ok_or(ASTError::NodeNotFound(prev_idx))?;
+                        if prev.kind == NodeKind::Space {
+                            to_remove.push(j - 1);
+                            j -= 1;
+                        } else {
+                            // Not a Space — trim trailing spaces from a
+                            // preceding Text node, then stop.
+                            if prev.kind == NodeKind::Text {
+                                spaces_to_strip.push(prev_idx);
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -512,6 +545,9 @@ pub fn strip_space_before_comments(
 
     // Modification phase
     if !to_remove.is_empty() {
+        // De-duplicate (a single Space may be adjacent to two comments).
+        to_remove.sort_unstable();
+        to_remove.dedup();
         let node = parser
             .get_node_mut(node_idx)
             .ok_or(ASTError::NodeNotFound(node_idx))?;
@@ -551,6 +587,38 @@ fn is_followed_by_newline(
 }
 // @
 ----
+
+== Invariants
+
+After `process_ast` completes the following hold for every `ASTNode` in
+the returned tree.  Tests assert subsets of these; `debug_assert!` guards
+catch violations in debug builds at the point of construction.
+
+[cols="1,3",options="header"]
+|===
+| Invariant | Explanation
+
+| No comment nodes
+| `clean_node` returns `None` for `LineComment` and `BlockComment` nodes;
+callers in `clean_node`'s own recursion skip `None` results.  The root
+`build_ast` call surfaces a `None` root as an error.
+
+| `Param.name` iff `SeenEqual`
+| `analyze_param` sets `name: Some(token)` exactly when the DFA reaches
+`SeenEqual`, i.e. the pattern `Ident =` was found.  Positional params
+always have `name: None`.
+
+| Leaf nodes have no children
+| `Text`, `Space`, `Ident`, and `Equal` nodes are lexer terminals; they
+carry no children in the parse arena and therefore produce `ASTNode`s
+with `parts: vec![]`.  Asserted by `debug_assert!` in `clean_node`.
+
+| BFS output is contiguous
+| The serialization walk writes nodes in BFS order; each node's children
+occupy a contiguous range immediately following all previously written
+sibling subtrees.  Consumers can compute child ranges from child counts
+alone without storing back-references.
+|===
 
 == Serialization (`serialization.rs`)
 
@@ -749,9 +817,10 @@ Key tests and what they guard:
 * **`test_serialize_token_src_field_present`** — `token.src` must appear
   in the output so external evaluators can trace which source file a node
   came from.
-* **`test_strip_*`** — cover the four cases of `strip_space_before_comments`:
+* **`test_strip_*`** — cover the five cases of `strip_space_before_comments`:
   Space node removed, Text node trimmed, block comment followed by newline
-  (stripped), block comment not followed by newline (kept).
+  (stripped), block comment not followed by newline (kept), and multiple
+  consecutive Space nodes all removed before a comment.
 * **`test_pipeline_*`** — integration tests through the full
   lex → parse → strip → AST pipeline.
 * **`test_strip_is_idempotent`** — running `strip_space_before_comments`
@@ -1274,6 +1343,26 @@ fn test_no_strip_before_inline_block_comment() {
     strip_space_before_comments(content, &mut parser, root_idx).unwrap();
     let root = parser.get_node(root_idx).unwrap();
     assert_eq!(root.parts.len(), 3);
+}
+
+#[test]
+fn test_strip_removes_multiple_spaces_before_line_comment() {
+    // Text("hello") / Space / Space / LineComment — both Spaces must be removed.
+    let content = b"hello  %// comment\n";
+    let mut parser = Parser::new();
+    let text_idx     = n(&mut parser, NodeKind::Text,        0,  5, vec![]);
+    let space1_idx   = n(&mut parser, NodeKind::Space,       5,  1, vec![]);
+    let space2_idx   = n(&mut parser, NodeKind::Space,       6,  1, vec![]);
+    let comment_idx  = n(&mut parser, NodeKind::LineComment, 7, 12, vec![]);
+    let root_idx     = n(&mut parser, NodeKind::Block,       0, 19,
+                         vec![text_idx, space1_idx, space2_idx, comment_idx]);
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+    let root = parser.get_node(root_idx).unwrap();
+    // Both Space nodes must be gone; only Text + Comment remain.
+    assert_eq!(root.parts.len(), 2,
+        "expected 2 parts after stripping two spaces, got {}", root.parts.len());
+    assert_eq!(root.parts[0], text_idx);
+    assert_eq!(root.parts[1], comment_idx);
 }
 
 // ── Full pipeline ──────────────────────────────────────────────────────

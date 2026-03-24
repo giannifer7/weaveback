@@ -512,6 +512,26 @@ fn test_no_strip_before_inline_block_comment() {
     assert_eq!(root.parts.len(), 3);
 }
 
+#[test]
+fn test_strip_removes_multiple_spaces_before_line_comment() {
+    // Text("hello") / Space / Space / LineComment — both Spaces must be removed.
+    let content = b"hello  %// comment\n";
+    let mut parser = Parser::new();
+    let text_idx     = n(&mut parser, NodeKind::Text,        0,  5, vec![]);
+    let space1_idx   = n(&mut parser, NodeKind::Space,       5,  1, vec![]);
+    let space2_idx   = n(&mut parser, NodeKind::Space,       6,  1, vec![]);
+    let comment_idx  = n(&mut parser, NodeKind::LineComment, 7, 12, vec![]);
+    let root_idx     = n(&mut parser, NodeKind::Block,       0, 19,
+                         vec![text_idx, space1_idx, space2_idx, comment_idx]);
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+    let root = parser.get_node(root_idx).unwrap();
+    // Both Space nodes must be gone; only Text + Comment remain.
+    assert_eq!(root.parts.len(), 2,
+        "expected 2 parts after stripping two spaces, got {}", root.parts.len());
+    assert_eq!(root.parts[0], text_idx);
+    assert_eq!(root.parts[1], comment_idx);
+}
+
 // ── Full pipeline ──────────────────────────────────────────────────────
 
 #[test]

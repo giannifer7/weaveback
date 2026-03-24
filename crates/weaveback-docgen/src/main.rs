@@ -1,4 +1,5 @@
 mod inject;
+mod literate_index;
 mod render;
 mod xref;
 
@@ -52,4 +53,7 @@ fn main() {
 
     // 5. Inject per-page window.__xref into HTML files that have a matching entry
     inject::inject_xref(&out_dir, &xref);
+
+    // 6. Generate literate source index and link it from README.html
+    literate_index::generate_and_inject(&out_dir);
 }

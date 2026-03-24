@@ -51,9 +51,19 @@ so that the MCP tracing tools can answer "where was this variable set?" or
 == State type overview
 
 .Main state types and their relationships
-[plantuml]
+[plantuml,format=svg]
 ----
 @startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ClassBorderColor #83a598
+skinparam ClassBackgroundColor #282828
+skinparam ClassFontColor #ebdbb2
+skinparam ClassHeaderBackgroundColor #3c3836
+skinparam ClassStereotypeFontColor #8ec07c
+
 class EvalConfig {
   +special_char: char
   +include_paths: Vec<PathBuf>

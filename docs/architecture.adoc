@@ -214,6 +214,21 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 |===
 | Document | Generates
 
+| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro crate index]
+| `crates/weaveback-macro/src/lib.rs`
+
+| link:../crates/weaveback-macro/src/types.adoc[shared types]
+| `crates/weaveback-macro/src/types.rs`
+
+| link:../crates/weaveback-macro/src/line_index.adoc[line index]
+| `crates/weaveback-macro/src/line_index.rs`
+
+| link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]
+| `crates/weaveback-macro/src/macro_api.rs`
+
+| link:../crates/weaveback-macro/src/bin/cli.adoc[CLI binary]
+| `crates/weaveback-macro/src/bin/weaveback-macro.rs`
+
 | link:../crates/weaveback-macro/src/parser/parser.adoc[weaveback-macro parser]
 | `crates/weaveback-macro/src/parser/mod.rs`
 

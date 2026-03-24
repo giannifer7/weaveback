@@ -1,3 +1,67 @@
+= Public macro API
+:toc:
+:toc-placement: preamble
+
+`macro_api.rs` is the byte-oriented public interface used by the combined
+`weaveback` binary and external callers.  It wraps the string-based
+xref:evaluator/eval_api.adoc[eval_api] layer but returns `Vec<u8>` and offers
+a streaming `dyn Write` variant.
+
+== Design rationale
+
+=== `Vec<u8>` output, not `String`
+
+`eval_api.rs` returns `String`; `macro_api.rs` converts to `Vec<u8>`.  The
+combined binary writes bytes directly to a file or stdout without an extra
+UTF-8 round-trip, and weaveback-tangle's safe writer compares byte content for
+change detection.
+
+=== Tracing variants
+
+`process_string_tracing` runs the evaluator through `TracingOutput` and
+returns both the expanded bytes and a `Vec<(u32, MacroMapEntry)>` ready for
+insertion into the redb `macro_map` table.  This is the code path taken when
+the combined binary builds a source map alongside the expanded output.
+
+`process_string_precise` uses `PreciseTracingOutput` for per-byte attribution —
+used by the backpropagation tool when it needs to trace individual characters
+back to source tokens.
+
+=== `process_files` with stdout support
+
+`process_files` accepts `"-"` as the output path and writes all input files to
+stdout in sequence.  This is the mode used when `weaveback-macro` is invoked
+without `--output`.
+
+=== Shared evaluator across calls
+
+`process_string`, `process_string_tracing`, and `process_file_with_writer` all
+accept a mutable `&mut Evaluator`.  Callers that process a batch of files use
+a single evaluator so macro definitions in file N are visible in file N+1 —
+the same semantics as `eval_files`.
+
+== File structure
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/macro_api.rs>>=
+// <<macro api preamble>>
+// <<process string>>
+// <<process string tracing>>
+// <<process file with writer>>
+// <<process file>>
+// <<process files>>
+// <<process files from config>>
+// <<process string defaults>>
+// <<process string precise>>
+// @
+----
+
+== Preamble
+
+[source,rust]
+----
+// <<macro api preamble>>=
 // crates/weaveback-macro/src/macro_api.rs
 
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -7,6 +71,18 @@ pub type TracingResult = (Vec<u8>, Vec<(u32, MacroMapEntry)>);
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+// @
+----
+
+== `process_string`
+
+Parse and evaluate a source string, returning the expansion as bytes.
+If `real_path` is given, it is used for source attribution in error messages
+and for `%here`.
+
+[source,rust]
+----
+// <<process string>>=
 pub fn process_string(
     source: &str,
     real_path: Option<&Path>,
@@ -23,6 +99,19 @@ pub fn process_string(
     let output_string = evaluator.evaluate(&ast)?;
     Ok(output_string.into_bytes())
 }
+// @
+----
+
+== `process_string_tracing`
+
+Like `process_string` but uses `TracingOutput` to capture per-line macro
+attribution alongside the expanded bytes.  The returned `Vec<(u32, MacroMapEntry)>`
+is keyed by output line number and is ready to store in the `macro_map` redb
+table.
+
+[source,rust]
+----
+// <<process string tracing>>=
 pub fn process_string_tracing(
     source: &str,
     real_path: Option<&Path>,
@@ -45,6 +134,17 @@ pub fn process_string_tracing(
 
     Ok((output_string.into_bytes(), db_entries))
 }
+// @
+----
+
+== `process_file_with_writer`
+
+Read an input file, expand it, and write the bytes to any `dyn Write` sink —
+typically a file handle or stdout.
+
+[source,rust]
+----
+// <<process file with writer>>=
 pub fn process_file_with_writer(
     input_file: &Path,
     writer: &mut dyn Write,
@@ -58,6 +158,17 @@ pub fn process_file_with_writer(
         .map_err(|e| EvalError::Runtime(format!("Cannot write to output: {e}")))?;
     Ok(())
 }
+// @
+----
+
+== `process_file`
+
+Write the expansion of `input_file` to `output_file`, creating parent
+directories as needed.
+
+[source,rust]
+----
+// <<process file>>=
 pub fn process_file(
     input_file: &Path,
     output_file: &Path,
@@ -71,6 +182,17 @@ pub fn process_file(
         .map_err(|e| EvalError::Runtime(format!("Cannot create {output_file:?}: {e}")))?;
     process_file_with_writer(input_file, &mut file, evaluator)
 }
+// @
+----
+
+== `process_files`
+
+Process a batch of input files through a shared evaluator.  The output path
+may be a file, a directory, or `"-"` for stdout.
+
+[source,rust]
+----
+// <<process files>>=
 pub fn process_files(
     inputs: &[PathBuf],
     output_path: &Path,
@@ -102,6 +224,17 @@ pub fn process_files(
 
     Ok(())
 }
+// @
+----
+
+== `process_files_from_config`
+
+Convenience wrapper: creates a fresh `Evaluator` from `config` and forwards to
+`process_files`.  Use this for isolated single-run invocations.
+
+[source,rust]
+----
+// <<process files from config>>=
 pub fn process_files_from_config(
     inputs: &[PathBuf],
     output_dir: &Path,
@@ -110,10 +243,34 @@ pub fn process_files_from_config(
     let mut evaluator = Evaluator::new(config);
     process_files(inputs, output_dir, &mut evaluator)
 }
+// @
+----
+
+== `process_string_defaults`
+
+The simplest entry point: default `%` special char, no path.  Useful for
+one-shot calls in integration tests and tooling.
+
+[source,rust]
+----
+// <<process string defaults>>=
 pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
     let mut evaluator = Evaluator::new(EvalConfig::default());
     process_string(source, None, &mut evaluator)
 }
+// @
+----
+
+== `process_string_precise`
+
+Evaluate `source` with per-byte token attribution via `PreciseTracingOutput`.
+Returns the expanded string and a sorted `Vec<SpanRange>` — one entry per
+source-token transition.  Used by the backpropagation tool to locate individual
+characters in the literate source.
+
+[source,rust]
+----
+// <<process string precise>>=
 /// Evaluate `source` with precise per-byte token attribution.
 ///
 /// Returns the expanded string and a sorted list of `SpanRange` entries —
@@ -137,3 +294,5 @@ pub fn process_string_precise(
     evaluator.evaluate_to(&ast, &mut out)?;
     Ok(out.into_parts())
 }
+// @
+----

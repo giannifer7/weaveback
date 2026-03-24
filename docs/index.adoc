@@ -1,0 +1,159 @@
+= Weaveback — project index
+:toc:
+:toc-placement: preamble
+
+Weaveback is a literate-programming toolchain written in Rust.  Source files
+are authored as annotated documents (AsciiDoc or Markdown); weaveback expands
+macro calls and extracts named code chunks to produce final source files.
+
+This page is the top-level navigation hub.  Every literate AsciiDoc source in
+the project is listed below with a short description.  Generated HTML pages
+also carry per-page module cross-reference data (imports, imported-by, public
+symbols) rendered in the *Module cross-references* panel at the bottom of each
+page.
+
+== Overview
+
+.Toolchain pipeline
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 13
+skinparam ArrowColor #83a598
+skinparam RectangleBorderColor #504945
+skinparam DatabaseBorderColor #504945
+skinparam DatabaseBackgroundColor #282828
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam ActorBorderColor #b8bb26
+skinparam ActorBackgroundColor #1d2021
+skinparam NoteBorderColor #504945
+skinparam NoteBackgroundColor #282828
+
+actor "Author" as author
+file "source.adoc\n(literate doc)" as src
+component "weaveback-macro\n(macro expander)" as macro
+file "expanded.adoc\n(noweb doc)" as expanded
+component "weaveback-tangle\n(chunk extractor)" as tangle
+folder "gen/\n(source files)" as gen
+database "weaveback.db\n(source map)" as db
+
+author --> src
+src --> macro
+macro --> expanded
+expanded --> tangle
+tangle --> gen
+tangle --> db
+
+note right of db : macro_map + noweb_map\nsrc_snapshots
+@enduml
+----
+
+The two tools can run independently or combined via the `weaveback` binary:
+
+[source,shell]
+----
+# Combined single-pass (most common)
+weaveback source.adoc --gen src/
+
+# Separate passes
+weaveback-macro source.adoc --output expanded.adoc
+weaveback-tangle expanded.adoc --gen src/
+----
+
+== Crate overview
+
+.Workspace crates
+[cols="2,3",options="header"]
+|===
+| Crate | Purpose
+
+| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro]
+| Macro expansion engine — lexer, parser, AST, evaluator, scripting back-ends
+
+| `weaveback-tangle`
+| Noweb chunk extractor, safe file writer, redb source-map database
+
+| `weaveback`
+| Combined binary: macro + tangle in one pass; apply-back, MCP server
+
+| `weaveback-docgen`
+| Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
+|===
+
+== weaveback-macro literate sources
+
+.weaveback-macro adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro crate index]
+| `crates/weaveback-macro/src/lib.rs`
+
+| link:../crates/weaveback-macro/src/types.adoc[shared types]
+| `crates/weaveback-macro/src/types.rs`
+
+| link:../crates/weaveback-macro/src/line_index.adoc[line index]
+| `crates/weaveback-macro/src/line_index.rs`
+
+| link:../crates/weaveback-macro/src/lexer/lexer.adoc[lexer]
+| `crates/weaveback-macro/src/lexer/mod.rs` +
+  `crates/weaveback-macro/src/lexer/tests.rs`
+
+| link:../crates/weaveback-macro/src/parser/parser.adoc[parser]
+| `crates/weaveback-macro/src/parser/mod.rs`
+
+| link:../crates/weaveback-macro/src/ast/ast.adoc[AST]
+| `crates/weaveback-macro/src/ast/mod.rs` +
+  `crates/weaveback-macro/src/ast/serialization.rs` +
+  `crates/weaveback-macro/src/ast/tests.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/evaluator.adoc[evaluator index]
+| `crates/weaveback-macro/src/evaluator/mod.rs` +
+  `crates/weaveback-macro/src/evaluator/errors.rs` +
+  `crates/weaveback-macro/src/evaluator/lexer_parser.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/state.adoc[evaluator state]
+| `crates/weaveback-macro/src/evaluator/state.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/output.adoc[evaluator output sinks]
+| `crates/weaveback-macro/src/evaluator/output.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/core.adoc[evaluator core]
+| `crates/weaveback-macro/src/evaluator/core.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/builtins.adoc[evaluator builtins]
+| `crates/weaveback-macro/src/evaluator/builtins.rs` +
+  `crates/weaveback-macro/src/evaluator/case_conversion.rs` +
+  `crates/weaveback-macro/src/evaluator/source_utils.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/scripting.adoc[script back-ends]
+| `crates/weaveback-macro/src/evaluator/rhai_eval.rs` +
+  `crates/weaveback-macro/src/evaluator/monty_eval.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[public eval API]
+| `crates/weaveback-macro/src/evaluator/eval_api.rs`
+
+| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests]
+| `crates/weaveback-macro/src/evaluator/tests/` (21 files)
+
+| link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]
+| `crates/weaveback-macro/src/macro_api.rs`
+
+| link:../crates/weaveback-macro/src/bin/cli.adoc[CLI binary]
+| `crates/weaveback-macro/src/bin/weaveback-macro.rs`
+|===
+
+== Architecture and design
+
+See link:architecture.adoc[architecture.adoc] for a detailed discussion of:
+
+* The literate-programming model and toolchain pipeline
+* The backpropagation apply-back tool design
+* The MCP server interface
+* Macro tracing and the source-map schema
+* Build-system integration (`--depfile`, `--stamp`)

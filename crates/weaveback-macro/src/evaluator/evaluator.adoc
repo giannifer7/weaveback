@@ -9,10 +9,20 @@ variable reference, and conditional, emitting the expanded text.
 == Architecture overview
 
 .Component relationships inside the evaluator package
-[plantuml]
+[plantuml,format=svg]
 ----
 @startuml
 skinparam componentStyle rectangle
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam PackageBorderColor #504945
+skinparam PackageBackgroundColor #1d2021
+skinparam PackageFontColor #fabd2f
 
 package "evaluator" {
   component "eval_api" as api

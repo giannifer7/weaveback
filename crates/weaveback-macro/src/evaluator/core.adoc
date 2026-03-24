@@ -55,9 +55,22 @@ bug #6).
 == Evaluation dispatch overview
 
 .`evaluate()` dispatch by NodeKind
-[plantuml]
+[plantuml,format=svg]
 ----
 @startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ActivityBorderColor #83a598
+skinparam ActivityBackgroundColor #282828
+skinparam ActivityFontColor #ebdbb2
+skinparam ActivityBarColor #b8bb26
+skinparam ConditionBorderColor #fabd2f
+skinparam ConditionBackgroundColor #3c3836
+skinparam StartColor #b8bb26
+skinparam EndColor #fb4934
+
 start
 :node.kind?;
 switch (NodeKind)

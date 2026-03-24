@@ -1,6 +1,60 @@
+= Line index — byte offset to (line, column)
+:toc:
+:toc-placement: preamble
+
+`line_index.rs` provides `LineIndex`: a small helper that converts absolute
+byte offsets into 1-indexed `(line, column)` pairs.  It is used by the
+evaluator and CLI to produce human-readable error locations.
+
+== Design rationale
+
+=== Build once, query many times
+
+Construct `LineIndex::new(source)` once per source string.  The constructor
+scans the bytes with `memchr::memchr_iter` — the fastest SIMD newline scanner
+available on x86/ARM — and stores a sorted `Vec<usize>` of newline positions.
+Each `line_col` query does a single `partition_point` (binary search): O(log n)
+per lookup, O(n) construction.
+
+=== `from_bytes` companion
+
+`from_bytes` accepts a byte slice so callers that already hold `&[u8]` (e.g.
+the safe writer comparing file contents) do not need a UTF-8 conversion round-trip.
+
+=== 1-indexed output
+
+`line_col` returns 1-indexed `(line, column)` to match conventional editor
+and compiler output formats.  Column is a byte offset within the line, not a
+Unicode character count — consistent with how the rest of the pipeline treats
+source positions.
+
+== File structure
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/line_index.rs>>=
+// <<line index preamble>>
+// <<line index struct>>
+// <<line index tests>>
+// @
+----
+
+== Preamble
+
+[source,rust]
+----
+// <<line index preamble>>=
 // crates/weaveback-macro/src/line_index.rs
 
 use memchr::memchr_iter;
+// @
+----
+
+== `LineIndex`
+
+[source,rust]
+----
+// <<line index struct>>=
 /// Converts byte offsets to 1-indexed (line, column) pairs on demand.
 ///
 /// Construct once per source string; each lookup is O(log n) via binary search
@@ -30,6 +84,14 @@ impl LineIndex {
         (i + 1, pos - line_start + 1)
     }
 }
+// @
+----
+
+== Tests
+
+[source,rust]
+----
+// <<line index tests>>=
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,3 +122,5 @@ mod tests {
         assert_eq!(idx.line_col(4), (3, 1));
     }
 }
+// @
+----

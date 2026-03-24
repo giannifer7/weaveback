@@ -54,9 +54,21 @@ N?"  The first token on the line is the best answer.
 == Output sink types
 
 .`EvalOutput` trait hierarchy
-[plantuml]
+[plantuml,format=svg]
 ----
 @startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ClassBorderColor #83a598
+skinparam ClassBackgroundColor #282828
+skinparam ClassFontColor #ebdbb2
+skinparam ClassHeaderBackgroundColor #3c3836
+skinparam InterfaceBorderColor #b8bb26
+skinparam InterfaceBackgroundColor #282828
+skinparam InterfaceFontColor #ebdbb2
+
 interface EvalOutput {
   +push_str(text, span)
   +push_untracked(text)

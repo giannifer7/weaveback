@@ -82,6 +82,7 @@ fn do_inject(html_file: &Path, entry: &XrefEntry) {
     // Build a compact per-page xref object.
     // html paths are relative to docs/html/ — JavaScript can resolve from there.
     let xref_obj = serde_json::json!({
+        "self":       entry.html,
         "imports":    entry.imports,
         "importedBy": entry.imported_by,
         "symbols":    entry.symbols,

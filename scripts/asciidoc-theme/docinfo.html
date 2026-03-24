@@ -255,4 +255,120 @@ pre.rouge .cs, pre.rouge .ch {
   color: #b8bb26;
   font-style: normal;
 }
+
+/* ── Module cross-references panel ───────────────────────────────── */
+#xref-panel {
+  margin-top: 2.5rem;
+  border-top: 2px solid #504945;
+  padding-top: 1.25rem;
+}
+#xref-panel h2 {
+  color: #fabd2f !important;
+  font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #3c3836 !important;
+}
+.xref-section { margin-bottom: 1rem; }
+.xref-section h3 {
+  color: #8ec07c !important;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+  border: none !important;
+}
+.xref-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+.xref-section li a {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85rem;
+  color: #83a598 !important;
+  background: #282828;
+  border: 1px solid #504945;
+  border-radius: 3px;
+  padding: 0.1rem 0.45rem;
+}
+.xref-section li a:hover { color: #8ec07c !important; border-color: #8ec07c; }
+.xref-symbols {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  color: #928374;
+  word-break: break-word;
+}
 </style>
+<script>
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var xref = window.__xref;
+    if (!xref) return;
+    var hasImports    = xref.imports    && xref.imports.length > 0;
+    var hasImportedBy = xref.importedBy && xref.importedBy.length > 0;
+    var hasSymbols    = xref.symbols    && xref.symbols.length > 0;
+    if (!hasImports && !hasImportedBy && !hasSymbols) return;
+
+    // Compute relative URL prefix: from the current page back to docs/html/ root.
+    function relPathTo(targetHtml) {
+      var selfHtml = xref['self'] || '';
+      var selfParts = selfHtml.split('/');
+      selfParts.pop(); // remove filename
+      var toParts = targetHtml.split('/');
+      var i = 0;
+      while (i < selfParts.length && i < toParts.length && selfParts[i] === toParts[i]) i++;
+      var ups = selfParts.slice(i).map(function () { return '..'; });
+      return ups.concat(toParts.slice(i)).join('/');
+    }
+
+    function linkList(links) {
+      var ul = document.createElement('ul');
+      links.forEach(function (l) {
+        var li = document.createElement('li');
+        var a  = document.createElement('a');
+        a.href        = relPathTo(l.html);
+        a.textContent = l.label;
+        a.title       = l.key;
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      return ul;
+    }
+
+    function section(title, content) {
+      var div = document.createElement('div');
+      div.className = 'xref-section';
+      var h3 = document.createElement('h3');
+      h3.textContent = title;
+      div.appendChild(h3);
+      div.appendChild(content);
+      return div;
+    }
+
+    var panel = document.createElement('div');
+    panel.id = 'xref-panel';
+    var h2 = document.createElement('h2');
+    h2.textContent = 'Module cross-references';
+    panel.appendChild(h2);
+
+    if (hasImports) {
+      panel.appendChild(section('Imports', linkList(xref.imports)));
+    }
+    if (hasImportedBy) {
+      panel.appendChild(section('Imported by', linkList(xref.importedBy)));
+    }
+    if (hasSymbols) {
+      var sym = document.createElement('div');
+      sym.className = 'xref-symbols';
+      sym.textContent = xref.symbols.join('  ·  ');
+      panel.appendChild(section('Public symbols', sym));
+    }
+
+    var content = document.getElementById('content');
+    if (content) content.appendChild(panel);
+  });
+})();
+</script>

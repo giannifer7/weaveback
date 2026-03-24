@@ -1,3 +1,65 @@
+= CLI binary — `weaveback-macro`
+:toc:
+:toc-placement: preamble
+
+`src/bin/weaveback-macro.rs` is the `weaveback-macro` command-line binary.
+It wraps the xref:../macro_api.adoc[macro_api] layer with a clap argument
+parser, adds `--dir` discovery mode, and exposes `--dump-ast` for debugging.
+
+== Design rationale
+
+=== `--dir` discovery mode
+
+When `--dir` is given, the binary:
+
+1. Recursively collects all files matching `--ext` under the directory.
+2. Runs a *discovery pass* — a second evaluation in `discovery_mode: true`
+   where `%include(path)` calls are recorded but not expanded.
+3. Filters out any file that appears as a `%include` target of another file
+   in the same scan, leaving only *driver* files (top-level entry points).
+4. Processes the driver files with a fresh evaluator.
+
+This means you can drop all your literate fragments and their driver into one
+directory and run `weaveback-macro --dir .` without manually listing which file
+is the entry point.
+
+=== Mutual exclusion: positional inputs vs `--dir`
+
+`ArgGroup::new("source").required(true)` enforces that exactly one of
+`--dir` or positional input files is present.  The `conflicts_with = "inputs"`
+attribute on `--dir` is the clap-level guard; the `run()` function branches on
+`args.directory`.
+
+=== `--pathsep` and platform defaults
+
+On Unix the path separator for `--include` is `:`, on Windows `;`.
+`default_pathsep()` returns the right one for the current target triple at
+compile time so the binary behaves correctly without user configuration.
+
+=== `--dump-ast`
+
+Skips evaluation entirely and serialises the parsed AST of each input file to
+`<file>.ast`.  Useful for debugging macro parse errors.
+
+== File structure
+
+[source,rust]
+----
+// <<@file weaveback-macro/src/bin/weaveback-macro.rs>>=
+// <<cli preamble>>
+// <<cli default pathsep>>
+// <<cli find files>>
+// <<cli args struct>>
+// <<cli run>>
+// <<cli main>>
+// @
+----
+
+== Preamble
+
+[source,rust]
+----
+// <<cli preamble>>=
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -5,6 +67,14 @@ use weaveback_macro::macro_api::process_string;
 use clap::{ArgGroup, Parser};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+// @
+----
+
+== Platform path separator
+
+[source,rust]
+----
+// <<cli default pathsep>>=
 /// Returns the default path separator based on the platform
 fn default_pathsep() -> String {
     if cfg!(windows) {
@@ -13,6 +83,14 @@ fn default_pathsep() -> String {
         ":".to_string()
     }
 }
+// @
+----
+
+== `find_files` — recursive extension scanner
+
+[source,rust]
+----
+// <<cli find files>>=
 /// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
 fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
@@ -28,6 +106,14 @@ fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::R
     }
     Ok(())
 }
+// @
+----
+
+== CLI argument struct
+
+[source,rust]
+----
+// <<cli args struct>>=
 #[derive(Parser, Debug)]
 #[command(
     name = "weaveback-macro",
@@ -80,6 +166,14 @@ struct Args {
     #[arg(long = "dump-ast")]
     dump_ast: bool,
 }
+// @
+----
+
+== `run` — core logic
+
+[source,rust]
+----
+// <<cli run>>=
 fn run(args: Args) -> Result<(), EvalError> {
     let include_paths: Vec<PathBuf> = args
         .include
@@ -145,6 +239,14 @@ fn run(args: Args) -> Result<(), EvalError> {
 
     weaveback_macro::macro_api::process_files_from_config(&final_inputs, &args.output, config)
 }
+// @
+----
+
+== `main`
+
+[source,rust]
+----
+// <<cli main>>=
 fn main() {
     let args = Args::parse();
     match run(args) {
@@ -155,3 +257,5 @@ fn main() {
         }
     }
 }
+// @
+----

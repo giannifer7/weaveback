@@ -46,9 +46,16 @@ Allowed identifier charset (enforced jointly by the lexer and this validator):
 
 Practical consequence: `foo`, `_bar`, `my_param2` are valid; `foo-bar`,
 `2fast`, `foo bar`, and `x=y` are all rejected with `InvalidUsage`.
-Hyphens are `Special` tokens in the lexer, so `foo-bar` would lex as three
-separate tokens (`foo`, `-`, `bar`) and the "exactly one non-space child" check
-would fire.
+
+Inside macro argument parsing, a hyphen is not a delimiter, so `foo-bar` is
+lexed as a single `Text` token `"foo-bar"` (the `else` branch in the args-state
+loop consumes all bytes that are not whitespace, `,`, `)`, `=`, or the special
+char).  `single_ident_param` then rejects it because the Param node's only
+non-space child has kind `Text`, not `Ident` — identifiers can only start
+with `[A-Za-z_]` and the lexer never emits an `Ident` token for `foo-bar`.
+
+(`TokenKind::Special` is emitted only for the doubled special char — e.g. `%%`
+is the escape sequence for a literal `%` — not for arbitrary punctuation.)
 
 === `%here`: the one side-effecting builtin
 

@@ -23,5 +23,6 @@ pub(crate) fn write_file(
         let mut file = fs::File::create(&private_path)?;
         write!(file, "{}", content)?;
     }
-    Ok(writer.after_write(path)?)
+    writer.after_write(path)?;
+    Ok(())
 }

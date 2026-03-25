@@ -225,7 +225,10 @@ impl SafeFileWriter {
         Ok(tmp_path)
     }
 
-    pub fn after_write<P: AsRef<Path>>(&mut self, file_name: P) -> Result<(), SafeWriterError> {
+    /// Run the post-write pipeline and return the final (possibly formatted)
+    /// file content as bytes.  The caller can use these bytes directly for
+    /// source-map remapping without re-reading the output file from disk.
+    pub fn after_write<P: AsRef<Path>>(&mut self, file_name: P) -> Result<Vec<u8>, SafeWriterError> {
         validate_filename(file_name.as_ref())?;
         let key = file_name.as_ref().to_string_lossy().into_owned();
         let tmp = self
@@ -259,7 +262,8 @@ impl SafeFileWriter {
         // Step 3: copy temp → output, skip if identical.
         self.copy_if_different(&tmp_path, &output_file)?;
 
-        // Step 4: update baseline in the temp db.
+        // Step 4: read the (possibly formatted) temp content for the baseline
+        // and return it to the caller so they don't need a second disk read.
         let written = fs::read(&tmp_path)
             .map_err(|_| SafeWriterError::BackupFailed(tmp_path.clone()))?;
         self.db
@@ -267,7 +271,7 @@ impl SafeFileWriter {
             .map_err(SafeWriterError::DbError)?;
 
         // tmp is dropped here, deleting the temp file.
-        Ok(())
+        Ok(written)
     }
 }
 impl SafeFileWriter {

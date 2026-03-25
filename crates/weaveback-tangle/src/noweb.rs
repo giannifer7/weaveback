@@ -525,9 +525,17 @@ impl<'a> ChunkWriter<'a> {
         }
     }
 
-    pub fn write_chunk(&mut self, chunk_name: &str, content: &[String]) -> Result<(), WeavebackError> {
+    /// Write a single `@file` chunk.  Returns the final on-disk bytes (after
+    /// any configured formatter has run) so the caller can use them for
+    /// source-map remapping without an extra read.  Returns `None` for
+    /// absolute-path chunks (written directly, not through `SafeFileWriter`).
+    pub fn write_chunk(
+        &mut self,
+        chunk_name: &str,
+        content: &[String],
+    ) -> Result<Option<Vec<u8>>, WeavebackError> {
         if !chunk_name.starts_with("@file ") {
-            return Ok(());
+            return Ok(None);
         }
         let path_str = chunk_name["@file ".len()..].trim();
         let expanded = expand_tilde(path_str);
@@ -552,15 +560,16 @@ impl<'a> ChunkWriter<'a> {
             for line in content {
                 f.write_all(line.as_bytes())?;
             }
+            Ok(None)
         } else {
             let final_path = self.safe_file_writer.before_write(path_str)?;
             let mut f = fs::File::create(&final_path)?;
             for line in content {
                 f.write_all(line.as_bytes())?;
             }
-            self.safe_file_writer.after_write(path_str)?;
+            let written = self.safe_file_writer.after_write(path_str)?;
+            Ok(Some(written))
         }
-        Ok(())
     }
 }
 /// Normalise a source line for content-hash matching:
@@ -796,22 +805,17 @@ impl Clip {
             all_referenced.extend(referenced);
 
             let mut cw = ChunkWriter::new(&mut self.writer);
-            cw.write_chunk(name, &lines)?;
+            let written_bytes = cw.write_chunk(name, &lines)?;
 
             let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
 
             // After formatting, re-key map entries to post-formatter lines.
-            let expanded = expand_tilde(out_file);
-            let out_path = if std::path::Path::new(&expanded).is_absolute() {
-                std::path::PathBuf::from(&expanded)
-            } else {
-                self.writer.get_gen_base().join(out_file)
-            };
-            let keyed = if out_path.is_file() {
-                let formatted = fs::read_to_string(&out_path)?;
+            // Use the bytes already returned by write_chunk — no second disk read.
+            let keyed = if let Some(bytes) = written_bytes {
+                let formatted = String::from_utf8_lossy(&bytes);
                 let pre_content: String = lines.concat();
-                if formatted != pre_content {
-                    remap_noweb_entries(&lines, &formatted, map_entries)
+                if formatted.as_ref() != pre_content {
+                    remap_noweb_entries(&lines, formatted.as_ref(), map_entries)
                 } else {
                     map_entries.into_iter().enumerate()
                         .map(|(i, e)| (i as u32, e)).collect()

@@ -1,3 +1,40 @@
+= Weaveback — Combined Binary
+:toc: left
+:source-highlighter: rouge
+
+`weaveback` is the combined macro-expander + literate-programming extractor.
+It runs link:../../../crates/weaveback-macro/[`weaveback-macro`] and
+link:../../../crates/weaveback-tangle/[`weaveback-tangle`] in-process: no
+subprocess spawning, shared source maps, one database.
+
+== Module map
+
+[cols="1,3"]
+|===
+| Module | Responsibility
+
+| link:weaveback.adoc[`main.rs`] (this file)
+| CLI, driver loop, macro+tangle pipeline, subcommand dispatch.
+
+| link:lookup.adoc[`lookup.rs`]
+| `where` and `trace` queries: noweb-map lookup and precise macro-level
+  attribution via `PreciseTracingOutput`.
+
+| link:mcp.adoc[`mcp.rs`]
+| JSON-RPC 2.0 / MCP server over stdin/stdout: `weaveback_trace`,
+  `weaveback_apply_back`, `weaveback_apply_fix` tools.
+
+| link:apply_back.adoc[`apply_back.rs`]
+| `apply-back` subcommand: diff `gen/` against baselines, trace changed
+  lines to their literate sources, apply heuristic patches with oracle
+  verification.
+|===
+
+== Imports and module declarations
+
+[source,rust]
+----
+// <<weaveback-root>>=
 use weaveback_macro::{
     evaluator::{EvalConfig, EvalError, Evaluator},
     macro_api::process_string,
@@ -10,7 +47,17 @@ use std::path::{Path, PathBuf};
 mod apply_back;
 mod lookup;
 mod mcp;
+// @
+----
 
+== Platform helper
+
+`default_pathsep` returns `;` on Windows and `:` on Unix for splitting the
+`--include` path list.
+
+[source,rust]
+----
+// <<weaveback-pathsep>>=
 fn default_pathsep() -> String {
     if cfg!(windows) {
         ";".to_string()
@@ -18,7 +65,28 @@ fn default_pathsep() -> String {
         ":".to_string()
     }
 }
+// @
+----
 
+== CLI types
+
+`Cli` is the top-level clap struct.  It holds the optional subcommand
+(`Commands`) and the shared `Args` (which are used both for the default tangle
+pass and for subcommands that need `--db`, `--gen`, etc.).
+
+`Commands` covers the four named subcommands:
+
+* `trace` — two-level source attribution to the original literate token
+* `where` — noweb-level lookup only (faster, no macro re-evaluation)
+* `mcp` — start the MCP JSON-RPC server
+* `apply-back` — propagate `gen/` edits back to the literate source
+
+`Args` groups all shared flags.  It is `flatten`-ed into `Cli` so the flags
+appear at the top level when no subcommand is given.
+
+[source,rust]
+----
+// <<weaveback-cli>>=
 #[derive(Parser, Debug)]
 #[command(
     name = "weaveback",
@@ -156,7 +224,17 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 }
+// @
+----
 
+== Error type
+
+`Error` wraps the three error types that can surface from the pipeline:
+macro evaluation failures, noweb/tangle failures, and I/O errors.
+
+[source,rust]
+----
+// <<weaveback-error>>=
 #[derive(Debug)]
 enum Error {
     Macro(EvalError),
@@ -188,7 +266,23 @@ impl From<weaveback_tangle::db::DbError> for Error {
         Error::Noweb(WeavebackError::Db(e))
     }
 }
+// @
+----
 
+== Filesystem helpers
+
+`find_files` recursively collects all files whose extension matches any entry
+in `exts`.
+
+`depfile_escape` escapes spaces in paths for Makefile depfile syntax.
+
+`write_depfile` writes a single-target Makefile depfile: `target: dep1 dep2 …`.
+In `--dir` mode the depfile lists all discovered source files so that adding a
+new file triggers a rebuild even if no existing file changed.
+
+[source,rust]
+----
+// <<weaveback-fs>>=
 /// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
 fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
@@ -221,7 +315,28 @@ fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Resul
     out.push('\n');
     std::fs::write(path, out)
 }
+// @
+----
 
+== run
+
+`run` is the main processing function for the default (no-subcommand) path:
+
+. Parse and validate arguments; print help if no inputs were given.
+. Build the `EvalConfig` and `Evaluator` for macro expansion.
+. Create `SafeFileWriter` and `Clip` for noweb extraction.
+. Determine the set of driver files (explicit inputs or auto-discovered in
+  `--dir` mode; discovery uses a separate pass with `discovery_mode=true`).
+. *Phase 1*: macro-expand each driver, feed the result to `clip.read`, and
+  record `%set`/`%def` positions into the database.
+. *Phase 2*: write all `@file` chunks (or list them for `--dry-run`).
+. *Phase 3*: snapshot all source files read this run into the database.
+. *Phase 4*: merge the temp database into `--db`.
+. Write the depfile and touch the stamp file if requested.
+
+[source,rust]
+----
+// <<weaveback-run>>=
 fn run(args: Args) -> Result<(), Error> {
     if args.inputs.is_empty() && args.directory.is_none() {
         use clap::CommandFactory;
@@ -395,7 +510,20 @@ fn run(args: Args) -> Result<(), Error> {
 
     Ok(())
 }
+// @
+----
 
+== build_eval_config and main
+
+`build_eval_config` reconstructs an `EvalConfig` from `Args`.  It is used by
+subcommands that need a fresh evaluator (e.g., `trace` and `apply-back`).
+
+`main` parses `Cli`, dispatches subcommands to their handlers, and exits with
+code 1 on any error.
+
+[source,rust]
+----
+// <<weaveback-main>>=
 fn build_eval_config(args: &Args) -> weaveback_macro::evaluator::EvalConfig {
     let pathsep = default_pathsep();
     let include_paths: Vec<std::path::PathBuf> = args.include.split(&pathsep).map(std::path::PathBuf::from).collect();
@@ -441,7 +569,24 @@ fn main() {
         std::process::exit(1);
     }
 }
+// @
+----
 
+== Query tools
+
+`run_where` does a single noweb-map lookup for `out_file:line` and prints the
+result as pretty-printed JSON.
+
+`run_trace` goes further: it re-evaluates the driver file in precise tracing
+mode and returns full macro-level attribution, including source file, line, col,
+token kind, and (for `MacroBody`/`VarBinding`) definition sites.
+
+Both functions open the database in read-only mode so they can run concurrently
+with a running `weaveback` process.
+
+[source,rust]
+----
+// <<weaveback-query>>=
 fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), Error> {
     if !db_path.exists() {
         return Err(Error::Io(std::io::Error::new(
@@ -493,3 +638,28 @@ fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: P
         Err(lookup::LookupError::Io(e)) => Err(Error::Io(e)),
     }
 }
+// @
+----
+
+== Assembly
+
+[source,rust]
+----
+// <<@file weaveback/src/main.rs>>=
+// <<weaveback-root>>
+
+// <<weaveback-pathsep>>
+
+// <<weaveback-cli>>
+
+// <<weaveback-error>>
+
+// <<weaveback-fs>>
+
+// <<weaveback-run>>
+
+// <<weaveback-main>>
+
+// <<weaveback-query>>
+// @
+----

@@ -57,13 +57,16 @@ def main():
         "--chunk-end", "@@",
     ])
 
-    # weaveback (combined) adocs, if any, use << >> like the macro adocs.
+    # weaveback (combined) adocs use << >> delimiters.
+    # --special 9: the digit '9' is absent from all adoc sources in this
+    # directory, so macro expansion is a safe no-op.  Other obvious candidates
+    # (%, ^, ~) conflict with format strings, regex anchors, or doc comments.
     run([
         "weaveback",
         "--dir", "crates/weaveback/",
         "--ext", "adoc",
         "--gen", "crates/",
-        "--special", "^",
+        "--special", "9",
         "--open-delim", "<<",
         "--close-delim", ">>",
     ])

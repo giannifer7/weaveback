@@ -11,8 +11,8 @@ fn extract_title(html: &str) -> String {
     String::new()
 }
 
-/// Generate `literate-index.html` listing all weaveback-macro literate source
-/// pages, then inject a link to it into `README.html`.
+/// Inject an "Implementation pages" section into `weaveback_macro.html`,
+/// listing every literate source page under `weaveback-macro/src/`.
 pub fn generate_and_inject(out_dir: &Path) {
     let src_dir = out_dir
         .join("crates")
@@ -22,7 +22,7 @@ pub fn generate_and_inject(out_dir: &Path) {
         return;
     }
 
-    // href (relative to out_dir) → title, grouped by first path component under src_dir.
+    // href relative to src_dir → title, grouped by first path component.
     let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
 
     for entry in walkdir::WalkDir::new(&src_dir)
@@ -35,11 +35,16 @@ pub fn generate_and_inject(out_dir: &Path) {
     {
         let abs = entry.into_path();
         let rel_src = abs.strip_prefix(&src_dir).unwrap();
-        let rel_out = abs.strip_prefix(out_dir).unwrap();
-        let href = rel_out.to_string_lossy().replace('\\', "/");
+        let rel_str = rel_src.to_string_lossy().replace('\\', "/");
 
-        // Group by first component; top-level files (e.g. line_index.html) get
-        // their own group labelled "(top-level)".
+        // Skip the page we're injecting into
+        if rel_str == "weaveback_macro.html" {
+            continue;
+        }
+
+        // href is relative to src_dir (same directory as weaveback_macro.html)
+        let href = rel_str.clone();
+
         let first = rel_src
             .components()
             .next()
@@ -69,89 +74,82 @@ pub fn generate_and_inject(out_dir: &Path) {
         entries.sort_by(|a, b| a.1.cmp(&b.1));
     }
 
-    let mut body = String::new();
-    for (group, entries) in &groups {
-        let heading = if group == "(top-level)" {
-            "Top-level modules"
-        } else {
-            group.as_str()
-        };
-        body.push_str(&format!("<h2>{heading}</h2>\n<ul>\n"));
-        for (href, title) in entries {
-            body.push_str(&format!("<li><a href=\"{href}\">{title}</a></li>\n"));
-        }
-        body.push_str("</ul>\n");
+    if groups.is_empty() {
+        return;
     }
 
     let total: usize = groups.values().map(|v| v.len()).sum();
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>weaveback-macro — Literate Source Index</title>
-<style>
-body  {{ background:#1d2021; color:#ebdbb2; font-family:sans-serif;
-         max-width:860px; margin:2em auto; padding:0 1.5em; line-height:1.6; }}
-h1   {{ color:#b8bb26; }}
-h2   {{ color:#83a598; border-bottom:1px solid #3c3836; padding-bottom:.2em;
-        margin-top:1.8em; text-transform:capitalize; }}
-a    {{ color:#83a598; text-decoration:none; }}
-a:hover {{ color:#8ec07c; text-decoration:underline; }}
-ul   {{ list-style:none; padding-left:0; }}
-li   {{ margin:.35em 0; }}
-.back {{ margin-bottom:1.5em; font-size:.95em; }}
-</style>
-</head>
-<body>
-<p class="back"><a href="index.html">← README</a></p>
-<h1>weaveback-macro — Literate Source Index</h1>
-{body}
-</body>
-</html>
-"#
-    );
 
-    let index_path = out_dir.join("literate-index.html");
-    if let Err(e) = std::fs::write(&index_path, &html) {
-        eprintln!("docs: failed to write literate-index.html: {e}");
-    } else {
-        println!("docs: wrote literate-index.html ({total} pages)");
+    let mut inner = String::new();
+    for (group, entries) in &groups {
+        let heading = if group == "(top-level)" {
+            "Top-level modules".to_string()
+        } else {
+            let mut s = group.clone();
+            s[..1].make_ascii_uppercase();
+            s
+        };
+        inner.push_str(&format!(
+            "<div class=\"sect2\">\n<h3>{heading}</h3>\n<div class=\"ulist\">\n<ul>\n"
+        ));
+        for (href, title) in entries {
+            inner.push_str(&format!(
+                "<li><p><a href=\"{href}\">{title}</a></p></li>\n"
+            ));
+        }
+        inner.push_str("</ul>\n</div>\n</div>\n");
     }
 
-    inject_link_into_readme(out_dir);
+    let section = format!(
+        concat!(
+            "<div class=\"sect1\" id=\"literate-sources\">\n",
+            "<h2>Implementation pages</h2>\n",
+            "<div class=\"sectionbody\">\n",
+            "<p>weaveback-macro is written as a literate program. ",
+            "Each module has a page combining prose, diagrams, and the full source:</p>\n",
+            "{inner}",
+            "</div>\n</div>\n"
+        ),
+        inner = inner
+    );
+
+    inject_into_page(&src_dir.join("weaveback_macro.html"), &section, total);
 }
 
-fn inject_link_into_readme(out_dir: &Path) {
-    let readme_path = out_dir.join("README.html");
-    let Ok(content) = std::fs::read_to_string(&readme_path) else {
+fn inject_into_page(page: &Path, section: &str, total: usize) {
+    let Ok(content) = std::fs::read_to_string(page) else {
+        eprintln!("docs: could not read {}", page.display());
         return;
     };
-    if content.contains("literate-index.html") {
-        return;
-    }
 
-    let link_html = concat!(
-        "<div style=\"margin:1.5em 0;padding:1em 1.2em;",
-        "background:#282828;border-left:4px solid #83a598;\">",
-        "<a href=\"literate-index.html\" ",
-        "style=\"color:#83a598;font-size:1.05em;font-weight:bold;\">",
-        "weaveback-macro implementation index</a>",
-        "<span style=\"color:#a89984;\"> — literate source documentation for all modules</span>",
-        "</div>",
-    );
+    // Strip previous injection to keep the operation idempotent
+    let content = strip_existing(&content);
 
-    // Inject immediately after <div id="content"> so it appears at the top of
-    // the page body, above the first section.
-    let injection_point = "<div id=\"content\">";
-    let patched = if let Some(pos) = content.find(injection_point) {
-        let insert_at = pos + injection_point.len();
-        format!("{}\n{}{}", &content[..insert_at], link_html, &content[insert_at..])
+    let marker = "<div id=\"footer\">";
+    let patched = if let Some(pos) = content.find(marker) {
+        format!("{}{}{}", &content[..pos], section, &content[pos..])
     } else {
-        content.replacen("</body>", &format!("{}\n</body>", link_html), 1)
+        content.replacen("</body>", &format!("{}\n</body>", section), 1)
     };
 
-    if let Err(e) = std::fs::write(&readme_path, &patched) {
-        eprintln!("docs: failed to inject link into README.html: {e}");
+    if let Err(e) = std::fs::write(page, &patched) {
+        eprintln!("docs: failed to inject literate index into {}: {e}", page.display());
+    } else {
+        println!("docs: injected literate index into weaveback_macro.html ({total} pages)");
     }
+}
+
+fn strip_existing(content: &str) -> String {
+    const START: &str = "<div class=\"sect1\" id=\"literate-sources\">";
+    const END: &str = "</div>\n</div>\n";
+    let mut s = content.to_string();
+    if let Some(start) = s.find(START) {
+        // Find the matching double-close that ends the sect1 > sectionbody
+        let after = &s[start + START.len()..];
+        if let Some(rel_end) = after.find(END) {
+            let end = start + START.len() + rel_end + END.len();
+            s = format!("{}{}", &s[..start], &s[end..]);
+        }
+    }
+    s
 }

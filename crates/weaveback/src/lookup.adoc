@@ -76,6 +76,7 @@ pub fn perform_where(
             "expanded_file": entry.src_file,
             "expanded_line": entry.src_line + 1,
             "indent": entry.indent,
+            "confidence": entry.confidence.as_str(),
         })))
     } else {
         Ok(None)
@@ -128,6 +129,7 @@ pub fn perform_trace(
         "expanded_file": nw_entry.src_file,
         "expanded_line": nw_entry.src_line + 1,
         "indent": nw_entry.indent,
+        "confidence": nw_entry.confidence.as_str(),
     });
 
     // Re-evaluate the driver file with precise tracing.

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS noweb_map (
     chunk_name TEXT    NOT NULL,
     src_line   INTEGER NOT NULL,
     indent     TEXT    NOT NULL,
+    confidence TEXT    NOT NULL DEFAULT 'exact',
     PRIMARY KEY (out_file, out_line)
 ) STRICT;
 
@@ -69,19 +70,56 @@ impl From<rusqlite::Error> for DbError {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+/// How reliably a post-formatter output line was traced back to its source.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Confidence {
+    /// Diff Equal match — the line survived formatting unchanged.
+    #[default]
+    Exact,
+    /// Matched by normalised content hash — survives reordering (e.g. import sorting).
+    HashMatch,
+    /// Attribution inherited from the nearest attributed neighbour (gap-fill).
+    Inferred,
+}
+
+impl Confidence {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Confidence::Exact     => "exact",
+            Confidence::HashMatch => "hash_match",
+            Confidence::Inferred  => "inferred",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "hash_match" => Confidence::HashMatch,
+            "inferred"   => Confidence::Inferred,
+            _            => Confidence::Exact,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NowebMapEntry {
     pub src_file: String,
     pub chunk_name: String,
     pub src_line: u32,
     pub indent: String,
+    pub confidence: Confidence,
 }
 pub struct WeavebackDb {
     conn: Connection,
 }
 
 fn apply_schema(conn: &Connection) -> Result<(), DbError> {
-    conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)
+    conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)?;
+    // Migration: add the confidence column to databases created before it
+    // existed.  SQLite errors if the column is already there; we ignore that.
+    let _ = conn.execute_batch(
+        "ALTER TABLE noweb_map ADD COLUMN confidence TEXT NOT NULL DEFAULT 'exact';"
+    );
+    Ok(())
 }
 
 impl WeavebackDb {
@@ -151,8 +189,8 @@ impl WeavebackDb {
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR REPLACE INTO noweb_map
-                 (out_file, out_line, src_file, chunk_name, src_line, indent)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (out_file, out_line, src_file, chunk_name, src_line, indent, confidence)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             )?;
             for (line, e) in entries {
                 stmt.execute(params![
@@ -161,7 +199,8 @@ impl WeavebackDb {
                     e.src_file,
                     e.chunk_name,
                     e.src_line,
-                    e.indent
+                    e.indent,
+                    e.confidence.as_str()
                 ])?;
             }
         }
@@ -177,7 +216,7 @@ impl WeavebackDb {
         Ok(self
             .conn
             .query_row(
-                "SELECT src_file, chunk_name, src_line, indent
+                "SELECT src_file, chunk_name, src_line, indent, confidence
                  FROM noweb_map WHERE out_file = ?1 AND out_line = ?2",
                 params![out_file, out_line],
                 |row| {
@@ -186,6 +225,10 @@ impl WeavebackDb {
                         chunk_name: row.get(1)?,
                         src_line: row.get::<_, u32>(2)?,
                         indent: row.get(3)?,
+                        confidence: row
+                            .get::<_, String>(4)
+                            .map(|s| Confidence::parse(&s))
+                            .unwrap_or_default(),
                     })
                 },
             )

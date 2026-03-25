@@ -308,20 +308,40 @@ impl ChunkStore {
         debug!("Finished reading. File chunks: {:?}", self.file_chunks);
     }
 }
+/// Mutable state threaded through the recursive chunk expansion.
+struct ExpandState {
+    depth: usize,
+    seen: HashSet<String>,
+    stack: Vec<String>,
+    referenced_chunks: HashSet<String>,
+}
+
+impl ExpandState {
+    fn new() -> Self {
+        Self {
+            depth: 0,
+            seen: HashSet::new(),
+            stack: Vec::new(),
+            referenced_chunks: HashSet::new(),
+        }
+    }
+}
+
+/// Return type of `expand_with_map`: expanded lines, source-map entries, and
+/// the set of all chunk names referenced during expansion.
+type ExpandResult = (Vec<String>, Vec<NowebMapEntry>, HashSet<String>);
+
 impl ChunkStore {
     fn expand_inner(
         &self,
         chunk_name: &str,
         target_indent: &str,
-        depth: usize,
-        seen: &mut HashSet<String>,
-        stack: &mut Vec<String>,
-        referenced_chunks: &mut HashSet<String>,
+        state: &mut ExpandState,
         reference_location: ChunkLocation,
         reversed_mode: bool,
     ) -> Result<Vec<(String, NowebMapEntry)>, ChunkError> {
         const MAX_DEPTH: usize = 100;
-        if depth > MAX_DEPTH {
+        if state.depth > MAX_DEPTH {
             let file_name = self
                 .file_names
                 .get(reference_location.file_idx)
@@ -334,13 +354,13 @@ impl ChunkStore {
             });
         }
 
-        if seen.contains(chunk_name) {
+        if state.seen.contains(chunk_name) {
             let file_name = self
                 .file_names
                 .get(reference_location.file_idx)
                 .cloned()
                 .unwrap_or_default();
-            let mut cycle = stack.clone();
+            let mut cycle = state.stack.clone();
             cycle.push(chunk_name.to_string());
             return Err(ChunkError::RecursiveReference {
                 chunk: chunk_name.to_string(),
@@ -366,7 +386,7 @@ impl ChunkStore {
             return Ok(Vec::new());
         }
 
-        referenced_chunks.insert(chunk_name.to_string());
+        state.referenced_chunks.insert(chunk_name.to_string());
 
         let chunk = self.chunks.get(chunk_name)
             .expect("internal invariant: chunk exists after contains_key check");
@@ -379,8 +399,8 @@ impl ChunkStore {
             (0..defs.len()).collect()
         };
 
-        seen.insert(chunk_name.to_string());
-        stack.push(chunk_name.to_string());
+        state.seen.insert(chunk_name.to_string());
+        state.stack.push(chunk_name.to_string());
         let mut result = Vec::new();
 
         for def_idx in indices {
@@ -413,16 +433,15 @@ impl ChunkStore {
                         line: def.line + line_count,
                     };
 
+                    state.depth += 1;
                     let expanded = self.expand_inner(
                         referenced_chunk.trim(),
                         &new_indent,
-                        depth + 1,
-                        seen,
-                        stack,
-                        referenced_chunks,
+                        state,
                         new_loc,
                         line_is_reversed,
                     )?;
+                    state.depth -= 1;
                     result.extend(expanded);
                 } else {
                     let line_indent = if line.len() > def.base_indent {
@@ -446,8 +465,8 @@ impl ChunkStore {
             }
         }
 
-        stack.pop();
-        seen.remove(chunk_name);
+        state.stack.pop();
+        state.seen.remove(chunk_name);
         Ok(result)
     }
 
@@ -455,17 +474,12 @@ impl ChunkStore {
         &self,
         chunk_name: &str,
         indent: &str,
-    ) -> Result<(Vec<String>, Vec<NowebMapEntry>, HashSet<String>), ChunkError> {
-        let mut seen = HashSet::new();
-        let mut stack = Vec::new();
-        let mut referenced_chunks = HashSet::new();
+    ) -> Result<ExpandResult, ChunkError> {
+        let mut state = ExpandState::new();
         let loc = ChunkLocation { file_idx: 0, line: 0 };
-        let pairs = self.expand_inner(
-            chunk_name, indent, 0, &mut seen, &mut stack,
-            &mut referenced_chunks, loc, false,
-        )?;
+        let pairs = self.expand_inner(chunk_name, indent, &mut state, loc, false)?;
         let (lines, entries) = pairs.into_iter().unzip();
-        Ok((lines, entries, referenced_chunks))
+        Ok((lines, entries, state.referenced_chunks))
     }
 
     pub fn expand(&self, chunk_name: &str, indent: &str) -> Result<Vec<String>, ChunkError> {

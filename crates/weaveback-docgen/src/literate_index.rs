@@ -11,38 +11,68 @@ fn extract_title(html: &str) -> String {
     String::new()
 }
 
-/// Inject an "Implementation pages" section into `weaveback_macro.html`,
-/// listing every literate source page under `weaveback-macro/src/`.
-pub fn generate_and_inject(out_dir: &Path) {
-    let src_dir = out_dir
-        .join("crates")
-        .join("weaveback-macro")
-        .join("src");
-    if !src_dir.exists() {
+/// Inject an "Implementation pages" section into the index page of every crate
+/// that has a literate-source HTML tree under `out_dir/crates/{crate}/src/`.
+///
+/// Detection: a crate is considered literate when
+/// `out_dir/crates/{crate}/src/{crate_underscored}.html` exists (the crate
+/// index page generated from the top-level `.adoc`).  All other `.html` files
+/// in that `src/` tree are treated as module pages and listed in the injected
+/// section.
+pub fn generate_and_inject_all(out_dir: &Path) {
+    let crates_dir = out_dir.join("crates");
+    if !crates_dir.exists() {
         return;
     }
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return;
+    };
+    let mut crates: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    crates.sort_by_key(|e| e.file_name());
+    for entry in crates {
+        let crate_path = entry.path();
+        if !crate_path.is_dir() {
+            continue;
+        }
+        let src_dir = crate_path.join("src");
+        if !src_dir.exists() {
+            continue;
+        }
+        let crate_name = entry.file_name().to_string_lossy().into_owned();
+        let index_stem = crate_name.replace('-', "_");
+        let index_page = src_dir.join(format!("{index_stem}.html"));
+        if !index_page.exists() {
+            continue;
+        }
+        generate_and_inject_crate(&src_dir, &index_page, &crate_name);
+    }
+}
 
-    // href relative to src_dir → title, grouped by first path component.
+fn generate_and_inject_crate(src_dir: &Path, index_page: &Path, crate_name: &str) {
+    let index_filename = index_page
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    // Collect href (relative to src_dir) → title, grouped by first path component.
     let mut groups: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
 
-    for entry in walkdir::WalkDir::new(&src_dir)
+    for entry in walkdir::WalkDir::new(src_dir)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            !e.file_type().is_dir()
-                && e.path().extension().is_some_and(|x| x == "html")
+            !e.file_type().is_dir() && e.path().extension().is_some_and(|x| x == "html")
         })
     {
         let abs = entry.into_path();
-        let rel_src = abs.strip_prefix(&src_dir).unwrap();
+        let rel_src = abs.strip_prefix(src_dir).unwrap();
         let rel_str = rel_src.to_string_lossy().replace('\\', "/");
 
-        // Skip the page we're injecting into
-        if rel_str == "weaveback_macro.html" {
+        // Skip the index page itself
+        if rel_str == index_filename {
             continue;
         }
 
-        // href is relative to src_dir (same directory as weaveback_macro.html)
         let href = rel_str.clone();
 
         let first = rel_src
@@ -105,24 +135,24 @@ pub fn generate_and_inject(out_dir: &Path) {
             "<div class=\"sect1\" id=\"literate-sources\">\n",
             "<h2>Implementation pages</h2>\n",
             "<div class=\"sectionbody\">\n",
-            "<p>weaveback-macro is written as a literate program. ",
+            "<p><code>{crate_name}</code> is written as a literate program. ",
             "Each module has a page combining prose, diagrams, and the full source:</p>\n",
             "{inner}",
             "</div>\n</div>\n"
         ),
+        crate_name = crate_name,
         inner = inner
     );
 
-    inject_into_page(&src_dir.join("weaveback_macro.html"), &section, total);
+    inject_into_page(index_page, &section, total, crate_name);
 }
 
-fn inject_into_page(page: &Path, section: &str, total: usize) {
+fn inject_into_page(page: &Path, section: &str, total: usize, crate_name: &str) {
     let Ok(content) = std::fs::read_to_string(page) else {
         eprintln!("docs: could not read {}", page.display());
         return;
     };
 
-    // Strip previous injection to keep the operation idempotent
     let content = strip_existing(&content);
 
     let marker = "<div id=\"footer\">";
@@ -133,9 +163,12 @@ fn inject_into_page(page: &Path, section: &str, total: usize) {
     };
 
     if let Err(e) = std::fs::write(page, &patched) {
-        eprintln!("docs: failed to inject literate index into {}: {e}", page.display());
+        eprintln!(
+            "docs: failed to inject literate index into {}: {e}",
+            page.display()
+        );
     } else {
-        println!("docs: injected literate index into weaveback_macro.html ({total} pages)");
+        println!("docs: injected literate index into {crate_name} ({total} pages)");
     }
 }
 
@@ -144,7 +177,6 @@ fn strip_existing(content: &str) -> String {
     const END: &str = "</div>\n</div>\n";
     let mut s = content.to_string();
     if let Some(start) = s.find(START) {
-        // Find the matching double-close that ends the sect1 > sectionbody
         let after = &s[start + START.len()..];
         if let Some(rel_end) = after.find(END) {
             let end = start + START.len() + rel_end + END.len();

@@ -61,6 +61,6 @@ fn main() {
     // 5. Inject per-page window.__xref into HTML files that have a matching entry
     inject::inject_xref(&out_dir, &xref, &existing_html, &adoc_map);
 
-    // 6. Generate literate source index and link it from README.html
-    literate_index::generate_and_inject(&out_dir);
+    // 6. Inject "Implementation pages" section into every crate's index page
+    literate_index::generate_and_inject_all(&out_dir);
 }

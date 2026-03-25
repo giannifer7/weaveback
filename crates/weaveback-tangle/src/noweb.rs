@@ -624,10 +624,10 @@ fn remap_noweb_entries(
     let mut new_to_entry: Vec<Option<NowebMapEntry>> = vec![None; post_line_count];
 
     for (old_i, entry) in entries.iter().enumerate() {
-        if let Some(&Some(new_i)) = old_to_new.get(old_i) {
-            if new_i < post_line_count {
-                new_to_entry[new_i] = Some(entry.clone());
-            }
+        if let Some(&Some(new_i)) = old_to_new.get(old_i)
+            && new_i < post_line_count
+        {
+            new_to_entry[new_i] = Some(entry.clone());
         }
     }
 
@@ -664,13 +664,12 @@ fn remap_noweb_entries(
             .nth(new_i)
             .unwrap_or("");
         let key = normalise_for_hash(post_line);
-        if key.len() > 1 {
-            if let Some(&old_i) = hash_to_old.get(key) {
-                if !claimed.contains(&old_i) {
-                    claimed.insert(old_i);
-                    *slot = Some(entries[old_i].clone());
-                }
-            }
+        if key.len() > 1
+            && let Some(&old_i) = hash_to_old.get(key)
+            && !claimed.contains(&old_i)
+        {
+            claimed.insert(old_i);
+            *slot = Some(entries[old_i].clone());
         }
     }
 

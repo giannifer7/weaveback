@@ -368,6 +368,9 @@ impl WeavebackDb {
 transaction.  `query_chunk_deps` returns everything a chunk directly references
 (forward edges); `query_reverse_deps` returns everything that directly
 references a chunk (backward edges — "what would break if I edit this?").
+`query_all_chunk_deps` returns every edge in the graph for DOT export.
+`query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
+lines to, enabling `weaveback impact` to report affected output files.
 
 [source,rust]
 ----
@@ -436,6 +439,39 @@ impl WeavebackDb {
         let rows = stmt.query_map(params![chunk_name], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return every `(from_chunk, to_chunk, src_file)` triple stored in the
+    /// graph, ordered by `from_chunk` then `to_chunk`.  Used by
+    /// `weaveback graph` to export the full DOT representation.
+    pub fn query_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT from_chunk, to_chunk, src_file FROM chunk_deps
+             ORDER BY from_chunk, to_chunk",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return the distinct output files that contain lines attributed to
+    /// `chunk_name`.  Used by `weaveback impact` to map terminal chunks to
+    /// the `gen/` files they affect.
+    pub fn query_chunk_output_files(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT out_file FROM noweb_map
+             WHERE chunk_name = ?1 ORDER BY out_file",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<_, _>>().map_err(DbError::Sql)
     }
 }

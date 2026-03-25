@@ -258,7 +258,8 @@ impl WeavebackDb {
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.
     /// Each tuple is `(from_chunk, to_chunk, src_file)`.
-    /// Uses `INSERT OR IGNORE` so repeated tangle runs are idempotent.
+    /// Deletes all existing edges for each source file in `deps` before
+    /// reinserting, so stale edges from renamed chunk references are removed.
     pub fn set_chunk_deps(
         &mut self,
         deps: &[(String, String, String)],
@@ -268,12 +269,23 @@ impl WeavebackDb {
         }
         let tx = self.conn.transaction()?;
         {
-            let mut stmt = tx.prepare_cached(
-                "INSERT OR IGNORE INTO chunk_deps (from_chunk, to_chunk, src_file)
+            // Collect unique source files and purge their old edges first.
+            let mut src_files: Vec<&str> = deps.iter().map(|(_, _, s)| s.as_str()).collect();
+            src_files.sort_unstable();
+            src_files.dedup();
+            let mut del = tx.prepare_cached(
+                "DELETE FROM chunk_deps WHERE src_file = ?1",
+            )?;
+            for sf in &src_files {
+                del.execute(params![sf])?;
+            }
+            // Reinsert fresh edges.
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO chunk_deps (from_chunk, to_chunk, src_file)
                  VALUES (?1, ?2, ?3)",
             )?;
             for (from, to, src) in deps {
-                stmt.execute(params![from, to, src])?;
+                ins.execute(params![from, to, src])?;
             }
         }
         tx.commit()?;
@@ -307,6 +319,39 @@ impl WeavebackDb {
         let rows = stmt.query_map(params![chunk_name], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return every `(from_chunk, to_chunk, src_file)` triple stored in the
+    /// graph, ordered by `from_chunk` then `to_chunk`.  Used by
+    /// `weaveback graph` to export the full DOT representation.
+    pub fn query_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT from_chunk, to_chunk, src_file FROM chunk_deps
+             ORDER BY from_chunk, to_chunk",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return the distinct output files that contain lines attributed to
+    /// `chunk_name`.  Used by `weaveback impact` to map terminal chunks to
+    /// the `gen/` files they affect.
+    pub fn query_chunk_output_files(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT out_file FROM noweb_map
+             WHERE chunk_name = ?1 ORDER BY out_file",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<_, _>>().map_err(DbError::Sql)
     }
 }
@@ -378,7 +423,8 @@ impl WeavebackDb {
                  INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
                  INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
                  INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
-                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;",
+                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
+                 INSERT OR REPLACE INTO target.chunk_deps    SELECT * FROM chunk_deps;",
             )?;
             self.conn.execute_batch("COMMIT;")?;
             Ok(())

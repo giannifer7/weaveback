@@ -60,6 +60,16 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Show every chunk and output file transitively affected if CHUNK changes
+    Impact {
+        chunk: String,
+    },
+    /// Export the chunk-dependency graph in DOT (Graphviz) format
+    Graph {
+        /// Restrict to the subgraph reachable from this chunk
+        #[arg(long)]
+        chunk: Option<String>,
+    },
 }
 
 #[derive(clap::Args, Debug)]
@@ -433,6 +443,12 @@ fn main() {
             };
             apply_back::run_apply_back(opts, &mut std::io::stdout()).map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
         }
+        Some(Commands::Impact { chunk }) => {
+            run_impact(chunk, cli.args.db)
+        }
+        Some(Commands::Graph { chunk }) => {
+            run_graph(chunk, cli.args.db)
+        }
         None => run(cli.args),
     };
 
@@ -466,6 +482,91 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
         Err(lookup::LookupError::Db(e)) => Err(Error::Noweb(WeavebackError::Db(e))),
         Err(lookup::LookupError::Io(e)) => Err(Error::Io(e)),
     }
+}
+
+/// Escape a chunk name for use as a DOT node identifier.
+fn dot_id(name: &str) -> String {
+    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn run_impact(chunk: String, db_path: PathBuf) -> Result<(), Error> {
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+
+    // BFS forward through chunk_deps to collect all transitively reachable chunks.
+    let mut reachable: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    seen.insert(chunk.clone());
+    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    queue.push_back(chunk.clone());
+    while let Some(current) = queue.pop_front() {
+        for (child, _src_file) in db.query_chunk_deps(&current)? {
+            if seen.insert(child.clone()) {
+                reachable.push(child.clone());
+                queue.push_back(child);
+            }
+        }
+    }
+
+    // Find affected output files across the root chunk and all reachable chunks.
+    let mut affected_files: HashSet<String> = HashSet::new();
+    for c in std::iter::once(&chunk).chain(reachable.iter()) {
+        for f in db.query_chunk_output_files(c)? {
+            affected_files.insert(f);
+        }
+    }
+    let mut affected_files: Vec<String> = affected_files.into_iter().collect();
+    affected_files.sort();
+
+    let json = serde_json::json!({
+        "chunk": chunk,
+        "reachable_chunks": reachable,
+        "affected_files": affected_files,
+    });
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    Ok(())
+}
+
+fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+
+    let edges: Vec<(String, String)> = if let Some(ref root) = chunk {
+        // BFS to collect only the edges in the subgraph reachable from root.
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        visited.insert(root.clone());
+        queue.push_back(root.clone());
+        let mut sub: Vec<(String, String)> = Vec::new();
+        while let Some(current) = queue.pop_front() {
+            for (child, _) in db.query_chunk_deps(&current)? {
+                sub.push((current.clone(), child.clone()));
+                if visited.insert(child.clone()) {
+                    queue.push_back(child);
+                }
+            }
+        }
+        sub
+    } else {
+        db.query_all_chunk_deps()?.into_iter().map(|(f, t, _)| (f, t)).collect()
+    };
+
+    println!("digraph chunk_deps {{");
+    for (from, to) in &edges {
+        println!("  {} -> {};", dot_id(from), dot_id(to));
+    }
+    println!("}}");
+    Ok(())
 }
 
 fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: weaveback_macro::evaluator::EvalConfig) -> Result<(), Error> {

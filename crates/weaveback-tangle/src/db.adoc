@@ -375,7 +375,8 @@ references a chunk (backward edges — "what would break if I edit this?").
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.
     /// Each tuple is `(from_chunk, to_chunk, src_file)`.
-    /// Uses `INSERT OR IGNORE` so repeated tangle runs are idempotent.
+    /// Deletes all existing edges for each source file in `deps` before
+    /// reinserting, so stale edges from renamed chunk references are removed.
     pub fn set_chunk_deps(
         &mut self,
         deps: &[(String, String, String)],
@@ -385,12 +386,23 @@ impl WeavebackDb {
         }
         let tx = self.conn.transaction()?;
         {
-            let mut stmt = tx.prepare_cached(
-                "INSERT OR IGNORE INTO chunk_deps (from_chunk, to_chunk, src_file)
+            // Collect unique source files and purge their old edges first.
+            let mut src_files: Vec<&str> = deps.iter().map(|(_, _, s)| s.as_str()).collect();
+            src_files.sort_unstable();
+            src_files.dedup();
+            let mut del = tx.prepare_cached(
+                "DELETE FROM chunk_deps WHERE src_file = ?1",
+            )?;
+            for sf in &src_files {
+                del.execute(params![sf])?;
+            }
+            // Reinsert fresh edges.
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO chunk_deps (from_chunk, to_chunk, src_file)
                  VALUES (?1, ?2, ?3)",
             )?;
             for (from, to, src) in deps {
-                stmt.execute(params![from, to, src])?;
+                ins.execute(params![from, to, src])?;
             }
         }
         tx.commit()?;
@@ -482,7 +494,7 @@ impl WeavebackDb {
 
 == merge_into
 
-`merge_into` copies all six tables from the in-memory database into the
+`merge_into` copies all seven tables from the in-memory database into the
 persistent file database in a single write transaction.  The target is created
 and WAL-initialized if it does not yet exist.
 
@@ -528,7 +540,8 @@ impl WeavebackDb {
                  INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
                  INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
                  INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
-                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;",
+                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
+                 INSERT OR REPLACE INTO target.chunk_deps    SELECT * FROM chunk_deps;",
             )?;
             self.conn.execute_batch("COMMIT;")?;
             Ok(())

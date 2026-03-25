@@ -348,7 +348,16 @@ impl SafeFileWriter {
             .and_then(|e| e.to_str())
             .unwrap_or("");
         if let Some(cmd) = self.config.formatters.get(ext).cloned() {
+            let pre_size = fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
             self.run_formatter(&cmd, &tmp_path)?;
+            if pre_size > 0 {
+                let post_size = fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
+                if post_size == 0 {
+                    return Err(SafeWriterError::FormatterError(format!(
+                        "formatter '{cmd}' produced an empty file (input was {pre_size} bytes)"
+                    )));
+                }
+            }
         }
 
         // Step 2: content-based modification detection.

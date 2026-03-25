@@ -182,9 +182,10 @@ byte-for-byte identical, keeping build-system timestamps stable and avoiding
 unnecessary recompilation.  It compares files incrementally in fixed-size
 chunks rather than loading them entirely into memory.
 
-`run_formatter` shells out to the configured formatter command, splitting the
-command string on whitespace and appending the temp-file path as a final
-argument.
+`run_formatter` shells out to the configured formatter command, using
+`shlex::split` to tokenise the command string so that quoted arguments and
+paths with spaces work correctly.  The temp-file path is appended as the
+final argument.
 
 [source,rust]
 ----
@@ -199,7 +200,6 @@ impl SafeFileWriter {
 
         if temp_path.exists() {
             let _ = fs::remove_file(&temp_path);
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         {
@@ -209,7 +209,6 @@ impl SafeFileWriter {
             temp_file.sync_all()?;
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
         fs::rename(temp_path, destination)?;
         Ok(())
     }
@@ -250,7 +249,6 @@ impl SafeFileWriter {
 
         if are_different {
             eprintln!("file {} changed", destination.display());
-            std::thread::sleep(std::time::Duration::from_millis(10));
             self.atomic_copy(source, destination)?;
         }
 
@@ -258,8 +256,17 @@ impl SafeFileWriter {
     }
 
     fn run_formatter(&self, command: &str, file: &Path) -> Result<(), SafeWriterError> {
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        let status = std::process::Command::new(parts[0])
+        let parts = shlex::split(command).ok_or_else(|| {
+            SafeWriterError::FormatterError(format!(
+                "could not parse formatter command: '{}'", command
+            ))
+        })?;
+        if parts.is_empty() {
+            return Err(SafeWriterError::FormatterError(
+                "formatter command is empty".to_string(),
+            ));
+        }
+        let status = std::process::Command::new(&parts[0])
             .args(&parts[1..])
             .arg(file)
             .status()
@@ -456,6 +463,7 @@ fn validate_filename(path: &Path) -> Result<(), SafeWriterError> {
 ----
 // <[@file weaveback-tangle/src/safe_writer.rs]>=
 use crate::db::{WeavebackDb, DbError};
+use shlex;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;

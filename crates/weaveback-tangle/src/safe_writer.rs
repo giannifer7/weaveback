@@ -1,4 +1,5 @@
 use crate::db::{WeavebackDb, DbError};
+use shlex;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
@@ -114,7 +115,6 @@ impl SafeFileWriter {
 
         if temp_path.exists() {
             let _ = fs::remove_file(&temp_path);
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         {
@@ -124,7 +124,6 @@ impl SafeFileWriter {
             temp_file.sync_all()?;
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
         fs::rename(temp_path, destination)?;
         Ok(())
     }
@@ -165,7 +164,6 @@ impl SafeFileWriter {
 
         if are_different {
             eprintln!("file {} changed", destination.display());
-            std::thread::sleep(std::time::Duration::from_millis(10));
             self.atomic_copy(source, destination)?;
         }
 
@@ -173,8 +171,17 @@ impl SafeFileWriter {
     }
 
     fn run_formatter(&self, command: &str, file: &Path) -> Result<(), SafeWriterError> {
-        let parts: Vec<&str> = command.split_whitespace().collect();
-        let status = std::process::Command::new(parts[0])
+        let parts = shlex::split(command).ok_or_else(|| {
+            SafeWriterError::FormatterError(format!(
+                "could not parse formatter command: '{}'", command
+            ))
+        })?;
+        if parts.is_empty() {
+            return Err(SafeWriterError::FormatterError(
+                "formatter command is empty".to_string(),
+            ));
+        }
+        let status = std::process::Command::new(&parts[0])
             .args(&parts[1..])
             .arg(file)
             .status()

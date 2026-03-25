@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS macro_defs (
     length     INTEGER NOT NULL,
     PRIMARY KEY (macro_name, src_file, pos)
 ) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_var_defs_name   ON var_defs(var_name);
+CREATE INDEX IF NOT EXISTS idx_macro_defs_name ON macro_defs(macro_name);
 ";
 #[derive(Debug)]
 pub enum DbError {
@@ -135,14 +138,14 @@ impl WeavebackDb {
 }
 impl WeavebackDb {
     pub fn set_noweb_entries(
-        &self,
+        &mut self,
         out_file: &str,
         entries: &[(u32, NowebMapEntry)],
     ) -> Result<(), DbError> {
         if entries.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR REPLACE INTO noweb_map
@@ -189,14 +192,14 @@ impl WeavebackDb {
 }
 impl WeavebackDb {
     pub fn set_macro_map_entries(
-        &self,
+        &mut self,
         driver_file: &str,
         entries: &[(u32, Vec<u8>)],
     ) -> Result<(), DbError> {
         if entries.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR REPLACE INTO macro_map (driver_file, expanded_line, data)
@@ -248,7 +251,7 @@ impl WeavebackDb {
             .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
 
         let result = self.conn.execute_batch(
-            "BEGIN;
+            "BEGIN IMMEDIATE;
              INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
              INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
              INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
@@ -467,9 +470,17 @@ struct Args {
     #[arg(long)]
     allow_home: bool,
 
+    /// Treat references to undefined chunks as fatal errors
+    #[arg(long)]
+    strict: bool,
+
     /// Show what would be written without writing anything
     #[arg(long)]
     dry_run: bool,
+
+    /// Path to the persistent source-map database
+    #[arg(long, default_value = "weaveback.db")]
+    db: PathBuf,
 
     /// Input files (use - for stdin)
     #[arg(required = true)]
@@ -520,6 +531,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         &comment_markers,
     );
 
+    clipper.set_strict_undefined(args.strict);
     clipper.read_files(&args.files)?;
 
     if args.dry_run {
@@ -543,7 +555,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         }
     }
 
-    clipper.finish(std::path::Path::new("weaveback.db"))?;
+    clipper.finish(&args.db)?;
 
     Ok(())
 }
@@ -567,7 +579,7 @@ use crate::db::NowebMapEntry;
 use crate::safe_writer::SafeWriterError;
 use crate::WeavebackError;
 use crate::SafeFileWriter;
-use log::{debug, warn};
+use log::debug;
 
 #[derive(Debug, Clone)]
 struct ChunkDef {
@@ -712,6 +724,9 @@ pub struct ChunkStore {
     slot_re: Regex,
     close_re: Regex,
     file_names: Vec<String>,
+    /// When `true`, referencing an undefined chunk is a fatal error.
+    /// Default `false`: undefined chunks expand to nothing.
+    pub strict_undefined: bool,
 }
 impl ChunkStore {
     pub fn new(
@@ -750,6 +765,7 @@ impl ChunkStore {
             slot_re: Regex::new(&slot_pattern).expect("Invalid slot pattern"),
             close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
             file_names: Vec::new(),
+            strict_undefined: false,
         }
     }
 
@@ -900,17 +916,18 @@ impl ChunkStore {
         }
 
         if !self.chunks.contains_key(chunk_name) {
-            let file_name = self
-                .file_names
-                .get(reference_location.file_idx)
-                .cloned()
-                .unwrap_or_default();
-            warn!(
-                "Undefined chunk '{}' referenced at {} line {}. Treating as empty.",
-                chunk_name,
-                file_name,
-                reference_location.line + 1
-            );
+            if self.strict_undefined {
+                let file_name = self
+                    .file_names
+                    .get(reference_location.file_idx)
+                    .cloned()
+                    .unwrap_or_default();
+                return Err(ChunkError::UndefinedChunk {
+                    chunk: chunk_name.to_string(),
+                    file_name,
+                    location: reference_location,
+                });
+            }
             return Ok(Vec::new());
         }
 
@@ -1200,6 +1217,12 @@ impl Clip {
         self.store.reset();
     }
 
+    /// Control whether referencing an undefined chunk is a fatal error (`true`)
+    /// or silently expands to nothing (`false`, the default).
+    pub fn set_strict_undefined(&mut self, strict: bool) {
+        self.store.strict_undefined = strict;
+    }
+
     pub fn has_chunk(&self, name: &str) -> bool {
         self.store.has_chunk(name)
     }
@@ -1294,7 +1317,7 @@ impl Clip {
             };
 
             self.writer
-                .db()
+                .db_mut()
                 .set_noweb_entries(out_file, &keyed)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }
@@ -1607,6 +1630,10 @@ impl SafeFileWriter {
 
     pub fn db(&self) -> &WeavebackDb {
         &self.db
+    }
+
+    pub fn db_mut(&mut self) -> &mut WeavebackDb {
+        &mut self.db
     }
 
     pub fn finish(self, target: &Path) -> Result<(), SafeWriterError> {

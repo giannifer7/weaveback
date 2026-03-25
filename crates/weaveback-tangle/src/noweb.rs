@@ -153,9 +153,13 @@ pub struct ChunkStore {
     slot_re: Regex,
     close_re: Regex,
     file_names: Vec<String>,
-    /// When `true`, referencing an undefined chunk is a fatal error.
-    /// Default `false`: undefined chunks expand to nothing.
+    /// When `true`, referencing an undefined chunk is a fatal error
+    /// and `@file` redefinition without `@replace` is also a fatal error.
+    /// Default `false`: undefined chunks expand to nothing; redefinitions warn.
     pub strict_undefined: bool,
+    /// Errors accumulated during `read()` that are promoted to hard errors
+    /// when `strict_undefined` is `true`.  Checked by `Clip::write_files`.
+    pub parse_errors: Vec<ChunkError>,
 }
 impl ChunkStore {
     pub fn new(
@@ -195,6 +199,7 @@ impl ChunkStore {
             close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
             file_names: Vec::new(),
             strict_undefined: false,
+            parse_errors: Vec::new(),
         }
     }
 
@@ -239,19 +244,20 @@ impl ChunkStore {
                     if full_name.starts_with("@file ") {
                         if self.chunks.contains_key(&full_name) && !is_replace {
                             let location = ChunkLocation { file_idx, line: line_no };
-                            // Report and skip: silently dropping both definitions would hide the mistake.
-                            eprintln!(
-                                "{}",
-                                ChunkError::FileChunkRedefinition {
-                                    file_chunk: full_name.clone(),
-                                    file_name: self
-                                        .file_names
-                                        .get(file_idx)
-                                        .cloned()
-                                        .unwrap_or_default(),
-                                    location,
-                                }
-                            );
+                            let err = ChunkError::FileChunkRedefinition {
+                                file_chunk: full_name.clone(),
+                                file_name: self
+                                    .file_names
+                                    .get(file_idx)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                location,
+                            };
+                            if self.strict_undefined {
+                                self.parse_errors.push(err);
+                            } else {
+                                eprintln!("{}", err);
+                            }
                             continue;
                         }
                         if is_replace {
@@ -713,6 +719,13 @@ impl Clip {
 }
 impl Clip {
     pub fn write_files(&mut self) -> Result<(), WeavebackError> {
+        // In strict mode, promote any parse-time errors (e.g. @file redefinition)
+        // to hard errors before writing anything.
+        if self.store.strict_undefined && !self.store.parse_errors.is_empty() {
+            return Err(WeavebackError::Chunk(
+                self.store.parse_errors.remove(0),
+            ));
+        }
         let fc = self.store.get_file_chunks().to_vec();
         let mut all_referenced = HashSet::new();
         for name in &fc {

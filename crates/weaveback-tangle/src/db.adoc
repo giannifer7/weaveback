@@ -169,6 +169,7 @@ impl WeavebackDb {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         apply_schema(&conn)?;
         Ok(Self { conn })
     }
@@ -176,13 +177,14 @@ impl WeavebackDb {
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let conn = Connection::open_with_flags(
             path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
         )?;
         Ok(Self { conn })
     }
 
     pub fn open_temp() -> Result<Self, DbError> {
         let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         apply_schema(&conn)?;
         Ok(Self { conn })
     }
@@ -352,6 +354,12 @@ impl WeavebackDb {
 persistent file database in a single write transaction.  The target is created
 and WAL-initialized if it does not yet exist.
 
+The `BEGIN IMMEDIATE`, inserts, and `COMMIT` are issued as three separate
+`execute_batch` calls so that an explicit `ROLLBACK` can be sent on any
+failure, rather than relying on SQLite's implicit rollback at
+connection-close.  `DETACH` always runs, even on error, to avoid leaking
+the attachment.
+
 SQLite's `ATTACH DATABASE` does not support parameterized paths, so the path
 is string-interpolated.  The `sqlite_string_literal` helper encapsulates
 single-quote escaping to prevent injection.
@@ -380,17 +388,23 @@ impl WeavebackDb {
         self.conn
             .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
 
-        let result = self.conn.execute_batch(
-            "BEGIN IMMEDIATE;
-             INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
-             INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
-             INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
-             INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
-             INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
-             INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
-             COMMIT;",
-        );
+        let result = (|| -> rusqlite::Result<()> {
+            self.conn.execute_batch("BEGIN IMMEDIATE;")?;
+            self.conn.execute_batch(
+                "INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
+                 INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
+                 INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
+                 INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
+                 INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
+                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;",
+            )?;
+            self.conn.execute_batch("COMMIT;")?;
+            Ok(())
+        })();
 
+        if result.is_err() {
+            let _ = self.conn.execute_batch("ROLLBACK;");
+        }
         // Always detach, even on error.
         let _ = self.conn.execute_batch("DETACH DATABASE target");
         result?;

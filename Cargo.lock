@@ -1701,6 +1701,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde",
+ "shlex",
  "similar",
  "tempfile",
 ]

@@ -4,7 +4,7 @@ use std::path::Path;
 use regex::Regex;
 use std::sync::OnceLock;
 
-use crate::xref::{html_path_for_key, XrefEntry};
+use crate::xref::{html_path_for_key, XrefEntry, XrefLink};
 
 // ── .adoc → .html link rewriting ─────────────────────────────────────────────
 
@@ -43,10 +43,13 @@ pub fn rewrite_adoc_links(out_dir: &Path) {
 /// page that has a corresponding xref entry.
 /// `existing_html` is the set of HTML paths (relative to `out_dir`, `/`-separated)
 /// that were actually rendered; links to absent pages are filtered out.
+/// `adoc_map` maps adoc-derived HTML paths to their module keys (for pages
+/// where the `.adoc` filename differs from the generated `.rs` filename).
 pub fn inject_xref(
     out_dir: &Path,
     xref: &HashMap<String, XrefEntry>,
     existing_html: &HashSet<String>,
+    adoc_map: &HashMap<String, Vec<String>>,
 ) {
     // Build a reverse map: html relative path (normalized with /) → key
     let mut html_to_key: HashMap<String, &str> = HashMap::new();
@@ -61,7 +64,7 @@ pub fn inject_xref(
         .map(|e| e.into_path())
         .collect();
 
-    for html_file in html_files {
+    for html_file in &html_files {
         let rel = html_file
             .strip_prefix(out_dir)
             .ok()
@@ -72,7 +75,47 @@ pub fn inject_xref(
             continue;
         };
         let Some(entry) = xref.get(key) else { continue };
-        do_inject(&html_file, entry, existing_html);
+        do_inject(html_file, entry, existing_html);
+    }
+
+    // Second pass: adoc-derived pages where the .adoc filename differs from the
+    // generated .rs filename (e.g. cli.adoc → weaveback-macro.rs).
+    for (adoc_html, keys) in adoc_map {
+        if !existing_html.contains(adoc_html) {
+            continue;
+        }
+        // Skip if first pass already injected xref (unlikely but safe)
+        if html_to_key.contains_key(adoc_html) {
+            continue;
+        }
+        let entries: Vec<&XrefEntry> = keys.iter().filter_map(|k| xref.get(k.as_str())).collect();
+        if entries.is_empty() {
+            continue;
+        }
+        let merged = merge_xref_entries(adoc_html, &entries);
+        let html_file = out_dir.join(std::path::Path::new(adoc_html));
+        do_inject(&html_file, &merged, existing_html);
+    }
+}
+
+fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
+    let mut imports: Vec<XrefLink> = entries.iter().flat_map(|e| e.imports.iter().cloned()).collect();
+    imports.sort_by(|a, b| a.key.cmp(&b.key));
+    imports.dedup_by(|a, b| a.key == b.key);
+
+    let mut imported_by: Vec<XrefLink> = entries.iter().flat_map(|e| e.imported_by.iter().cloned()).collect();
+    imported_by.sort_by(|a, b| a.key.cmp(&b.key));
+    imported_by.dedup_by(|a, b| a.key == b.key);
+
+    let mut symbols: Vec<String> = entries.iter().flat_map(|e| e.symbols.iter().cloned()).collect();
+    symbols.sort();
+    symbols.dedup();
+
+    XrefEntry {
+        html: html.to_string(),
+        imports,
+        imported_by,
+        symbols,
     }
 }
 

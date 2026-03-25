@@ -37,8 +37,10 @@ fn main() {
 
     // 2. Build Rust xref graph from crates/**/*.rs
     println!("xref: analysing crates...");
+    let crates_dir = root.join("crates");
     let xref = xref::build_xref(&root);
-    println!("xref: {} modules indexed", xref.len());
+    let adoc_map = xref::scan_adoc_file_declarations(&root, &crates_dir);
+    println!("xref: {} modules indexed, {} adoc overrides", xref.len(), adoc_map.len());
 
     // 3. Write xref.json alongside the HTML output
     let xref_json_path = out_dir.join("xref.json");
@@ -57,7 +59,7 @@ fn main() {
     inject::rewrite_adoc_links(&out_dir);
 
     // 5. Inject per-page window.__xref into HTML files that have a matching entry
-    inject::inject_xref(&out_dir, &xref, &existing_html);
+    inject::inject_xref(&out_dir, &xref, &existing_html, &adoc_map);
 
     // 6. Generate literate source index and link it from README.html
     literate_index::generate_and_inject(&out_dir);

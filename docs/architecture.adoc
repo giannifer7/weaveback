@@ -16,7 +16,7 @@ Literate source (.md / .adoc / …)
         ▼
   weaveback-tangle           extracts <[chunk]> references, assembles them,
         │               optionally runs a formatter (e.g. rustfmt)
-        ▼
+        ▼                 → link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map]
   gen/ (output files)   written only when content changes
 ....
 
@@ -43,7 +43,8 @@ project/
 `weaveback.db` is a SQLite database (WAL mode) written by the tool after each
 run. It stores the modification baseline for every generated file (for
 external-edit detection), source maps for tracing, and snapshots of the
-literate sources.
+literate sources.  The schema and API are documented in
+link:../crates/weaveback-tangle/src/db.adoc[db.adoc].
 
 Because the database uses WAL mode, concurrent builds (`ninja -j4`) and a
 running MCP server never contend: readers never block writers and writers
@@ -63,16 +64,19 @@ Commit `gen/` to version control; add `weaveback.db` to `.gitignore`.
 
 == Content-based writes
 
-`weaveback-tangle` compares the freshly generated content against what is already
-in `gen/` before writing. If they are identical the file is left untouched,
-keeping build-system timestamps stable and avoiding unnecessary recompilation.
+link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter`] compares
+the freshly generated content against what is already in `gen/` before writing.
+If they are identical the file is left untouched, keeping build-system
+timestamps stable and avoiding unnecessary recompilation.
 
 == What happens when you edit a generated file
 
-Weaveback protects generated files from accidental overwriting. After each
-successful run it stores the bytes of every file it wrote as a baseline in
-`weaveback.db` (the `gen_baselines` table). On the next run, before writing, it
-compares the current `gen/` file against that baseline:
+link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter`] protects
+generated files from accidental overwriting.  After each successful run it stores
+the bytes of every file it wrote as a baseline in `weaveback.db` (the
+link:../crates/weaveback-tangle/src/db.adoc#_gen_baselines[`gen_baselines`]
+table). On the next run, before writing, it compares the current `gen/` file
+against that baseline:
 
 * *File unchanged since last run* — weaveback overwrites it with the new
   content as usual.
@@ -89,8 +93,10 @@ no conflict can arise.
 
 == Propagating gen/ edits back to the source (`apply-back`)
 
-`weaveback apply-back` is the batch inverse of `weaveback`: it reads the diff between
-modified `gen/` files and their stored baselines, uses `noweb_map` to trace
+`weaveback apply-back` is the batch inverse of `weaveback`: it reads the diff
+between modified `gen/` files and their stored baselines, uses
+link:../crates/weaveback-tangle/src/db.adoc#_noweb_map[`noweb_map`] (populated
+by link:../crates/weaveback-tangle/src/noweb.adoc[`Clip::write_files`]) to trace
 each changed output line back to the literate source chunk and line that
 produced it, and patches the literate source in place.
 
@@ -324,7 +330,9 @@ file is also declared as an output.
 == Formatter hooks
 
 `--formatter EXT=COMMAND` runs a formatter on each generated file with the
-matching extension before it is compared and written. Example:
+matching extension before it is compared and written
+(implemented in link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter::run_formatter`]).
+Example:
 
 [source,bash]
 ----

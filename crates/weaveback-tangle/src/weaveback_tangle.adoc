@@ -21,14 +21,56 @@ The crate exports five public types:
 `WeavebackError` is the unified error type wrapping the three sub-errors
 produced by the crate's internal modules.
 
+== Module map
+
+The crate has four modules arranged in a chain:
+
+....
+CLI / Clip  (cli.adoc, noweb.adoc)
+  └─▶ ChunkStore  parse chunk syntax; expand references recursively
+  └─▶ ChunkWriter route @file output ─▶ SafeFileWriter or direct fs
+         │
+         ▼
+  SafeFileWriter  (safe_writer.adoc)
+      NamedTempFile staging, formatter, atomic copy, baseline check
+         │
+         ▼
+  WeavebackDb  (db.adoc)
+      gen_baselines · noweb_map · src_snapshots · var/macro_defs
+....
+
+[cols="1,3",options="header"]
+|===
+| Module | Role
+
+| link:cli.adoc[main.rs]
+| CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge
+
+| link:noweb.adoc[noweb.rs]
+| Parse chunk definitions, expand recursively, write via `ChunkWriter`,
+  populate `noweb_map`
+
+| link:safe_writer.adoc[safe_writer.rs]
+| Atomic writes, content-based diffs, formatter hooks, modification detection
+
+| link:db.adoc[db.rs]
+| SQLite persistence: baselines, source maps, snapshots, definition spans
+
+| link:tests/tests.adoc[tests/]
+| Integration tests for all four modules
+|===
+
+See link:../../../docs/architecture.adoc[architecture.adoc] for the full
+pipeline context, including apply-back and the MCP server.
+
 == Error hierarchy
 
 [source]
 ----
 WeavebackError
-├── Chunk(ChunkError)        ← from noweb.rs — parse/expand errors
-├── SafeWriter(SafeWriterError)  ← from safe_writer.rs — I/O, security, formatter
-└── Db(DbError)              ← from db.rs — SQLite errors
+├── Chunk(ChunkError)        ← link:noweb.adoc[noweb.rs] — parse/expand errors
+├── SafeWriter(SafeWriterError)  ← link:safe_writer.adoc[safe_writer.rs] — I/O, security, formatter
+└── Db(DbError)              ← link:db.adoc[db.rs] — SQLite errors
 ----
 
 `std::io::Error` converts to `WeavebackError::SafeWriter(SafeWriterError::IoError(_))`

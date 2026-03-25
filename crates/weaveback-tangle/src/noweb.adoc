@@ -4,8 +4,15 @@
 
 `noweb.rs` is the heart of `weaveback-tangle`.
 Three types work together: `ChunkStore` reads and expands chunk definitions;
-`ChunkWriter` writes `@file` chunks to disk through the safe writer; `Clip` is
-the top-level façade that glues them together and exposes the public API.
+`ChunkWriter` writes `@file` chunks to disk through
+link:safe_writer.adoc[`SafeFileWriter`]; `Clip` is the top-level façade that
+glues them together and exposes the public API.
+
+Source-map and baseline data produced here is persisted by
+link:db.adoc[`WeavebackDb`].  The CLI entry point that drives `Clip` is in
+link:cli.adoc[main.rs].  See link:weaveback_tangle.adoc[weaveback_tangle.adoc]
+for the module map and link:../../../docs/architecture.adoc[architecture.adoc]
+for the pipeline overview.
 
 == Chunk syntax
 

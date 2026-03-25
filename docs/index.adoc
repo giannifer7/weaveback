@@ -85,6 +85,10 @@ weaveback-tangle expanded.adoc --gen src/
 
 == weaveback-tangle literate sources
 
+Start with link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback_tangle.adoc]
+for the module map and error hierarchy, then follow the dependency order:
+`noweb` → `safe_writer` → `db`.  The CLI `main.rs` is the thin shell around `Clip`.
+
 .weaveback-tangle adoc files
 [cols="2,3",options="header"]
 |===

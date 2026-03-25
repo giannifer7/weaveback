@@ -3,9 +3,14 @@
 :source-highlighter: rouge
 
 `main.rs` is the entry point for the `weaveback-tangle` binary.  It parses
-command-line arguments with `clap`, builds a `Clip`, reads the input files,
-writes all `@file` chunks to disk, and merges the run's database into
-`weaveback.db`.
+command-line arguments with `clap`, builds a
+link:noweb.adoc[`Clip`], reads the input files, writes all `@file` chunks to
+disk via link:safe_writer.adoc[`SafeFileWriter`], and merges the run's database
+into `weaveback.db`.
+
+See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map and
+link:../../../docs/architecture.adoc[architecture.adoc] for the pipeline
+overview.
 
 == Arguments
 

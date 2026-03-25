@@ -226,6 +226,11 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+/// Escape a string for use inside a SQLite single-quoted string literal.
+fn sqlite_string_literal(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 impl WeavebackDb {
     pub fn merge_into(&self, target_path: &Path) -> Result<(), DbError> {
         {
@@ -238,9 +243,7 @@ impl WeavebackDb {
 
         self.conn.busy_timeout(std::time::Duration::from_millis(200))?;
         let target_str = target_path.to_string_lossy();
-        // Using string interpolation for ATTACH — parameterised ATTACH is not
-        // supported by SQLite; single-quotes in the path are escaped.
-        let escaped = target_str.replace('\'', "''");
+        let escaped = sqlite_string_literal(&target_str);
         self.conn
             .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
 
@@ -555,7 +558,6 @@ fn main() {
     }
 }
 use regex::Regex;
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
@@ -600,6 +602,7 @@ pub enum ChunkError {
     },
     RecursiveReference {
         chunk: String,
+        cycle: Vec<String>,
         file_name: String,
         location: ChunkLocation,
     },
@@ -624,11 +627,14 @@ impl std::fmt::Display for ChunkError {
                 "Error: {} line {}: maximum recursion depth exceeded while expanding chunk '{}'",
                 file_name, location.line + 1, chunk
             ),
-            ChunkError::RecursiveReference { chunk, file_name, location } => write!(
-                f,
-                "Error: {} line {}: recursive reference detected in chunk '{}'",
-                file_name, location.line + 1, chunk
-            ),
+            ChunkError::RecursiveReference { chunk, cycle, file_name, location } => {
+                let trace = cycle.join(" -> ");
+                write!(
+                    f,
+                    "Error: {} line {}: recursive reference detected in chunk '{}' (cycle: {})",
+                    file_name, location.line + 1, chunk, trace
+                )
+            }
             ChunkError::UndefinedChunk { chunk, file_name, location } => write!(
                 f,
                 "Error: {} line {}: referenced chunk '{}' is undefined",
@@ -660,14 +666,12 @@ impl From<WeavebackError> for ChunkError {
 #[derive(Debug)]
 struct NamedChunk {
     definitions: Vec<ChunkDef>,
-    references: Cell<usize>,
 }
 
 impl NamedChunk {
     fn new() -> Self {
         Self {
             definitions: Vec::new(),
-            references: Cell::new(0),
         }
     }
 }
@@ -726,7 +730,7 @@ impl ChunkStore {
             .join("|");
 
         let open_pattern = format!(
-            r"^(\s*)(?:{})?[ \t]*{}(?:@replace[ \t]+)?(?:@file[ \t]+)?(.+?){}=",
+            r"^(?P<indent>\s*)(?:{})?[ \t]*{}(?P<replace>@replace[ \t]+)?(?P<file>@file[ \t]+)?(?P<name>.+?){}=",
             escaped_comments, od, cd
         );
         let slot_pattern = format!(
@@ -771,15 +775,15 @@ impl ChunkStore {
 
         for (line_no, line) in text.lines().enumerate() {
             if let Some(caps) = self.open_re.captures(line) {
-                let indentation = caps.get(1).map_or("", |m| m.as_str());
-                let base_name = caps.get(2).map_or("", |m| m.as_str()).to_string();
+                let indentation = caps.name("indent").map_or("", |m| m.as_str());
+                let base_name = caps.name("name").map_or("", |m| m.as_str()).to_string();
                 debug!(
                     "Found open pattern: indentation='{}', base_name='{}'",
                     indentation, base_name
                 );
 
-                let is_replace = line.contains("@replace");
-                let is_file = line.contains("@file");
+                let is_replace = caps.name("replace").is_some();
+                let is_file = caps.name("file").is_some();
                 let full_name = if is_file {
                     format!("@file {}", base_name)
                 } else {
@@ -854,30 +858,14 @@ impl ChunkStore {
     }
 }
 impl ChunkStore {
-    fn inc_references(&self, chunk_name: &str, location: &ChunkLocation) -> Result<(), ChunkError> {
-        if let Some(chunk) = self.chunks.get(chunk_name) {
-            chunk.references.set(chunk.references.get() + 1);
-            Ok(())
-        } else {
-            let file_name = self
-                .file_names
-                .get(location.file_idx)
-                .cloned()
-                .unwrap_or_default();
-            Err(ChunkError::UndefinedChunk {
-                chunk: chunk_name.to_string(),
-                file_name,
-                location: location.clone(),
-            })
-        }
-    }
-
     fn expand_inner(
         &self,
         chunk_name: &str,
         target_indent: &str,
         depth: usize,
         seen: &mut HashSet<String>,
+        stack: &mut Vec<String>,
+        referenced_chunks: &mut HashSet<String>,
         reference_location: ChunkLocation,
         reversed_mode: bool,
     ) -> Result<Vec<(String, NowebMapEntry)>, ChunkError> {
@@ -901,8 +889,11 @@ impl ChunkStore {
                 .get(reference_location.file_idx)
                 .cloned()
                 .unwrap_or_default();
+            let mut cycle = stack.clone();
+            cycle.push(chunk_name.to_string());
             return Err(ChunkError::RecursiveReference {
                 chunk: chunk_name.to_string(),
+                cycle,
                 file_name,
                 location: reference_location,
             });
@@ -923,7 +914,7 @@ impl ChunkStore {
             return Ok(Vec::new());
         }
 
-        self.inc_references(chunk_name, &reference_location)?;
+        referenced_chunks.insert(chunk_name.to_string());
 
         let chunk = self.chunks.get(chunk_name)
             .expect("internal invariant: chunk exists after contains_key check");
@@ -937,6 +928,7 @@ impl ChunkStore {
         };
 
         seen.insert(chunk_name.to_string());
+        stack.push(chunk_name.to_string());
         let mut result = Vec::new();
 
         for def_idx in indices {
@@ -974,6 +966,8 @@ impl ChunkStore {
                         &new_indent,
                         depth + 1,
                         seen,
+                        stack,
+                        referenced_chunks,
                         new_loc,
                         line_is_reversed,
                     )?;
@@ -1000,6 +994,7 @@ impl ChunkStore {
             }
         }
 
+        stack.pop();
         seen.remove(chunk_name);
         Ok(result)
     }
@@ -1008,16 +1003,21 @@ impl ChunkStore {
         &self,
         chunk_name: &str,
         indent: &str,
-    ) -> Result<(Vec<String>, Vec<NowebMapEntry>), ChunkError> {
+    ) -> Result<(Vec<String>, Vec<NowebMapEntry>, HashSet<String>), ChunkError> {
         let mut seen = HashSet::new();
+        let mut stack = Vec::new();
+        let mut referenced_chunks = HashSet::new();
         let loc = ChunkLocation { file_idx: 0, line: 0 };
-        let pairs = self.expand_inner(chunk_name, indent, 0, &mut seen, loc, false)?;
+        let pairs = self.expand_inner(
+            chunk_name, indent, 0, &mut seen, &mut stack,
+            &mut referenced_chunks, loc, false,
+        )?;
         let (lines, entries) = pairs.into_iter().unzip();
-        Ok((lines, entries))
+        Ok((lines, entries, referenced_chunks))
     }
 
     pub fn expand(&self, chunk_name: &str, indent: &str) -> Result<Vec<String>, ChunkError> {
-        let (lines, _) = self.expand_with_map(chunk_name, indent)?;
+        let (lines, _, _) = self.expand_with_map(chunk_name, indent)?;
         Ok(lines)
     }
 
@@ -1040,10 +1040,10 @@ impl ChunkStore {
         self.file_names.clear();
     }
 
-    pub fn check_unused_chunks(&self) -> Vec<String> {
+    pub fn check_unused_chunks(&self, referenced: &HashSet<String>) -> Vec<String> {
         let mut warns = Vec::new();
         for (name, chunk) in &self.chunks {
-            if !name.starts_with("@file ") && chunk.references.get() == 0
+            if !name.starts_with("@file ") && !referenced.contains(name)
                 && let Some(first_def) = chunk.definitions.first()
             {
                 let fname = self
@@ -1111,6 +1111,72 @@ impl<'a> ChunkWriter<'a> {
         Ok(())
     }
 }
+fn remap_noweb_entries(
+    pre_lines: &[String],
+    post_content: &str,
+    entries: Vec<NowebMapEntry>,
+) -> Vec<(u32, NowebMapEntry)> {
+    use similar::{ChangeTag, TextDiff};
+
+    let pre_content: String = pre_lines.concat();
+    let diff = TextDiff::from_lines(pre_content.as_str(), post_content);
+
+    // Build old_line → new_line mapping from Equal changes.
+    // old_line and new_line are 0-indexed.
+    let mut old_to_new: Vec<Option<usize>> = vec![None; pre_lines.len()];
+    let mut old_idx = 0usize;
+    let mut new_idx = 0usize;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Equal => {
+                if old_idx < old_to_new.len() {
+                    old_to_new[old_idx] = Some(new_idx);
+                }
+                old_idx += 1;
+                new_idx += 1;
+            }
+            ChangeTag::Delete => {
+                // Pre-formatter line removed by formatter — no new line.
+                old_idx += 1;
+            }
+            ChangeTag::Insert => {
+                // Formatter inserted a new line — no old line.
+                new_idx += 1;
+            }
+        }
+    }
+
+    // Build the post-formatter entries.
+    // For each new line, find the nearest old line that maps to it.
+    let post_line_count = post_content.lines().count();
+    let mut new_to_entry: Vec<Option<NowebMapEntry>> = vec![None; post_line_count];
+
+    for (old_i, entry) in entries.into_iter().enumerate() {
+        if let Some(&Some(new_i)) = old_to_new.get(old_i) {
+            if new_i < post_line_count {
+                new_to_entry[new_i] = Some(entry);
+            }
+        }
+    }
+
+    // Fill gaps: lines inserted by the formatter inherit from
+    // the nearest preceding mapped line.
+    let mut last_entry: Option<NowebMapEntry> = None;
+    for slot in new_to_entry.iter_mut() {
+        if slot.is_some() {
+            last_entry = slot.clone();
+        } else if let Some(ref prev) = last_entry {
+            *slot = Some(prev.clone());
+        }
+    }
+
+    new_to_entry
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, e)| e.map(|entry| (i as u32, entry)))
+        .collect()
+}
 pub struct Clip {
     store: ChunkStore,
     writer: SafeFileWriter,
@@ -1142,8 +1208,8 @@ impl Clip {
         self.store.get_file_chunks().to_vec()
     }
 
-    pub fn check_unused_chunks(&self) -> Vec<String> {
-        self.store.check_unused_chunks()
+    pub fn check_unused_chunks(&self, referenced: &HashSet<String>) -> Vec<String> {
+        self.store.check_unused_chunks(referenced)
     }
 
     pub fn read_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), WeavebackError> {
@@ -1196,24 +1262,43 @@ impl Clip {
 impl Clip {
     pub fn write_files(&mut self) -> Result<(), WeavebackError> {
         let fc = self.store.get_file_chunks().to_vec();
+        let mut all_referenced = HashSet::new();
         for name in &fc {
-            let (lines, map_entries) = self.store.expand_with_map(name, "")?;
+            let (lines, map_entries, referenced) = self.store.expand_with_map(name, "")?;
+            all_referenced.extend(referenced);
 
             let mut cw = ChunkWriter::new(&mut self.writer);
             cw.write_chunk(name, &lines)?;
 
             let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
-            let keyed: Vec<(u32, NowebMapEntry)> = map_entries
-                .into_iter()
-                .enumerate()
-                .map(|(i, e)| (i as u32, e))
-                .collect();
+
+            // After formatting, re-key map entries to post-formatter lines.
+            let expanded = expand_tilde(out_file);
+            let out_path = if std::path::Path::new(&expanded).is_absolute() {
+                std::path::PathBuf::from(&expanded)
+            } else {
+                self.writer.get_gen_base().join(out_file)
+            };
+            let keyed = if out_path.is_file() {
+                let formatted = fs::read_to_string(&out_path)?;
+                let pre_content: String = lines.concat();
+                if formatted != pre_content {
+                    remap_noweb_entries(&lines, &formatted, map_entries)
+                } else {
+                    map_entries.into_iter().enumerate()
+                        .map(|(i, e)| (i as u32, e)).collect()
+                }
+            } else {
+                map_entries.into_iter().enumerate()
+                    .map(|(i, e)| (i as u32, e)).collect()
+            };
+
             self.writer
                 .db()
                 .set_noweb_entries(out_file, &keyed)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }
-        let warns = self.store.check_unused_chunks();
+        let warns = self.store.check_unused_chunks(&all_referenced);
         for w in warns {
             eprintln!("{}", w);
         }
@@ -1397,13 +1482,18 @@ impl SafeFileWriter {
             let mut dest_file =
                 BufReader::with_capacity(self.config.buffer_size, File::open(destination)?);
 
-            let mut source_content = Vec::new();
-            let mut dest_content = Vec::new();
-
-            source_file.read_to_end(&mut source_content)?;
-            dest_file.read_to_end(&mut dest_content)?;
-
-            source_content != dest_content
+            let mut src_buf = vec![0u8; self.config.buffer_size];
+            let mut dst_buf = vec![0u8; self.config.buffer_size];
+            loop {
+                let src_n = source_file.read(&mut src_buf)?;
+                let dst_n = dest_file.read(&mut dst_buf)?;
+                if src_n != dst_n || src_buf[..src_n] != dst_buf[..dst_n] {
+                    break true;
+                }
+                if src_n == 0 {
+                    break false;
+                }
+            }
         };
 
         if are_different {

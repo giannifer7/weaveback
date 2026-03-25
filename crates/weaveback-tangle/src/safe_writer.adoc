@@ -385,6 +385,10 @@ impl SafeFileWriter {
         &self.db
     }
 
+    pub fn db_mut(&mut self) -> &mut WeavebackDb {
+        &mut self.db
+    }
+
     pub fn finish(self, target: &Path) -> Result<(), SafeWriterError> {
         self.db.merge_into(target).map_err(SafeWriterError::DbError)?;
         Ok(())

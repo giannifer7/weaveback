@@ -366,7 +366,7 @@ fn test_file_chunk_detection() {
 }
 
 #[test]
-fn test_undefined_chunk_is_empty() {
+fn test_undefined_chunk_is_error() {
     let mut setup = TestSetup::new(&["#"]);
     setup.clip.read(
         r#"
@@ -378,10 +378,12 @@ fn test_undefined_chunk_is_empty() {
     );
 
     let result = setup.clip.expand("main", "");
-    // Undefined chunk should be treated as empty, so result is Ok(vec![])
-    assert!(result.is_ok());
-    let content = result.unwrap();
-    assert!(content.is_empty());
+    assert!(result.is_err(), "referencing an undefined chunk must be an error");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, WeavebackError::Chunk(ChunkError::UndefinedChunk { ref chunk, .. }) if chunk == "nonexistent"),
+        "expected UndefinedChunk error, got: {err}",
+    );
 }
 
 #[test]

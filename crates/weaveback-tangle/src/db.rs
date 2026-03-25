@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS macro_defs (
     length     INTEGER NOT NULL,
     PRIMARY KEY (macro_name, src_file, pos)
 ) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_var_defs_name   ON var_defs(var_name);
+CREATE INDEX IF NOT EXISTS idx_macro_defs_name ON macro_defs(macro_name);
 ";
 #[derive(Debug)]
 pub enum DbError {
@@ -135,14 +138,14 @@ impl WeavebackDb {
 }
 impl WeavebackDb {
     pub fn set_noweb_entries(
-        &self,
+        &mut self,
         out_file: &str,
         entries: &[(u32, NowebMapEntry)],
     ) -> Result<(), DbError> {
         if entries.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR REPLACE INTO noweb_map
@@ -189,14 +192,14 @@ impl WeavebackDb {
 }
 impl WeavebackDb {
     pub fn set_macro_map_entries(
-        &self,
+        &mut self,
         driver_file: &str,
         entries: &[(u32, Vec<u8>)],
     ) -> Result<(), DbError> {
         if entries.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR REPLACE INTO macro_map (driver_file, expanded_line, data)
@@ -248,7 +251,7 @@ impl WeavebackDb {
             .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
 
         let result = self.conn.execute_batch(
-            "BEGIN;
+            "BEGIN IMMEDIATE;
              INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
              INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
              INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;

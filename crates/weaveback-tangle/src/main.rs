@@ -53,6 +53,10 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
+    /// Path to the persistent source-map database
+    #[arg(long, default_value = "weaveback.db")]
+    db: PathBuf,
+
     /// Input files (use - for stdin)
     #[arg(required = true)]
     files: Vec<PathBuf>,
@@ -125,7 +129,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         }
     }
 
-    clipper.finish(std::path::Path::new("weaveback.db"))?;
+    clipper.finish(&args.db)?;
 
     Ok(())
 }

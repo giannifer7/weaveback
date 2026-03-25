@@ -8,7 +8,7 @@ use crate::db::NowebMapEntry;
 use crate::safe_writer::SafeWriterError;
 use crate::WeavebackError;
 use crate::SafeFileWriter;
-use log::{debug, warn};
+use log::debug;
 
 #[derive(Debug, Clone)]
 struct ChunkDef {
@@ -346,13 +346,11 @@ impl ChunkStore {
                 .get(reference_location.file_idx)
                 .cloned()
                 .unwrap_or_default();
-            warn!(
-                "Undefined chunk '{}' referenced at {} line {}. Treating as empty.",
-                chunk_name,
+            return Err(ChunkError::UndefinedChunk {
+                chunk: chunk_name.to_string(),
                 file_name,
-                reference_location.line + 1
-            );
-            return Ok(Vec::new());
+                location: reference_location,
+            });
         }
 
         referenced_chunks.insert(chunk_name.to_string());
@@ -735,7 +733,7 @@ impl Clip {
             };
 
             self.writer
-                .db()
+                .db_mut()
                 .set_noweb_entries(out_file, &keyed)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }

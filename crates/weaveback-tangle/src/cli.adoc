@@ -6,7 +6,7 @@
 command-line arguments with `clap`, builds a
 link:noweb.adoc[`Clip`], reads the input files, writes all `@file` chunks to
 disk via link:safe_writer.adoc[`SafeFileWriter`], and merges the run's database
-into `weaveback.db`.
+into the path given by `--db` (default `weaveback.db`).
 
 See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map and
 link:../../../docs/architecture.adoc[architecture.adoc] for the pipeline
@@ -26,6 +26,7 @@ overview.
 | `--formatter EXT=CMD` | — | Formatter to run on files with a given extension.
 | `--allow-home` | off | Allow `@file ~/…` chunks to write outside `gen/`.
 | `--dry-run` | off | Print output paths without writing anything.
+| `--db FILE` | `weaveback.db` | Path to the persistent source-map database.
 | `--chunks LIST` | — | Named chunks to extract to stdout (or `--output`).
 | `--output FILE` | stdout | Destination for `--chunks` output.
 | `FILES…` | — | Input literate source files (`-` for stdin).
@@ -88,6 +89,10 @@ struct Args {
     /// Show what would be written without writing anything
     #[arg(long)]
     dry_run: bool,
+
+    /// Path to the persistent source-map database
+    #[arg(long, default_value = "weaveback.db")]
+    db: PathBuf,
 
     /// Input files (use - for stdin)
     #[arg(required = true)]
@@ -161,7 +166,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         }
     }
 
-    clipper.finish(std::path::Path::new("weaveback.db"))?;
+    clipper.finish(&args.db)?;
 
     Ok(())
 }

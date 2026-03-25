@@ -44,6 +44,19 @@ def main():
         "--chunk-end", "@@",
     ])
 
+    # weaveback-docgen adocs use the same <[ ]> / // / @@ conventions as tangle.
+    run([
+        "weaveback",
+        "--dir", "crates/weaveback-docgen/",
+        "--ext", "adoc",
+        "--gen", "crates/",
+        "--special", "%",
+        "--open-delim", "<[",
+        "--close-delim", "]>",
+        "--comment-markers", "//",
+        "--chunk-end", "@@",
+    ])
+
     # weaveback (combined) adocs, if any, use << >> like the macro adocs.
     run([
         "weaveback",

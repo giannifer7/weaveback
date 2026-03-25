@@ -1,0 +1,135 @@
+= weaveback-docgen
+:toc: left
+:source-highlighter: rouge
+
+`weaveback-docgen` is the documentation build tool for the weaveback project.
+It orchestrates five stages in sequence: render AsciiDoc sources to HTML with
+asciidoctor, build a Rust cross-reference graph from `crates/**/*.rs` using
+`syn`, write `xref.json`, rewrite cross-document `.adoc` hrefs to `.html`, and
+inject per-page xref data and literate source indices into the generated HTML
+pages.
+
+See link:render.adoc[render.adoc] for asciidoctor orchestration,
+link:xref.adoc[xref.adoc] for the xref graph builder,
+link:inject.adoc[inject.adoc] for HTML post-processing, and
+link:literate_index.adoc[literate_index.adoc] for literate source index
+injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
+the broader weaveback pipeline that this tool documents.
+
+== Pipeline
+
+....
+1. render_docs           render stale .adoc → HTML (batch + per-file for diagrams)
+2. build_xref            walk crates/**/*.rs with syn; produce import/export graph
+3. xref.json             serialise the graph for the JavaScript side panel
+4. rewrite_adoc_links    .adoc hrefs → .html in all generated pages
+5. inject_xref           embed window.__xref in each HTML page with a graph entry
+6. generate_and_inject_all   inject "Implementation pages" into each literate
+                              crate's index page
+....
+
+== Module map
+
+[cols="1,3",options="header"]
+|===
+| Module | Role
+
+| link:render.adoc[render.rs]
+| Discover `.adoc` files, drive asciidoctor (batched simple + per-file diagram)
+
+| link:xref.adoc[xref.rs]
+| Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph
+
+| link:inject.adoc[inject.rs]
+| Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>`
+
+| link:literate_index.adoc[literate_index.rs]
+| Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages
+|===
+
+== Project-root detection
+
+`find_project_root` walks up from `cwd` until it finds a `Cargo.toml` that
+contains `[workspace]`.  This lets the binary be invoked from any subdirectory
+of the project.
+
+[source,rust]
+----
+// <[docgen-root]>=
+fn find_project_root() -> PathBuf {
+    let mut dir = std::env::current_dir().expect("cannot determine cwd");
+    loop {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists() {
+            let content = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+            if content.contains("[workspace]") {
+                return dir;
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    std::env::current_dir().unwrap()
+}
+// @@
+----
+
+== main
+
+[source,rust]
+----
+// <[docgen-main]>=
+fn main() {
+    let root = find_project_root();
+    let out_dir = root.join("docs").join("html");
+    let theme_dir = root.join("scripts").join("asciidoc-theme");
+
+    let all_html = render::render_docs(&root, &theme_dir, &out_dir);
+    let existing_html: std::collections::HashSet<String> = all_html
+        .iter()
+        .filter_map(|p| p.strip_prefix(&out_dir).ok())
+        .map(|r| r.to_string_lossy().replace('\\', "/"))
+        .collect();
+
+    println!("xref: analysing crates...");
+    let crates_dir = root.join("crates");
+    let xref = xref::build_xref(&root);
+    let adoc_map = xref::scan_adoc_file_declarations(&root, &crates_dir);
+    println!("xref: {} modules indexed, {} adoc overrides", xref.len(), adoc_map.len());
+
+    let xref_json_path = out_dir.join("xref.json");
+    match serde_json::to_string_pretty(&xref) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&xref_json_path, &json) {
+                eprintln!("xref: could not write {}: {}", xref_json_path.display(), e);
+            } else {
+                println!("xref: wrote {}", xref_json_path.display());
+            }
+        }
+        Err(e) => eprintln!("xref: serialisation error: {}", e),
+    }
+
+    inject::rewrite_adoc_links(&out_dir);
+    inject::inject_xref(&out_dir, &xref, &existing_html, &adoc_map);
+    literate_index::generate_and_inject_all(&out_dir);
+}
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-docgen/src/main.rs]>=
+mod inject;
+mod literate_index;
+mod render;
+mod xref;
+
+use std::path::PathBuf;
+
+// <[docgen-root]>
+// <[docgen-main]>
+// @@
+----

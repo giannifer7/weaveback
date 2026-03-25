@@ -1,11 +1,29 @@
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+= HTML post-processing
+:toc: left
+:source-highlighter: rouge
 
-use regex::Regex;
-use std::sync::OnceLock;
+`inject.rs` performs two post-processing passes on the generated HTML tree.
 
-use crate::xref::{html_path_for_key, XrefEntry, XrefLink};
+`rewrite_adoc_links` rewrites every `href="….adoc…"` to `href="….html…"`.
+AsciiDoc cross-document links use `.adoc` extensions by convention, but the
+rendered HTML files use `.html`, so a simple regex substitution is needed
+after asciidoctor runs.
 
+`inject_xref` embeds a `window.__xref` JSON object in the `<head>` of every
+HTML page that has a matching cross-reference entry.  The object is consumed
+by the side-panel JavaScript in the shared docinfo template.
+
+See link:xref.adoc[xref.adoc] for how the graph is built and
+link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+
+== .adoc → .html link rewriting
+
+The regex matches `href="…something.adoc…"` and replaces the `.adoc`
+extension.  It runs over all HTML files under `out_dir`.
+
+[source,rust]
+----
+// <[inject-rewrite]>=
 fn adoc_href_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r#"(href="[^"]*?)\.adoc([^"]*?")"#).unwrap())
@@ -33,6 +51,25 @@ pub fn rewrite_adoc_links(out_dir: &Path) {
         }
     }
 }
+// @@
+----
+
+== xref injection
+
+`inject_xref` runs two passes.  The first pass matches each HTML file against
+the xref graph by module key (derived from the path relative to `out_dir`).
+The second pass handles adoc-derived pages where the `.adoc` filename differs
+from the generated `.rs` filename (e.g. `cli.adoc` generates
+`weaveback-macro.rs`); these have entries in `adoc_map` built by
+`xref::scan_adoc_file_declarations`.
+
+`existing_html` is threaded through so links to unrendered modules (modules
+that have `.rs` but no `.adoc` literate source) are filtered out of the
+injected JSON.
+
+[source,rust]
+----
+// <[inject-xref]>=
 pub fn inject_xref(
     out_dir: &Path,
     xref: &HashMap<String, XrefEntry>,
@@ -82,6 +119,19 @@ pub fn inject_xref(
         do_inject(&html_file, &merged, existing_html);
     }
 }
+// @@
+----
+
+== Merging multiple xref entries
+
+When a single `.adoc` file declares multiple `@file` chunks (e.g. a tests
+adoc that generates several `.rs` files), the xref entries for all those
+modules are merged: imports, `imported_by`, and symbols are concatenated,
+sorted, and de-duplicated.
+
+[source,rust]
+----
+// <[inject-merge]>=
 fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
     let mut imports: Vec<XrefLink> = entries.iter().flat_map(|e| e.imports.iter().cloned()).collect();
     imports.sort_by(|a, b| a.key.cmp(&b.key));
@@ -102,6 +152,19 @@ fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
         symbols,
     }
 }
+// @@
+----
+
+== do_inject
+
+`do_inject` first strips any previously injected `window.__xref` script so
+re-runs are idempotent, then builds a compact xref object filtered to pages
+that were actually rendered, and inserts it as a `<script>` tag just before
+`</head>`.
+
+[source,rust]
+----
+// <[inject-do]>=
 fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String>) {
     let content = match std::fs::read_to_string(html_file) {
         Ok(c) => c,
@@ -143,3 +206,25 @@ fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String
     let patched = content.replacen("</head>", &format!("{}</head>", tag), 1);
     let _ = std::fs::write(html_file, patched);
 }
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-docgen/src/inject.rs]>=
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use regex::Regex;
+use std::sync::OnceLock;
+
+use crate::xref::{html_path_for_key, XrefEntry, XrefLink};
+
+// <[inject-rewrite]>
+// <[inject-xref]>
+// <[inject-merge]>
+// <[inject-do]>
+// @@
+----

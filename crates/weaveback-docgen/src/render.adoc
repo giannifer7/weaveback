@@ -1,9 +1,34 @@
-use regex::Regex;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::OnceLock;
-use std::time::SystemTime;
+= Asciidoctor renderer
+:toc: left
+:source-highlighter: rouge
 
+`render.rs` orchestrates asciidoctor to convert `.adoc` files to HTML.
+Simple files (no diagram blocks) are batched into a single asciidoctor
+invocation; files that contain `[plantuml]`, `[ditaa]`, or similar diagram
+blocks are rendered one at a time because each needs its own `imagesoutdir`.
+
+See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+
+== Stale checking
+
+Each `.adoc` file is checked against its HTML output and the theme directory's
+maximum modification time.  A file is stale when the output does not yet
+exist, the `.adoc` is newer than the output, or any theme file is newer than
+the output.  The theme directory mtime is computed once and reused as a single
+threshold for all files.
+
+== PlantUML detection
+
+`find_plantuml_native` looks for the `plantuml` binary in `/usr/bin`,
+`/usr/local/bin`, and `~/.local/bin`.  When found it passes
+`-a plantuml-native=<path>` to asciidoctor so that asciidoctor-diagram 3.x
+locates the binary without a JAR on the classpath.
+
+== Constants and diagram detection
+
+[source,rust]
+----
+// <[render-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
 
 fn diagram_re() -> &'static Regex {
@@ -18,6 +43,14 @@ fn has_diagram_blocks(path: &Path) -> bool {
         .map(|s| diagram_re().is_match(&s))
         .unwrap_or(false)
 }
+// @@
+----
+
+== mtime helpers
+
+[source,rust]
+----
+// <[render-mtime]>=
 fn mtime(path: &Path) -> SystemTime {
     path.metadata()
         .and_then(|m| m.modified())
@@ -33,6 +66,14 @@ fn theme_max_mtime(theme_dir: &Path) -> SystemTime {
         .max()
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
+// @@
+----
+
+== PlantUML native detection
+
+[source,rust]
+----
+// <[render-plantuml]>=
 fn find_plantuml_native() -> Option<String> {
     let candidates = [
         "/usr/bin/plantuml".to_string(),
@@ -44,6 +85,18 @@ fn find_plantuml_native() -> Option<String> {
     ];
     candidates.into_iter().find(|c| Path::new(c).is_file())
 }
+// @@
+----
+
+== render_docs
+
+`render_docs` builds the base asciidoctor argument list (rouge highlighting,
+gruvbox style, shared docinfo), partitions stale files into a batch of simple
+files and a list of diagram files, then renders both groups.
+
+[source,rust]
+----
+// <[render-entry]>=
 pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec<PathBuf> {
     std::fs::create_dir_all(out_dir).ok();
 
@@ -155,6 +208,17 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
 
     all_html
 }
+// @@
+----
+
+== File discovery
+
+`find_adoc_files` walks the project tree, skipping `EXCLUDE_DIRS`, and returns
+a sorted list of all `.adoc` paths.
+
+[source,rust]
+----
+// <[render-discover]>=
 fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = walkdir::WalkDir::new(root)
         .into_iter()
@@ -177,3 +241,24 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
     files.sort();
     files
 }
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-docgen/src/render.rs]>=
+use regex::Regex;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::OnceLock;
+use std::time::SystemTime;
+
+// <[render-exclude]>
+// <[render-mtime]>
+// <[render-plantuml]>
+// <[render-entry]>
+// <[render-discover]>
+// @@
+----

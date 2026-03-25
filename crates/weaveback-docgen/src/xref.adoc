@@ -1,10 +1,42 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+= Rust cross-reference graph
+:toc: left
+:source-highlighter: rouge
 
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
+`xref.rs` builds a forward-and-reverse cross-reference graph from the
+workspace Rust source files.  It uses `syn` to parse each `.rs` file, collects
+`use` declarations and public symbol definitions, resolves import paths to
+module keys, and produces a `HashMap<String, XrefEntry>` mapping each module
+key to its import edges and public symbols.
 
+The graph is consumed by link:inject.adoc[`inject_xref`] to embed
+`window.__xref` data in generated HTML pages, and serialised to `xref.json`
+for the JavaScript side panel.
+
+See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+
+== Module key scheme
+
+A module key is a `/`-separated string derived from a `.rs` path relative to
+`crates/`, with hyphens in the crate directory converted to underscores:
+
+....
+crates/weaveback-tangle/src/noweb.rs          →  weaveback_tangle/noweb
+crates/weaveback-macro/src/evaluator/core.rs  →  weaveback_macro/evaluator/core
+....
+
+`html_path_for_key` is the inverse: it reconstructs the relative HTML path,
+converting underscores back to hyphens in the crate segment.
+
+== Public types
+
+`XrefLink` is a single directed edge.  `XrefEntry` collects all edges for one
+module together with its public symbol list.  Both types derive `Serialize` and
+`Deserialize` so they can be written to `xref.json` and embedded as JSON in
+HTML pages.
+
+[source,rust]
+----
+// <[xref-types]>=
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XrefLink {
     pub key: String,
@@ -21,6 +53,14 @@ pub struct XrefEntry {
     pub imported_by: Vec<XrefLink>,
     pub symbols: Vec<String>,
 }
+// @@
+----
+
+== Module key helpers
+
+[source,rust]
+----
+// <[xref-module-key]>=
 /// `crates/weaveback-tangle/src/noweb.rs` → `weaveback_tangle/noweb`
 pub fn module_key(rs_file: &Path, crates_dir: &Path) -> Option<String> {
     let rel = rs_file.strip_prefix(crates_dir).ok()?;
@@ -54,6 +94,18 @@ pub fn html_path_for_key(key: &str) -> String {
         format!("{}.html", key)
     }
 }
+// @@
+----
+
+== Workspace crate discovery
+
+`workspace_crate_names` scans `crates/` for `Cargo.toml` files and extracts
+crate names (normalised to underscore form).  The list is used by
+`resolve_import` to recognise cross-crate `use` paths.
+
+[source,rust]
+----
+// <[xref-workspace]>=
 pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
     let Ok(entries) = std::fs::read_dir(crates_dir) else {
@@ -75,6 +127,26 @@ pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
     }
     names
 }
+// @@
+----
+
+== Syn-based file analysis
+
+`collect_use_tree` recursively walks a `syn::UseTree` and records all
+fully-qualified import paths.  Globs are recorded as the prefix path so that
+`use foo::bar::*` still creates a dependency edge to `foo::bar`.
+
+`collect_items` iterates the top-level items of a parsed file: `use`
+statements feed into `collect_use_tree`; publicly-visible types, functions,
+constants, and modules feed into the `symbols` list.
+
+`analyze_file` reads and parses a `.rs` file, returning `(use_paths,
+symbols)`.  Parse failures are silently ignored — an empty result is safe
+because the module will simply have no edges in the graph.
+
+[source,rust]
+----
+// <[xref-use-tree]>=
 fn collect_use_tree(tree: &syn::UseTree, prefix: &str, out: &mut Vec<String>) {
     match tree {
         syn::UseTree::Path(p) => {
@@ -157,6 +229,27 @@ fn analyze_file(path: &Path) -> (Vec<String>, Vec<String>) {
     collect_items(&file.items, &mut use_paths, &mut symbols);
     (use_paths, symbols)
 }
+// @@
+----
+
+== Import resolution
+
+`resolve_to_module` probes for `{segments}.rs` and `{segments}/mod.rs` in the
+crate's `src/` directory, trying progressively shorter prefixes so that `use
+foo::Bar` resolves to module `foo` even though `Bar` is a type, not a module.
+
+`resolve_import` dispatches on the import prefix:
+
+* `super::` — pop levels from the current key path, then resolve the remainder
+* `crate::` — resolve relative to the current crate root
+* `{known_crate}::` — resolve in the named workspace crate
+
+Anything else (standard library, external crates, trait-only imports) is
+silently dropped and produces no graph edge.
+
+[source,rust]
+----
+// <[xref-resolve]>=
 fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> Option<String> {
     for len in (1..=segments.len()).rev() {
         let parts = &segments[..len];
@@ -208,6 +301,27 @@ fn resolve_import(
     }
     None
 }
+// @@
+----
+
+== Adoc @file declaration scanning
+
+Some `.adoc` files generate `.rs` files whose name differs from the `.adoc`
+stem (e.g. `cli.adoc` generates `weaveback-macro.rs`).  The xref injection
+must match these pages to the right graph entries.
+
+`scan_adoc_file_declarations` walks `.adoc` files under `crates_dir`,
+extracts `<<@file path>>=` declarations with a regex, and maps each adoc's
+HTML path to the list of module keys those declarations produce.
+
+NOTE: This regex only recognises the `<< >>` delimiter style used by
+weaveback-macro adocs.  Crates that use other delimiters (e.g. `<[ ]>`) will
+not be scanned here; their module pages are handled by the direct key lookup
+in `inject_xref` so long as the `.adoc` stem matches the `.rs` stem.
+
+[source,rust]
+----
+// <[xref-adoc-scan]>=
 fn atfile_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"<<@file\s+([^>]+?)>>").unwrap())
@@ -250,6 +364,18 @@ pub fn scan_adoc_file_declarations(
     }
     map
 }
+// @@
+----
+
+== Excluded paths
+
+`EXCLUDE_DIRS` lists directories skipped by all walkers.  `gen` is excluded
+here but not in `render.rs` because xref analysis only needs original source
+files, not generated output.
+
+[source,rust]
+----
+// <[xref-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "gen", "node_modules", ".venv"];
 
 fn is_excluded(path: &Path) -> bool {
@@ -259,6 +385,20 @@ fn is_excluded(path: &Path) -> bool {
             .any(|ex| c.as_os_str() == std::ffi::OsStr::new(ex))
     })
 }
+// @@
+----
+
+== build_xref
+
+`build_xref` ties all the pieces together: discover `.rs` files, analyse each
+with `syn`, resolve imports into module keys, and build the forward and reverse
+edges.  The local `RawData` struct accumulates per-file data before resolution
+so that the two passes (forward edge collection, reverse edge derivation) can
+share the same analysis results.
+
+[source,rust]
+----
+// <[xref-build]>=
 pub fn build_xref(project_root: &Path) -> HashMap<String, XrefEntry> {
     let crates_dir = project_root.join("crates");
     let known_crates = workspace_crate_names(&crates_dir);
@@ -341,3 +481,28 @@ pub fn build_xref(project_root: &Path) -> HashMap<String, XrefEntry> {
     }
     result
 }
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-docgen/src/xref.rs]>=
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+
+// <[xref-types]>
+// <[xref-module-key]>
+// <[xref-workspace]>
+// <[xref-use-tree]>
+// <[xref-resolve]>
+// <[xref-adoc-scan]>
+// <[xref-exclude]>
+// <[xref-build]>
+// @@
+----

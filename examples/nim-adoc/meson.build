@@ -1,22 +1,22 @@
 project('nim-adoc-example', version : '0.1.0', meson_version : '>=1.1.0')
 
 python3      = find_program('python3',      required : true)
-azadi        = find_program('azadi',        required : true)
+weaveback    = find_program('weaveback',    required : true)
 nph          = find_program('nph',          required : false)
 asciidoctor  = find_program('asciidoctor',  required : false)
 
-# ── Azadi flags for AsciiDoc literate sources ─────────────────────────────────
+# ── Weaveback flags for AsciiDoc literate sources ─────────────────────────────
 #
 # The <[ ]> delimiters and '#' comment marker are the convention used in this
 # project.  Adjust --chunk-end if your sources use a different end marker.
-azadi_flags = [
+weaveback_flags = [
   '--open-delim',      '<[',
   '--close-delim',     ']>',
   '--chunk-end',       '@',
   '--comment-markers', '#',
 ]
 if nph.found()
-  azadi_flags += ['--formatter', 'nim=' + nph.full_path()]
+  weaveback_flags += ['--formatter', 'nim=' + nph.full_path()]
 endif
 
 # ── Code generation ───────────────────────────────────────────────────────────
@@ -27,15 +27,15 @@ gen_nim = custom_target('gen-nim',
   output  : ['gen_nim.stamp'],
   depfile : 'gen_nim.d',
   command : [
-    azadi,
+    weaveback,
     '--dir',     meson.current_source_dir(),
     '--ext',     'adoc',
     '--include', meson.current_source_dir(),
     '--gen',     meson.current_source_dir() / 'gen',
-    '--db',      meson.current_source_dir() / 'azadi.db',
+    '--db',      meson.current_source_dir() / 'weaveback.db',
     '--stamp',   '@OUTPUT0@',
     '--depfile', '@DEPFILE@',
-  ] + azadi_flags,
+  ] + weaveback_flags,
   build_by_default : true,
 )
 

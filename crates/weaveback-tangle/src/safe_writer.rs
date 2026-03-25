@@ -149,13 +149,18 @@ impl SafeFileWriter {
             let mut dest_file =
                 BufReader::with_capacity(self.config.buffer_size, File::open(destination)?);
 
-            let mut source_content = Vec::new();
-            let mut dest_content = Vec::new();
-
-            source_file.read_to_end(&mut source_content)?;
-            dest_file.read_to_end(&mut dest_content)?;
-
-            source_content != dest_content
+            let mut src_buf = vec![0u8; self.config.buffer_size];
+            let mut dst_buf = vec![0u8; self.config.buffer_size];
+            loop {
+                let src_n = source_file.read(&mut src_buf)?;
+                let dst_n = dest_file.read(&mut dst_buf)?;
+                if src_n != dst_n || src_buf[..src_n] != dst_buf[..dst_n] {
+                    break true;
+                }
+                if src_n == 0 {
+                    break false;
+                }
+            }
         };
 
         if are_different {

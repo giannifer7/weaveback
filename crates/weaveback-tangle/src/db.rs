@@ -226,6 +226,11 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+/// Escape a string for use inside a SQLite single-quoted string literal.
+fn sqlite_string_literal(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
 impl WeavebackDb {
     pub fn merge_into(&self, target_path: &Path) -> Result<(), DbError> {
         {
@@ -238,9 +243,7 @@ impl WeavebackDb {
 
         self.conn.busy_timeout(std::time::Duration::from_millis(200))?;
         let target_str = target_path.to_string_lossy();
-        // Using string interpolation for ATTACH — parameterised ATTACH is not
-        // supported by SQLite; single-quotes in the path are escaped.
-        let escaped = target_str.replace('\'', "''");
+        let escaped = sqlite_string_literal(&target_str);
         self.conn
             .execute_batch(&format!("ATTACH DATABASE '{escaped}' AS target"))?;
 

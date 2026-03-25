@@ -1,8 +1,8 @@
 #/bin/bash
 
-aza_root=../../target/debug
-prep=$aza_root/azadi-macros
-noweb=$aza_root/azadi-noweb
+wb_root=../../target/debug
+prep=$wb_root/weaveback-macro
+tangle=$wb_root/weaveback-tangle
 
 
 function run_macros {
@@ -10,8 +10,8 @@ function run_macros {
   $prep --out-dir chunk.txt $source
 }
 
-function run_noweb {
-  $noweb --open-delim='<[' --close-delim=']>' chunk.txt
+function run_tangle {
+  $tangle --open-delim='<[' --close-delim=']>' chunk.txt
 }
 
 function run_compile {
@@ -20,7 +20,7 @@ function run_compile {
 
 function default {
     run_macros project.txt
-    run_noweb
+    run_tangle
 }
 
 function help {

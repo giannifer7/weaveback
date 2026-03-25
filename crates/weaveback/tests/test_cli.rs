@@ -325,13 +325,13 @@ fn test_env_builtin_with_allow_env() {
     write(
         &root,
         "src/driver.md",
-        "# <<@file out.txt>>=\n%env(AZADI_TEST_VAR)\n# @\n",
+        "# <<@file out.txt>>=\n%env(WEAVEBACK_TEST_VAR)\n# @\n",
     );
 
     let gen_dir = root.join("gen");
 
     weaveback_in(&root)
-        .env("AZADI_TEST_VAR", "hello-from-env")
+        .env("WEAVEBACK_TEST_VAR", "hello-from-env")
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")

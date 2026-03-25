@@ -400,15 +400,16 @@ End
 
     let result = setup.clip.expand("recursive", "");
     match result {
-        // Also capture file_name
         Err(WeavebackError::Chunk(ChunkError::RecursiveReference {
             chunk,
+            cycle,
             file_name,
             location,
         })) => {
             assert_eq!(chunk, "recursive");
             assert_eq!(file_name, "recursive.nw");
             assert_eq!(location.line, 2);
+            assert_eq!(cycle, vec!["recursive", "recursive"]);
         }
         _ => panic!("Expected RecursiveReference error"),
     }
@@ -438,12 +439,14 @@ End B
     match result {
         Err(WeavebackError::Chunk(ChunkError::RecursiveReference {
             chunk,
+            cycle,
             file_name,
             location,
         })) => {
             assert_eq!(chunk, "chunk-a");
             assert_eq!(file_name, "mutual_recursion.nw");
             assert_eq!(location.line, 8);
+            assert_eq!(cycle, vec!["chunk-a", "chunk-b", "chunk-a"]);
         }
         _ => panic!("Expected RecursiveReference error"),
     }
@@ -502,6 +505,7 @@ fn test_error_messages_format() {
 
     assert!(error_msg.contains("Error: errors.nw line 2:"));
     assert!(error_msg.contains("recursive reference detected in chunk 'a'"));
+    assert!(error_msg.contains("cycle: a -> a"));
 }
 
 #[test]

@@ -153,6 +153,10 @@ struct Args {
     #[arg(long)]
     allow_home: bool,
 
+    /// Treat references to undefined chunks as fatal errors (default: expand to nothing).
+    #[arg(long)]
+    strict: bool,
+
     /// Print output paths without writing anything.
     #[arg(long)]
     dry_run: bool,
@@ -279,6 +283,7 @@ fn run(args: Args) -> Result<(), Error> {
         &args.chunk_end,
         &comment_markers,
     );
+    clip.set_strict_undefined(args.strict);
 
     // Determine the set of driver files to process and all .adoc files for the depfile.
     let (drivers, all_adoc): (Vec<PathBuf>, Vec<PathBuf>) = if let Some(ref dir) = args.directory {

@@ -100,8 +100,17 @@ CREATE TABLE IF NOT EXISTS macro_defs (
     PRIMARY KEY (macro_name, src_file, pos)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_var_defs_name   ON var_defs(var_name);
-CREATE INDEX IF NOT EXISTS idx_macro_defs_name ON macro_defs(macro_name);
+CREATE TABLE IF NOT EXISTS chunk_deps (
+    from_chunk TEXT NOT NULL,
+    to_chunk   TEXT NOT NULL,
+    src_file   TEXT NOT NULL,
+    PRIMARY KEY (from_chunk, to_chunk, src_file)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_var_defs_name    ON var_defs(var_name);
+CREATE INDEX IF NOT EXISTS idx_macro_defs_name  ON macro_defs(macro_name);
+CREATE INDEX IF NOT EXISTS idx_chunk_deps_from  ON chunk_deps(from_chunk);
+CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
 ";
 // @@
 ----
@@ -195,11 +204,22 @@ pub struct WeavebackDb {
 
 fn apply_schema(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)?;
-    // Migration: add the confidence column to databases created before it
-    // existed.  SQLite errors if the column is already there; we ignore that.
+    // Migrations: add columns / tables introduced after initial release.
+    // SQLite errors if a column already exists; we ignore those errors.
     let _ = conn.execute_batch(
         "ALTER TABLE noweb_map ADD COLUMN confidence TEXT NOT NULL DEFAULT 'exact';"
     );
+    // chunk_deps was added later; CREATE TABLE IF NOT EXISTS is idempotent.
+    let _ = conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS chunk_deps (
+            from_chunk TEXT NOT NULL,
+            to_chunk   TEXT NOT NULL,
+            src_file   TEXT NOT NULL,
+            PRIMARY KEY (from_chunk, to_chunk, src_file)
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS idx_chunk_deps_from ON chunk_deps(from_chunk);
+        CREATE INDEX IF NOT EXISTS idx_chunk_deps_to   ON chunk_deps(to_chunk);
+    ");
     Ok(())
 }
 
@@ -337,6 +357,74 @@ impl WeavebackDb {
                 },
             )
             .optional()?)
+    }
+}
+// @@
+----
+
+== chunk_deps
+
+`set_chunk_deps` replaces all dependency edges for a given source file in one
+transaction.  `query_chunk_deps` returns everything a chunk directly references
+(forward edges); `query_reverse_deps` returns everything that directly
+references a chunk (backward edges — "what would break if I edit this?").
+
+[source,rust]
+----
+// <[db-chunk-deps]>=
+impl WeavebackDb {
+    /// Write direct chunk→chunk dependency edges.
+    /// Each tuple is `(from_chunk, to_chunk, src_file)`.
+    /// Uses `INSERT OR IGNORE` so repeated tangle runs are idempotent.
+    pub fn set_chunk_deps(
+        &mut self,
+        deps: &[(String, String, String)],
+    ) -> Result<(), DbError> {
+        if deps.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR IGNORE INTO chunk_deps (from_chunk, to_chunk, src_file)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for (from, to, src) in deps {
+                stmt.execute(params![from, to, src])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Return `(to_chunk, src_file)` pairs for all chunks that `chunk_name`
+    /// directly references.
+    pub fn query_chunk_deps(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<(String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT to_chunk, src_file FROM chunk_deps WHERE from_chunk = ?1",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return `(from_chunk, src_file)` pairs for all chunks that directly
+    /// reference `chunk_name` (reverse / "what uses this?" query).
+    pub fn query_reverse_deps(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<(String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT from_chunk, src_file FROM chunk_deps WHERE to_chunk = ?1",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
     }
 }
 // @@
@@ -578,6 +666,7 @@ use std::path::Path;
 // <[db-open]>
 // <[db-baselines]>
 // <[db-noweb-map]>
+// <[db-chunk-deps]>
 // <[db-macro-map]>
 // <[db-merge]>
 // <[db-rest]>

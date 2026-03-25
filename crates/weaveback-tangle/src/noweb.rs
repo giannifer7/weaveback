@@ -310,26 +310,30 @@ impl ChunkStore {
 }
 /// Mutable state threaded through the recursive chunk expansion.
 struct ExpandState {
-    depth: usize,
     seen: HashSet<String>,
+    /// Call stack (chunk names in descent order).  Its length is the current
+    /// recursion depth, replacing a separate `depth` counter.
     stack: Vec<String>,
     referenced_chunks: HashSet<String>,
+    /// Direct dependency edges collected during expansion:
+    /// `(from_chunk, to_chunk, src_file)`.  Deduplicated via HashSet.
+    deps: HashSet<(String, String, String)>,
 }
 
 impl ExpandState {
     fn new() -> Self {
         Self {
-            depth: 0,
             seen: HashSet::new(),
             stack: Vec::new(),
             referenced_chunks: HashSet::new(),
+            deps: HashSet::new(),
         }
     }
 }
 
-/// Return type of `expand_with_map`: expanded lines, source-map entries, and
-/// the set of all chunk names referenced during expansion.
-type ExpandResult = (Vec<String>, Vec<NowebMapEntry>, HashSet<String>);
+/// Return type of `expand_with_map`: expanded lines, source-map entries,
+/// referenced chunk names, and direct dependency edges.
+type ExpandResult = (Vec<String>, Vec<NowebMapEntry>, HashSet<String>, Vec<(String, String, String)>);
 
 impl ChunkStore {
     fn expand_inner(
@@ -341,7 +345,7 @@ impl ChunkStore {
         reversed_mode: bool,
     ) -> Result<Vec<(String, NowebMapEntry)>, ChunkError> {
         const MAX_DEPTH: usize = 100;
-        if state.depth > MAX_DEPTH {
+        if state.stack.len() > MAX_DEPTH {
             let file_name = self
                 .file_names
                 .get(reference_location.file_idx)
@@ -433,7 +437,13 @@ impl ChunkStore {
                         line: def.line + line_count,
                     };
 
-                    state.depth += 1;
+                    // Record the direct dependency edge before recursing.
+                    state.deps.insert((
+                        chunk_name.to_string(),
+                        referenced_chunk.trim().to_string(),
+                        src_file.clone(),
+                    ));
+
                     let expanded = self.expand_inner(
                         referenced_chunk.trim(),
                         &new_indent,
@@ -441,7 +451,6 @@ impl ChunkStore {
                         new_loc,
                         line_is_reversed,
                     )?;
-                    state.depth -= 1;
                     result.extend(expanded);
                 } else {
                     let line_indent = if line.len() > def.base_indent {
@@ -480,11 +489,12 @@ impl ChunkStore {
         let loc = ChunkLocation { file_idx: 0, line: 0 };
         let pairs = self.expand_inner(chunk_name, indent, &mut state, loc, false)?;
         let (lines, entries) = pairs.into_iter().unzip();
-        Ok((lines, entries, state.referenced_chunks))
+        let deps: Vec<_> = state.deps.into_iter().collect();
+        Ok((lines, entries, state.referenced_chunks, deps))
     }
 
     pub fn expand(&self, chunk_name: &str, indent: &str) -> Result<Vec<String>, ChunkError> {
-        let (lines, _, _) = self.expand_with_map(chunk_name, indent)?;
+        let (lines, _, _, _) = self.expand_with_map(chunk_name, indent)?;
         Ok(lines)
     }
 
@@ -647,11 +657,17 @@ fn remap_noweb_entries(
     // --- Tier 2: contextual content-hash fallback ---
     // Key = (prev_norm, curr_norm, next_norm).  Three-line context prevents
     // false matches on trivial lines ({, }, etc.).
-    // Chunk-aware ambiguity rejection: if the same context triple appears in
-    // lines from different chunks, exclude it — a wrong match is worse than
-    // none.
+    //
+    // We store *all* candidate old indices per key (Vec<usize>) so that when
+    // multiple pre-formatter lines share the same context triple (e.g. two
+    // identical import lines in the same chunk), we pick the *closest unused*
+    // one to the new_i position rather than arbitrarily using the last.
+    //
+    // Chunk-aware ambiguity rejection: if the same context triple spans lines
+    // from *different* chunks, the key is discarded entirely — a cross-chunk
+    // false match is worse than no match.
     type CtxKey<'a> = (&'a str, &'a str, &'a str);
-    let mut hash_to_old: HashMap<CtxKey<'_>, usize> = HashMap::new();
+    let mut hash_to_old: HashMap<CtxKey<'_>, Vec<usize>> = HashMap::new();
     let mut ambiguous: HashSet<CtxKey<'_>> = HashSet::new();
 
     for old_i in 0..pre_norm.len() {
@@ -661,17 +677,16 @@ fn remap_noweb_entries(
         let next = pre_norm.get(old_i + 1).copied().unwrap_or("");
         let key: CtxKey<'_> = (prev, curr, next);
         if ambiguous.contains(&key) { continue; }
-        if let Some(&existing) = hash_to_old.get(&key) {
-            // Same context triple in two different pre-formatter lines.
-            // If they're from different chunks the match would be ambiguous.
-            if entries[existing].chunk_name != entries[old_i].chunk_name {
+        if let Some(existing) = hash_to_old.get(&key) {
+            // If any existing candidate is from a different chunk, discard.
+            let first_chunk = &entries[existing[0]].chunk_name;
+            if entries[old_i].chunk_name != *first_chunk {
                 hash_to_old.remove(&key);
                 ambiguous.insert(key);
+                continue;
             }
-            // Same chunk: last-occurrence wins (arbitrary but deterministic).
-        } else {
-            hash_to_old.insert(key, old_i);
         }
+        hash_to_old.entry(key).or_default().push(old_i);
     }
 
     // Pre-claim lines already placed by tier 1.
@@ -687,13 +702,17 @@ fn remap_noweb_entries(
         let prev = if new_i > 0 { post_norm[new_i - 1] } else { "" };
         let next = post_norm.get(new_i + 1).copied().unwrap_or("");
         let key: CtxKey<'_> = (prev, curr, next);
-        if let Some(&old_i) = hash_to_old.get(&key)
-            && !claimed.contains(&old_i)
-        {
-            claimed.insert(old_i);
-            let mut entry = entries[old_i].clone();
-            entry.confidence = Confidence::HashMatch;
-            new_to_entry[new_i] = Some(entry);
+        if let Some(candidates) = hash_to_old.get(&key) {
+            // Pick the unclaimed candidate whose old position is closest to new_i.
+            let best = candidates.iter()
+                .filter(|&&old_i| !claimed.contains(&old_i))
+                .min_by_key(|&&old_i| (new_i as isize - old_i as isize).abs());
+            if let Some(&old_i) = best {
+                claimed.insert(old_i);
+                let mut entry = entries[old_i].clone();
+                entry.confidence = Confidence::HashMatch;
+                new_to_entry[new_i] = Some(entry);
+            }
         }
     }
 
@@ -827,7 +846,7 @@ impl Clip {
         let fc = self.store.get_file_chunks().to_vec();
         let mut all_referenced = HashSet::new();
         for name in &fc {
-            let (lines, map_entries, referenced) = self.store.expand_with_map(name, "")?;
+            let (lines, map_entries, referenced, deps) = self.store.expand_with_map(name, "")?;
             all_referenced.extend(referenced);
 
             let mut cw = ChunkWriter::new(&mut self.writer);
@@ -854,6 +873,11 @@ impl Clip {
             self.writer
                 .db_mut()
                 .set_noweb_entries(out_file, &keyed)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+            self.writer
+                .db_mut()
+                .set_chunk_deps(&deps)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }
         let warns = self.store.check_unused_chunks(&all_referenced);

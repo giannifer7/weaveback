@@ -25,6 +25,7 @@ overview.
 | `--comment-markers LIST` | `#,//` | Comma-separated comment prefixes.
 | `--formatter EXT=CMD` | — | Formatter to run on files with a given extension.
 | `--allow-home` | off | Allow `@file ~/…` chunks to write outside `gen/`.
+| `--strict` | off | Treat undefined chunk references as fatal errors (default: expand to nothing).
 | `--dry-run` | off | Print output paths without writing anything.
 | `--db FILE` | `weaveback.db` | Path to the persistent source-map database.
 | `--chunks LIST` | — | Named chunks to extract to stdout (or `--output`).
@@ -86,6 +87,10 @@ struct Args {
     #[arg(long)]
     allow_home: bool,
 
+    /// Treat references to undefined chunks as fatal errors
+    #[arg(long)]
+    strict: bool,
+
     /// Show what would be written without writing anything
     #[arg(long)]
     dry_run: bool,
@@ -143,6 +148,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         &comment_markers,
     );
 
+    clipper.set_strict_undefined(args.strict);
     clipper.read_files(&args.files)?;
 
     if args.dry_run {

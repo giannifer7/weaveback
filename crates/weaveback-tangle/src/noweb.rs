@@ -153,6 +153,9 @@ pub struct ChunkStore {
     slot_re: Regex,
     close_re: Regex,
     file_names: Vec<String>,
+    /// When `true`, referencing an undefined chunk is a fatal error.
+    /// Default `false`: undefined chunks expand to nothing.
+    pub strict_undefined: bool,
 }
 impl ChunkStore {
     pub fn new(
@@ -191,6 +194,7 @@ impl ChunkStore {
             slot_re: Regex::new(&slot_pattern).expect("Invalid slot pattern"),
             close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
             file_names: Vec::new(),
+            strict_undefined: false,
         }
     }
 
@@ -341,16 +345,19 @@ impl ChunkStore {
         }
 
         if !self.chunks.contains_key(chunk_name) {
-            let file_name = self
-                .file_names
-                .get(reference_location.file_idx)
-                .cloned()
-                .unwrap_or_default();
-            return Err(ChunkError::UndefinedChunk {
-                chunk: chunk_name.to_string(),
-                file_name,
-                location: reference_location,
-            });
+            if self.strict_undefined {
+                let file_name = self
+                    .file_names
+                    .get(reference_location.file_idx)
+                    .cloned()
+                    .unwrap_or_default();
+                return Err(ChunkError::UndefinedChunk {
+                    chunk: chunk_name.to_string(),
+                    file_name,
+                    location: reference_location,
+                });
+            }
+            return Ok(Vec::new());
         }
 
         referenced_chunks.insert(chunk_name.to_string());
@@ -637,6 +644,12 @@ impl Clip {
 
     pub fn reset(&mut self) {
         self.store.reset();
+    }
+
+    /// Control whether referencing an undefined chunk is a fatal error (`true`)
+    /// or silently expands to nothing (`false`, the default).
+    pub fn set_strict_undefined(&mut self, strict: bool) {
+        self.store.strict_undefined = strict;
     }
 
     pub fn has_chunk(&self, name: &str) -> bool {

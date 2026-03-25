@@ -49,6 +49,10 @@ struct Args {
     #[arg(long)]
     allow_home: bool,
 
+    /// Treat references to undefined chunks as fatal errors
+    #[arg(long)]
+    strict: bool,
+
     /// Show what would be written without writing anything
     #[arg(long)]
     dry_run: bool,
@@ -106,6 +110,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         &comment_markers,
     );
 
+    clipper.set_strict_undefined(args.strict);
     clipper.read_files(&args.files)?;
 
     if args.dry_run {

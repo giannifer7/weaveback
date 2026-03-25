@@ -61,6 +61,7 @@ fn test_undefined_chunk_is_error() {
 "#,
         "undefined.nw",
     );
+    setup.clip.set_strict_undefined(true);
 
     let result = setup.clip.expand("main", "");
     assert!(result.is_err(), "referencing an undefined chunk must be an error");
@@ -69,6 +70,26 @@ fn test_undefined_chunk_is_error() {
         matches!(err, WeavebackError::Chunk(ChunkError::UndefinedChunk { ref chunk, .. }) if chunk == "nonexistent"),
         "expected UndefinedChunk error, got: {err}",
     );
+}
+
+#[test]
+fn test_undefined_chunk_is_empty_when_not_strict() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<main>>=
+line before
+# <<optional>>
+line after
+# @
+"#,
+        "undefined.nw",
+    );
+    // Default is permissive; no set_strict_undefined call needed.
+    let result = setup.clip.expand("main", "");
+    assert!(result.is_ok(), "undefined chunk should expand to empty when not strict");
+    let lines = result.unwrap();
+    assert_eq!(lines, vec!["line before\n", "line after\n"]);
 }
 
 #[test]

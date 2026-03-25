@@ -121,8 +121,10 @@ tangle:
     python3 scripts/tangle.py
 
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
+# --special % de-escapes %% in files that use % as the macro special char
+# --special ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as special)
 docs:
-    cargo run --release --package weaveback-docgen
+    cargo run --release --package weaveback-docgen -- --special % --special ^
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

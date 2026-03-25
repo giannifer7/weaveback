@@ -88,16 +88,65 @@ fn find_plantuml_native() -> Option<String> {
 // @@
 ----
 
+== Special-char deduplication
+
+When a `.adoc` file was processed by the weaveback macro expander, a doubled
+special character (e.g. `%%` or `^^`) is the escape sequence for a literal
+special character.  Asciidoctor knows nothing about this convention and renders
+the doubled sequence verbatim.
+
+`dedup_specials` replaces every `{s}{s}` → `{s}` for each char in `specials`
+and returns the cleaned content, or `None` if no substitution was needed.
+
+For files that need preprocessing, `write_temp_adoc` writes the cleaned content
+to a hidden sibling file (`.wbd-<name>.adoc`) so that asciidoctor resolves
+relative includes and images exactly as it would for the original.  The caller
+is responsible for deleting the temp file after rendering.
+
+[source,rust]
+----
+// <[render-dedup]>=
+fn dedup_specials(content: &str, specials: &[char]) -> Option<String> {
+    let mut out = content.to_owned();
+    let mut changed = false;
+    for &s in specials {
+        let doubled = format!("{s}{s}");
+        if out.contains(&doubled) {
+            out = out.replace(&doubled, &s.to_string());
+            changed = true;
+        }
+    }
+    if changed { Some(out) } else { None }
+}
+
+/// Write preprocessed content alongside `original` as a hidden temp file.
+/// Returns the temp path; the caller must delete it after asciidoctor runs.
+fn write_temp_adoc(original: &Path, content: &str) -> Option<PathBuf> {
+    let name = original.file_name()?.to_string_lossy();
+    let temp = original.with_file_name(format!(".wbd-{name}"));
+    std::fs::write(&temp, content).ok()?;
+    Some(temp)
+}
+// @@
+----
+
 == render_docs
 
 `render_docs` builds the base asciidoctor argument list (rouge highlighting,
 gruvbox style, shared docinfo), partitions stale files into a batch of simple
-files and a list of diagram files, then renders both groups.
+files and a list of files that need individual rendering (either because they
+contain diagram blocks or because they need special-char deduplication), then
+renders both groups.
+
+The `specials` slice lists the weaveback special characters in use across the
+project (e.g. `['%', '^']`).  When non-empty, every stale `.adoc` file is
+scanned for doubled specials; those that need preprocessing are pulled out of
+the batch and rendered individually via a temp file.
 
 [source,rust]
 ----
 // <[render-entry]>=
-pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec<PathBuf> {
+pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path, specials: &[char]) -> Vec<PathBuf> {
     std::fs::create_dir_all(out_dir).ok();
 
     let plantuml_native = find_plantuml_native();
@@ -127,7 +176,9 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
     let adoc_files = find_adoc_files(project_root);
 
     let mut stale_simple: Vec<PathBuf> = Vec::new();
-    let mut stale_diagram: Vec<(PathBuf, PathBuf)> = Vec::new();
+    // Individual-render queue: (adoc, out, preprocessed_content).
+    // preprocessed_content is Some(cleaned) when dedup is needed, None otherwise.
+    let mut stale_individual: Vec<(PathBuf, PathBuf, Option<String>)> = Vec::new();
     let mut all_html: Vec<PathBuf> = Vec::new();
 
     for adoc in &adoc_files {
@@ -144,14 +195,17 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
             continue;
         }
 
-        if has_diagram_blocks(adoc) {
-            stale_diagram.push((adoc.clone(), out_file));
+        let content = std::fs::read_to_string(adoc).unwrap_or_default();
+        let preprocessed = dedup_specials(&content, specials);
+        let needs_individual = has_diagram_blocks(adoc) || preprocessed.is_some();
+        if needs_individual {
+            stale_individual.push((adoc.clone(), out_file, preprocessed));
         } else {
             stale_simple.push(adoc.clone());
         }
     }
 
-    if stale_simple.is_empty() && stale_diagram.is_empty() {
+    if stale_simple.is_empty() && stale_individual.is_empty() {
         println!("docs: nothing to do");
         return all_html;
     }
@@ -178,28 +232,46 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
         }
     }
 
-    for (adoc, out_file) in &stale_diagram {
+    for (adoc, out_file, preprocessed) in &stale_individual {
+        let label = adoc.strip_prefix(project_root).unwrap_or(adoc);
+        let has_diag = has_diagram_blocks(adoc);
         println!(
-            "docs: rendering {} (diagrams)",
-            adoc.strip_prefix(project_root)
-                .unwrap_or(adoc)
-                .display()
+            "docs: rendering {}{}",
+            label.display(),
+            match (has_diag, preprocessed.is_some()) {
+                (true, true)  => " (diagrams + dedup)",
+                (true, false) => " (diagrams)",
+                (false, true) => " (dedup)",
+                (false, false) => "",
+            }
         );
+
+        // Write temp file for preprocessing; use original path otherwise.
+        let temp_path = preprocessed.as_deref().and_then(|c| write_temp_adoc(adoc, c));
+        let render_path = temp_path.as_deref().unwrap_or(adoc);
+
         let mut args = base_args.clone();
+        if has_diag {
+            args.extend([
+                "-a".into(),
+                format!("imagesoutdir={}", out_file.parent().unwrap().display()),
+            ]);
+        }
         args.extend([
-            "-a".into(),
-            format!(
-                "imagesoutdir={}",
-                out_file.parent().unwrap().display()
-            ),
             "-o".into(),
             out_file.to_string_lossy().into_owned(),
-            adoc.to_string_lossy().into_owned(),
+            render_path.to_string_lossy().into_owned(),
         ]);
         let status = Command::new("asciidoctor")
             .args(&args)
             .status()
             .expect("failed to launch asciidoctor");
+
+        // Clean up temp file whether or not asciidoctor succeeded.
+        if let Some(ref tp) = temp_path {
+            let _ = std::fs::remove_file(tp);
+        }
+
         if !status.success() {
             eprintln!("asciidoctor failed: {}", adoc.display());
             std::process::exit(status.code().unwrap_or(1));
@@ -258,6 +330,7 @@ use std::time::SystemTime;
 // <[render-exclude]>
 // <[render-mtime]>
 // <[render-plantuml]>
+// <[render-dedup]>
 // <[render-entry]>
 // <[render-discover]>
 // @@

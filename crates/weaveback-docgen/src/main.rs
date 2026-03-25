@@ -21,12 +21,34 @@ fn find_project_root() -> PathBuf {
     }
     std::env::current_dir().unwrap()
 }
+/// Collect every `--special CHAR` argument from the command line.
+fn parse_specials() -> Vec<char> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut out = Vec::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--special" {
+            if let Some(s) = args.get(i + 1) {
+                let mut chars = s.chars();
+                if let (Some(c), None) = (chars.next(), chars.next()) {
+                    out.push(c);
+                }
+                i += 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 fn main() {
+    let specials = parse_specials();
     let root = find_project_root();
     let out_dir = root.join("docs").join("html");
     let theme_dir = root.join("scripts").join("asciidoc-theme");
 
-    let all_html = render::render_docs(&root, &theme_dir, &out_dir);
+    let all_html = render::render_docs(&root, &theme_dir, &out_dir, &specials);
     let existing_html: std::collections::HashSet<String> = all_html
         .iter()
         .filter_map(|p| p.strip_prefix(&out_dir).ok())

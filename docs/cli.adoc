@@ -32,6 +32,8 @@ weaveback [OPTIONS] --dir <DIR>      # auto-discover driver files
 | `--stamp <PATH>` | | Touch this file on success (build-system stamp)
 | `--db <PATH>` | `weaveback.db` | Path to the source-map database
 | `--allow-env` | off | Enable `%env(NAME)` (disabled by default to protect secrets)
+| `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox
+| `--dry-run` | off | Print output paths without writing anything
 |===
 
 === Directory mode
@@ -152,4 +154,6 @@ weaveback-tangle [OPTIONS] -              # read from stdin
 | `--chunk-end <STR>` | `@` | End-of-chunk marker
 | `--comment-markers <STR>` | `#,//` | Comment prefixes (comma-separated)
 | `--formatter <EXT=CMD>` | | Run a formatter after writing each file
+| `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox
+| `--dry-run` | off | Print output paths without writing anything
 |===

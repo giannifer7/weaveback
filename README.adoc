@@ -1,7 +1,8 @@
 = Weaveback
 
 link:https://giannifer7.github.io/weaveback/[📖 Documentation]
-| link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html#literate-sources[🔧 Implementation]
+| link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[🔧 weaveback-tangle source]
+| link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html#literate-sources[🔧 weaveback-macro source]
 
 Weaveback is a bidirectional literate programming toolchain. Write your
 source code inside AsciiDoc (or any text file), expand macros, assemble
@@ -15,8 +16,8 @@ weaveback source.adoc --gen src
 
 Under the hood two passes run in sequence:
 
-1. *weaveback-macro* — expands `%macro(...)` calls
-2. *weaveback-tangle* — extracts `<[@file ...]>` chunks and writes them to disk
+1. link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html[*weaveback-macro*] — expands `%macro(...)` calls
+2. link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[*weaveback-tangle*] — extracts `<[@file ...]>` chunks and writes them to disk
 
 Both passes run in-process; no intermediate files or subprocesses.
 

@@ -77,7 +77,7 @@ pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path) -> Vec
     ];
     if let Some(native) = plantuml_native {
         base_args.push("-a".into());
-        base_args.push(format!("plantuml-command={}", native));
+        base_args.push(format!("plantuml-native={}", native));
     }
 
     let theme_mtime = theme_max_mtime(theme_dir);

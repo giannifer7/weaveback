@@ -1,16 +1,65 @@
-use regex::Regex;
-use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::{self, Read, Write};
-use std::path::{Component, Path};
+= Chunk Parser and Expander
+:toc: left
+:source-highlighter: rouge
 
-use crate::db::NowebMapEntry;
-use crate::safe_writer::SafeWriterError;
-use crate::WeavebackError;
-use crate::SafeFileWriter;
-use log::{debug, warn};
+`noweb.rs` is the heart of `weaveback-tangle`.
+Three types work together: `ChunkStore` reads and expands chunk definitions;
+`ChunkWriter` writes `@file` chunks to disk through the safe writer; `Clip` is
+the top-level façade that glues them together and exposes the public API.
 
+== Chunk syntax
+
+A _chunk definition_ starts with a line matching the open pattern, followed by
+body lines, and ends with a line matching the close pattern.  The open
+delimiter, close delimiter, chunk-end marker, and comment-marker prefixes are
+all configurable; the defaults are `<[`, `]>`, `@`, and `#,//`.
+
+Using the classic `<<` / `>>` notation for illustration:
+
+[source]
+----
+// <<@file src/output.rs>>=   ← file chunk (declares an output file)
+... body lines ...
+// @                          ← chunk-end
+
+// <<helper-chunk>>=          ← named chunk
+... body lines ...
+// @@
+----
+
+A _chunk reference_ inside a body causes the referenced chunk to be expanded
+inline, with indentation accumulated:
+
+[source]
+----
+// <<@file src/output.rs>>=
+fn main() {
+    // <<body>>
+}
+// @@
+----
+
+Modifiers on definitions and references:
+
+* `@file` — marks the chunk as an output file target.
+* `@replace` — on a definition, discards all earlier definitions of this name.
+* `@reversed` — on a reference, reverses the order in which accumulated
+  definitions are emitted.
+
+== Data types
+
+=== ChunkDef
+
+A `ChunkDef` stores one contiguous block of text between a chunk-open line and
+a chunk-close line.  It records the definition's _base indentation_ — the
+number of leading spaces on the open marker line.  During expansion that many
+spaces are stripped from every content line before the caller's indentation
+prefix is prepended, so indentation stays relative to where the chunk is
+referenced, not where it was defined.
+
+[source,rust]
+----
+// <[noweb-chunk-def]>=
 #[derive(Debug, Clone)]
 struct ChunkDef {
     content: Vec<String>,
@@ -29,6 +78,40 @@ impl ChunkDef {
         }
     }
 }
+// @@
+----
+
+=== Errors
+
+`ChunkLocation` is a `(file_idx, line_no)` pair used in error messages;
+`file_idx` indexes into `ChunkStore::file_names`.
+
+`ChunkError` covers every failure that can occur during parsing or expansion:
+
+[cols="2,3",options="header"]
+|===
+| Variant | When it is produced
+
+| `RecursionLimit`
+| Expansion depth exceeds 100.
+
+| `RecursiveReference`
+| A chunk directly or indirectly references itself.
+
+| `UndefinedChunk`
+| A reference names a chunk that was never defined (warnings only when hit inside
+  a body; fatal if the outer call site triggers it via `inc_references`).
+
+| `IoError`
+| An I/O failure in `ChunkWriter`.
+
+| `FileChunkRedefinition`
+| An `@file` chunk is defined twice without `@replace`.
+|===
+
+[source,rust]
+----
+// <[noweb-errors]>=
 #[derive(Debug, Clone)]
 pub struct ChunkLocation {
     pub file_idx: usize,
@@ -101,6 +184,25 @@ impl From<WeavebackError> for ChunkError {
         ChunkError::IoError(std::io::Error::other(e.to_string()))
     }
 }
+// @@
+----
+
+=== NamedChunk
+
+A single chunk name may accumulate multiple `ChunkDef` entries across one or
+more source files.  All definitions are emitted in sequence when the chunk is
+expanded; the `@reversed` modifier on a reference reverses this order.
+
+`Cell<usize>` provides interior mutability for the reference counter without
+runtime borrow checking or heap allocation.  Expansion borrows the store
+immutably (`&self`) while calling `inc_references`, so the counter needs to be
+mutable through a shared reference.  Because the store is single-threaded and
+the `Cell` is never shared across call frames, `Cell` is sufficient — no
+`Mutex`, no `Rc<RefCell>`.
+
+[source,rust]
+----
+// <[noweb-named-chunk]>=
 #[derive(Debug)]
 struct NamedChunk {
     definitions: Vec<ChunkDef>,
@@ -115,6 +217,31 @@ impl NamedChunk {
         }
     }
 }
+// @@
+----
+
+== ChunkStore
+
+`ChunkStore` holds all chunk definitions and drives expansion.  It owns three
+compiled regexes (open, slot, close) built once from the configurable delimiter
+and comment-marker settings, plus the chunk registry and a list of source-file
+names used for error messages.
+
+=== Path safety
+
+Two free functions gate output paths before any content is written.
+
+`path_is_safe` rejects literal absolute paths, Windows-style drive paths, and
+`..` traversal components.  It runs on every `@file` chunk name at parse time.
+
+`expand_tilde` replaces a leading `~` with `$HOME` on Unix.  A tilde-expanded
+path resolves to an absolute path outside `gen/` — it therefore bypasses
+`path_is_safe` (which would reject it) and goes instead through the
+`allow_home` gate in `ChunkWriter::write_chunk`.
+
+[source,rust]
+----
+// <[noweb-path-utils]>=
 fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
@@ -145,6 +272,14 @@ fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
     }
     Ok(())
 }
+// @@
+----
+
+=== Struct
+
+[source,rust]
+----
+// <[noweb-chunkstore-struct]>=
 pub struct ChunkStore {
     chunks: HashMap<String, NamedChunk>,
     file_chunks: Vec<String>,
@@ -153,6 +288,29 @@ pub struct ChunkStore {
     close_re: Regex,
     file_names: Vec<String>,
 }
+// @@
+----
+
+=== Constructor
+
+`ChunkStore::new` compiles three regexes that encode the full delimiter
+grammar.  All three allow an optional comment prefix (alternated as `#|//` for
+the default markers) and use the escaped delimiter strings:
+
+* The _open pattern_ matches chunk-definition headers: an optional comment
+  prefix, the open delimiter, an optional `@replace` or `@file` modifier, the
+  chunk name, and a `=` suffix.
+* The _slot pattern_ matches chunk references inside body lines: an optional
+  comment prefix, the open delimiter, an optional `@file` or `@reversed`
+  modifier (captured as its own group so `@reversed` can be detected
+  structurally rather than by scanning the whole line), the chunk name, and the
+  close delimiter.
+* The _close pattern_ matches chunk-end markers: an optional comment prefix
+  followed by the chunk-end string (default `@`).
+
+[source,rust]
+----
+// <[noweb-chunkstore-new]>=
 impl ChunkStore {
     pub fn new(
         open_delim: &str,
@@ -208,6 +366,44 @@ impl ChunkStore {
         }
     }
 }
+// @@
+----
+
+=== Read loop
+
+`read` scans a source text line-by-line, maintaining a simple three-state
+machine:
+
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 13
+skinparam ArrowColor #83a598
+skinparam StateBorderColor #504945
+skinparam StateBackgroundColor #282828
+skinparam StateFontColor #ebdbb2
+skinparam StateAttributeFontColor #a89984
+
+state "Outside" as out : current_chunk = None
+state "Inside" as ins : current_chunk = Some(name, def_idx)
+
+[*] --> out
+out --> out : close_re or plain line
+out --> ins : open_re matches\n(register def, set current_chunk)
+ins --> ins : slot or plain line\n(append to current def)
+ins --> out : close_re matches\n(current_chunk = None)
+@enduml
+----
+
+`@file` chunks are registered in `file_chunks` on first appearance.  Duplicate
+`@file` definitions without `@replace` are reported to stderr and skipped,
+keeping the first definition rather than silently clobbering or dropping both.
+
+[source,rust]
+----
+// <[noweb-chunkstore-read]>=
 impl ChunkStore {
     pub fn read(&mut self, text: &str, file_idx: usize) {
         debug!("Reading text for file_idx: {}", file_idx);
@@ -297,6 +493,29 @@ impl ChunkStore {
         debug!("Finished reading. File chunks: {:?}", self.file_chunks);
     }
 }
+// @@
+----
+
+=== Expander
+
+`expand_inner` is the core recursive function.  It takes a chunk name, the
+accumulated indentation prefix from all enclosing references, the current
+recursion depth, a `HashSet` tracking chunks currently on the call stack, a
+reference location for error messages, and whether `@reversed` mode is active.
+
+Each content line is either a _slot_ (a chunk reference) or a _plain line_.
+For plain lines the base indentation recorded at parse time is stripped and
+`target_indent` is prepended; a `NowebMapEntry` is also produced so callers
+can reconstruct the source map.  For slot lines, `expand_inner` recurses,
+extending the indent by the slot's relative indentation within the definition.
+
+The `seen` set provides O(1) cycle detection.  A chunk name is inserted on
+descent and removed on return, so sibling references to the same chunk do not
+falsely trigger the cycle check.
+
+[source,rust]
+----
+// <[noweb-chunkstore-expand]>=
 impl ChunkStore {
     fn inc_references(&self, chunk_name: &str, location: &ChunkLocation) -> Result<(), ChunkError> {
         if let Some(chunk) = self.chunks.get(chunk_name) {
@@ -469,6 +688,18 @@ impl ChunkStore {
         self.expand(chunk_name, "")
     }
 }
+// @@
+----
+
+=== Utilities
+
+After all `@file` chunks are written, `check_unused_chunks` warns about named
+chunks that were defined but never referenced — a common mistake when
+refactoring literate sources.
+
+[source,rust]
+----
+// <[noweb-chunkstore-utils]>=
 impl ChunkStore {
     pub fn get_file_chunks(&self) -> &[String] {
         &self.file_chunks
@@ -506,6 +737,25 @@ impl ChunkStore {
         warns
     }
 }
+// @@
+----
+
+== ChunkWriter
+
+`ChunkWriter` borrows a `SafeFileWriter` and writes one `@file` chunk at a
+time.  It dispatches on whether the expanded path is absolute or relative:
+
+* *Relative paths* — go through `SafeFileWriter::before_write` /
+  `after_write`, which stage to a `NamedTempFile`, run the optional formatter,
+  check the modification baseline, and atomically copy the result to `gen/`.
+* *Absolute paths* (only possible after tilde expansion of `~/...` chunks) —
+  written directly via `fs::File::create`.  The `allow_home` flag in
+  `SafeWriterConfig` gates this; without it the write is rejected as a
+  `SecurityViolation`.
+
+[source,rust]
+----
+// <[noweb-chunkwriter]>=
 pub struct ChunkWriter<'a> {
     safe_file_writer: &'a mut SafeFileWriter,
 }
@@ -555,6 +805,19 @@ impl<'a> ChunkWriter<'a> {
         Ok(())
     }
 }
+// @@
+----
+
+== Clip
+
+`Clip` composes `ChunkStore` and `SafeFileWriter` into the public API.  Most
+methods delegate directly to one of the two inner types.
+
+=== Constructor and read / query methods
+
+[source,rust]
+----
+// <[noweb-clip-core]>=
 pub struct Clip {
     store: ChunkStore,
     writer: SafeFileWriter,
@@ -637,6 +900,23 @@ impl Clip {
         self.store.get_chunk_content(name)
     }
 }
+// @@
+----
+
+=== Writing files and dry-run
+
+`write_files` iterates over every `@file` chunk, calls `expand_with_map` to
+get both the expanded lines and their `NowebMapEntry` source-map entries,
+writes the content through a `ChunkWriter`, then stores the source-map entries
+in the database's `noweb_map` table.  After all files are written it emits
+any unused-chunk warnings.
+
+`list_output_files` resolves the same paths that `write_files` would write to,
+without touching the filesystem.  It is used by `--dry-run`.
+
+[source,rust]
+----
+// <[noweb-clip-write]>=
 impl Clip {
     pub fn write_files(&mut self) -> Result<(), WeavebackError> {
         let fc = self.store.get_file_chunks().to_vec();
@@ -690,3 +970,42 @@ impl Clip {
         self.writer.finish(target).map_err(WeavebackError::SafeWriter)
     }
 }
+// @@
+----
+
+== Assembly
+
+The `@file` chunk assembles the module by expanding all sub-chunks in order.
+Imports are inlined here; the sub-chunks contain the type definitions and
+`impl` blocks.
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/noweb.rs]>=
+use regex::Regex;
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::{self, Read, Write};
+use std::path::{Component, Path};
+
+use crate::db::NowebMapEntry;
+use crate::safe_writer::SafeWriterError;
+use crate::WeavebackError;
+use crate::SafeFileWriter;
+use log::{debug, warn};
+
+// <[noweb-chunk-def]>
+// <[noweb-errors]>
+// <[noweb-named-chunk]>
+// <[noweb-path-utils]>
+// <[noweb-chunkstore-struct]>
+// <[noweb-chunkstore-new]>
+// <[noweb-chunkstore-read]>
+// <[noweb-chunkstore-expand]>
+// <[noweb-chunkstore-utils]>
+// <[noweb-chunkwriter]>
+// <[noweb-clip-core]>
+// <[noweb-clip-write]>
+// @@
+----

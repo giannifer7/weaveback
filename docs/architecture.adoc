@@ -205,11 +205,35 @@ Adjust `--gen` to match your project's generated-file directory.
 
 == Weaveback's own implementation
 
-Parts of weaveback-macro are themselves written as literate AsciiDoc sources.
-The generated `.rs` files live next to them in the tree; `just tangle`
+Both crates are written as literate AsciiDoc sources.
+The generated `.rs` files live next to their `.adoc` counterparts; `just tangle`
 regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 
-.Literate sources
+.weaveback-tangle literate sources
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle crate index]
+| `crates/weaveback-tangle/src/lib.rs`
+
+| link:../crates/weaveback-tangle/src/noweb.adoc[chunk parser and expander]
+| `crates/weaveback-tangle/src/noweb.rs`
+
+| link:../crates/weaveback-tangle/src/safe_writer.adoc[safe file writer]
+| `crates/weaveback-tangle/src/safe_writer.rs`
+
+| link:../crates/weaveback-tangle/src/db.adoc[persistent database]
+| `crates/weaveback-tangle/src/db.rs`
+
+| link:../crates/weaveback-tangle/src/cli.adoc[CLI binary]
+| `crates/weaveback-tangle/src/main.rs`
+
+| link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
+| `crates/weaveback-tangle/src/tests/` (4 files)
+|===
+
+.weaveback-macro literate sources
 [cols="2,3",options="header"]
 |===
 | Document | Generates

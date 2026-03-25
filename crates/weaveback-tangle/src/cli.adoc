@@ -1,3 +1,34 @@
+= Command-Line Interface
+:toc: left
+:source-highlighter: rouge
+
+`main.rs` is the entry point for the `weaveback-tangle` binary.  It parses
+command-line arguments with `clap`, builds a `Clip`, reads the input files,
+writes all `@file` chunks to disk, and merges the run's database into
+`weaveback.db`.
+
+== Arguments
+
+[cols="1,1,3"]
+|===
+| Flag | Default | Description
+
+| `--gen DIR` | `gen` | Base directory for generated output files.
+| `--open-delim STR` | `<[` | Chunk open delimiter.
+| `--close-delim STR` | `]>` | Chunk close delimiter.
+| `--chunk-end STR` | `@` | Marker that closes a chunk definition.
+| `--comment-markers LIST` | `#,//` | Comma-separated comment prefixes.
+| `--formatter EXT=CMD` | — | Formatter to run on files with a given extension.
+| `--allow-home` | off | Allow `@file ~/…` chunks to write outside `gen/`.
+| `--dry-run` | off | Print output paths without writing anything.
+| `--chunks LIST` | — | Named chunks to extract to stdout (or `--output`).
+| `--output FILE` | stdout | Destination for `--chunks` output.
+| `FILES…` | — | Input literate source files (`-` for stdin).
+|===
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/main.rs]>=
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
 use clap::Parser;
 use std::collections::HashMap;
@@ -139,3 +170,5 @@ fn main() {
         std::process::exit(1);
     }
 }
+// @@
+----

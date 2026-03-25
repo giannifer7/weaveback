@@ -1,6 +1,50 @@
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use std::path::Path;
+= Persistent Database
+:toc: left
+:source-highlighter: rouge
 
+`db.rs` owns the SQLite database that weaveback writes after every tangling
+run.  The database stores six kinds of data:
+
+* `gen_baselines` — the last content weaveback wrote to each generated file,
+  used to detect external edits between runs.
+* `noweb_map` — a line-by-line source map from output lines back to their
+  origin chunk and line in the literate source.
+* `macro_map` — per-line tracing data from the macro expander.
+* `src_snapshots` — byte-for-byte copies of the literate source files at the
+  time of the last run; used by apply-back to reconstruct the original text.
+* `var_defs` / `macro_defs` — byte-offset records for every `%set`/`%def`
+  call, enabling fast "where was this defined?" lookups.
+
+== Concurrency model
+
+Weaveback builds an in-memory database during a run (`open_temp`), then
+`merge_into` copies all tables into the target file database in a single write
+transaction.  The target always runs in WAL mode, so read-only connections
+(MCP server, apply-back) never block merges, and merges never block readers.
+A 200 ms busy-timeout handles the rare case of two weaveback processes
+finishing at the same moment — the merge commit holds the WAL write lock for
+single-digit milliseconds, so 200 ms is already a generous margin.
+
+== NowebMapEntry
+
+Each row of `noweb_map` carries four fields:
+
+* `src_file` — path of the literate source file containing the chunk definition.
+* `chunk_name` — the name of the chunk that produced this output line.
+* `src_line` — 0-indexed line number within the source file.
+* `indent` — the indentation string prepended during expansion.
+
+These four fields are sufficient to implement `weaveback where <file>:<line>`
+and to feed the apply-back algorithm.
+
+== Schema
+
+The schema is created on first open via `apply_schema`.  All tables use
+`STRICT` mode to catch type mismatches at the SQLite layer.
+
+[source,rust]
+----
+// <[db-schema]>=
 const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS gen_baselines (
     path    TEXT PRIMARY KEY NOT NULL,
@@ -45,6 +89,14 @@ CREATE TABLE IF NOT EXISTS macro_defs (
     PRIMARY KEY (macro_name, src_file, pos)
 ) STRICT;
 ";
+// @@
+----
+
+== Error type and NowebMapEntry
+
+[source,rust]
+----
+// <[db-types]>=
 #[derive(Debug)]
 pub enum DbError {
     Sql(rusqlite::Error),
@@ -73,6 +125,25 @@ pub struct NowebMapEntry {
     pub src_line: u32,
     pub indent: String,
 }
+// @@
+----
+
+== WeavebackDb — open modes
+
+`WeavebackDb` wraps a single `rusqlite::Connection`.  Three constructors cover
+the three use cases:
+
+* `open` — read-write with WAL mode; used when writing the persistent
+  `weaveback.db` directly (uncommon — most writes go through `open_temp` +
+  `merge_into`).
+* `open_read_only` — read-only, never blocks concurrent writers; used in the
+  MCP server and apply-back reads.
+* `open_temp` — in-memory database that accumulates all writes during a single
+  weaveback run; `merge_into` flushes it to the target file at the end.
+
+[source,rust]
+----
+// <[db-open]>=
 pub struct WeavebackDb {
     conn: Connection,
 }
@@ -104,6 +175,17 @@ impl WeavebackDb {
         Ok(Self { conn })
     }
 }
+// @@
+----
+
+== gen_baselines
+
+`set_baseline` / `get_baseline` maintain the modification-detection baseline
+for each generated file.  `list_baselines` is used during merge and in tests.
+
+[source,rust]
+----
+// <[db-baselines]>=
 impl WeavebackDb {
     pub fn get_baseline(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
         Ok(self
@@ -133,6 +215,18 @@ impl WeavebackDb {
         Ok(())
     }
 }
+// @@
+----
+
+== noweb_map
+
+`set_noweb_entries` writes all source-map rows for one output file in a single
+transaction.  `get_noweb_entry` is used by the `weaveback where` and `trace`
+commands.
+
+[source,rust]
+----
+// <[db-noweb-map]>=
 impl WeavebackDb {
     pub fn set_noweb_entries(
         &self,
@@ -187,6 +281,17 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+// @@
+----
+
+== macro_map
+
+Pre-serialized entries (opaque `BLOB` per line) written by the macro expander
+and read back during trace operations.
+
+[source,rust]
+----
+// <[db-macro-map]>=
 impl WeavebackDb {
     pub fn set_macro_map_entries(
         &self,
@@ -226,6 +331,21 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+// @@
+----
+
+== merge_into
+
+`merge_into` copies all six tables from the in-memory database into the
+persistent file database in a single write transaction.  The target is created
+and WAL-initialized if it does not yet exist.
+
+SQLite's `ATTACH DATABASE` does not support parameterized paths, so the path
+is string-interpolated with single-quote escaping.
+
+[source,rust]
+----
+// <[db-merge]>=
 impl WeavebackDb {
     pub fn merge_into(&self, target_path: &Path) -> Result<(), DbError> {
         {
@@ -261,6 +381,21 @@ impl WeavebackDb {
         Ok(())
     }
 }
+// @@
+----
+
+== src_snapshots, var_defs, macro_defs
+
+`src_snapshots` stores the raw bytes of each literate source file read during
+a run; apply-back uses these to reconstruct the original text when patching.
+
+`var_defs` and `macro_defs` record byte-offset spans for every `%set` and
+`%def` call, enabling fast "where was this defined?" lookups without
+re-running the macro expander.
+
+[source,rust]
+----
+// <[db-rest]>=
 impl WeavebackDb {
     pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
         Ok(self
@@ -353,3 +488,24 @@ impl WeavebackDb {
         )
     }
 }
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/db.rs]>=
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use std::path::Path;
+
+// <[db-schema]>
+// <[db-types]>
+// <[db-open]>
+// <[db-baselines]>
+// <[db-noweb-map]>
+// <[db-macro-map]>
+// <[db-merge]>
+// <[db-rest]>
+// @@
+----

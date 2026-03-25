@@ -237,8 +237,8 @@ fn test_formatter_is_applied() -> Result<(), WeavebackError> {
     formatters2.insert("txt".to_string(), script_path.to_string_lossy().to_string());
 
     let config = SafeWriterConfig {
-        buffer_size: 8192,
         formatters: formatters2,
+        ..SafeWriterConfig::default()
     };
     let mut writer =
         SafeFileWriter::with_config(temp.path().join("gen"), config)?;
@@ -262,8 +262,8 @@ fn test_formatter_error_propagates() -> Result<(), WeavebackError> {
     formatters.insert("txt".to_string(), "nonexistent-formatter-xyz".to_string());
 
     let config = SafeWriterConfig {
-        buffer_size: 8192,
         formatters,
+        ..SafeWriterConfig::default()
     };
     let mut writer =
         SafeFileWriter::with_config(temp.path().join("gen"), config)?;
@@ -297,8 +297,8 @@ fn test_formatter_prevents_false_positive() -> Result<(), WeavebackError> {
     formatters.insert("txt".to_string(), script_path.to_string_lossy().to_string());
 
     let config = SafeWriterConfig {
-        buffer_size: 8192,
         formatters,
+        ..SafeWriterConfig::default()
     };
     let mut writer =
         SafeFileWriter::with_config(temp.path().join("gen"), config)?;

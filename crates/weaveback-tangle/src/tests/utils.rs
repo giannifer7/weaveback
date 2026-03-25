@@ -6,11 +6,10 @@ use tempfile::TempDir;
 
 pub(crate) fn create_test_writer() -> (TempDir, SafeFileWriter) {
     let temp = TempDir::new().unwrap();
-    let config = SafeWriterConfig {
-        buffer_size: 8192,
-        formatters: std::collections::HashMap::new(),
-    };
-    let writer = SafeFileWriter::with_config(temp.path().join("gen"), config).unwrap();
+    let writer = SafeFileWriter::with_config(
+        temp.path().join("gen"),
+        SafeWriterConfig::default(),
+    ).unwrap();
     (temp, writer)
 }
 

@@ -73,14 +73,40 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro]
 | Macro expansion engine — lexer, parser, AST, evaluator, scripting back-ends
 
-| `weaveback-tangle`
-| Noweb chunk extractor, safe file writer, redb source-map database
+| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle]
+| Noweb chunk extractor, safe file writer, SQLite source-map database
 
 | `weaveback`
 | Combined binary: macro + tangle in one pass; apply-back, MCP server
 
 | `weaveback-docgen`
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
+|===
+
+== weaveback-tangle literate sources
+
+.weaveback-tangle adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle crate index]
+| `crates/weaveback-tangle/src/lib.rs`
+
+| link:../crates/weaveback-tangle/src/noweb.adoc[chunk parser and expander]
+| `crates/weaveback-tangle/src/noweb.rs`
+
+| link:../crates/weaveback-tangle/src/safe_writer.adoc[safe file writer]
+| `crates/weaveback-tangle/src/safe_writer.rs`
+
+| link:../crates/weaveback-tangle/src/db.adoc[persistent database]
+| `crates/weaveback-tangle/src/db.rs`
+
+| link:../crates/weaveback-tangle/src/cli.adoc[CLI binary]
+| `crates/weaveback-tangle/src/main.rs`
+
+| link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
+| `crates/weaveback-tangle/src/tests/` (4 files)
 |===
 
 == weaveback-macro literate sources

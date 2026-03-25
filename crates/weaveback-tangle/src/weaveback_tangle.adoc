@@ -1,0 +1,101 @@
+= weaveback-tangle
+:toc: left
+:source-highlighter: rouge
+
+`weaveback-tangle` reads literate source documents in noweb style, extracts
+named code chunks, and writes the resulting files to disk atomically.  It is
+the second stage of the weaveback pipeline — it receives the macro-expanded
+text from `weaveback-macro` and produces the final generated source files.
+
+== Public API
+
+The crate exports five public types:
+
+* `Clip` — high-level façade: read sources, expand chunks, write files.
+* `SafeFileWriter` — atomic file writer with content-based modification detection.
+* `SafeWriterConfig` — configuration struct for `SafeFileWriter`.
+* `WeavebackDb` — SQLite-backed persistent store for baselines and source maps.
+* `NowebMapEntry` — a single row of the `noweb_map` source-map table, mapping
+  one output line back to its origin in the literate source.
+
+`WeavebackError` is the unified error type wrapping the three sub-errors
+produced by the crate's internal modules.
+
+== Error hierarchy
+
+[source]
+----
+WeavebackError
+├── Chunk(ChunkError)        ← from noweb.rs — parse/expand errors
+├── SafeWriter(SafeWriterError)  ← from safe_writer.rs — I/O, security, formatter
+└── Db(DbError)              ← from db.rs — SQLite errors
+----
+
+`std::io::Error` converts to `WeavebackError::SafeWriter(SafeWriterError::IoError(_))`
+so callers can use `?` on I/O operations without wrapping manually.
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/lib.rs]>=
+pub mod db;
+pub mod noweb;
+pub mod safe_writer;
+
+#[cfg(test)]
+mod tests;
+
+pub use noweb::ChunkError;
+
+use db::DbError;
+use safe_writer::SafeWriterError;
+use std::fmt;
+
+#[derive(Debug)]
+pub enum WeavebackError {
+    Chunk(ChunkError),
+    SafeWriter(SafeWriterError),
+    Db(DbError),
+}
+
+impl fmt::Display for WeavebackError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WeavebackError::Chunk(e) => write!(f, "Chunk error: {}", e),
+            WeavebackError::SafeWriter(e) => write!(f, "Safe writer error: {}", e),
+            WeavebackError::Db(e) => write!(f, "Database error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for WeavebackError {}
+
+impl From<ChunkError> for WeavebackError {
+    fn from(err: ChunkError) -> Self {
+        WeavebackError::Chunk(err)
+    }
+}
+
+impl From<SafeWriterError> for WeavebackError {
+    fn from(err: SafeWriterError) -> Self {
+        WeavebackError::SafeWriter(err)
+    }
+}
+
+impl From<DbError> for WeavebackError {
+    fn from(err: DbError) -> Self {
+        WeavebackError::Db(err)
+    }
+}
+
+impl From<std::io::Error> for WeavebackError {
+    fn from(err: std::io::Error) -> Self {
+        WeavebackError::SafeWriter(SafeWriterError::IoError(err))
+    }
+}
+
+pub use crate::db::{WeavebackDb, NowebMapEntry};
+pub use crate::noweb::Clip;
+pub use crate::safe_writer::SafeFileWriter;
+pub use crate::safe_writer::SafeWriterConfig;
+// @@
+----

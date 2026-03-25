@@ -148,6 +148,14 @@ struct Args {
     /// Disabled by default to prevent templates from silently reading secrets.
     #[arg(long)]
     allow_env: bool,
+
+    /// Allow @file ~/… chunks to write outside the gen/ directory.
+    #[arg(long)]
+    allow_home: bool,
+
+    /// Print output paths without writing anything.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Debug)]
@@ -259,6 +267,7 @@ fn run(args: Args) -> Result<(), Error> {
         &args.gen_dir,
         SafeWriterConfig {
             formatters,
+            allow_home: args.allow_home,
             ..SafeWriterConfig::default()
         },
     )
@@ -353,7 +362,13 @@ fn run(args: Args) -> Result<(), Error> {
         })()?;
     }
 
-    // Phase 2: write all @file chunks.
+    // Phase 2: write all @file chunks (or just list them if --dry-run).
+    if args.dry_run {
+        for path in clip.list_output_files() {
+            println!("{}", path.display());
+        }
+        return Ok(());
+    }
     clip.write_files()?;
 
     // Phase 3: snapshot all source files read this run.

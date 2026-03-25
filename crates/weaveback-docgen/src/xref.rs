@@ -184,10 +184,29 @@ fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> O
 
 fn resolve_import(
     use_path: &str,
+    current_key: &str,  // e.g. "weaveback_macro/evaluator/core"
     current_crate: &str,
     crates_dir: &Path,
     known_crates: &[String],
 ) -> Option<String> {
+    // Handle super:: chains (e.g. super::state::Foo, super::super::types).
+    // Each super:: pops one level; the loop counts exactly as many as appear.
+    if use_path.starts_with("super::") {
+        let mut parts: Vec<&str> = current_key.split('/').collect();
+        let mut remaining = use_path;
+        while let Some(rest) = remaining.strip_prefix("super::") {
+            remaining = rest;
+            if parts.len() > 1 { parts.pop(); }
+        }
+        if parts.is_empty() { return None; }
+        let crate_name = parts[0];
+        let crate_dir = crates_dir.join(crate_name.replace('_', "-"));
+        let prefix: Vec<&str> = parts[1..].to_vec();
+        let segs: Vec<&str> = remaining.split("::").collect();
+        let full: Vec<&str> = prefix.into_iter().chain(segs).collect();
+        return resolve_to_module(&full, &crate_dir, crate_name);
+    }
+
     if let Some(rest) = use_path.strip_prefix("crate::") {
         let segments: Vec<&str> = rest.split("::").collect();
         let crate_dir = crates_dir.join(current_crate.replace('_', "-"));
@@ -257,7 +276,7 @@ pub fn build_xref(project_root: &Path) -> HashMap<String, XrefEntry> {
         let mut resolved: Vec<String> = data
             .use_paths
             .iter()
-            .filter_map(|p| resolve_import(p, current_crate, &crates_dir, &known_crates))
+            .filter_map(|p| resolve_import(p, key, current_crate, &crates_dir, &known_crates))
             .filter(|r| r != key)
             .collect();
         resolved.sort();

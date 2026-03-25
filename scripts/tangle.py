@@ -27,17 +27,14 @@ def main():
     ])
 
     # weaveback-tangle adocs use <[ ]> delimiters and // comment marker only.
-    # This avoids conflicts with the chunk-like patterns inside test fixture
-    # strings (which use << >> and # @).
-    # --special % (not ^): the source code contains ^( in regex patterns which
-    # the macro expander would misparse as a macro invocation with --special ^.
-    # No weaveback macros are used in these adocs so % is safe.
+    # No macros are used; --no-macros avoids any collision with literal % or ^
+    # in the embedded Rust source.
     run([
         "weaveback",
         "--dir", "crates/weaveback-tangle/",
         "--ext", "adoc",
         "--gen", "crates/",
-        "--special", "%",
+        "--no-macros",
         "--open-delim", "<[",
         "--close-delim", "]>",
         "--comment-markers", "//",
@@ -50,23 +47,20 @@ def main():
         "--dir", "crates/weaveback-docgen/",
         "--ext", "adoc",
         "--gen", "crates/",
-        "--special", "%",
+        "--no-macros",
         "--open-delim", "<[",
         "--close-delim", "]>",
         "--comment-markers", "//",
         "--chunk-end", "@@",
     ])
 
-    # weaveback (combined) adocs use << >> delimiters.
-    # --special 9: the digit '9' is absent from all adoc sources in this
-    # directory, so macro expansion is a safe no-op.  Other obvious candidates
-    # (%, ^, ~) conflict with format strings, regex anchors, or doc comments.
+    # weaveback (combined) adocs use << >> delimiters and no macros.
     run([
         "weaveback",
         "--dir", "crates/weaveback/",
         "--ext", "adoc",
         "--gen", "crates/",
-        "--special", "9",
+        "--no-macros",
         "--open-delim", "<<",
         "--close-delim", ">>",
     ])

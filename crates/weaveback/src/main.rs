@@ -87,6 +87,12 @@ struct Args {
     #[arg(long, default_value = "%")]
     special: char,
 
+    /// Skip macro expansion and feed source files directly to the tangle pass.
+    /// Use this when the source files contain no macros and the special
+    /// character would collide with literal text (e.g. %, ^ in Rust or shell).
+    #[arg(long)]
+    no_macros: bool,
+
     /// Include paths for %include/%import (colon-separated on Unix)
     #[arg(long, default_value = ".")]
     include: String,
@@ -328,40 +334,45 @@ fn run(args: Args) -> Result<(), Error> {
         (drivers.clone(), drivers)
     };
 
-    // Phase 1: macro-expand each driver, feed result to noweb.
+    // Phase 1: process each driver and feed result to noweb.
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
 
-        let expanded = weaveback_macro::macro_api::process_string(
-            &content,
-            Some(full_path),
-            &mut evaluator,
-        )?;
-        let expanded_str = String::from_utf8_lossy(&expanded);
-        if args.dump_expanded {
-            eprintln!("=== expanded: {} ===", full_path.display());
-            eprintln!("{}", expanded_str);
-            eprintln!("=== end: {} ===", full_path.display());
-        }
-        clip.read(&expanded_str, &full_path.to_string_lossy());
+        if args.no_macros {
+            // Skip macro expansion: feed the raw file directly to the tangle pass.
+            clip.read(&content, &full_path.to_string_lossy());
+        } else {
+            let expanded = weaveback_macro::macro_api::process_string(
+                &content,
+                Some(full_path),
+                &mut evaluator,
+            )?;
+            let expanded_str = String::from_utf8_lossy(&expanded);
+            if args.dump_expanded {
+                eprintln!("=== expanded: {} ===", full_path.display());
+                eprintln!("{}", expanded_str);
+                eprintln!("=== end: {} ===", full_path.display());
+            }
+            clip.read(&expanded_str, &full_path.to_string_lossy());
 
-        // Record %set and %def positions into the db.
-        let src_files = evaluator.sources().source_files().to_vec();
-        let var_defs = evaluator.drain_var_defs();
-        let macro_defs = evaluator.drain_macro_defs();
-        (|| -> Result<(), weaveback_tangle::WeavebackError> {
-            for vd in var_defs {
-                if let Some(path) = src_files.get(vd.src as usize) {
-                    clip.db().record_var_def(&vd.var_name, &path.to_string_lossy(), vd.pos, vd.length)?;
+            // Record %set and %def positions into the db.
+            let src_files = evaluator.sources().source_files().to_vec();
+            let var_defs = evaluator.drain_var_defs();
+            let macro_defs = evaluator.drain_macro_defs();
+            (|| -> Result<(), weaveback_tangle::WeavebackError> {
+                for vd in var_defs {
+                    if let Some(path) = src_files.get(vd.src as usize) {
+                        clip.db().record_var_def(&vd.var_name, &path.to_string_lossy(), vd.pos, vd.length)?;
+                    }
                 }
-            }
-            for md in macro_defs {
-                if let Some(path) = src_files.get(md.src as usize) {
-                    clip.db().record_macro_def(&md.macro_name, &path.to_string_lossy(), md.pos, md.length)?;
+                for md in macro_defs {
+                    if let Some(path) = src_files.get(md.src as usize) {
+                        clip.db().record_macro_def(&md.macro_name, &path.to_string_lossy(), md.pos, md.length)?;
+                    }
                 }
-            }
-            Ok(())
-        })()?;
+                Ok(())
+            })()?;
+        }
     }
 
     // Phase 2: write all @file chunks (or just list them if --dry-run).
@@ -375,7 +386,12 @@ fn run(args: Args) -> Result<(), Error> {
 
     // Phase 3: snapshot all source files read this run.
     (|| -> Result<(), weaveback_tangle::WeavebackError> {
-        for path in evaluator.source_files() {
+        let paths: Vec<PathBuf> = if args.no_macros {
+            drivers.clone()
+        } else {
+            evaluator.source_files().to_vec()
+        };
+        for path in &paths {
             if let Ok(content) = std::fs::read(path) {
                 let key = path.to_string_lossy();
                 clip.db().set_src_snapshot(key.as_ref(), &content)?;
@@ -391,6 +407,8 @@ fn run(args: Args) -> Result<(), Error> {
     if let Some(ref depfile_path) = args.depfile {
         let deps: Vec<PathBuf> = if args.directory.is_some() {
             all_adoc
+        } else if args.no_macros {
+            drivers
         } else {
             evaluator.source_files().to_vec()
         };

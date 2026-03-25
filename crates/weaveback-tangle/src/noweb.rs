@@ -563,18 +563,31 @@ impl<'a> ChunkWriter<'a> {
         Ok(())
     }
 }
+/// Normalise a source line for content-hash matching:
+/// strip leading/trailing whitespace and drop any trailing `//` comment.
+fn normalise_for_hash(line: &str) -> &str {
+    let trimmed = line.trim();
+    // Drop inline // comment (not inside strings, but good enough for source-map heuristics).
+    if let Some(pos) = trimmed.find("//") {
+        trimmed[..pos].trim_end()
+    } else {
+        trimmed
+    }
+}
+
 fn remap_noweb_entries(
     pre_lines: &[String],
     post_content: &str,
     entries: Vec<NowebMapEntry>,
 ) -> Vec<(u32, NowebMapEntry)> {
     use similar::{ChangeTag, TextDiff};
+    use std::collections::HashMap;
 
     let pre_content: String = pre_lines.concat();
     let diff = TextDiff::from_lines(pre_content.as_str(), post_content);
 
-    // Build old_line → new_line mapping from Equal changes.
-    // old_line and new_line are 0-indexed.
+    // --- Tier 1: diff-based exact mapping ---
+    // Build old_line → new_line from Equal changes (0-indexed).
     let mut old_to_new: Vec<Option<usize>> = vec![None; pre_lines.len()];
     let mut old_idx = 0usize;
     let mut new_idx = 0usize;
@@ -589,37 +602,87 @@ fn remap_noweb_entries(
                 new_idx += 1;
             }
             ChangeTag::Delete => {
-                // Pre-formatter line removed by formatter — no new line.
                 old_idx += 1;
             }
             ChangeTag::Insert => {
-                // Formatter inserted a new line — no old line.
                 new_idx += 1;
             }
         }
     }
 
-    // Build the post-formatter entries.
-    // For each new line, find the nearest old line that maps to it.
+    // Place diff-mapped entries into the post-formatter slot vector.
     let post_line_count = post_content.lines().count();
     let mut new_to_entry: Vec<Option<NowebMapEntry>> = vec![None; post_line_count];
 
-    for (old_i, entry) in entries.into_iter().enumerate() {
+    for (old_i, entry) in entries.iter().enumerate() {
         if let Some(&Some(new_i)) = old_to_new.get(old_i) {
             if new_i < post_line_count {
-                new_to_entry[new_i] = Some(entry);
+                new_to_entry[new_i] = Some(entry.clone());
             }
         }
     }
 
-    // Fill gaps: lines inserted by the formatter inherit from
-    // the nearest preceding mapped line.
+    // --- Tier 2: content-hash fallback ---
+    // Build a map from normalised pre-formatter line content → old line index.
+    // Only include non-trivial lines (normalised length > 1) to avoid noise.
+    // We store the *last* old index for a given hash so that duplicate lines
+    // resolve to their final occurrence (arbitrary but deterministic).
+    let mut hash_to_old: HashMap<&str, usize> = HashMap::new();
+    for (old_i, raw) in pre_lines.iter().enumerate() {
+        let key = normalise_for_hash(raw);
+        if key.len() > 1 {
+            hash_to_old.insert(key, old_i);
+        }
+    }
+
+    // Track which old lines have already been claimed by a hash match so
+    // the same source line isn't used for two different new positions.
+    let mut claimed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    // Pre-populate with lines already mapped by the diff.
+    for (old_i, mapped) in old_to_new.iter().enumerate() {
+        if mapped.is_some() {
+            claimed.insert(old_i);
+        }
+    }
+
+    for (new_i, slot) in new_to_entry.iter_mut().enumerate() {
+        if slot.is_some() {
+            continue;
+        }
+        // Recover the raw post-formatter line text.
+        let post_line = post_content
+            .lines()
+            .nth(new_i)
+            .unwrap_or("");
+        let key = normalise_for_hash(post_line);
+        if key.len() > 1 {
+            if let Some(&old_i) = hash_to_old.get(key) {
+                if !claimed.contains(&old_i) {
+                    claimed.insert(old_i);
+                    *slot = Some(entries[old_i].clone());
+                }
+            }
+        }
+    }
+
+    // --- Tier 3: bidirectional nearest-neighbour fill ---
+    // Forward pass: fill from the nearest preceding attributed line.
     let mut last_entry: Option<NowebMapEntry> = None;
     for slot in new_to_entry.iter_mut() {
         if slot.is_some() {
             last_entry = slot.clone();
         } else if let Some(ref prev) = last_entry {
             *slot = Some(prev.clone());
+        }
+    }
+    // Backward pass: fill remaining gaps (leading insertions) from the nearest
+    // following attributed line.
+    let mut next_entry: Option<NowebMapEntry> = None;
+    for slot in new_to_entry.iter_mut().rev() {
+        if slot.is_some() {
+            next_entry = slot.clone();
+        } else if let Some(ref next) = next_entry {
+            *slot = Some(next.clone());
         }
     }
 

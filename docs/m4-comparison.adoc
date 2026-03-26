@@ -1,0 +1,441 @@
+= weaveback-macro vs GNU m4
+:toc: left
+:toc-title: Contents
+:source-highlighter: rouge
+:icons: font
+
+GNU m4 is the oldest surviving general-purpose macro processor and the
+closest conceptual relative of weaveback-macro.  This document compares
+them across several dimensions to help you decide which is the right tool
+for a given problem — and to be honest about where each one falls short.
+
+== Purpose and design philosophy
+
+m4 was designed by Brian Kernighan and Dennis Ritchie in the early 1970s
+as a general-purpose text-substitution layer for Unix.  Its canonical use
+today is as the expansion engine inside GNU Autoconf: it processes `.m4`
+files at configure-generation time and never runs on the end user's
+machine.  The sendmail mail transfer agent also ships a large library of
+m4 macros for generating its notoriously complex configuration files.
+These two use cases — build-system glue and system-administration
+templating — define m4's sweet spot.  m4 does not know or care what the
+text around a macro means; it is a pure text-replacement machine.
+
+weaveback-macro was designed for a narrower and more specific job:
+pre-processing the prose layer of a literate programming document before
+the tangle pass extracts code chunks.  The text around a macro *does*
+matter — it is AsciiDoc or Markdown that a human will read and that
+Asciidoctor will render.  This shapes every design decision: the special
+character is configurable so it does not collide with document markup,
+macros are defined inside ordinary prose, and the tool is meant to be
+transparent to a reader who does not know it exists.
+
+In short: m4 is a universal macro language that happens to be used for
+literate-adjacent tasks.  weaveback-macro is a literate-programming tool
+that happens to be implemented as a macro language.
+
+== Expressiveness
+
+=== GNU m4
+
+m4 is Turing-complete.  Its expansion model — push the result back onto
+the input stream and re-scan — means any computation expressible as text
+transformation can be encoded in m4, including recursion, loops (via
+recursive macros), arithmetic (`eval`), regex substitution (`patsubst`),
+character translation (`translit`), substring extraction (`substr`), and
+printf-style formatting (`format`).  Diversions allow output to be
+buffered and reordered, which enables forward-reference tricks.
+`system` and `esyscmd` let macros call arbitrary shell commands and
+capture their output.  Stack-based scoping (`pushdef`/`popdef`) lets you
+temporarily shadow a macro and restore the previous definition.
+
+This power comes with a cost: any sufficiently large m4 program starts
+to feel less like a macro layer and more like an accidental programming
+language written in line noise.  The GNU Autoconf project responded by
+building two abstraction layers on top of raw m4 — m4sugar (safe,
+conventional macro utilities) and m4sh (macros that generate shell code)
+— precisely because raw m4 is too sharp an instrument for daily use.
+
+=== weaveback-macro
+
+weaveback-macro is intentionally less expressive at the core level.
+String macros (`%def`) and variables (`%set`) cover the common case.
+The conditional `%if(cond, then, else)` and file inclusion
+(`%include`/`%import`) complete the basic feature set.
+
+Where weaveback-macro regains expressiveness is through scripting escape
+hatches.  `%rhaidef` writes a macro body in
+https://rhai.rs[Rhai], an embeddable scripting language with Rust-like
+syntax.  `%pydef` writes a macro body in Python-like syntax via
+https://github.com/pydantic/monty[monty], a minimal, secure Python
+interpreter written in Rust — not CPython, not a subprocess.  Both
+receive the current scope's variables as strings and return the expanded
+text.  Both run inside sandboxed runtimes with no filesystem or network
+access; Rhai additionally enforces a hard operations limit (100,000
+steps by default) that prevents infinite loops.
+
+The practical difference: m4 can express anything, but you have to
+express it entirely in m4's opaque notation.  weaveback-macro covers
+most document-preprocessing needs directly, and delegates the rest to
+languages with better tooling (Rhai, Python).
+
+[cols="1,1,1",options="header"]
+|===
+| Capability | GNU m4 | weaveback-macro
+
+| Recursive macros | ✓ (core feature) | via %rhaidef / %pydef
+| Arithmetic | ✓ `eval` | via Rhai / Python
+| Regex substitution | ✓ `patsubst` | via Rhai / Python
+| String operations | ✓ `substr`, `index`, `len`, `translit` | via Rhai / Python
+| Conditionals | ✓ `ifelse` | ✓ `%if(cond, then, else)`
+| File inclusion | ✓ `include`, `sinclude` | ✓ `%include`, `%import`
+| Shell invocation | ✓ `system`, `esyscmd` | ✗ (both Rhai and monty are sandboxed)
+| Output reordering | ✓ diversions | ✗
+| Scoped redefinition | ✓ `pushdef`/`popdef` (manual) | ✓ automatic (local by default, `%export` to promote)
+| Named arguments | ✗ | ✓
+| Scripting language body | ✗ | ✓ (Rhai, Python)
+| Turing-complete | ✓ | ✓ (via scripting)
+|===
+
+== Learning curve
+
+=== GNU m4
+
+m4's learning curve is famously steep.  The central difficulty is
+*quoting*.  By default, a backtick opens a quoted string and an
+apostrophe closes it — a convention that collides with English prose,
+Markdown, shell scripts, and most programming languages.  The alternative
+`changequote([, ])` helps but introduces bracket-balancing requirements.
+Quoted strings suppress expansion and are stripped of their delimiters
+before the result is used, which means the number of quote layers needed
+around any expression depends on how many times the text will be
+re-scanned — a question that requires understanding the evaluation model
+before you can answer it.
+
+The re-scanning model itself is the second source of confusion.  m4
+pushes the result of every expansion back onto the input stream and
+re-reads it.  An unquoted comma inside a macro argument is therefore not
+syntactically inert: if a macro expansion generates a comma, that comma
+participates in argument delimiting.  This is conceptually elegant and
+practically treacherous.
+
+The official GNU m4 manual acknowledges: _"The most common problem with
+existing macros is improper quotation."_  External guides add: _"Quoting
+can be cantankerous on occasion in m4."_  Many experienced developers
+who use Autoconf daily treat m4 as a write-once medium: you paste
+boilerplate from working examples and avoid touching it.
+
+=== weaveback-macro
+
+weaveback-macro's model is simpler because it does not re-scan.  A macro
+expansion produces text that is output as-is; it does not feed back into
+the macro expander.  This eliminates the entire category of quoting bugs
+that makes m4 difficult.
+
+Arguments follow Python-style calling conventions: positional arguments
+bind left-to-right, named arguments bind by name and may appear in any
+order after positional arguments.  Missing parameters bind to the empty
+string.  Extra positional arguments are silently ignored.  This is
+familiar to anyone who has written Python.
+
+The special character (`%` by default, configurable) only triggers macro
+syntax when followed by a known macro name or opening parenthesis.  A
+lone `%` in prose — as in "the failure rate was 4%" — passes through
+untouched.  The escape for a literal special is doubling (`%%`), the
+same convention used by `printf`.
+
+The main learning investment is understanding which constructs exist
+(`%def`, `%set`, `%if(cond,then,else)`, `%include`, `%rhaidef`,
+`%pydef`) and the distinction between defining a macro (`%def`) and
+setting a variable (`%set`).  A developer familiar with any template language will reach
+productive use within an hour.
+
+== Quoting and scoping
+
+m4 provides explicit scope manipulation via `pushdef`/`popdef`, which
+requires manual discipline: the programmer must balance every `pushdef`
+with a `popdef`.
+
+weaveback-macro uses a scope stack that is managed automatically.
+`%def` inside a macro body creates a definition local to that
+invocation; it is discarded when the call returns.  To promote a
+definition to the caller's scope, `%export` is used explicitly.
+`%include` evaluates the included file in the caller's current scope —
+equivalent to inlining the text at the call site.  When called at the
+top level (the normal case) definitions land at the top level; when
+called inside a macro body they are local to that invocation.
+`%export` promotes a name one level up to the parent scope.
+This model gives the locality of `pushdef`/`popdef` without
+requiring the programmer to balance them manually.
+
+m4 uses `ifdef` to test whether a name is defined.  weaveback-macro uses
+`%if(cond, then, else)` where the condition is truthy if it expands to a
+non-empty string; Rhai or Python handle any condition more complex than
+that.
+
+== Error messages and debugging
+
+=== GNU m4
+
+m4's error messages are terse and often point to the wrong location,
+because by the time the error is detected the input has been transformed
+by multiple expansion passes.  Debugging uses `traceon`/`traceoff` and
+the `-d` flag, which prints a trace of each macro call and its expansion
+with depth indicators.  The output is useful once you understand it, but
+the format is unstructured text that requires visual parsing.  The manual
+warns that m4 cannot detect infinite rescanning loops because the problem
+is undecidable.
+
+=== weaveback-macro
+
+Error messages include the source file and line number from the original
+document (before expansion).  Because there is no re-scanning, the error
+site in the message corresponds to the site a human sees in the source.
+Recursion depth is tracked and capped at a configurable limit (100 by
+default), so infinite-recursion mistakes produce a clear error rather
+than a stack overflow.  There is no interactive debugger, but the
+`--dump-expanded` flag on the combined `weaveback` binary prints the
+fully expanded text to stderr before the tangle pass, which is usually
+sufficient for diagnosis.
+
+== Speed and scaling
+
+m4 is written in C and processes tens of megabytes of macro-heavy input
+per second.  Its `--freeze-state` / `--reload-state` mechanism lets you
+pre-compute a common initialization state and amortise it across many
+runs.  Its `changeword` feature (which allows redefining word syntax)
+slows it down considerably and is rarely used.  m4 is stateless between
+runs: no database, no carry-over cost.
+
+weaveback-macro itself is fast (Rust, `memchr` single-byte scan).  The
+macro pass and the tangle pass are not the bottleneck for large projects.
+The bottleneck is `weaveback.db`.
+
+=== Database scaling
+
+weaveback.db has two tables that store full file content:
+
+* `gen_baselines` — a byte-for-byte copy of every generated file, used
+  to detect external edits between runs.  Size tracks the total size of
+  your `gen/` directory.
+* `src_snapshots` — a byte-for-byte copy of every source file read.
+  Size tracks the total size of your literate sources.
+
+`noweb_map` adds roughly 150 bytes per output line.
+
+Rough projections:
+
+[cols="1,1,1,1",options="header"]
+|===
+| Project scale | Source | Generated | Estimated weaveback.db
+
+| Small | 500 KB | 300 KB | ~1.5 MB
+| Medium | 5 MB | 3 MB | ~12 MB
+| Large | 30 MB | 15 MB | ~80 MB
+| Very large | 300 MB | 150 MB | ~700 MB
+|===
+
+These are proportional, not fixed costs — the database grows linearly
+with project size.  80 MB is unremarkable; 700 MB starts to be a
+consideration for disk space and backup.
+
+=== Memory during a run
+
+The more immediate concern for large projects is RAM.  The temp database
+that accumulates during a tangle run uses `SQLite` in-memory storage
+(`open_in_memory`).  At merge time the entire contents of that database
+— all of `gen_baselines`, `src_snapshots`, `noweb_map`, and `chunk_deps`
+— lives simultaneously in RAM before being flushed to disk in one
+`BEGIN IMMEDIATE` transaction.  Add the `ChunkStore` (all parsed chunks)
+and the evaluator state and the per-run RAM footprint is roughly 2× the
+final database size.
+
+For small and medium projects this is invisible.  For a very large
+project a single weaveback run could require 1–2 GB of RAM just for the
+database merge, before accounting for the rest of the process.
+
+m4 has no equivalent cost: it writes output as it expands and keeps
+nothing after the run.
+
+=== Summary
+
+For the overwhelming majority of literate programming projects — a few
+dozen source files, tens of thousands of lines of generated output —
+neither speed nor database size is a concern.  At the scale of a large
+monorepo the database design would need revisiting: lazy snapshotting,
+opt-in `src_snapshots`, compressed BLOBs, or a file-backed temp database
+instead of in-memory.  None of that work has been done; the current
+design has not been stress-tested at scale.
+
+== Error-proneness
+
+This is where the difference is most pronounced.
+
+m4's re-scanning model means that many syntactically valid programs
+produce subtly wrong output rather than an error.  A missing or
+misplaced quote tier causes a macro argument to expand one pass too early
+or too late.  The output looks almost right.  The bug can propagate
+through several files of generated configuration before surfacing.  The
+difficulty is structural: it follows directly from the design.
+
+weaveback-macro's no-rescan model eliminates that class of bug entirely.
+The remaining failure modes are:
+
+- Calling an undefined macro name (reported immediately with location).
+- A `%rhaidef` body with a Rhai syntax error (reported with the Rhai
+  error message embedded in the weaveback error).
+- A circular `%include` chain (detected and reported).
+- A `%pydef` body whose Python raises an exception (propagated as an
+  error with the Python traceback).
+
+All of these produce explicit errors with source locations.  None of
+them produce subtly-wrong-but-plausible output.
+
+== Licensing
+
+[cols="1,1",options="header"]
+|===
+| Tool | License
+
+| GNU m4 | GPLv3+
+| weaveback-macro | 0BSD OR MIT OR Apache-2.0
+|===
+
+GPL means that any work that incorporates m4 itself at runtime may have
+licensing implications depending on how courts interpret dynamic linking
+and tool invocation.  In practice, Autoconf-generated `configure` scripts
+are explicitly exempted by the Free Software Foundation, and using m4 as
+a build tool does not affect the license of the generated output.  But it
+is a question that legal teams sometimes ask.
+
+weaveback's triple license (0BSD / MIT / Apache-2.0) imposes no
+restrictions on the generated output and is compatible with any project,
+including proprietary ones.
+
+== Integration with literate programming
+
+m4 has no knowledge of literate programming.  Using it as a pre-processor
+for noweb or similar requires wiring the two tools together manually,
+handling newline injection carefully (the `dnl` builtin exists largely to
+suppress the extra newlines that m4 leaves after macro definitions), and
+ensuring that m4's special characters do not conflict with the noweb chunk
+delimiters (`<<` and `>>`).  People have done this, but it is an
+integration problem you solve yourself.
+
+weaveback-macro is designed as a first-class stage of the weaveback
+pipeline.  It runs before the tangle pass; its output is the input to
+chunk extraction.  The special character is configurable so it never
+conflicts with any chunk syntax you choose.  Source locations from the
+macro expansion pass are stored in the database and surfaced by
+`weaveback trace`, so an agent or developer can trace an output line back
+through both the chunk expansion and the macro expansion to the exact
+token in the original document.
+
+== Ecosystem and community
+
+m4 is a POSIX-standard tool with fifty years of history.  It is
+pre-installed on essentially every Unix-like system.  There is a large
+body of documentation, Stack Overflow answers, and working code — though
+much of it is Autoconf-specific and not easily transferred to other
+contexts.  The user base is large but passive: most people encounter m4
+through Autoconf and never write m4 directly.
+
+weaveback-macro is a new tool with a small user base and no separate
+community.  Its documentation is the source itself (literate-programmed)
+and this docs directory.  You get Rust-quality error messages and a
+maintainer who reads every issue, but you cannot paste your question into
+a forum and expect an answer within the hour.
+
+== Portability
+
+m4 runs on every Unix-like system and Windows (via MinGW/MSYS or native
+binaries).  It is available in every Linux distribution's package manager.
+
+weaveback is distributed as pre-built binaries for glibc Linux, musl
+Linux (fully static), Fedora/RPM, and Windows (MinGW and native), as
+well as an AUR package (`weaveback-bin`).  The Rust toolchain can
+cross-compile it for any tier-1 or tier-2 Rust target.  It is not yet
+in any Linux distribution's official repositories.
+
+== Security
+
+m4's `system` and `esyscmd` builtins can execute arbitrary shell
+commands.  This is expected — m4 is a build tool, not a sandbox.  In
+contexts where input is not fully trusted, this is a real concern.
+
+weaveback-macro's `%env` builtin (reads environment variables) is
+disabled by default and requires `--allow-env` to enable, to prevent
+templates from silently exfiltrating secrets.
+
+Both `%rhaidef` and `%pydef` run inside sandboxed interpreters with no
+filesystem access, no network access, and no subprocess spawning.
+`%rhaidef` uses Rhai's evaluation engine with a hard operations limit
+(100,000 steps by default).  `%pydef` uses
+https://github.com/pydantic/monty[monty], a minimal, secure Python
+interpreter written in Rust — not CPython.  Neither can read files,
+make network calls, or escape the weaveback process in any way.  This
+is a meaningful security advantage over m4, where `system` and
+`esyscmd` are available to any macro with no opt-in required.
+
+The tangle pass offers a `--dry-run` flag that prints what files would
+be written without touching the filesystem.  This makes it safe to
+inspect the effect of a template or chunk set on an unfamiliar codebase
+before committing to any writes.
+
+== Unicode
+
+m4 is limited to ASCII and 8-bit character sets.  It has no notion of
+multi-byte characters; `substr` and `index` operate on bytes.  Unicode
+text passes through only if macros do not touch it; any transformation
+through `substr`, `translit`, or `len` produces incorrect results for
+non-ASCII input.
+
+weaveback-macro operates on UTF-8 strings throughout.  The special
+character and macro names must be ASCII: the special character uses
+`memchr` for fast scanning, and macro names follow C-style identifier
+rules (`[a-zA-Z_][a-zA-Z0-9_]*`).  Arguments and output text are
+Unicode-clean.
+
+== When to use which
+
+Use m4 when:
+
+* You are working within the GNU Autotools ecosystem and m4 is already
+  required.
+* You need diversions (output reordering) or `pushdef`/`popdef` scoping.
+* The output is going to a system (sendmail, BIND) that already has a
+  large, established m4 macro library you want to reuse.
+* Your audience is Unix administrators who know m4.
+
+Use weaveback-macro when:
+
+* You are writing literate programming documents in AsciiDoc or Markdown.
+* You want macro expansion to be transparent to a reader who does not
+  know the tool exists.
+* You want named arguments, clear error messages, and source-location
+  tracing from output lines back to original source.
+* You need occasional computation in a macro body and would rather write
+  it in Rhai or Python than in m4.
+* Licensing matters and GPL is a problem.
+* You are targeting Windows and do not want a POSIX dependency chain.
+
+== Summary
+
+[cols="1,1,1",options="header"]
+|===
+| Dimension | GNU m4 | weaveback-macro
+
+| **Purpose** | General-purpose | Literate programming
+| **Expressiveness** | High (Turing-complete natively) | Moderate core, high via Rhai/Python
+| **Learning curve** | Steep (quoting rules) | Gentle (no re-scan, named args)
+| **Error-proneness** | High (silent wrong output) | Low (explicit errors with locations)
+| **Error messages** | Terse, displaced | Source-accurate, embedded cause
+| **Speed** | Fast (C, memchr-equivalent) | Fast (Rust, memchr)
+| **Unicode** | ASCII/byte-only | UTF-8 clean
+| **Debugging** | `traceon`, `-d` flag | `--dump-expanded`
+| **Licensing** | GPLv3+ | 0BSD / MIT / Apache-2.0
+| **Ecosystem** | 50-year history, huge | New, small
+| **Portability** | Universal | Pre-built binaries, any Rust target
+| **Literate integration** | Manual wiring | First-class pipeline stage
+| **Security** | `system` by default | `%env` opt-in; Rhai and monty both sandboxed (no I/O)
+|===

@@ -1,0 +1,391 @@
+= Grammar definition
+:toc: left
+:source-highlighter: rouge
+
+`grammar.js` defines the tree-sitter grammar for the Weaveback macro language.
+It is generated from this document by `just tangle`.
+
+See link:tree_sitter_weaveback.adoc[tree_sitter_weaveback.adoc] for the module
+map, link:queries.adoc[queries.adoc] for the highlight and injection queries,
+and link:editors.adoc[editors.adoc] for editor installation.
+
+== Scope and limitations
+
+The grammar is hardcoded to the default special character `%`.  Users who
+configure weaveback with a different `--special` character must generate a
+modified grammar: substitute the desired character throughout `grammar.js`
+and run `npx tree-sitter generate`.
+
+[source,javascript]
+----
+// <<ts-header>>=
+// tree-sitter-weaveback/grammar.js
+//
+// Grammar for the Weaveback macro language.
+// Special character is hardcoded to '%' (the default).
+// Users who configure a different special character must generate a
+// modified grammar with the desired character substituted throughout.
+//
+// Context sensitivity: inside a macro arg list, ',' and ')' are
+// separators, not text.  We handle this by using two different text
+// tokens: `text` (outside args) and `arg_text` (inside args).
+// Blocks %{...%} / %tag{...%tag} escape back to the "anything goes"
+// context, so nested commas and parens inside a block are fine.
+// @
+----
+
+== Context-sensitivity model
+
+Inside a macro argument list, `,` and `)` are separators, not text.  The
+grammar models this with two abstract node categories:
+
+`_node`:: Top-level and inside blocks — `text` (no restriction on commas/parens)
+plus macro calls, variables, blocks, comments, and escaped specials.
+
+`_arg_node`:: Inside argument lists — `arg_text` (stops at `,`, `(`, `)`)
+plus the same set of structured nodes.
+
+A `block` (`%{...%}`) appearing inside an argument restores the `_node`
+context, so commas and parentheses inside the block body are not read as
+argument separators.
+
+== Top-level sequence
+
+[source,javascript]
+----
+// <<ts-source-file>>=
+// A source file is a sequence of top-level nodes
+source_file: ($) => repeat($._node),
+// @
+----
+
+== Node categories
+
+[source,javascript]
+----
+// <<ts-node>>=
+// Nodes valid at top-level and inside blocks
+_node: ($) =>
+  choice(
+    $.text,
+    $.macro_call,
+    $.variable,
+    $.block,
+    $.line_comment,
+    $.block_comment,
+    $.escaped_special,
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-arg-node>>=
+// Nodes valid inside a macro argument (commas and ')' are special)
+_arg_node: ($) =>
+  choice(
+    $.arg_text,
+    $.macro_call,
+    $.variable,
+    $.block,        // %{...%} restores full text inside
+    $.line_comment,
+    $.block_comment,
+    $.escaped_special,
+  ),
+// @
+----
+
+== Text tokens
+
+Two terminal tokens capture the context-sensitivity:
+
+* `text` — outside args: any run of characters that is not `%`.
+  This is the hot path for most documents.
+* `arg_text` — inside args: any run of characters that is not `%`, `,`, `(`, or `)`.
+
+[source,javascript]
+----
+// <<ts-text>>=
+// Outside macro args: anything that isn't '%'
+text: (_) => /[^%]+/,
+// @
+----
+
+[source,javascript]
+----
+// <<ts-arg-text>>=
+// Inside macro args: anything that isn't '%', ',', '(', or ')'
+arg_text: (_) => /[^%,()]+/,
+// @
+----
+
+== Escaped special
+
+`%%` is the printf-style escape for a literal `%`.  The expander strips one
+`%` and emits the other.  The node is captured as `@string.escape` in the
+highlight query.
+
+[source,javascript]
+----
+// <<ts-escaped-special>>=
+escaped_special: (_) => "%%",
+// @
+----
+
+== Variable interpolation
+
+`%(name)` expands the variable `name` from the current scope.
+
+[source,javascript]
+----
+// <<ts-variable>>=
+variable: ($) =>
+  seq(
+    "%(",
+    field("name", $.identifier),
+    ")",
+  ),
+// @
+----
+
+== Macro calls
+
+A macro call is `%name(arg, arg, ...)`.  `macro_name` wraps `%` and a
+C-style identifier as a single token so the highlight query can match it
+against a regex of known builtin names.  Zero-argument calls use
+`optional($._arg_list)`.
+
+[source,javascript]
+----
+// <<ts-macro-call-rule>>=
+macro_call: ($) =>
+  seq(
+    field("name", $.macro_name),
+    "(",
+    optional($._arg_list),
+    ")",
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-macro-name>>=
+macro_name: (_) => token(seq("%", /[a-zA-Z_][a-zA-Z0-9_]*/)),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-arg-list>>=
+_arg_list: ($) =>
+  seq(
+    field("arg", $.argument),
+    repeat(seq(",", field("arg", $.argument))),
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-argument>>=
+argument: ($) => repeat1($._arg_node),
+// @
+----
+
+== Blocks
+
+Blocks escape back to the top-level `_node` context, making commas and
+parentheses inside the block body ordinary text.  Both untagged (`%{...%}`)
+and tagged (`%body{...%body}`) forms share `block_open` / `block_close`;
+the grammar does not enforce matching tags (the macro expander does).
+
+The block mechanism is what makes `%def(bold, x, %{**%(x)**%})` work: the
+`**%(x)**` body is inside a block so `**` is text, not parentheses.
+
+[source,javascript]
+----
+// <<ts-block-rule>>=
+block: ($) =>
+  seq(
+    field("open", $.block_open),
+    repeat($._node),
+    field("close", $.block_close),
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-block-open>>=
+// %{  or  %tag{
+block_open: (_) =>
+  token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "{")),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-block-close>>=
+// %}  or  %tag}
+block_close: (_) =>
+  token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "}")),
+// @
+----
+
+== Comments
+
+Three line-comment forms let weaveback source sit inside host-language files
+without introducing alien comment markers: `%#` for shell, `%//` for
+C/JavaScript, and `%--` for Lua.  Block comments use `%/* ... %*/`.
+
+[source,javascript]
+----
+// <<ts-line-comment>>=
+// %# ...  %// ...  %-- ...  (to end of line)
+line_comment: (_) =>
+  token(
+    seq(
+      "%",
+      choice("#", "//", "--"),
+      /[^\n]*/,
+    ),
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-block-comment>>=
+// %/* ... %*/  (we match the delimited span; nesting not enforced here)
+block_comment: ($) =>
+  seq(
+    "%/*",
+    repeat(choice($.block_comment, /[^%]+/, /%[^*/]/)),
+    "%*/",
+  ),
+// @
+----
+
+== Identifiers
+
+C-style identifiers: ASCII letters, digits, underscore, starting with a
+letter or underscore.  Used for variable names in `%(name)` and for optional
+tags in block delimiters.
+
+[source,javascript]
+----
+// <<ts-identifier>>=
+identifier: (_) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+// @
+----
+
+== Test corpus
+
+The test suite at `test/corpus/basics.txt` uses tree-sitter's corpus format.
+Each case has a header, an input, and the expected concrete syntax tree:
+
+....
+================================================================================
+Test name
+================================================================================
+
+input text
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (node ...))
+....
+
+The corpus covers: text passthrough, `%(name)` variable interpolation,
+zero-arg and multi-arg macro calls, untagged and tagged blocks, blocks with
+commas and parentheses inside, the three line-comment forms (`%#`, `%//`,
+`%--`), `%%` escaping, a nested macro inside a block, and a nested macro call.
+
+Run with:
+
+[source,bash]
+----
+cd tree-sitter-weaveback
+npx tree-sitter test
+----
+
+== Assembly
+
+Each `// <<...>>` reference expands the named chunk at 4-space indentation
+(matching the `rules:` body).  Blank lines in this block and the
+separator comments are literal text in the assembly, not part of any chunk.
+
+[source,javascript]
+----
+// <<@file grammar.js>>=
+// <<ts-header>>
+
+module.exports = grammar({
+  name: "weaveback",
+
+  extras: ($) => [],  // whitespace is significant (passthrough text)
+
+  rules: {
+    // <<ts-source-file>>
+
+    // <<ts-node>>
+
+    // <<ts-arg-node>>
+
+    // -----------------------------------------------------------------------
+    // Text tokens
+    // -----------------------------------------------------------------------
+
+    // <<ts-text>>
+
+    // <<ts-arg-text>>
+
+    // -----------------------------------------------------------------------
+    // Escaped special: %% → literal %
+    // -----------------------------------------------------------------------
+    // <<ts-escaped-special>>
+
+    // -----------------------------------------------------------------------
+    // Variable interpolation: %(name)
+    // -----------------------------------------------------------------------
+    // <<ts-variable>>
+
+    // -----------------------------------------------------------------------
+    // Macro call: %name(arg, arg, ...)
+    // -----------------------------------------------------------------------
+    // <<ts-macro-call-rule>>
+
+    // <<ts-macro-name>>
+
+    // <<ts-arg-list>>
+
+    // <<ts-argument>>
+
+    // -----------------------------------------------------------------------
+    // Blocks: %{...%}  or  %tag{...%tag}
+    // Inside a block, top-level node rules apply (commas/parens are text).
+    // -----------------------------------------------------------------------
+    // <<ts-block-rule>>
+
+    // <<ts-block-open>>
+
+    // <<ts-block-close>>
+
+    // -----------------------------------------------------------------------
+    // Comments
+    // -----------------------------------------------------------------------
+
+    // <<ts-line-comment>>
+
+    // <<ts-block-comment>>
+
+    // -----------------------------------------------------------------------
+    // Identifiers
+    // -----------------------------------------------------------------------
+    // <<ts-identifier>>
+  },
+});
+// @
+----

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tangle all .adoc literate sources under crates/ into generated Rust files."""
+"""Tangle all .adoc literate sources into their generated output files."""
 
 import subprocess
 import sys
@@ -60,6 +60,18 @@ def main():
         "--dir", "crates/weaveback/",
         "--ext", "adoc",
         "--gen", "crates/",
+        "--no-macros",
+        "--open-delim", "<<",
+        "--close-delim", ">>",
+    ])
+
+    # tree-sitter-weaveback adocs use << >> delimiters, // comment marker, no macros.
+    # Generates grammar.js, query .scm files, and editor integration files.
+    run([
+        "weaveback",
+        "--dir", "tree-sitter-weaveback/",
+        "--ext", "adoc",
+        "--gen", "tree-sitter-weaveback/",
         "--no-macros",
         "--open-delim", "<<",
         "--close-delim", ">>",

@@ -302,6 +302,42 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
   `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 |===
 
+== Tree-sitter grammar
+
+`tree-sitter-weaveback/` contains a
+https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the
+Weaveback macro language.  It is a standalone Node.js project (not part of
+the Rust workspace) that provides editor syntax highlighting, language
+injection into `%rhaidef`/`%pydef` bodies, and `[source,weaveback]` block
+highlighting inside AsciiDoc literate documents.
+
+The grammar and all editor-integration files are literate AsciiDoc sources
+tangled by `just tangle`.
+
+.tree-sitter-weaveback literate sources
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../tree-sitter-weaveback/tree_sitter_weaveback.adoc[tree-sitter-weaveback index]
+| (overview and module map only)
+
+| link:../tree-sitter-weaveback/grammar.adoc[grammar.adoc]
+| `tree-sitter-weaveback/grammar.js`
+
+| link:../tree-sitter-weaveback/queries.adoc[queries.adoc]
+| `tree-sitter-weaveback/queries/highlights.scm` +
+  `tree-sitter-weaveback/queries/injections.scm` +
+  `tree-sitter-weaveback/editors/helix/asciidoc-injections.scm`
+
+| link:../tree-sitter-weaveback/editors.adoc[editors.adoc]
+| `tree-sitter-weaveback/editors/helix/languages.toml` +
+  `tree-sitter-weaveback/editors/helix/install.py` +
+  `tree-sitter-weaveback/editors/neovim/weaveback.lua` +
+  `tree-sitter-weaveback/editors/neovim/asciidoc.lua` +
+  `tree-sitter-weaveback/editors/neovim/install.py`
+|===
+
 == Build-system integration
 
 `--depfile` writes a Makefile-format depfile after each run; `--stamp`

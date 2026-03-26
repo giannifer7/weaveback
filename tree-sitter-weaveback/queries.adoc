@@ -1,0 +1,197 @@
+= Highlight and injection queries
+:toc: left
+:source-highlighter: rouge
+
+This document covers the three tree-sitter query files that drive syntax
+highlighting and language injection for Weaveback source files.
+
+See link:grammar.adoc[grammar.adoc] for the grammar that these queries
+operate on, and link:editors.adoc[editors.adoc] for how they are installed
+into Helix and Neovim.
+
+== Syntax highlighting (`highlights.scm`)
+
+The highlight query maps grammar nodes to standard tree-sitter capture
+names that editors translate into colours.
+
+=== Builtin macro names
+
+Builtin macros are distinguished from user-defined macros by matching
+`macro_name` against a regex of known names.  They receive the `@keyword`
+capture so editors can highlight them with the keyword colour.
+
+The full list of builtins matched here corresponds to the builtins
+implemented in `weaveback-macro`:
+
+[cols="2,3",options="header"]
+|===
+| Builtin | Purpose
+
+| `%def`, `%rhaidef`, `%pydef`  | Define a macro (plain, Rhai, Python)
+| `%set`                         | Set a variable
+| `%if`, `%equal`                | Conditional
+| `%include`, `%import`          | File inclusion
+| `%eval`                        | Inline expression evaluation
+| `%here`                        | Current file path
+| `%export`                      | Promote to parent scope
+| `%env`                         | Read environment variable (opt-in)
+| `%pyset`, `%pyget`             | Python variable bridge
+| `%rhaiset`, `%rhaiget`, `%rhaiexpr` | Rhai variable bridge
+| `%capitalize`, `%decapitalize`, `%convert_case`, +
+  `%to_snake_case`, `%to_camel_case`, +
+  `%to_pascal_case`, `%to_screaming_case`
+| String case-conversion helpers
+|===
+
+=== Priority: builtins before user macros
+
+Tree-sitter applies highlight captures in query order.  The builtin-keyword
+query comes first; the user-macro query (`@function.macro`) follows.  Because
+the builtin query has a `#match?` predicate, an unknown name that does not
+match the regex falls through to `@function.macro`.
+
+=== Variable, block, comment, and escape captures
+
+Variable interpolation splits into three sub-captures so editors can
+colour the `%(` and `)` delimiters distinctly from the name.
+
+[source,scheme]
+----
+// <<ts-highlights-all>>=
+; tree-sitter-weaveback/queries/highlights.scm
+
+; --- Keywords (builtin macro names) ----------------------------------------
+(macro_call
+  name: (macro_name) @keyword
+  (#match? @keyword
+    "^%(def|rhaidef|pydef|set|if|equal|include|import|eval|here|export|env|pyset|pyget|rhaiset|rhaiget|rhaiexpr|capitalize|decapitalize|convert_case|to_snake_case|to_camel_case|to_pascal_case|to_screaming_case)$"))
+
+; --- User-defined macro calls -----------------------------------------------
+(macro_call
+  name: (macro_name) @function.macro)
+
+; --- Variable interpolation -------------------------------------------------
+(variable
+  "%(" @punctuation.special
+  name: (identifier) @variable
+  ")" @punctuation.special)
+
+; --- Block delimiters -------------------------------------------------------
+(block_open)  @punctuation.bracket
+(block_close) @punctuation.bracket
+
+; --- Comments ---------------------------------------------------------------
+(line_comment)  @comment
+(block_comment) @comment
+
+; --- Escaped special --------------------------------------------------------
+(escaped_special) @string.escape
+// @
+----
+
+=== Assembly
+
+[source,scheme]
+----
+// <<@file queries/highlights.scm>>=
+// <<ts-highlights-all>>
+// @
+----
+
+== Language injection (`injections.scm`)
+
+Language injection lets editors apply a second grammar inside a node from
+the primary grammar.  The injection query captures the `block` argument of
+`%rhaidef` and `%pydef` calls and tells the editor to apply the `rhai` or
+`python` grammar to its text content.
+
+The body is the *last* argument of `%rhaidef` / `%pydef` — in practice
+always a `%{...%}` block.  The `%{` and `%}` delimiters will appear as
+noise inside the sub-parser, which is acceptable: editors render the
+block body with Rhai or Python highlighting regardless.
+
+NOTE: Both Rhai and monty (the Python back-end) are sandboxed runtimes with
+no filesystem or network access.  Language injection here is purely for
+visual benefit; it does not affect execution.
+
+[source,scheme]
+----
+// <<ts-injections-all>>=
+; tree-sitter-weaveback/queries/injections.scm
+;
+; Inject host-language grammars into scripted macro bodies.
+; The body is the last argument of %rhaidef / %pydef — in practice
+; always wrapped in a %{...%} block.  We capture the block node so
+; editors render its text content with the appropriate sub-grammar.
+; The %{ and %} delimiters will appear as noise in the sub-parser,
+; which is acceptable.
+
+; Rhai inside %rhaidef bodies
+((macro_call
+   name: (macro_name) @_name
+   arg: (argument
+     (block) @injection.content))
+ (#eq? @_name "%rhaidef")
+ (#set! injection.language "rhai"))
+
+; Python inside %pydef bodies
+((macro_call
+   name: (macro_name) @_name
+   arg: (argument
+     (block) @injection.content))
+ (#eq? @_name "%pydef")
+ (#set! injection.language "python"))
+// @
+----
+
+=== Assembly
+
+[source,scheme]
+----
+// <<@file queries/injections.scm>>=
+// <<ts-injections-all>>
+// @
+----
+
+== AsciiDoc injection fragment (`editors/helix/asciidoc-injections.scm`)
+
+This fragment is appended by the install scripts to the AsciiDoc query
+file of Helix and Neovim.  It injects the weaveback grammar into
+`[source,weaveback]` listing blocks in AsciiDoc documents, so that
+weaveback macro syntax inside literate code examples is highlighted.
+
+The query matches a `section_block` node containing an `element_attr`
+whose second attribute value matches `weaveback`, with an adjacent
+`listing_block`.  The `listing_block_body` is captured as
+`@injection.content` and the injected language is set to `weaveback`.
+
+[source,scheme]
+----
+// <<ts-asciidoc-inj-all>>=
+; tree-sitter-weaveback: asciidoc injection
+;
+; install.py appends this block to ~/.config/helix/runtime/queries/asciidoc/injections.scm
+
+; ── [source,weaveback] listing blocks ─────────────────────────────────────────────
+((section_block
+  (element_attr
+    (element_attr_marker)
+    (attr_value) @_lang
+    (element_attr_marker))
+  (listing_block
+    (listing_block_start_marker)
+    (listing_block_body) @injection.content
+    (listing_block_end_marker)))
+ (#match? @_lang "weaveback")
+ (#set! injection.language "weaveback"))
+// @
+----
+
+=== Assembly
+
+[source,scheme]
+----
+// <<@file editors/helix/asciidoc-injections.scm>>=
+// <<ts-asciidoc-inj-all>>
+// @
+----

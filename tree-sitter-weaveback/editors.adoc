@@ -1,0 +1,410 @@
+= Editor integration
+:toc: left
+:source-highlighter: rouge
+
+This document covers the installation scripts and configuration files for
+Helix and Neovim.  Both editors use tree-sitter for syntax highlighting;
+the installation scripts copy query files and register the grammar.
+
+See link:grammar.adoc[grammar.adoc] for the grammar and
+link:queries.adoc[queries.adoc] for the query files these scripts install.
+
+== Helix
+
+=== Language and grammar stanza
+
+`editors/helix/languages.toml` is the snippet that `install.py` appends to
+`~/.config/helix/languages.toml`.  It declares `weaveback` as a language
+with a local grammar source pointing to this checkout.
+
+`__GRAMMAR_DIR__` is a placeholder that `install.py` replaces with the
+absolute path of the `tree-sitter-weaveback/` directory at install time.
+
+[source,toml]
+----
+// <<ts-helix-lang-toml>>=
+# editors/helix/languages.toml
+#
+# Append this to ~/.config/helix/languages.toml
+# then run:  hx --grammar build
+#
+# Prerequisites: a C compiler (cc) in PATH.
+
+[[language]]
+name        = "weaveback"
+scope       = "source.weaveback"
+file-types  = ["weaveback"]
+comment-tokens = ["%#"]
+indent      = { tab-width = 2, unit = "  " }
+grammar     = "weaveback"
+
+[[grammar]]
+name   = "weaveback"
+source = { path = "__GRAMMAR_DIR__" }
+// @
+----
+
+=== Assembly — `editors/helix/languages.toml`
+
+[source,toml]
+----
+// <<@file editors/helix/languages.toml>>=
+// <<ts-helix-lang-toml>>
+// @
+----
+
+=== Helix install script
+
+The install script performs four steps:
+
+1. Append the `[[language]]` + `[[grammar]]` stanza to
+   `~/.config/helix/languages.toml` (idempotent — skips if already present).
+2. Copy `queries/highlights.scm` and `queries/injections.scm` into the
+   Helix runtime query directory for the `weaveback` language.
+3. Append the AsciiDoc injection fragment to the Helix asciidoc query file
+   (idempotent — skips if the injection marker is already present).
+4. Run `hx --grammar build` (or `helix --grammar build` on Arch Linux) to
+   compile the grammar from source.
+
+Step 4 may print warnings for other grammars that fail; if `weaveback` is
+listed as built, the installation succeeded.
+
+[source,python]
+----
+// <<ts-helix-install-script>>=
+#!/usr/bin/env python3
+# editors/helix/install.py
+#
+# Installs the weaveback grammar and queries for Helix.
+# Run once after cloning, and again after grammar changes.
+#
+# Usage:  python3 editors/helix/install.py
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+script_dir = Path(__file__).resolve().parent
+grammar_dir = script_dir.parent.parent          # tree-sitter-weaveback/
+
+xdg = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+helix_rt    = Path(xdg) / "helix" / "runtime"
+queries_dir = helix_rt / "queries" / "weaveback"
+lang_conf   = Path(xdg) / "helix" / "languages.toml"
+
+print("Installing weaveback grammar for Helix...")
+
+# 1. Append language + grammar config if not already present
+# Substitute __GRAMMAR_DIR__ with the actual path of this checkout.
+template = (script_dir / "languages.toml").read_text()
+snippet = template.replace("__GRAMMAR_DIR__", str(grammar_dir))
+if lang_conf.exists() and 'name = "weaveback"' in lang_conf.read_text():
+    print(f"weaveback already present in {lang_conf} — skipping")
+else:
+    lang_conf.parent.mkdir(parents=True, exist_ok=True)
+    with lang_conf.open("a") as f:
+        f.write("\n" + snippet)
+    print(f"Appended weaveback config to {lang_conf}")
+
+# 2. Copy weaveback query files into Helix runtime
+queries_dir.mkdir(parents=True, exist_ok=True)
+for name in ("highlights.scm", "injections.scm"):
+    shutil.copy(grammar_dir / "queries" / name, queries_dir / name)
+print(f"Copied queries to {queries_dir}")
+
+# 3. Append weaveback injection into AsciiDoc files (once)
+asciidoc_inj = helix_rt / "queries" / "asciidoc" / "injections.scm"
+marker = 'injection.language "weaveback"'
+asciidoc_snippet = (script_dir / "asciidoc-injections.scm").read_text()
+if asciidoc_inj.exists() and marker in asciidoc_inj.read_text():
+    print(f"weaveback→asciidoc injection already present in {asciidoc_inj} — skipping")
+else:
+    asciidoc_inj.parent.mkdir(parents=True, exist_ok=True)
+    with asciidoc_inj.open("a") as f:
+        f.write("\n" + asciidoc_snippet)
+    print(f"Appended weaveback injection to {asciidoc_inj}")
+
+# 4. Build the grammar
+# Helix is installed as 'hx' on most systems, 'helix' on Arch Linux.
+hx_cmd = shutil.which("hx") or shutil.which("helix")
+if not hx_cmd:
+    print("ERROR: neither 'hx' nor 'helix' found in PATH", file=sys.stderr)
+    sys.exit(1)
+result = subprocess.run([hx_cmd, "--grammar", "build"], capture_output=False)
+if result.returncode != 0:
+    # Non-zero often means *other* grammars failed; weaveback may have built fine.
+    print("WARNING: some grammars failed to build (see above). "
+          "If 'weaveback' is listed under 'built now', it succeeded.", file=sys.stderr)
+
+print("Done.  Open a .weaveback file in Helix to verify highlighting.")
+// @
+----
+
+=== Assembly — `editors/helix/install.py`
+
+[source,python]
+----
+// <<@file editors/helix/install.py>>=
+// <<ts-helix-install-script>>
+// @
+----
+
+== Neovim
+
+Neovim uses `nvim-treesitter` to manage tree-sitter parsers.  The
+installation is split across three files and one install script:
+
+* `weaveback.lua` — registers the weaveback parser from the local grammar
+  checkout and maps the `.weaveback` file extension.
+* `asciidoc.lua` — registers the upstream `asciidoc` and `asciidoc_inline`
+  parsers from `cathaysia/tree-sitter-asciidoc`, reusing the source
+  already downloaded by the Helix installation if available.
+* `install.py` — copies query files and installs the Lua plugins to
+  `~/.config/nvim/after/plugin/`.
+
+=== Weaveback parser registration
+
+`weaveback.lua` registers the grammar from the local `tree-sitter-weaveback/`
+checkout.  The `requires_generate_from_grammar = false` flag tells
+`nvim-treesitter` that `src/parser.c` is already generated and up to date,
+so no `npm` or `tree-sitter generate` step is needed at install time.
+
+`__GRAMMAR_DIR__` is replaced by `install.py` with the absolute path of the
+`tree-sitter-weaveback/` directory.
+
+[source,lua]
+----
+// <<ts-nvim-weaveback-lua>>=
+-- editors/neovim/weaveback.lua
+--
+-- Registers the weaveback tree-sitter parser and filetype.
+-- Installed by editors/neovim/install.py to:
+--   ~/.config/nvim/after/plugin/weaveback.lua
+--
+-- Prerequisites: nvim-treesitter installed.
+-- The grammar is built from the local checkout (no internet needed after clone).
+--
+-- Usage:
+--   :TSInstall weaveback      (first time, or after grammar changes)
+--   :TSUpdate weaveback       (re-build after grammar.js changes)
+
+local ok, parsers = pcall(require, "nvim-treesitter.parsers")
+if not ok then
+  vim.notify("nvim-treesitter not found — skipping weaveback parser registration", vim.log.levels.WARN)
+  return
+end
+
+-- Path to tree-sitter-weaveback/ inside the weaveback checkout.
+-- install.py substitutes __GRAMMAR_DIR__ with the actual absolute path.
+local grammar_dir = "__GRAMMAR_DIR__"
+
+parsers.get_parser_configs().weaveback = {
+  install_info = {
+    url                          = grammar_dir,
+    files                        = { "src/parser.c" },
+    generate_requires_npm        = false,
+    requires_generate_from_grammar = false,
+  },
+  filetype = "weaveback",
+}
+
+vim.filetype.add({
+  extension = { weaveback = "weaveback" },
+})
+// @
+----
+
+=== Assembly — `editors/neovim/weaveback.lua`
+
+[source,lua]
+----
+// <<@file editors/neovim/weaveback.lua>>=
+// <<ts-nvim-weaveback-lua>>
+// @
+----
+
+=== AsciiDoc parser registration
+
+The asciidoc and asciidoc_inline parsers come from the upstream
+`cathaysia/tree-sitter-asciidoc` repository.  A specific commit is pinned
+for reproducibility.  If Helix was installed first and its grammar build has
+already cloned the repository, the Neovim install script reuses those
+sources to avoid a second download.
+
+[source,lua]
+----
+// <<ts-nvim-asciidoc-lua>>=
+-- editors/neovim/asciidoc.lua
+--
+-- Registers the asciidoc + asciidoc_inline tree-sitter parsers.
+-- Installed by editors/neovim/install.py to:
+--   ~/.config/nvim/after/plugin/asciidoc.lua
+--
+-- Usage (first time or after grammar changes):
+--   :TSInstall asciidoc asciidoc_inline
+
+local ok, parsers = pcall(require, "nvim-treesitter.parsers")
+if not ok then
+  vim.notify("nvim-treesitter not found — skipping asciidoc parser registration", vim.log.levels.WARN)
+  return
+end
+
+local repo = "https://github.com/cathaysia/tree-sitter-asciidoc"
+local rev  = "14e660bacac69a905e71ab1041eb64eb266a6112"
+
+parsers.get_parser_configs().asciidoc = {
+  install_info = {
+    url      = repo,
+    files    = { "tree-sitter-asciidoc/src/parser.c",
+                 "tree-sitter-asciidoc/src/scanner.c" },
+    location = "tree-sitter-asciidoc",
+    revision = rev,
+    generate_requires_npm        = false,
+    requires_generate_from_grammar = false,
+  },
+  filetype = "asciidoc",
+}
+
+parsers.get_parser_configs().asciidoc_inline = {
+  install_info = {
+    url      = repo,
+    files    = { "tree-sitter-asciidoc_inline/src/parser.c",
+                 "tree-sitter-asciidoc_inline/src/scanner.c" },
+    location = "tree-sitter-asciidoc_inline",
+    revision = rev,
+    generate_requires_npm        = false,
+    requires_generate_from_grammar = false,
+  },
+  filetype = "asciidoc",
+}
+
+vim.filetype.add({
+  extension = {
+    adoc     = "asciidoc",
+    asciidoc = "asciidoc",
+  },
+})
+// @
+----
+
+=== Assembly — `editors/neovim/asciidoc.lua`
+
+[source,lua]
+----
+// <<@file editors/neovim/asciidoc.lua>>=
+// <<ts-nvim-asciidoc-lua>>
+// @
+----
+
+=== Neovim install script
+
+The install script performs five steps:
+
+1. Copy `highlights.scm` and `injections.scm` into
+   `~/.config/nvim/queries/weaveback/`, prepending `;; extends` so that
+   `nvim-treesitter`'s built-in queries (if any) are augmented rather than
+   replaced.
+2. Install `weaveback.lua` to `~/.config/nvim/after/plugin/`, substituting
+   the grammar directory path.
+3. Copy the asciidoc query files from the Helix grammar cache (if already
+   downloaded); prints a warning if not yet available.
+4. Install `asciidoc.lua` to `~/.config/nvim/after/plugin/`.
+5. Append the AsciiDoc injection fragment to
+   `~/.config/nvim/queries/asciidoc/injections.scm` (idempotent).
+
+After running the script, open Neovim and run `:TSInstall weaveback asciidoc asciidoc_inline`.
+
+[source,python]
+----
+// <<ts-nvim-install-script>>=
+#!/usr/bin/env python3
+# editors/neovim/install.py
+#
+# Installs the weaveback + asciidoc grammars and queries for Neovim (nvim-treesitter).
+# Run once after cloning, and again after grammar changes.
+#
+# Usage:  python3 editors/neovim/install.py
+#
+# Prerequisites: nvim-treesitter installed as a plugin.
+# After running, open Neovim and run:
+#   :TSInstall weaveback asciidoc asciidoc_inline
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+script_dir  = Path(__file__).resolve().parent
+grammar_dir = script_dir.parent.parent          # tree-sitter-weaveback/
+
+xdg         = os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")
+nvim_cfg    = Path(xdg) / "nvim"
+plugin_dir  = nvim_cfg / "after" / "plugin"
+
+# Helix caches the asciidoc grammar source; reuse it to avoid a second download.
+helix_rt    = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "helix" / "runtime"
+asciidoc_src        = helix_rt / "grammars" / "sources" / "asciidoc" / "tree-sitter-asciidoc"
+asciidoc_inline_src = helix_rt / "grammars" / "sources" / "asciidoc" / "tree-sitter-asciidoc_inline"
+
+print("Installing weaveback + asciidoc grammars for Neovim...")
+
+# ── 1. weaveback queries ──────────────────────────────────────────────────────────
+weaveback_q = nvim_cfg / "queries" / "weaveback"
+weaveback_q.mkdir(parents=True, exist_ok=True)
+for name in ("highlights.scm", "injections.scm"):
+    content = ";; extends\n" + (grammar_dir / "queries" / name).read_text()
+    (weaveback_q / name).write_text(content)
+print(f"Copied weaveback queries to {weaveback_q}")
+
+# ── 2. weaveback.lua ──────────────────────────────────────────────────────────────
+plugin_dir.mkdir(parents=True, exist_ok=True)
+lua = (script_dir / "weaveback.lua").read_text().replace("__GRAMMAR_DIR__", str(grammar_dir))
+(plugin_dir / "weaveback.lua").write_text(lua)
+print(f"Installed {plugin_dir / 'weaveback.lua'}")
+
+# ── 3. asciidoc queries ───────────────────────────────────────────────────────
+# Queries are NOT bundled with nvim-treesitter for custom parsers, so we copy
+# them from Helix's already-downloaded grammar source.
+for lang, src in (("asciidoc", asciidoc_src), ("asciidoc_inline", asciidoc_inline_src)):
+    dest = nvim_cfg / "queries" / lang
+    if not (src / "queries").exists():
+        print(f"WARNING: {src}/queries not found — run Helix grammar build first, or :TSInstall {lang} may fetch them")
+        continue
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in ("highlights.scm", "injections.scm"):
+        qfile = src / "queries" / name
+        if qfile.exists():
+            (dest / name).write_text(qfile.read_text())
+    print(f"Copied {lang} queries to {dest}")
+
+# ── 4. asciidoc.lua ───────────────────────────────────────────────────────────
+shutil.copy(script_dir / "asciidoc.lua", plugin_dir / "asciidoc.lua")
+print(f"Installed {plugin_dir / 'asciidoc.lua'}")
+
+# ── 5. weaveback injection into [source,weaveback] asciidoc blocks ───────────────────
+asciidoc_inj = nvim_cfg / "queries" / "asciidoc" / "injections.scm"
+marker       = 'injection.language "weaveback"'
+weaveback_snippet = (script_dir.parent / "helix" / "asciidoc-injections.scm").read_text()
+if asciidoc_inj.exists() and marker in asciidoc_inj.read_text():
+    print("weaveback→asciidoc injection already present — skipping")
+else:
+    with asciidoc_inj.open("a") as f:
+        f.write("\n" + weaveback_snippet)
+    print(f"Appended weaveback injection to {asciidoc_inj}")
+
+print()
+print("Done. Open Neovim and run:")
+print("  :TSInstall weaveback asciidoc asciidoc_inline")
+// @
+----
+
+=== Assembly — `editors/neovim/install.py`
+
+[source,python]
+----
+// <<@file editors/neovim/install.py>>=
+// <<ts-nvim-install-script>>
+// @
+----

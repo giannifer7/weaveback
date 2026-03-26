@@ -19,6 +19,7 @@ serde_json.workspace = true
 similar.workspace = true
 regex.workspace = true
 tiny_http.workspace = true
+notify.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

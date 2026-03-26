@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
 use std::thread;
 
+use notify::{RecursiveMode, Watcher};
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 struct SseReader {
     rx: std::sync::mpsc::Receiver<()>,
@@ -44,37 +44,26 @@ impl Read for SseReader {
         }
     }
 }
-fn collect_mtimes(dir: &Path) -> HashMap<PathBuf, SystemTime> {
-    let mut map = HashMap::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return map };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if let Ok(meta) = path.metadata() {
-            if let Ok(mtime) = meta.modified() {
-                map.insert(path.clone(), mtime);
-            }
-        }
-        if path.is_dir() {
-            map.extend(collect_mtimes(&path));
-        }
-    }
-    map
-}
-
 type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
 
 fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders) {
     thread::spawn(move || {
-        let mut last = collect_mtimes(&watch_dir);
-        loop {
-            thread::sleep(Duration::from_millis(500));
-            let current = collect_mtimes(&watch_dir);
-            if current != last {
-                last = current;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => { eprintln!("weaveback serve: watcher error: {e}"); return; }
+        };
+        if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::Recursive) {
+            eprintln!("weaveback serve: watch error: {e}");
+            return;
+        }
+        for result in &rx {
+            if result.is_ok() {
                 let mut locked = senders.lock().unwrap();
                 locked.retain(|s| s.send(()).is_ok());
             }
         }
+        drop(watcher);
     });
 }
 fn content_type(path: &Path) -> &'static str {

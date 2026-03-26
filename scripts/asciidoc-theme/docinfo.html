@@ -217,7 +217,60 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
 /* ── Scrollbars ───────────────────────────────────────────────── */
 ::-webkit-scrollbar       { background: var(--bg1); width: 7px; height: 7px; }
 ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
+
+/* ── Edit source button (weaveback serve) ─────────────────────── */
+#wb-edit-btn {
+  position: fixed;
+  bottom: 1.2rem;
+  right: 1.2rem;
+  background: var(--bg2);
+  color: var(--fg2);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: .35rem .75rem;
+  font-size: .8rem;
+  cursor: pointer;
+  z-index: 9000;
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+#wb-edit-btn:hover { background: var(--bg3); color: var(--fg); }
 </style>
+<script>
+/* ── weaveback serve: edit button + live reload ───────────────── */
+(function () {
+  // Edit source button — only active when served by `weaveback serve`
+  document.addEventListener('DOMContentLoaded', function () {
+    var path = window.location.pathname
+      .replace(/\.html$/, '.adoc')
+      .replace(/^\//, '');
+    if (!path || window.location.protocol === 'file:') return;
+
+    var btn = document.createElement('a');
+    btn.id = 'wb-edit-btn';
+    btn.href = '#';
+    btn.textContent = '\u270f Edit source';
+    btn.title = path;
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      fetch('/__open?file=' + encodeURIComponent(path) + '&line=1');
+    });
+    document.body.appendChild(btn);
+  });
+
+  // SSE live reload — reconnects automatically on disconnect
+  if (typeof EventSource !== 'undefined' && window.location.protocol !== 'file:') {
+    (function connect() {
+      var es = new EventSource('/__events');
+      es.addEventListener('reload', function () { location.reload(); });
+      es.onerror = function () {
+        es.close();
+        setTimeout(connect, 2000);
+      };
+    })();
+  }
+})();
+</script>
 <script>
 (function () {
   document.addEventListener('DOMContentLoaded', function () {

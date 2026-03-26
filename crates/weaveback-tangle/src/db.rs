@@ -53,10 +53,20 @@ CREATE TABLE IF NOT EXISTS chunk_deps (
     PRIMARY KEY (from_chunk, to_chunk, src_file)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS chunk_defs (
+    src_file    TEXT    NOT NULL,
+    chunk_name  TEXT    NOT NULL,
+    nth         INTEGER NOT NULL DEFAULT 0,
+    def_start   INTEGER NOT NULL,
+    def_end     INTEGER NOT NULL,
+    PRIMARY KEY (src_file, chunk_name, nth)
+) STRICT;
+
 CREATE INDEX IF NOT EXISTS idx_var_defs_name    ON var_defs(var_name);
 CREATE INDEX IF NOT EXISTS idx_macro_defs_name  ON macro_defs(macro_name);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_from  ON chunk_deps(from_chunk);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
+CREATE INDEX IF NOT EXISTS idx_chunk_defs_file  ON chunk_defs(src_file);
 ";
 #[derive(Debug)]
 pub enum DbError {
@@ -117,6 +127,18 @@ pub struct NowebMapEntry {
     pub indent: String,
     pub confidence: Confidence,
 }
+
+/// Location of a chunk definition within a literate source file.
+/// `def_start` is the 1-indexed line of the open marker (`// <<name>>=`).
+/// `def_end`   is the 1-indexed line of the close marker (`// @@`).
+#[derive(Debug, Clone)]
+pub struct ChunkDefEntry {
+    pub src_file:   String,
+    pub chunk_name: String,
+    pub nth:        u32,
+    pub def_start:  u32,
+    pub def_end:    u32,
+}
 pub struct WeavebackDb {
     conn: Connection,
 }
@@ -138,6 +160,18 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_chunk_deps_from ON chunk_deps(from_chunk);
         CREATE INDEX IF NOT EXISTS idx_chunk_deps_to   ON chunk_deps(to_chunk);
+    ");
+    // chunk_defs was added later; CREATE TABLE IF NOT EXISTS is idempotent.
+    let _ = conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS chunk_defs (
+            src_file    TEXT    NOT NULL,
+            chunk_name  TEXT    NOT NULL,
+            nth         INTEGER NOT NULL DEFAULT 0,
+            def_start   INTEGER NOT NULL,
+            def_end     INTEGER NOT NULL,
+            PRIMARY KEY (src_file, chunk_name, nth)
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS idx_chunk_defs_file ON chunk_defs(src_file);
     ");
     Ok(())
 }
@@ -356,6 +390,63 @@ impl WeavebackDb {
     }
 }
 impl WeavebackDb {
+    pub fn set_chunk_defs(&mut self, entries: &[ChunkDefEntry]) -> Result<(), DbError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Delete old records for every src_file represented in this batch.
+        let src_files: std::collections::HashSet<&str> =
+            entries.iter().map(|e| e.src_file.as_str()).collect();
+        let tx = self.conn.transaction()?;
+        for sf in &src_files {
+            tx.execute("DELETE FROM chunk_defs WHERE src_file = ?1", params![sf])?;
+        }
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO chunk_defs (src_file, chunk_name, nth, def_start, def_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for e in entries {
+                stmt.execute(params![
+                    e.src_file,
+                    e.chunk_name,
+                    e.nth,
+                    e.def_start,
+                    e.def_end
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_chunk_def(
+        &self,
+        src_file: &str,
+        chunk_name: &str,
+        nth: u32,
+    ) -> Result<Option<ChunkDefEntry>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT src_file, chunk_name, nth, def_start, def_end
+                 FROM chunk_defs
+                 WHERE src_file = ?1 AND chunk_name = ?2 AND nth = ?3",
+                params![src_file, chunk_name, nth],
+                |row| {
+                    Ok(ChunkDefEntry {
+                        src_file:   row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        nth:        row.get::<_, u32>(2)?,
+                        def_start:  row.get::<_, u32>(3)?,
+                        def_end:    row.get::<_, u32>(4)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+}
+impl WeavebackDb {
     pub fn set_macro_map_entries(
         &mut self,
         driver_file: &str,
@@ -424,7 +515,8 @@ impl WeavebackDb {
                  INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
                  INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
                  INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
-                 INSERT OR REPLACE INTO target.chunk_deps    SELECT * FROM chunk_deps;",
+                 INSERT OR REPLACE INTO target.chunk_deps    SELECT * FROM chunk_deps;
+                 INSERT OR REPLACE INTO target.chunk_defs    SELECT * FROM chunk_defs;",
             )?;
             self.conn.execute_batch("COMMIT;")?;
             Ok(())

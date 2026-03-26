@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path};
 
-use crate::db::{Confidence, NowebMapEntry};
+use crate::db::{ChunkDefEntry, Confidence, NowebMapEntry};
 use crate::safe_writer::SafeWriterError;
 use crate::WeavebackError;
 use crate::SafeFileWriter;
@@ -15,7 +15,11 @@ struct ChunkDef {
     content: Vec<String>,
     base_indent: usize,
     file_idx: usize,
+    /// 0-indexed line of the open marker (`// <<name>>=`) in the source file.
     line: usize,
+    /// 0-indexed line of the close marker (`// @@`).  `None` if the file ended
+    /// before the close marker was seen (malformed input).
+    def_end: Option<usize>,
 }
 
 impl ChunkDef {
@@ -25,6 +29,7 @@ impl ChunkDef {
             base_indent,
             file_idx,
             line,
+            def_end: None,
         }
     }
 }
@@ -288,6 +293,12 @@ impl ChunkStore {
             }
 
             if self.close_re.is_match(line) {
+                if let Some((ref cname, idx)) = current_chunk
+                    && let Some(chunk) = self.chunks.get_mut(cname)
+                    && let Some(def) = chunk.definitions.get_mut(idx)
+                {
+                    def.def_end = Some(line_no);
+                }
                 current_chunk = None;
                 continue;
             }
@@ -515,6 +526,31 @@ impl ChunkStore {
         self.chunks.clear();
         self.file_chunks.clear();
         self.file_names.clear();
+    }
+
+    /// Return a `ChunkDefEntry` for every chunk definition that has a recorded
+    /// close-marker line.  Definitions where `def_end` is `None` (file ended
+    /// without a close marker) are silently skipped.
+    pub fn chunk_defs(&self) -> Vec<ChunkDefEntry> {
+        let mut out = Vec::new();
+        for (chunk_name, named_chunk) in &self.chunks {
+            for (nth, def) in named_chunk.definitions.iter().enumerate() {
+                let Some(def_end_0) = def.def_end else { continue };
+                let src_file = self
+                    .file_names
+                    .get(def.file_idx)
+                    .cloned()
+                    .unwrap_or_default();
+                out.push(ChunkDefEntry {
+                    src_file,
+                    chunk_name: chunk_name.clone(),
+                    nth: nth as u32,
+                    def_start: (def.line + 1) as u32,
+                    def_end:   (def_end_0 + 1) as u32,
+                });
+            }
+        }
+        out
     }
 
     pub fn check_unused_chunks(&self, referenced: &HashSet<String>) -> Vec<String> {
@@ -880,6 +916,13 @@ impl Clip {
                 .set_chunk_deps(&deps)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }
+        // Persist chunk definition line ranges for `weaveback serve` navigation.
+        let chunk_def_entries = self.store.chunk_defs();
+        self.writer
+            .db_mut()
+            .set_chunk_defs(&chunk_def_entries)
+            .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
         let warns = self.store.check_unused_chunks(&all_referenced);
         for w in warns {
             eprintln!("{}", w);

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 mod apply_back;
 mod lookup;
 mod mcp;
+mod serve;
 
 fn default_pathsep() -> String {
     if cfg!(windows) {
@@ -69,6 +70,15 @@ enum Commands {
         /// Restrict to the subgraph reachable from this chunk
         #[arg(long)]
         chunk: Option<String>,
+    },
+    /// Serve docs/html/ locally with live reload and "Edit source" navigation
+    Serve {
+        /// TCP port to listen on
+        #[arg(long, default_value = "7779")]
+        port: u16,
+        /// Directory to serve (default: <project-root>/docs/html)
+        #[arg(long)]
+        html: Option<PathBuf>,
     },
 }
 
@@ -466,6 +476,10 @@ fn main() {
         }
         Some(Commands::Graph { chunk }) => {
             run_graph(chunk, cli.args.db)
+        }
+        Some(Commands::Serve { port, html }) => {
+            serve::run_serve(port, html)
+                .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
         None => run(cli.args),
     };

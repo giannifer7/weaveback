@@ -29,8 +29,16 @@ skinparam ComponentBackgroundColor #282828
 skinparam ComponentFontColor #ebdbb2
 skinparam ActorBorderColor #b8bb26
 skinparam ActorBackgroundColor #1d2021
+skinparam FileBorderColor #504945
+skinparam FileBackgroundColor #282828
+skinparam FileFontColor #ebdbb2
+skinparam FolderBorderColor #504945
+skinparam FolderBackgroundColor #282828
+skinparam FolderFontColor #ebdbb2
+skinparam DatabaseFontColor #ebdbb2
 skinparam NoteBorderColor #504945
 skinparam NoteBackgroundColor #282828
+skinparam NoteFontColor #ebdbb2
 
 actor "Author" as author
 file "source.adoc\n(literate doc)" as src

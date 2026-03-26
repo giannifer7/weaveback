@@ -54,7 +54,7 @@ impl From<std::io::Error> for WeavebackError {
     }
 }
 
-pub use crate::db::{WeavebackDb, NowebMapEntry};
-pub use crate::noweb::Clip;
+pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry};
+pub use crate::noweb::{Clip, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;
 pub use crate::safe_writer::SafeWriterConfig;

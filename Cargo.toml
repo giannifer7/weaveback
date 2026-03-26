@@ -44,6 +44,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 similar = "2"
 tiny_http = "0.12"
 notify = "6"
+ureq = { version = "2", features = ["json"] }
 
 memchr = "2"
 rhai = "1"

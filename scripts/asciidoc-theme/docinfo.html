@@ -235,6 +235,283 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
   transition: background .15s, color .15s;
 }
 #wb-edit-btn:hover { background: var(--bg3); color: var(--fg); }
+
+/* ── Chunk inline editor (weaveback serve /__apply) ──────────── */
+/* ── AI assistant panel (weaveback serve /__ai) ──────────────── */
+.listingblock { position: relative; }
+
+.wb-chunk-btn {
+  position: absolute;
+  top: .35rem;
+  right: .35rem;
+  display: none;
+  background: var(--bg2);
+  color: var(--aqua);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: .1rem .4rem;
+  font-size: .75rem;
+  cursor: pointer;
+  z-index: 100;
+  line-height: 1.4;
+  transition: background .1s, color .1s;
+}
+.listingblock:hover .wb-chunk-btn { display: block; }
+.wb-chunk-btn:hover { background: var(--bg3); color: var(--fg); }
+
+#wb-editor-panel {
+  position: fixed;
+  bottom: 0; right: 0;
+  width: min(640px, 100vw);
+  max-height: 70vh;
+  background: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+  box-shadow: -2px -2px 12px rgba(0,0,0,.4);
+}
+#wb-editor-panel.hidden { display: none; }
+
+#wb-editor-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .75rem;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--bg3);
+  border-radius: 6px 6px 0 0;
+  flex-shrink: 0;
+}
+#wb-editor-title {
+  flex: 1;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+  color: var(--aqua);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#wb-editor-close {
+  background: none;
+  border: none;
+  color: var(--gray);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 .2rem;
+  flex-shrink: 0;
+}
+#wb-editor-close:hover { color: var(--red); }
+
+#wb-editor-textarea {
+  flex: 1;
+  min-height: 120px;
+  resize: none;
+  background: var(--bg);
+  color: var(--fg);
+  border: none;
+  border-bottom: 1px solid var(--bg3);
+  padding: .6rem .8rem;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+  line-height: 1.5;
+  outline: none;
+  overflow-y: auto;
+}
+
+#wb-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .75rem;
+  flex-shrink: 0;
+}
+.wb-editor-btn {
+  background: var(--bg2);
+  color: var(--fg2);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: .25rem .7rem;
+  font-size: .8rem;
+  cursor: pointer;
+  transition: background .1s, color .1s;
+}
+.wb-editor-btn:hover { background: var(--bg3); color: var(--fg); }
+.wb-editor-btn.primary { color: var(--green); border-color: var(--green); }
+.wb-editor-btn.primary:hover { background: var(--green); color: var(--bg); }
+#wb-editor-status {
+  flex: 1;
+  font-size: .78rem;
+  color: var(--gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#wb-editor-status.error { color: var(--red); }
+#wb-editor-status.ok    { color: var(--green); }
+
+/* ── AI chunk hover button ────────────────────────────────────── */
+.wb-ai-btn {
+  position: absolute;
+  top: .35rem;
+  right: 4rem; /* left of the edit button */
+  display: none;
+  background: var(--bg2);
+  color: var(--purple);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: .1rem .4rem;
+  font-size: .75rem;
+  cursor: pointer;
+  z-index: 100;
+  line-height: 1.4;
+  transition: background .1s, color .1s;
+}
+.listingblock:hover .wb-ai-btn { display: block; }
+.wb-ai-btn:hover { background: var(--bg3); color: var(--fg); }
+
+/* ── AI assistant panel ───────────────────────────────────────── */
+#wb-ai-toggle {
+  position: fixed;
+  bottom: 1.2rem;
+  left: 1.2rem;
+  background: var(--bg2);
+  color: var(--purple);
+  border: 1px solid var(--bg3);
+  border-radius: 4px;
+  padding: .35rem .75rem;
+  font-size: .8rem;
+  cursor: pointer;
+  z-index: 9000;
+  transition: background .15s, color .15s;
+}
+#wb-ai-toggle:hover { background: var(--bg3); color: var(--fg); }
+
+#wb-ai-panel {
+  position: fixed;
+  bottom: 0; left: 0;
+  width: min(600px, 100vw);
+  max-height: 70vh;
+  background: var(--bg1);
+  border: 1px solid var(--bg3);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 9999;
+  box-shadow: 2px -2px 12px rgba(0,0,0,.4);
+}
+#wb-ai-panel.hidden { display: none; }
+
+#wb-ai-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .75rem;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--bg3);
+  border-radius: 6px 6px 0 0;
+  flex-shrink: 0;
+}
+#wb-ai-title {
+  flex: 1;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+  color: var(--purple);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#wb-ai-close {
+  background: none;
+  border: none;
+  color: var(--gray);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 .2rem;
+  flex-shrink: 0;
+}
+#wb-ai-close:hover { color: var(--red); }
+
+#wb-ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: .5rem .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  min-height: 80px;
+}
+.wb-ai-msg {
+  padding: .35rem .6rem;
+  border-radius: 4px;
+  font-size: .83rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wb-ai-msg.user {
+  background: var(--bg2);
+  color: var(--fg2);
+  align-self: flex-end;
+  max-width: 90%;
+}
+.wb-ai-msg.assistant {
+  background: var(--bg);
+  border: 1px solid var(--bg2);
+  color: var(--fg);
+  align-self: flex-start;
+  max-width: 100%;
+}
+.wb-ai-msg.system {
+  color: var(--gray);
+  font-size: .75rem;
+  font-style: italic;
+  align-self: center;
+}
+
+#wb-ai-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: .4rem;
+  padding: .4rem .75rem;
+  border-top: 1px solid var(--bg3);
+  flex-shrink: 0;
+}
+#wb-ai-input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--bg3);
+  border-radius: 3px;
+  padding: .3rem .5rem;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82rem;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+  min-height: 2.4em;
+  max-height: 6em;
+  overflow-y: auto;
+}
+#wb-ai-input:focus { border-color: var(--purple); }
+#wb-ai-send {
+  background: var(--bg2);
+  color: var(--purple);
+  border: 1px solid var(--purple);
+  border-radius: 3px;
+  padding: .25rem .7rem;
+  font-size: .8rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .1s, color .1s;
+}
+#wb-ai-send:hover { background: var(--purple); color: var(--bg); }
+#wb-ai-send:disabled { opacity: .5; cursor: default; }
 </style>
 <script>
 /* ── weaveback serve: edit button + live reload ───────────────── */
@@ -425,5 +702,311 @@ pre.rouge .cs, pre.rouge .ch {
     var content = document.getElementById('content');
     if (content) content.appendChild(panel);
   });
+})();
+</script>
+<script>
+/* ── weaveback serve: chunk inline editor ─────────────────────── */
+(function () {
+  if (window.location.protocol === 'file:') return;
+
+  /* ── Build the editor panel DOM ──────────────────────────────── */
+  var panel = document.createElement('div');
+  panel.id = 'wb-editor-panel';
+  panel.className = 'hidden';
+  panel.innerHTML =
+    '<div id="wb-editor-header">' +
+      '<span id="wb-editor-title"></span>' +
+      '<button id="wb-editor-close" title="Close">\u00d7</button>' +
+    '</div>' +
+    '<textarea id="wb-editor-textarea" spellcheck="false"></textarea>' +
+    '<div id="wb-editor-footer">' +
+      '<button class="wb-editor-btn primary" id="wb-editor-save">Save</button>' +
+      '<button class="wb-editor-btn" id="wb-editor-cancel">Cancel</button>' +
+      '<span id="wb-editor-status"></span>' +
+    '</div>';
+  document.body.appendChild(panel);
+
+  var titleEl  = document.getElementById('wb-editor-title');
+  var textarea = document.getElementById('wb-editor-textarea');
+  var statusEl = document.getElementById('wb-editor-status');
+
+  var currentFile = '', currentName = '', currentNth = 0, originalBody = '';
+
+  function openPanel(file, name, nth) {
+    currentFile = file; currentName = name; currentNth = nth;
+    titleEl.textContent = name + '  \u2014  ' + file;
+    titleEl.title = file + ' | ' + name + ' | nth=' + nth;
+    textarea.value = '';
+    statusEl.textContent = 'Loading\u2026';
+    statusEl.className = '';
+    panel.classList.remove('hidden');
+    textarea.focus();
+
+    fetch('/__chunk?file=' + encodeURIComponent(file) +
+          '&name=' + encodeURIComponent(name) +
+          '&nth=' + nth)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          statusEl.textContent = data.error || 'error';
+          statusEl.className = 'error';
+          return;
+        }
+        textarea.value = data.body;
+        originalBody = data.body;
+        statusEl.textContent = '';
+      })
+      .catch(function (e) {
+        statusEl.textContent = String(e);
+        statusEl.className = 'error';
+      });
+  }
+
+  function closePanel() {
+    panel.classList.add('hidden');
+    statusEl.textContent = '';
+    statusEl.className = '';
+    originalBody = '';
+  }
+
+  document.getElementById('wb-editor-close').addEventListener('click', closePanel);
+  document.getElementById('wb-editor-cancel').addEventListener('click', closePanel);
+
+  document.getElementById('wb-editor-save').addEventListener('click', function () {
+    statusEl.textContent = 'Saving\u2026';
+    statusEl.className = '';
+    fetch('/__apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file:     currentFile,
+        name:     currentName,
+        nth:      currentNth,
+        old_body: originalBody,
+        new_body: textarea.value,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          statusEl.textContent = data.error || 'error';
+          statusEl.className = 'error';
+          return;
+        }
+        statusEl.textContent = 'Saved \u2014 waiting for rebuild\u2026';
+        statusEl.className = 'ok';
+        originalBody = textarea.value;
+        // SSE will reload the page when the HTML is regenerated.
+      })
+      .catch(function (e) {
+        statusEl.textContent = String(e);
+        statusEl.className = 'error';
+      });
+  });
+
+  /* Ctrl+S / Cmd+S saves from inside the textarea */
+  textarea.addEventListener('keydown', function (e) {
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      document.getElementById('wb-editor-save').click();
+    }
+    if (e.key === 'Escape') { closePanel(); }
+  });
+
+  /* ── Attach edit + AI buttons to annotated listingblocks ───── */
+  document.addEventListener('DOMContentLoaded', function () {
+    var blocks = document.querySelectorAll('.listingblock[data-chunk-id]');
+    blocks.forEach(function (block) {
+      var id    = block.getAttribute('data-chunk-id');
+      var parts = id.split('|');
+      if (parts.length < 3) return;
+      var file = parts[0], name = parts[1], nth = parseInt(parts[2], 10);
+
+      var editBtn = document.createElement('button');
+      editBtn.className = 'wb-chunk-btn';
+      editBtn.textContent = '\u270e Edit';
+      editBtn.title = 'Edit chunk \u201c' + name + '\u201d';
+      editBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openPanel(file, name, nth);
+      });
+      block.appendChild(editBtn);
+
+      var aiBtn = document.createElement('button');
+      aiBtn.className = 'wb-ai-btn';
+      aiBtn.textContent = '\u2736 Ask';
+      aiBtn.title = 'Ask AI about chunk \u201c' + name + '\u201d';
+      aiBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openAiPanel(file, name, nth);
+      });
+      block.appendChild(aiBtn);
+    });
+  });
+})();
+</script>
+<script>
+/* ── weaveback serve: AI assistant panel ──────────────────────── */
+(function () {
+  if (window.location.protocol === 'file:') return;
+
+  /* ── Parse SSE buffer into complete events ─────────────────── */
+  function parseSseBuf(buf) {
+    var events = [], remaining = buf;
+    while (true) {
+      var idx = remaining.indexOf('\n\n');
+      if (idx === -1) break;
+      var block = remaining.slice(0, idx);
+      remaining = remaining.slice(idx + 2);
+      var type = 'message', data = '';
+      block.split('\n').forEach(function (line) {
+        if (line.startsWith('event: ')) type = line.slice(7).trim();
+        else if (line.startsWith('data: ')) data = line.slice(6);
+      });
+      events.push({ type: type, data: data });
+    }
+    return { events: events, remaining: remaining };
+  }
+
+  /* ── Build panel DOM ─────────────────────────────────────────── */
+  var panel = document.createElement('div');
+  panel.id = 'wb-ai-panel';
+  panel.className = 'hidden';
+  panel.innerHTML =
+    '<div id="wb-ai-header">' +
+      '<span id="wb-ai-title">AI Assistant</span>' +
+      '<button id="wb-ai-close" title="Close">\u00d7</button>' +
+    '</div>' +
+    '<div id="wb-ai-messages"></div>' +
+    '<div id="wb-ai-input-row">' +
+      '<textarea id="wb-ai-input" rows="2" ' +
+        'placeholder="Ask about this chunk\u2026" spellcheck="false"></textarea>' +
+      '<button id="wb-ai-send">Send</button>' +
+    '</div>';
+  document.body.appendChild(panel);
+
+  /* Toggle button for opening without a chunk ─────────────────── */
+  var toggleBtn = document.createElement('button');
+  toggleBtn.id = 'wb-ai-toggle';
+  toggleBtn.textContent = '\u2736 AI';
+  toggleBtn.title = 'Open AI assistant';
+  document.body.appendChild(toggleBtn);
+
+  var titleEl   = document.getElementById('wb-ai-title');
+  var messagesEl= document.getElementById('wb-ai-messages');
+  var inputEl   = document.getElementById('wb-ai-input');
+  var sendBtn   = document.getElementById('wb-ai-send');
+
+  var currentFile = '', currentName = '', currentNth = 0;
+
+  function appendMsg(role, text) {
+    var el = document.createElement('div');
+    el.className = 'wb-ai-msg ' + role;
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function openAiPanel(file, name, nth) {
+    currentFile = file || ''; currentName = name || ''; currentNth = nth || 0;
+    titleEl.textContent = name ? (name + '  \u2014  ' + file) : 'AI Assistant';
+    panel.classList.remove('hidden');
+    inputEl.focus();
+    if (name) {
+      appendMsg('system', 'Context: chunk \u201c' + name + '\u201d from ' + file);
+    }
+  }
+
+  function closeAiPanel() {
+    panel.classList.add('hidden');
+  }
+
+  document.getElementById('wb-ai-close').addEventListener('click', closeAiPanel);
+  toggleBtn.addEventListener('click', function () {
+    if (panel.classList.contains('hidden')) {
+      openAiPanel('', '', 0);
+    } else {
+      closeAiPanel();
+    }
+  });
+
+  /* ── Send a question ─────────────────────────────────────────── */
+  function sendQuestion() {
+    var question = inputEl.value.trim();
+    if (!question) return;
+    inputEl.value = '';
+    sendBtn.disabled = true;
+
+    appendMsg('user', question);
+    var assistantEl = appendMsg('assistant', '\u2026');
+    var fullText = '';
+
+    var body = { question: question };
+    if (currentFile) { body.file = currentFile; body.name = currentName; body.nth = currentNth; }
+
+    fetch('/__ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (resp) {
+      var ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        return resp.json().then(function (data) {
+          assistantEl.textContent = data.error || 'Error';
+          assistantEl.classList.add('system');
+          sendBtn.disabled = false;
+        });
+      }
+      /* SSE stream */
+      var reader = resp.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = '';
+
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) { sendBtn.disabled = false; return; }
+          buf += decoder.decode(chunk.value, { stream: true });
+          var parsed = parseSseBuf(buf);
+          buf = parsed.remaining;
+          var finished = false;
+          parsed.events.forEach(function (ev) {
+            if (ev.type === 'token') {
+              try { fullText += JSON.parse(ev.data).t || ''; } catch (_) {}
+              assistantEl.textContent = fullText;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            } else if (ev.type === 'error') {
+              try { assistantEl.textContent = JSON.parse(ev.data).error || 'Error'; }
+              catch (_) { assistantEl.textContent = 'Error'; }
+              assistantEl.classList.add('system');
+              finished = true;
+            } else if (ev.type === 'done') {
+              if (!fullText) assistantEl.textContent = '(no response)';
+              finished = true;
+            }
+          });
+          if (finished) { sendBtn.disabled = false; return; }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (e) {
+      assistantEl.textContent = String(e);
+      assistantEl.classList.add('system');
+      sendBtn.disabled = false;
+    });
+  }
+
+  sendBtn.addEventListener('click', sendQuestion);
+  inputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendQuestion();
+    }
+    if (e.key === 'Escape') { closeAiPanel(); }
+  });
+
+  /* Expose openAiPanel for the chunk button handler above ───────── */
+  window.openAiPanel = openAiPanel;
 })();
 </script>

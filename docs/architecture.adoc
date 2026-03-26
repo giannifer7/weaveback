@@ -209,6 +209,131 @@ Add a `.mcp.json` in your project root:
 
 Adjust `--gen` to match your project's generated-file directory.
 
+== Live documentation server (`weaveback serve`)
+
+`weaveback serve` starts a local HTTP server that serves the rendered HTML
+documentation from `docs/html/`, pushes live-reload events to connected
+browsers via Server-Sent Events, and — when you are editing the project's own
+literate sources — lets you edit named code chunks directly in the browser.
+
+=== Intended workflow
+
+[source,bash]
+----
+# Terminal 1 — start the server once
+weaveback serve
+
+# Terminal 2 — normal edit loop
+$EDITOR crates/foo/src/bar.adoc
+just tangle && just docs       # weaveback serve detects the HTML changes and
+                               # reloads the browser tab automatically
+----
+
+The server is intentionally *orthogonal* to the tangle and docgen passes.
+It does not rebuild anything itself; it only watches the HTML directory and
+signals connected browsers when files change.
+
+`weaveback serve` also adds a floating "✏ Edit source" button to every rendered
+page.  Clicking it opens the corresponding `.adoc` file at line 1 in
+`$VISUAL` / `$EDITOR`.
+
+=== HTTP endpoints
+
+[cols="2,1,5",options="header"]
+|===
+| Path | Method | Description
+
+| `/__events`
+| GET
+| Long-lived Server-Sent Events stream.  The server sends an `event: reload`
+  message whenever a file under `docs/html/` changes.  The browser's
+  `EventSource` reconnects automatically after a two-second delay on error.
+
+| `/__open`
+| GET
+| Opens the `.adoc` source file for the current page in `$VISUAL` / `$EDITOR`.
+  Query params: `file` (adoc path relative to project root), `line` (1-indexed).
+
+| `/__chunk`
+| GET
+| Returns the current body of a named chunk and its line bounds, for
+  pre-filling the inline editor textarea. +
+  Query params: `file`, `name`, `nth` (default 0). +
+  Response: `{ "ok": true, "body": "...", "def_start": N, "def_end": M }`.
+
+| `/__apply`
+| POST
+| Applies a chunk body edit to the literate source file. +
+  JSON body: `{ "file", "name", "nth", "old_body", "new_body" }`. +
+  Verifies `old_body` matches the file on disk, runs an in-memory tangle
+  oracle, writes the file on success, returns `{ "ok": true }` or an error.
+
+|===
+
+All `/__*` endpoints include `Access-Control-Allow-Origin: *`.
+
+=== Chunk ID annotation
+
+`weaveback-docgen` injects `data-chunk-id="file|name|nth"` attributes on
+every `<div class="listingblock">` element whose `<code>` block opens with a
+weaveback chunk-open marker (`<[name]>=` or `<<name>>=`).  The annotation
+pass runs as part of `just docs` and is idempotent.
+
+The browser JS reads these attributes on load, attaches a "✎ Edit" button to
+each annotated block (visible on hover), and shows the inline editor panel
+when clicked.
+
+=== Inline editor
+
+The editor panel appears at the bottom-right of the browser window:
+
+* Fetches the current chunk body via `GET /__chunk`.
+* Displays it in a `<textarea>` pre-filled with the body (header and close
+  marker lines are excluded).
+* `Save` (or `Ctrl+S` / `Cmd+S`) posts to `/__apply` with `old_body` for
+  optimistic-concurrency checking.
+* On `body_mismatch` (file changed since the panel was opened) or
+  `tangle_failed` (the oracle rejected the edit), the error is shown in the
+  status line without touching the file.
+* On success the panel shows "Saved — waiting for rebuild…"; `just tangle &&
+  just docs` regenerates the HTML and the SSE live-reload fires automatically.
+
+=== The `/__apply` oracle
+
+Before writing the modified `.adoc` file, the server runs an in-memory tangle
+check on the *entire directory* of `.adoc` files (not just the one being
+edited).  This catches recursion errors, undefined chunk references, and
+structural problems in the same tangle unit.  It does *not* run formatters or
+write `gen/` files — it only verifies that chunk expansion succeeds without
+error.
+
+The oracle uses the chunk-syntax configuration passed to `weaveback serve`:
+
+[source,bash]
+----
+# Defaults match the weaveback project's own conventions
+weaveback serve
+
+# Override for projects using different delimiters
+weaveback serve --open-delim "<<" --close-delim ">>" --chunk-end "@" \
+                --comment-markers "//"
+----
+
+=== What the inline editor can and cannot do
+
+*Can edit:* named chunk bodies — the lines between the chunk-open header and
+the chunk-close marker.  These are the authoritative definitions that tangle
+expands.
+
+*Cannot edit through the browser:* assembly chunks (`@file` roots), chunk
+expansion projections (blocks that reference a chunk without defining it),
+or arbitrary prose code blocks.  These are shown in the HTML but not annotated
+with `data-chunk-id` because their content is either derived or structural.
+
+After saving, you still need to run `just tangle && just docs` to regenerate
+the code and HTML.  The browser reloads automatically once `just docs`
+finishes.
+
 == Weaveback's own implementation
 
 Both crates are written as literate AsciiDoc sources.

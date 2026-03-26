@@ -870,6 +870,34 @@ impl Clip {
         self.store.get_chunk_content(name)
     }
 }
+/// Verify that `texts` tangle without errors.
+///
+/// Each element of `texts` is a `(source_text, filename)` pair — the same
+/// inputs you would pass to [`Clip::read`].  Every `@file` chunk is expanded
+/// in memory; no filesystem I/O is performed.
+///
+/// Returns a map from output file path (relative to `gen/`) to its expanded
+/// lines on success, or the first expansion error encountered.
+pub fn tangle_check(
+    texts: &[(&str, &str)],
+    open_delim: &str,
+    close_delim: &str,
+    chunk_end: &str,
+    comment_markers: &[String],
+) -> Result<HashMap<String, Vec<String>>, WeavebackError> {
+    let mut store = ChunkStore::new(open_delim, close_delim, chunk_end, comment_markers);
+    for (text, fname) in texts {
+        let idx = store.add_file_name(fname);
+        store.read(text, idx);
+    }
+    let mut out = HashMap::new();
+    for name in store.get_file_chunks() {
+        let lines = store.expand(name, "")?;
+        let out_name = name.strip_prefix("@file ").unwrap_or(name).trim().to_string();
+        out.insert(out_name, lines);
+    }
+    Ok(out)
+}
 impl Clip {
     pub fn write_files(&mut self) -> Result<(), WeavebackError> {
         // In strict mode, promote any parse-time errors (e.g. @file redefinition)

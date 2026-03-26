@@ -110,6 +110,48 @@ source manually.
 
 '''
 
+==== `serve`
+
+Starts a local HTTP server at `http://127.0.0.1:<port>/` that serves
+`docs/html/`, pushes live-reload events to connected browsers when HTML files
+change, and provides the inline chunk editor for literate source files.
+
+[source,bash]
+----
+weaveback serve                          # default port 7779
+weaveback serve --port 8080             # custom port
+weaveback serve --html /other/dir       # serve a different directory
+----
+
+[cols="3,2,4",options="header"]
+|===
+| Flag | Default | Description
+
+| `--port <N>` | `7779` | TCP port to listen on
+| `--html <PATH>` | `<root>/docs/html` | Directory to serve
+| `--open-delim <STR>` | `<[` | Chunk-open delimiter for the tangle oracle
+| `--close-delim <STR>` | `]>` | Chunk-close delimiter for the tangle oracle
+| `--chunk-end <STR>` | `@@` | Chunk-end marker for the tangle oracle
+| `--comment-markers <STR>` | `//` | Comment prefixes for the oracle (comma-separated)
+| `--ai-backend <MODE>` | `claude-cli` | AI backend for `/__ai`: `claude-cli` or `api`
+|===
+
+The tangle-oracle flags must match the delimiters used by the project being
+served.  They are only needed if you use non-default chunk syntax and intend
+to use the `/__apply` inline editor endpoint.
+
+`--ai-backend claude-cli` (default) shells out to `claude -p --output-format
+stream-json`, using the authenticated Claude Code session already on the
+machine — no extra credentials required.
+`--ai-backend api` calls the Anthropic Messages API directly and requires the
+`ANTHROPIC_API_KEY` environment variable; useful on servers or CI without a
+Claude Code session.
+
+See link:architecture.adoc#_live_documentation_server_weaveback_serve[architecture.adoc]
+for the full design, HTTP endpoint reference, and inline editor documentation.
+
+'''
+
 == `weaveback-macro` — macro expander only
 
 [source,bash]

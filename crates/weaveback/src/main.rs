@@ -79,6 +79,22 @@ enum Commands {
         /// Directory to serve (default: <project-root>/docs/html)
         #[arg(long)]
         html: Option<PathBuf>,
+        /// Chunk open delimiter for the tangle oracle (default: <[)
+        #[arg(long, default_value = "<[")]
+        open_delim: String,
+        /// Chunk close delimiter for the tangle oracle (default: ]>)
+        #[arg(long, default_value = "]>")]
+        close_delim: String,
+        /// Chunk-end marker for the tangle oracle (default: @@)
+        #[arg(long, default_value = "@@")]
+        chunk_end: String,
+        /// Comment markers for the tangle oracle (comma-separated, default: //)
+        #[arg(long, default_value = "//")]
+        comment_markers: String,
+        /// AI backend for /__ai: "claude-cli" (default, uses local Claude Code session)
+        /// or "api" (calls Anthropic API directly; requires ANTHROPIC_API_KEY)
+        #[arg(long, default_value = "claude-cli")]
+        ai_backend: String,
     },
 }
 
@@ -477,8 +493,19 @@ fn main() {
         Some(Commands::Graph { chunk }) => {
             run_graph(chunk, cli.args.db)
         }
-        Some(Commands::Serve { port, html }) => {
-            serve::run_serve(port, html)
+        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend }) => {
+            let backend = match ai_backend.as_str() {
+                "api" => serve::AiBackend::Api,
+                _     => serve::AiBackend::ClaudeCli,
+            };
+            let tangle_cfg = serve::TangleConfig {
+                open_delim,
+                close_delim,
+                chunk_end,
+                comment_markers: comment_markers.split(',').map(|s| s.trim().to_string()).collect(),
+                ai_backend: backend,
+            };
+            serve::run_serve(port, html, tangle_cfg)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
         None => run(cli.args),

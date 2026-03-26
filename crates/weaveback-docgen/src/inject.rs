@@ -143,3 +143,95 @@ fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String
     let patched = content.replacen("</head>", &format!("{}</head>", tag), 1);
     let _ = std::fs::write(html_file, patched);
 }
+
+fn chunk_open_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        // Matches HTML-encoded chunk-open markers in both <[name]>= and <<name>>= styles.
+        Regex::new(r"&lt;(?:\[([^\]]+)\]&gt;|&lt;([^&<>]+)&gt;&gt;)=").unwrap()
+    })
+}
+
+fn chunk_id_strip_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r#" data-chunk-id="[^"]*""#).unwrap()
+    })
+}
+
+fn annotate_chunk_ids(html: &str, adoc_file: &str, re: &Regex) -> String {
+    // Strip stale chunk-id attrs first (idempotency).
+    let html_cow = chunk_id_strip_re().replace_all(html, "");
+    let html: &str = html_cow.as_ref();
+
+    let marker = r#"<div class="listingblock">"#;
+    let mut nth_map: HashMap<String, u32> = HashMap::new();
+    let mut result = String::with_capacity(html.len() + 512);
+    let mut pos = 0;
+
+    while let Some(rel_start) = html[pos..].find(marker) {
+        let abs_start = pos + rel_start;
+        result.push_str(&html[pos..abs_start]);
+
+        let after_div = &html[abs_start + marker.len()..];
+        let chunk_id = (|| -> Option<String> {
+            let code_start = after_div.find("<code")?;
+            let after_code = &after_div[code_start..];
+            let tag_end = after_code.find('>')?;
+            let code_content = &after_code[tag_end + 1..];
+            let search_zone = &code_content[..code_content.len().min(400)];
+            let cap = re.captures(search_zone)?;
+            let raw = cap.get(1).or_else(|| cap.get(2))?.as_str().trim();
+            // Strip @replace / @reversed modifiers
+            let name = raw
+                .strip_prefix("@replace")
+                .map(|s| s.trim_start())
+                .unwrap_or(raw);
+            let name = name
+                .strip_prefix("@reversed")
+                .map(|s| s.trim_start())
+                .unwrap_or(name);
+            if name.starts_with("@file ") || name.is_empty() {
+                return None;
+            }
+            let nth = *nth_map.get(name).unwrap_or(&0);
+            nth_map.insert(name.to_string(), nth + 1);
+            Some(format!("{adoc_file}|{name}|{nth}"))
+        })();
+
+        if let Some(id) = chunk_id {
+            result.push_str(&format!(r#"<div class="listingblock" data-chunk-id="{id}">"#));
+        } else {
+            result.push_str(marker);
+        }
+        pos = abs_start + marker.len();
+    }
+    result.push_str(&html[pos..]);
+    result
+}
+
+pub fn inject_chunk_ids(out_dir: &Path) {
+    let re = chunk_open_re();
+    let html_files: Vec<_> = walkdir::WalkDir::new(out_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "html"))
+        .map(|e| e.into_path())
+        .collect();
+
+    for html_file in html_files {
+        let rel = match html_file.strip_prefix(out_dir) {
+            Ok(r) => r.to_string_lossy().replace('\\', "/"),
+            Err(_) => continue,
+        };
+        let adoc_rel = rel.replace(".html", ".adoc");
+
+        let Ok(content) = std::fs::read_to_string(&html_file) else { continue };
+        if !content.contains("listingblock") { continue }
+
+        let patched = annotate_chunk_ids(&content, &adoc_rel, re);
+        if patched != content {
+            let _ = std::fs::write(&html_file, &patched);
+        }
+    }
+}

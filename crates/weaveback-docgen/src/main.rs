@@ -76,4 +76,5 @@ fn main() {
     inject::rewrite_adoc_links(&out_dir);
     inject::inject_xref(&out_dir, &xref, &existing_html, &adoc_map);
     literate_index::generate_and_inject_all(&out_dir);
+    inject::inject_chunk_ids(&out_dir);
 }

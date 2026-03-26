@@ -27,15 +27,15 @@ fn parse_specials() -> Vec<char> {
     let mut out = Vec::new();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--special" {
-            if let Some(s) = args.get(i + 1) {
-                let mut chars = s.chars();
-                if let (Some(c), None) = (chars.next(), chars.next()) {
-                    out.push(c);
-                }
-                i += 2;
-                continue;
+        if args[i] == "--special"
+            && let Some(s) = args.get(i + 1)
+        {
+            let mut chars = s.chars();
+            if let (Some(c), None) = (chars.next(), chars.next()) {
+                out.push(c);
             }
+            i += 2;
+            continue;
         }
         i += 1;
     }

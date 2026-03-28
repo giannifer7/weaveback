@@ -98,7 +98,7 @@ an intermediate call site.
 == MCP server (`weaveback mcp`)
 
 `weaveback mcp` starts a https://modelcontextprotocol.io/[Model Context Protocol]
-server over stdin/stdout, exposing tracing and apply-back tools so IDE
+server over stdin/stdout, exposing tracing, editing, and context tools so IDE
 extensions and AI agents can work with the literate source without shelling out.
 
 [source,bash]
@@ -123,25 +123,37 @@ message per line on stdin/stdout).
 
 | `weaveback_apply_back`
 | Bulk baseline-reconciliation tool. Use only when gen/ files have already been edited by hand. Diffs each modified file against its stored baseline, traces changed lines back to the literate source, and patches in place. Accepts optional `files` array and `dry_run` flag.
+
+| `weaveback_chunk_context`
+| Return full context for a named noweb chunk: body, AsciiDoc section title breadcrumb, full prose of the enclosing section (paragraphs, admonitions, design notes), bodies of all direct dependencies, reverse-dep names, output files, and recent git log entries. Accepts `file` (path relative to project root), `name`, and optional `nth` (0-based, default 0).
+
+| `weaveback_list_chunks`
+| List all chunk definitions in the project. Returns an array of `{ file, name, nth, def_start, def_end }` objects. Accepts optional `file` to filter to a single source file.
+
+| `weaveback_find_chunk`
+| Find which source file(s) define a given chunk name. Returns `{ file, nth, def_start, def_end }` objects. Accepts `name`.
 |===
 
 === Recommended agent workflow
 
-1. *Locate*: call `weaveback_trace` with the generated file and line number.
+1. *Understand*: call `weaveback_chunk_context` with the chunk name and source
+   file to get the body, design prose, dep bodies, and git history in one call.
+   Skip this step only if the chunk is trivially obvious.
+2. *Locate*: call `weaveback_trace` with the generated file and line number.
    Returns the exact `src_file`/`src_line`, even across multi-file chunk
    definitions and macro expansions. No grep required.
-2. *Read*: open `src_file` at `src_line` and read the surrounding context.
-3. *Fix code*: call `weaveback_apply_fix` with the replacement text and the
+3. *Read*: open `src_file` at `src_line` and read the surrounding context.
+4. *Fix code*: call `weaveback_apply_fix` with the replacement text and the
    exact output line you expect. The macro expander re-runs as an oracle —
    the file is written only if the output matches. No build needed.
-4. *Check prose*: re-read the prose section around `src_line` in the literate
+5. *Check prose*: re-read the prose section around `src_line` in the literate
    source and verify it still accurately describes the changed code.
    *This step is not optional.* The literate document is both code and
    documentation; a fix that leaves stale prose is incomplete.
-5. *Fix prose*: use a plain `Edit` if the surrounding prose is stale.
+6. *Fix prose*: use a plain `Edit` if the surrounding prose is stale.
    No oracle is needed — prose changes do not affect generated output.
-6. *Build*: run the project build. Only linking and type-checking remain;
-   correctness was already oracle-verified in step 3.
+7. *Build*: run the project build. Only linking and type-checking remain;
+   correctness was already oracle-verified in step 4.
 
 `weaveback_apply_fix` works for single-line replacements (`src_line` only) and
 multi-line ranges (`src_line` + `src_line_end` + `new_src_lines` array).
@@ -164,6 +176,30 @@ Use it to bulk-propagate those edits back to the literate source.
 
 It is *not* the primary edit path in an agent workflow.
 If no gen/ files were edited directly, use trace → apply_fix instead.
+
+=== Context tools — understanding before editing
+
+`weaveback_chunk_context` returns everything an agent needs to understand a
+chunk before touching it:
+
+- *body* — the raw source lines of the chunk
+- *section_title_chain* — the AsciiDoc heading breadcrumb, e.g.
+  `["Module overview", "Parsing", "Error recovery"]`
+- *section_prose* — all prose in the enclosing `==` section: paragraphs,
+  lists, `[NOTE]`/`[TIP]`/`[IMPORTANT]` admonitions — without listing-block
+  content.  This is the author's design intent, automatically.
+- *dependencies* — map of dep name → `{ file, body }` for all `<<chunks>>`
+  this chunk references
+- *reverse_dependencies* — names of chunks that reference this one
+- *output_files* — `gen/` files this chunk contributes to
+- *git_log* — five most recent `git log --oneline` entries for the source file
+
+Typical use: call `weaveback_chunk_context` first to understand the design
+intent, then use `weaveback_apply_fix` to make the change.
+
+`weaveback_list_chunks` (with optional `file` filter) and
+`weaveback_find_chunk` (by name) are useful for orientation when starting work
+on an unfamiliar part of the codebase.
 
 === Gotchas
 

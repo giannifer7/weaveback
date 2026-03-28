@@ -222,14 +222,30 @@ weaveback events.adoc --gen . --dump-expanded 2>expanded.txt
 
 ---
 
+== Live documentation server
+
+`weaveback serve` starts a local HTTP server with live-reload, an inline chunk
+editor, and an AI assistant panel that uses your Claude Code session — no
+separate API key required.
+
+image::Screenshot_20260328_140347.png[AI assistant panel showing contextual explanation of a chunk,width=700]
+
+The assistant receives the full chunk context: source body, surrounding prose
+and design notes from the `.adoc`, dependency bodies, and recent git history.
+
+---
+
 == Agent and IDE integration
 
-`weaveback mcp` starts an MCP server over stdin/stdout, exposing three tools
+`weaveback mcp` starts an MCP server over stdin/stdout, exposing six tools
 so AI agents and IDE extensions can work directly with the literate source:
 
 - `weaveback_trace` — find the exact source line behind any generated line
 - `weaveback_apply_fix` — oracle-verified edit (no rebuild needed to confirm)
 - `weaveback_apply_back` — propagate bulk gen/ edits back to source
+- `weaveback_chunk_context` — full context for a chunk (prose, deps, git log)
+- `weaveback_list_chunks` — enumerate all chunks in the project
+- `weaveback_find_chunk` — locate which file defines a chunk name
 
 The recommended agent workflow is: *trace → read context → apply_fix → check prose → build*.
 `apply_fix` re-runs the macro expander as an oracle and writes the file only

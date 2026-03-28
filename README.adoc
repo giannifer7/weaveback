@@ -1,50 +1,94 @@
 = Weaveback
 
-link:https://giannifer7.github.io/weaveback/[📖 Documentation]
-| link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[🔧 weaveback-tangle source]
-| link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html#literate-sources[🔧 weaveback-macro source]
+link:https://giannifer7.github.io/weaveback/[Documentation]
+| link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[weaveback-tangle source]
+| link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html#literate-sources[weaveback-macro source]
 
-Weaveback is a bidirectional literate programming toolchain. Write your
-source code inside AsciiDoc (or any text file), expand macros, assemble
-named chunks, and let the tool write the real files — then trace any
-generated line back to its origin, or propagate edits back to the source.
+Weaveback is a bidirectional literate programming toolchain.
+
+Write your source code inside AsciiDoc (or any text file), assemble named
+chunks, and let the tool write the real files — then trace any generated
+line back to its origin, or propagate edits back to the source.
 
 [source,sh]
 ----
 weaveback source.adoc --gen src
 ----
 
-Under the hood two passes run in sequence:
+---
 
-1. link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html[*weaveback-macro*] — expands `%macro(...)` calls
-2. link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[*weaveback-tangle*] — extracts `<[@file ...]>` chunks and writes them to disk
+== What makes Weaveback different
 
-Both passes run in-process; no intermediate files or subprocesses.
+Traditional literate programming is one-way: source → generated code.
+Edits to generated files must be propagated back manually, and over time
+the two representations drift.
+
+Weaveback closes the loop.
+Every generated line knows where it came from and can be traced precisely.
+Edits can propagate back to the source.
+
+- *Trace* any generated line back to its source: `weaveback where`
+- *Propagate* edits from generated files back to the document: `weaveback apply-back`
+
+The source remains the single source of truth — without becoming a dead end.
 
 ---
 
-== Why weaveback?
+== A simple example
 
-Traditional literate programming tools are one-way: you generate code, but
-edits must go back manually. Weaveback makes the pipeline bidirectional:
+Start from generated code:
 
-- *Trace* any generated line back to its source (`weaveback where`)
-- *Propagate* edits from generated files back to the document (`apply-back`)
-- *Integrate* with editors and agents via MCP
+[source,rust]
+----
+// src/events.rs — generated
+pub enum PluginEvent {
+    PluginLoad,
+    PluginUnload,
+}
+----
 
-The source document is the single source of truth — but never a dead end.
+Trace a line back to its origin:
+
+[source,sh]
+----
+weaveback where src/events.rs:2
+----
+
+→ opens the exact chunk in the literate source.
+
+---
+
+Or edit the generated file directly:
+
+[source,rust]
+----
+// src/events.rs — after your edit
+pub enum PluginEvent {
+    PluginLoaded,
+    PluginUnloaded,
+}
+----
+
+Propagate the change back:
+
+[source,sh]
+----
+weaveback apply-back
+----
+
+→ the literate source is updated, preserving consistency.
 
 ---
 
 == Language-agnostic fan-out
 
 A single document can define data once and fan it out to multiple files in
-multiple languages simultaneously. Add one entry; every target stays in sync.
+multiple languages simultaneously.
 
-The example below defines a set of plugin events in AsciiDoc and generates
-a C header, a Rust module, and a SQL seed file from the same macro call.
-Built-in case conversion macros derive every name from two base words —
-no redundant parameters, nothing to get out of sync:
+Add one entry; every target stays in sync.
+
+The example below defines plugin events in AsciiDoc and generates
+a C header, a Rust module, and a SQL seed file from the same source definition.
 
 [source,adoc]
 ----
@@ -55,108 +99,74 @@ EVT_%to_screaming_case(%(ns))_%to_screaming_case(%(name)) = %(id),
 // <[rust enum arms]>=
 %to_pascal_case(%(ns))%to_pascal_case(%(name)),
 // @
-// <[rust display arms]>=
-PluginEvent::%to_pascal_case(%(ns))%to_pascal_case(%(name)) => write!(f, "%(ns).%(name)"),
-// @
 // <[sql rows]>=
 INSERT INTO audit_event_types (id, name, description)
     VALUES (%(id), '%(ns).%(name)', '%(description)')
     ON CONFLICT (name) DO NOTHING;
 // @
-// <[c cleanup array]>=
-cleanup_%(ns)_%(name),
-// @
 %})
 
 %event(0, plugin, load,   "Plugin loaded into host")
 %event(1, plugin, unload, "Plugin removed from host")
-%event(2, config, change, "Configuration key changed")
 ----
 
-Chunk slots compose recursively and carry indentation from the skeleton,
-so the generated files look exactly as you would write them by hand:
+All outputs remain consistent because they originate from the same structured source.
 
-[source,c]
-----
-/* include/events.h — generated */
-typedef enum {
-    EVT_PLUGIN_LOAD   = 0,
-    EVT_PLUGIN_UNLOAD = 1,
-    EVT_CONFIG_CHANGE = 2,
-    EVT__COUNT
-} PluginEvent;
+---
 
-/* @reversed slot — cleanup runs in reverse registration order */
-static const void (*EVT_CLEANUP[])(void) = {
-    cleanup_config_change,
-    cleanup_plugin_unload,
-    cleanup_plugin_load,
-};
-----
+== Macro language
 
-[source,rust]
-----
-// src/events.rs — generated
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PluginEvent {
-    PluginLoad,
-    PluginUnload,
-    ConfigChange,
-}
+The macro system is intentionally simple.
 
-impl fmt::Display for PluginEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PluginEvent::PluginLoad   => write!(f, "plugin.load"),
-            PluginEvent::PluginUnload => write!(f, "plugin.unload"),
-            PluginEvent::ConfigChange => write!(f, "config.change"),
-        }
-    }
-}
-----
+Built-ins — case conversion, `%if`, `%equal` — cover common patterns
+while keeping expansions predictable and traceable.
 
-[source,sql]
-----
--- db/seed_events.sql — generated
-INSERT INTO audit_event_types (id, name, description)
-    VALUES (0, 'plugin.load',   'Plugin loaded into host')
-    ON CONFLICT (name) DO NOTHING;
-INSERT INTO audit_event_types (id, name, description)
-    VALUES (1, 'plugin.unload', 'Plugin removed from host')
-    ON CONFLICT (name) DO NOTHING;
-INSERT INTO audit_event_types (id, name, description)
-    VALUES (2, 'config.change', 'Configuration key changed')
-    ON CONFLICT (name) DO NOTHING;
-----
+Macros enable:
+- parameterized code generation
+- structured reuse
+- multi-language fan-out
 
-The `@reversed` slot attribute on `EVT_CLEANUP` expands the accumulated
-chunk in reverse order — destructors fire in the right sequence with no
-manual reordering. See the link:examples/events/[full example] including the
-`justfile` that wires `weaveback`, `meson`, and `asciidoctor` together.
+without introducing a full programming language.
 
 ---
 
 == Escape hatches
 
-When built-in macros — case conversion, `%if`, `%equal` — aren't enough,
-the macro language offers two scripted extensions for arbitrary calculation
-and string manipulation:
+When the built-in macros are not enough, two scripted extensions are available.
 
-- *`%rhaidef`* — define a macro whose body is a https://rhai.rs[Rhai] script,
-  a small expression language compiled into the binary. No external runtime.
-- *`%pydef`* — define a macro whose body runs in a sandboxed Python
-  interpreter (monty), also compiled in. No Python installation required.
+- *`%rhaidef`* — macro body is a https://rhai.rs[Rhai] script, compiled into the binary. No external runtime.
+- *`%pydef`* — macro body runs in a sandboxed Python interpreter (monty), also compiled in. No Python installation required.
 
-[source,adoc]
-----
-%rhaidef(offset, base, n, %{(parse_int(base) + parse_int(n)).to_string()%})
+The tradeoff: code produced inside scripted macros cannot be mapped back by
+`weaveback trace`. Use them for isolated calculations or string manipulation,
+not as a primary structuring mechanism.
 
-%offset(100, 3)
-----
+---
 
-The tradeoff: generated lines that pass through a scripted macro are opaque
-to `weaveback trace` — the expander cannot map them back to a source location.
-Use them where traceability of the expansion itself is not critical.
+== Agent and IDE integration
+
+Weaveback exposes a small set of operations via MCP:
+
+- trace a generated line to its source
+- retrieve full chunk context (code, prose, dependencies)
+- apply verified edits
+- propagate changes back
+
+This enables a workflow closer to:
+
+trace → understand → modify → verify
+
+rather than blind generation.
+
+---
+
+== Live documentation server
+
+`weaveback serve` starts a local HTTP server with live reload, inline chunk
+editing, and an AI assistant panel that receives full chunk context: source
+body, surrounding prose and design notes, dependency bodies.
+
+image::docs/ai-panel.png[AI assistant panel,width=700]
 
 ---
 
@@ -174,7 +184,7 @@ curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveb
      -o /usr/local/bin/weaveback && chmod +x /usr/local/bin/weaveback
 ----
 
-→ link:docs/install.adoc[Full installation guide] (all platforms, binaries, musl vs glibc)
+→ link:docs/install.adoc[Full installation guide]
 
 ---
 
@@ -186,15 +196,14 @@ cd examples/events
 weaveback events.adoc --gen .
 ----
 
-This expands macros in `events.adoc`, extracts all `@file` chunks, and
-writes them under the current directory.
+---
 
-To see what the macro expander produced before tangle runs:
+== Status
 
-[source,sh]
-----
-weaveback events.adoc --gen . --dump-expanded 2>expanded.txt
-----
+Experimental. This is an ongoing exploration of bidirectional literate
+programming and structured agent integration.
+
+Not production-ready. The focus is on the design, not completeness.
 
 ---
 
@@ -205,53 +214,20 @@ weaveback events.adoc --gen . --dump-expanded 2>expanded.txt
 | Document | Contents
 
 | link:docs/cli.adoc[CLI reference]
-| All flags for `weaveback`, `weaveback-macro`, `weaveback-tangle`; directory mode; build-system integration
+| All flags and options
 
 | link:docs/macros.adoc[Macro language]
-| `%def`, calling conventions, `%if`, `%rhaidef`, `%pydef`, X macro pattern
+| `%def`, `%if`, `%rhaidef`, `%pydef`
 
 | link:docs/noweb.adoc[Chunk syntax]
-| `@file`, named chunks, `@replace`, `@reversed`
+| `@file`, named chunks, composition
 
 | link:docs/tracing.adoc[Source tracing]
-| `weaveback where`/`trace`, MCP server for IDE/agent integration
+| `trace`, `apply-back`, MCP workflow
 
 | link:docs/install.adoc[Installation]
-| All platforms, package managers, pre-built binaries
+| Platforms and binaries
 |===
-
----
-
-== Live documentation server
-
-`weaveback serve` starts a local HTTP server with live-reload, an inline chunk
-editor, and an AI assistant panel that uses your Claude Code session — no
-separate API key required.
-
-image::docs/ai-panel.png[AI assistant panel showing contextual explanation of a chunk,width=700]
-
-The assistant receives the full chunk context: source body, surrounding prose
-and design notes from the `.adoc`, dependency bodies, and recent git history.
-
----
-
-== Agent and IDE integration
-
-`weaveback mcp` starts an MCP server over stdin/stdout, exposing six tools
-so AI agents and IDE extensions can work directly with the literate source:
-
-- `weaveback_trace` — find the exact source line behind any generated line
-- `weaveback_apply_fix` — oracle-verified edit (no rebuild needed to confirm)
-- `weaveback_apply_back` — propagate bulk gen/ edits back to source
-- `weaveback_chunk_context` — full context for a chunk (prose, deps, git log)
-- `weaveback_list_chunks` — enumerate all chunks in the project
-- `weaveback_find_chunk` — locate which file defines a chunk name
-
-The recommended agent workflow is: *trace → read context → apply_fix → check prose → build*.
-`apply_fix` re-runs the macro expander as an oracle and writes the file only
-if the expected output is produced — catching wrong edits before the build.
-See link:docs/tracing.adoc[Source tracing] for the full workflow, gotchas, and
-`.mcp.json` configuration.
 
 ---
 

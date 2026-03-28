@@ -705,152 +705,10 @@ pre.rouge .cs, pre.rouge .ch {
 })();
 </script>
 <script>
-/* ── weaveback serve: chunk inline editor ─────────────────────── */
+/* ── weaveback serve: inline editor + AI assistant panel ─────── */
 (function () {
   if (window.location.protocol === 'file:') return;
 
-  /* ── Build the editor panel DOM ──────────────────────────────── */
-  var panel = document.createElement('div');
-  panel.id = 'wb-editor-panel';
-  panel.className = 'hidden';
-  panel.innerHTML =
-    '<div id="wb-editor-header">' +
-      '<span id="wb-editor-title"></span>' +
-      '<button id="wb-editor-close" title="Close">\u00d7</button>' +
-    '</div>' +
-    '<textarea id="wb-editor-textarea" spellcheck="false"></textarea>' +
-    '<div id="wb-editor-footer">' +
-      '<button class="wb-editor-btn primary" id="wb-editor-save">Save</button>' +
-      '<button class="wb-editor-btn" id="wb-editor-cancel">Cancel</button>' +
-      '<span id="wb-editor-status"></span>' +
-    '</div>';
-  document.body.appendChild(panel);
-
-  var titleEl  = document.getElementById('wb-editor-title');
-  var textarea = document.getElementById('wb-editor-textarea');
-  var statusEl = document.getElementById('wb-editor-status');
-
-  var currentFile = '', currentName = '', currentNth = 0, originalBody = '';
-
-  function openPanel(file, name, nth) {
-    currentFile = file; currentName = name; currentNth = nth;
-    titleEl.textContent = name + '  \u2014  ' + file;
-    titleEl.title = file + ' | ' + name + ' | nth=' + nth;
-    textarea.value = '';
-    statusEl.textContent = 'Loading\u2026';
-    statusEl.className = '';
-    panel.classList.remove('hidden');
-    textarea.focus();
-
-    fetch('/__chunk?file=' + encodeURIComponent(file) +
-          '&name=' + encodeURIComponent(name) +
-          '&nth=' + nth)
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) {
-          statusEl.textContent = data.error || 'error';
-          statusEl.className = 'error';
-          return;
-        }
-        textarea.value = data.body;
-        originalBody = data.body;
-        statusEl.textContent = '';
-      })
-      .catch(function (e) {
-        statusEl.textContent = String(e);
-        statusEl.className = 'error';
-      });
-  }
-
-  function closePanel() {
-    panel.classList.add('hidden');
-    statusEl.textContent = '';
-    statusEl.className = '';
-    originalBody = '';
-  }
-
-  document.getElementById('wb-editor-close').addEventListener('click', closePanel);
-  document.getElementById('wb-editor-cancel').addEventListener('click', closePanel);
-
-  document.getElementById('wb-editor-save').addEventListener('click', function () {
-    statusEl.textContent = 'Saving\u2026';
-    statusEl.className = '';
-    fetch('/__apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        file:     currentFile,
-        name:     currentName,
-        nth:      currentNth,
-        old_body: originalBody,
-        new_body: textarea.value,
-      }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) {
-          statusEl.textContent = data.error || 'error';
-          statusEl.className = 'error';
-          return;
-        }
-        statusEl.textContent = 'Saved \u2014 waiting for rebuild\u2026';
-        statusEl.className = 'ok';
-        originalBody = textarea.value;
-        // SSE will reload the page when the HTML is regenerated.
-      })
-      .catch(function (e) {
-        statusEl.textContent = String(e);
-        statusEl.className = 'error';
-      });
-  });
-
-  /* Ctrl+S / Cmd+S saves from inside the textarea */
-  textarea.addEventListener('keydown', function (e) {
-    if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      document.getElementById('wb-editor-save').click();
-    }
-    if (e.key === 'Escape') { closePanel(); }
-  });
-
-  /* ── Attach edit + AI buttons to annotated listingblocks ───── */
-  document.addEventListener('DOMContentLoaded', function () {
-    var blocks = document.querySelectorAll('.listingblock[data-chunk-id]');
-    blocks.forEach(function (block) {
-      var id    = block.getAttribute('data-chunk-id');
-      var parts = id.split('|');
-      if (parts.length < 3) return;
-      var file = parts[0], name = parts[1], nth = parseInt(parts[2], 10);
-
-      var editBtn = document.createElement('button');
-      editBtn.className = 'wb-chunk-btn';
-      editBtn.textContent = '\u270e Edit';
-      editBtn.title = 'Edit chunk \u201c' + name + '\u201d';
-      editBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        openPanel(file, name, nth);
-      });
-      block.appendChild(editBtn);
-
-      var aiBtn = document.createElement('button');
-      aiBtn.className = 'wb-ai-btn';
-      aiBtn.textContent = '\u2736 Ask';
-      aiBtn.title = 'Ask AI about chunk \u201c' + name + '\u201d';
-      aiBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        openAiPanel(file, name, nth);
-      });
-      block.appendChild(aiBtn);
-    });
-  });
-})();
-</script>
-<script>
-/* ── weaveback serve: AI assistant panel ──────────────────────── */
-(function () {
-  if (window.location.protocol === 'file:') return;
-
-  /* ── Parse SSE buffer into complete events ─────────────────── */
   function parseSseBuf(buf) {
     var events = [], remaining = buf;
     while (true) {
@@ -868,145 +726,189 @@ pre.rouge .cs, pre.rouge .ch {
     return { events: events, remaining: remaining };
   }
 
-  /* ── Build panel DOM ─────────────────────────────────────────── */
-  var panel = document.createElement('div');
-  panel.id = 'wb-ai-panel';
-  panel.className = 'hidden';
-  panel.innerHTML =
-    '<div id="wb-ai-header">' +
-      '<span id="wb-ai-title">AI Assistant</span>' +
-      '<button id="wb-ai-close" title="Close">\u00d7</button>' +
-    '</div>' +
-    '<div id="wb-ai-messages"></div>' +
-    '<div id="wb-ai-input-row">' +
-      '<textarea id="wb-ai-input" rows="2" ' +
-        'placeholder="Ask about this chunk\u2026" spellcheck="false"></textarea>' +
-      '<button id="wb-ai-send">Send</button>' +
-    '</div>';
-  document.body.appendChild(panel);
+  document.addEventListener('DOMContentLoaded', function () {
 
-  /* Toggle button for opening without a chunk ─────────────────── */
-  var toggleBtn = document.createElement('button');
-  toggleBtn.id = 'wb-ai-toggle';
-  toggleBtn.textContent = '\u2736 AI';
-  toggleBtn.title = 'Open AI assistant';
-  document.body.appendChild(toggleBtn);
+    /* ── Editor panel ──────────────────────────────────────────── */
+    var editorPanel = document.createElement('div');
+    editorPanel.id = 'wb-editor-panel';
+    editorPanel.className = 'hidden';
+    editorPanel.innerHTML =
+      '<div id="wb-editor-header">' +
+        '<span id="wb-editor-title"></span>' +
+        '<button id="wb-editor-close" title="Close">\u00d7</button>' +
+      '</div>' +
+      '<textarea id="wb-editor-textarea" spellcheck="false"></textarea>' +
+      '<div id="wb-editor-footer">' +
+        '<button class="wb-editor-btn primary" id="wb-editor-save">Save</button>' +
+        '<button class="wb-editor-btn" id="wb-editor-cancel">Cancel</button>' +
+        '<span id="wb-editor-status"></span>' +
+      '</div>';
+    document.body.appendChild(editorPanel);
 
-  var titleEl   = document.getElementById('wb-ai-title');
-  var messagesEl= document.getElementById('wb-ai-messages');
-  var inputEl   = document.getElementById('wb-ai-input');
-  var sendBtn   = document.getElementById('wb-ai-send');
+    var editorTitle = document.getElementById('wb-editor-title');
+    var textarea    = document.getElementById('wb-editor-textarea');
+    var statusEl    = document.getElementById('wb-editor-status');
+    var eFile = '', eName = '', eNth = 0, originalBody = '';
 
-  var currentFile = '', currentName = '', currentNth = 0;
-
-  function appendMsg(role, text) {
-    var el = document.createElement('div');
-    el.className = 'wb-ai-msg ' + role;
-    el.textContent = text;
-    messagesEl.appendChild(el);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    return el;
-  }
-
-  function openAiPanel(file, name, nth) {
-    currentFile = file || ''; currentName = name || ''; currentNth = nth || 0;
-    titleEl.textContent = name ? (name + '  \u2014  ' + file) : 'AI Assistant';
-    panel.classList.remove('hidden');
-    inputEl.focus();
-    if (name) {
-      appendMsg('system', 'Context: chunk \u201c' + name + '\u201d from ' + file);
+    function openPanel(file, name, nth) {
+      eFile = file; eName = name; eNth = nth;
+      editorTitle.textContent = name + '  \u2014  ' + file;
+      editorTitle.title = file + ' | ' + name + ' | nth=' + nth;
+      textarea.value = ''; statusEl.textContent = 'Loading\u2026'; statusEl.className = '';
+      editorPanel.classList.remove('hidden'); textarea.focus();
+      fetch('/__chunk?file=' + encodeURIComponent(file) + '&name=' + encodeURIComponent(name) + '&nth=' + nth)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { statusEl.textContent = d.error || 'error'; statusEl.className = 'error'; return; }
+          textarea.value = d.body; originalBody = d.body; statusEl.textContent = '';
+        })
+        .catch(function (e) { statusEl.textContent = String(e); statusEl.className = 'error'; });
     }
-  }
 
-  function closeAiPanel() {
-    panel.classList.add('hidden');
-  }
-
-  document.getElementById('wb-ai-close').addEventListener('click', closeAiPanel);
-  toggleBtn.addEventListener('click', function () {
-    if (panel.classList.contains('hidden')) {
-      openAiPanel('', '', 0);
-    } else {
-      closeAiPanel();
+    function closePanel() {
+      editorPanel.classList.add('hidden');
+      statusEl.textContent = ''; statusEl.className = ''; originalBody = '';
     }
-  });
 
-  /* ── Send a question ─────────────────────────────────────────── */
-  function sendQuestion() {
-    var question = inputEl.value.trim();
-    if (!question) return;
-    inputEl.value = '';
-    sendBtn.disabled = true;
-
-    appendMsg('user', question);
-    var assistantEl = appendMsg('assistant', '\u2026');
-    var fullText = '';
-
-    var body = { question: question };
-    if (currentFile) { body.file = currentFile; body.name = currentName; body.nth = currentNth; }
-
-    fetch('/__ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(function (resp) {
-      var ct = resp.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        return resp.json().then(function (data) {
-          assistantEl.textContent = data.error || 'Error';
-          assistantEl.classList.add('system');
-          sendBtn.disabled = false;
-        });
-      }
-      /* SSE stream */
-      var reader = resp.body.getReader();
-      var decoder = new TextDecoder();
-      var buf = '';
-
-      function pump() {
-        return reader.read().then(function (chunk) {
-          if (chunk.done) { sendBtn.disabled = false; return; }
-          buf += decoder.decode(chunk.value, { stream: true });
-          var parsed = parseSseBuf(buf);
-          buf = parsed.remaining;
-          var finished = false;
-          parsed.events.forEach(function (ev) {
-            if (ev.type === 'token') {
-              try { fullText += JSON.parse(ev.data).t || ''; } catch (_) {}
-              assistantEl.textContent = fullText;
-              messagesEl.scrollTop = messagesEl.scrollHeight;
-            } else if (ev.type === 'error') {
-              try { assistantEl.textContent = JSON.parse(ev.data).error || 'Error'; }
-              catch (_) { assistantEl.textContent = 'Error'; }
-              assistantEl.classList.add('system');
-              finished = true;
-            } else if (ev.type === 'done') {
-              if (!fullText) assistantEl.textContent = '(no response)';
-              finished = true;
-            }
-          });
-          if (finished) { sendBtn.disabled = false; return; }
-          return pump();
-        });
-      }
-      return pump();
-    }).catch(function (e) {
-      assistantEl.textContent = String(e);
-      assistantEl.classList.add('system');
-      sendBtn.disabled = false;
+    document.getElementById('wb-editor-close').addEventListener('click', closePanel);
+    document.getElementById('wb-editor-cancel').addEventListener('click', closePanel);
+    document.getElementById('wb-editor-save').addEventListener('click', function () {
+      statusEl.textContent = 'Saving\u2026'; statusEl.className = '';
+      fetch('/__apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: eFile, name: eName, nth: eNth,
+                               old_body: originalBody, new_body: textarea.value }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { statusEl.textContent = d.error || 'error'; statusEl.className = 'error'; return; }
+          statusEl.textContent = 'Saved \u2014 waiting for rebuild\u2026';
+          statusEl.className = 'ok'; originalBody = textarea.value;
+        })
+        .catch(function (e) { statusEl.textContent = String(e); statusEl.className = 'error'; });
     });
-  }
+    textarea.addEventListener('keydown', function (e) {
+      if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); document.getElementById('wb-editor-save').click(); }
+      if (e.key === 'Escape') { closePanel(); }
+    });
 
-  sendBtn.addEventListener('click', sendQuestion);
-  inputEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendQuestion();
+    /* ── AI panel ──────────────────────────────────────────────── */
+    var aiPanel = document.createElement('div');
+    aiPanel.id = 'wb-ai-panel';
+    aiPanel.className = 'hidden';
+    aiPanel.innerHTML =
+      '<div id="wb-ai-header">' +
+        '<span id="wb-ai-title">AI Assistant</span>' +
+        '<button id="wb-ai-close" title="Close">\u00d7</button>' +
+      '</div>' +
+      '<div id="wb-ai-messages"></div>' +
+      '<div id="wb-ai-input-row">' +
+        '<textarea id="wb-ai-input" rows="2" placeholder="Ask about this chunk\u2026" spellcheck="false"></textarea>' +
+        '<button id="wb-ai-send">Send</button>' +
+      '</div>';
+    document.body.appendChild(aiPanel);
+
+    var toggleBtn = document.createElement('button');
+    toggleBtn.id = 'wb-ai-toggle'; toggleBtn.textContent = '\u2736 AI';
+    toggleBtn.title = 'Open AI assistant';
+    document.body.appendChild(toggleBtn);
+
+    var aiTitle    = document.getElementById('wb-ai-title');
+    var messagesEl = document.getElementById('wb-ai-messages');
+    var inputEl    = document.getElementById('wb-ai-input');
+    var sendBtn    = document.getElementById('wb-ai-send');
+    var aFile = '', aName = '', aNth = 0;
+
+    function appendMsg(role, text) {
+      var el = document.createElement('div');
+      el.className = 'wb-ai-msg ' + role; el.textContent = text;
+      messagesEl.appendChild(el); messagesEl.scrollTop = messagesEl.scrollHeight;
+      return el;
     }
-    if (e.key === 'Escape') { closeAiPanel(); }
-  });
 
-  /* Expose openAiPanel for the chunk button handler above ───────── */
-  window.openAiPanel = openAiPanel;
+    function openAiPanel(file, name, nth) {
+      aFile = file || ''; aName = name || ''; aNth = nth || 0;
+      aiTitle.textContent = name ? (name + '  \u2014  ' + file) : 'AI Assistant';
+      aiPanel.classList.remove('hidden'); inputEl.focus();
+      if (name) appendMsg('system', 'Context: chunk \u201c' + name + '\u201d from ' + file);
+    }
+
+    function closeAiPanel() { aiPanel.classList.add('hidden'); }
+
+    document.getElementById('wb-ai-close').addEventListener('click', closeAiPanel);
+    toggleBtn.addEventListener('click', function () {
+      aiPanel.classList.contains('hidden') ? openAiPanel('', '', 0) : closeAiPanel();
+    });
+
+    function sendQuestion() {
+      var question = inputEl.value.trim();
+      if (!question) return;
+      inputEl.value = ''; sendBtn.disabled = true;
+      appendMsg('user', question);
+      var assistantEl = appendMsg('assistant', '\u2026'), fullText = '';
+      var body = { question: question };
+      if (aFile) { body.file = aFile; body.name = aName; body.nth = aNth; }
+      fetch('/__ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (resp) {
+          if ((resp.headers.get('content-type') || '').includes('application/json')) {
+            return resp.json().then(function (d) {
+              assistantEl.textContent = d.error || 'Error';
+              assistantEl.classList.add('system'); sendBtn.disabled = false;
+            });
+          }
+          var reader = resp.body.getReader(), decoder = new TextDecoder(), buf = '';
+          function pump() {
+            return reader.read().then(function (chunk) {
+              if (chunk.done) { sendBtn.disabled = false; return; }
+              buf += decoder.decode(chunk.value, { stream: true });
+              var parsed = parseSseBuf(buf); buf = parsed.remaining;
+              var done = false;
+              parsed.events.forEach(function (ev) {
+                if (ev.type === 'token') {
+                  try { fullText += JSON.parse(ev.data).t || ''; } catch (_) {}
+                  assistantEl.textContent = fullText;
+                  messagesEl.scrollTop = messagesEl.scrollHeight;
+                } else if (ev.type === 'error') {
+                  try { assistantEl.textContent = JSON.parse(ev.data).error || 'Error'; } catch (_) { assistantEl.textContent = 'Error'; }
+                  assistantEl.classList.add('system'); done = true;
+                } else if (ev.type === 'done') {
+                  if (!fullText) assistantEl.textContent = '(no response)'; done = true;
+                }
+              });
+              if (done) { sendBtn.disabled = false; return; }
+              return pump();
+            });
+          }
+          return pump();
+        })
+        .catch(function (e) { assistantEl.textContent = String(e); assistantEl.classList.add('system'); sendBtn.disabled = false; });
+    }
+
+    sendBtn.addEventListener('click', sendQuestion);
+    inputEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+      if (e.key === 'Escape') { closeAiPanel(); }
+    });
+
+    /* ── Attach ✎ Edit + ✦ Ask buttons to annotated blocks ───── */
+    document.querySelectorAll('.listingblock[data-chunk-id]').forEach(function (block) {
+      var parts = block.getAttribute('data-chunk-id').split('|');
+      if (parts.length < 3) return;
+      var file = parts[0], name = parts[1], nth = parseInt(parts[2], 10);
+
+      var editBtn = document.createElement('button');
+      editBtn.className = 'wb-chunk-btn'; editBtn.textContent = '\u270e Edit';
+      editBtn.title = 'Edit chunk \u201c' + name + '\u201d';
+      editBtn.addEventListener('click', function (e) { e.stopPropagation(); openPanel(file, name, nth); });
+      block.appendChild(editBtn);
+
+      var aiBtn = document.createElement('button');
+      aiBtn.className = 'wb-ai-btn'; aiBtn.textContent = '\u2736 Ask';
+      aiBtn.title = 'Ask AI about chunk \u201c' + name + '\u201d';
+      aiBtn.addEventListener('click', function (e) { e.stopPropagation(); openAiPanel(file, name, nth); });
+      block.appendChild(aiBtn);
+    });
+
+  }); // DOMContentLoaded
 })();
 </script>

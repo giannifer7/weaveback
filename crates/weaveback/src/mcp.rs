@@ -1,5 +1,6 @@
 use crate::apply_back::{self, ApplyBackOptions};
 use crate::lookup;
+use crate::serve::build_chunk_context;
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string;
 use weaveback_tangle::db::WeavebackDb;
@@ -60,6 +61,41 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     "dry_run": { "type": "boolean", "description": "Show what would change without writing (default: false)" }
                                 },
                                 "required": []
+                            }
+                        },
+                        {
+                            "name": "weaveback_chunk_context",
+                            "description": "Return full context for a named noweb chunk: its body, the AsciiDoc section title breadcrumb, the full prose of the enclosing section (paragraphs, admonitions, design notes), bodies of all direct dependencies, reverse-dep names, output files, and recent git log entries. Use this before editing or reasoning about a chunk.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": { "type": "string", "description": "Source file path (relative to project root), e.g. 'crates/weaveback/src/serve.adoc'" },
+                                    "name": { "type": "string", "description": "Chunk name as it appears in the <<name>>= marker" },
+                                    "nth":  { "type": "integer", "description": "0-based index for chunks defined multiple times (default 0)" }
+                                },
+                                "required": ["file", "name"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_list_chunks",
+                            "description": "List all chunk definitions in the project, optionally filtered to a single source file. Returns an array of { file, name, nth, def_start, def_end } objects.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": { "type": "string", "description": "Source file to filter to (optional; omit for all files)" }
+                                },
+                                "required": []
+                            }
+                        },
+                        {
+                            "name": "weaveback_find_chunk",
+                            "description": "Find which source file(s) define a given chunk name. Returns an array of { file, nth, def_start, def_end } objects.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string", "description": "Chunk name to look up" }
+                                },
+                                "required": ["name"]
                             }
                         },
                         {
@@ -167,6 +203,84 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         match apply_fix(src_file, src_line_1, src_line_end_1, &new_lines, out_file, out_line_1, expected, &db, &gen_dir, &eval_config) {
                             Ok(msg) => send_text(id, &msg),
                             Err(e)  => send_error(id, &e),
+                        }
+                    }
+
+                    Some("weaveback_chunk_context") => {
+                        let Some(input) = input else {
+                            send_error(id, "Missing arguments");
+                            continue;
+                        };
+                        let file = input.get("file").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let nth  = input.get("nth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        if file.is_empty() || name.is_empty() {
+                            send_error(id, "file and name are required");
+                            continue;
+                        }
+                        let project_root = db_path.parent().unwrap_or(std::path::Path::new("."));
+                        let ctx = build_chunk_context(project_root, file, name, nth);
+                        if ctx.is_null() {
+                            send_error(id, &format!("Chunk not found: {}#{}[{}]", file, name, nth));
+                        } else {
+                            send_text(id, &serde_json::to_string_pretty(&ctx).unwrap());
+                        }
+                    }
+
+                    Some("weaveback_list_chunks") => {
+                        let file_filter = input
+                            .and_then(|i| i.get("file"))
+                            .and_then(|v| v.as_str());
+                        if !db_path.exists() {
+                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match WeavebackDb::open_read_only(&db_path) {
+                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Ok(db) => match db.list_chunk_defs(file_filter) {
+                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
+                                Ok(defs) => {
+                                    let arr: Vec<Value> = defs.iter().map(|d| json!({
+                                        "file":      d.src_file,
+                                        "name":      d.chunk_name,
+                                        "nth":       d.nth,
+                                        "def_start": d.def_start,
+                                        "def_end":   d.def_end,
+                                    })).collect();
+                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                }
+                            },
+                        }
+                    }
+
+                    Some("weaveback_find_chunk") => {
+                        let Some(input) = input else {
+                            send_error(id, "Missing arguments");
+                            continue;
+                        };
+                        let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.is_empty() {
+                            send_error(id, "name is required");
+                            continue;
+                        }
+                        if !db_path.exists() {
+                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match WeavebackDb::open_read_only(&db_path) {
+                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Ok(db) => match db.find_chunk_defs_by_name(name) {
+                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
+                                Ok(defs) => {
+                                    let arr: Vec<Value> = defs.iter().map(|d| json!({
+                                        "file":      d.src_file,
+                                        "nth":       d.nth,
+                                        "def_start": d.def_start,
+                                        "def_end":   d.def_end,
+                                    })).collect();
+                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                }
+                            },
                         }
                     }
 

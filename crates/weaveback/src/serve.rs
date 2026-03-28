@@ -476,7 +476,110 @@ fn handle_chunk(request: Request, url: &str, project_root: &Path) {
 }
 use std::process::Stdio;
 
-fn build_chunk_context(
+// ── AsciiDoc source helpers ───────────────────────────────────────────────────
+
+pub(crate) fn heading_level(line: &str) -> Option<usize> {
+    let t = line.trim_end();
+    if t.is_empty() { return None; }
+    let count = t.bytes().take_while(|&b| b == b'=').count();
+    if count > 0 && t.len() > count && t.as_bytes()[count] == b' ' {
+        Some(count)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
+    let mut sec_start = 0usize;
+    let mut sec_level = 1usize;
+    for i in (0..def_start).rev() {
+        if let Some(level) = heading_level(lines[i]) {
+            sec_start = i;
+            sec_level = level;
+            break;
+        }
+    }
+    let sec_end = lines[def_start..]
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, l)| heading_level(l).map(|lvl| lvl <= sec_level).unwrap_or(false))
+        .map(|(i, _)| def_start + i)
+        .unwrap_or(lines.len());
+    (sec_start, sec_end)
+}
+
+pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
+    let mut chain: Vec<(usize, String)> = Vec::new();
+    for i in 0..def_start {
+        if let Some(level) = heading_level(lines[i]) {
+            let title = lines[i][level + 1..].trim().to_string();
+            chain.retain(|(l, _)| *l < level);
+            chain.push((level, title));
+        }
+    }
+    chain.into_iter().map(|(_, t)| t).collect()
+}
+
+pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
+    let end = end.min(lines.len());
+    let mut in_fence = false;
+    let mut out: Vec<&str> = Vec::new();
+    for i in start..end {
+        let l = lines[i];
+        if l.trim() == "----" { in_fence = !in_fence; continue; }
+        if !in_fence { out.push(l); }
+    }
+    while out.first().map(|l| l.trim().is_empty()).unwrap_or(false) { out.remove(0); }
+    while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) { out.pop(); }
+    out.join("\n")
+}
+
+pub(crate) fn dep_bodies(
+    db: &weaveback_tangle::WeavebackDb,
+    project_root: &Path,
+    dep_names: &[(String, String)],
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut map = serde_json::Map::new();
+    for (dep_name, _) in dep_names {
+        let defs = match db.find_chunk_defs_by_name(dep_name) {
+            Ok(d) if !d.is_empty() => d,
+            _ => continue,
+        };
+        let def = &defs[0];
+        let src_path = project_root.join(&def.src_file);
+        let src_text = match std::fs::read_to_string(&src_path) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let src_lines: Vec<&str> = src_text.lines().collect();
+        let s = def.def_start as usize;
+        let e = def.def_end as usize;
+        let body = if s < src_lines.len() && e <= src_lines.len() && e > 0 {
+            src_lines[s..e - 1].join("\n")
+        } else {
+            String::new()
+        };
+        map.insert(dep_name.clone(), serde_json::json!({ "file": def.src_file, "body": body }));
+    }
+    map
+}
+
+pub(crate) fn git_log_for_file(project_root: &Path, src_file: &str) -> Vec<String> {
+    let root = project_root.to_string_lossy();
+    match std::process::Command::new("git")
+        .args(["-C", &root, "log", "--follow", "-n", "5", "--oneline", "--", src_file])
+        .output()
+    {
+        Ok(o) if o.status.success() =>
+            String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+// ── Context builder ───────────────────────────────────────────────────────────
+
+pub(crate) fn build_chunk_context(
     project_root: &Path,
     file: &str,
     name: &str,
@@ -500,30 +603,23 @@ fn build_chunk_context(
     let def_start = entry.def_start as usize;
     let def_end   = entry.def_end   as usize;
 
-    let body = if def_start < src_lines.len() && def_end <= src_lines.len() {
+    let body = if def_start < src_lines.len() && def_end <= src_lines.len() && def_end > 0 {
         src_lines[def_start..def_end - 1].join("\n")
     } else {
         String::new()
     };
 
-    // prose_before: up to 8 lines immediately before the chunk header
-    let before_end   = def_start.saturating_sub(1);
-    let before_start = before_end.saturating_sub(8);
-    let prose_before = src_lines[before_start..before_end].join("\n");
+    let chain  = title_chain(&src_lines, def_start);
+    let (sec_start, sec_end) = section_range(&src_lines, def_start);
+    let section_prose = extract_prose(&src_lines, sec_start, sec_end);
 
-    // prose_after: up to 4 lines immediately after the chunk end-marker
-    let after_start = def_end.min(src_lines.len());
-    let after_end   = (after_start + 4).min(src_lines.len());
-    let prose_after = src_lines[after_start..after_end].join("\n");
-
-    let deps: Vec<String> = db.query_chunk_deps(name)
-        .unwrap_or_default()
-        .into_iter().map(|(to, _)| to).collect();
+    let raw_deps: Vec<(String, String)> = db.query_chunk_deps(name).unwrap_or_default();
+    let dep_map = dep_bodies(&db, project_root, &raw_deps);
     let rev_deps: Vec<String> = db.query_reverse_deps(name)
         .unwrap_or_default()
         .into_iter().map(|(from, _)| from).collect();
-    let output_files: Vec<String> = db.query_chunk_output_files(name)
-        .unwrap_or_default();
+    let output_files: Vec<String> = db.query_chunk_output_files(name).unwrap_or_default();
+    let log = git_log_for_file(project_root, file);
 
     serde_json::json!({
         "file":                 file,
@@ -532,11 +628,12 @@ fn build_chunk_context(
         "body":                 body,
         "def_start":            entry.def_start,
         "def_end":              entry.def_end,
-        "prose_before":         prose_before,
-        "prose_after":          prose_after,
-        "dependencies":         deps,
+        "section_title_chain":  chain,
+        "section_prose":        section_prose,
+        "dependencies":         serde_json::Value::Object(dep_map),
         "reverse_dependencies": rev_deps,
         "output_files":         output_files,
+        "git_log":              log,
     })
 }
 
@@ -593,6 +690,7 @@ fn call_claude_cli(
         .args([
             "-p", &user_content,
             "--output-format", "stream-json",
+            "--verbose",
             "--append-system-prompt", &system_prompt,
         ])
         .stdout(Stdio::piped())
@@ -625,14 +723,18 @@ fn call_claude_cli(
             Ok(v) => v,
             Err(_) => continue,
         };
-        if v["type"] == "stream_event" {
-            if v["event"]["delta"]["type"] == "text_delta" {
-                if let Some(text) = v["event"]["delta"]["text"].as_str() {
-                    if !text.is_empty() {
-                        let data = serde_json::json!({"t": text}).to_string();
-                        if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
-                            let _ = child.kill();
-                            return;
+        if v["type"] == "assistant" {
+            if let Some(content) = v["message"]["content"].as_array() {
+                for block in content {
+                    if block["type"] == "text" {
+                        if let Some(text) = block["text"].as_str() {
+                            if !text.is_empty() {
+                                let data = serde_json::json!({"t": text}).to_string();
+                                if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                                    let _ = child.kill();
+                                    return;
+                                }
+                            }
                         }
                     }
                 }

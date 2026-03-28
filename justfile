@@ -48,6 +48,10 @@ fmt:
 weaveback FILE:
     cargo run --package weaveback -- "{{FILE}}"
 
+# Serve docs/html/ locally with live reload and inline editor (dev build)
+serve *ARGS:
+    cargo run --release --package weaveback -- serve {{ARGS}}
+
 # Run weaveback-macro on a file (usage: just macros src/foo.md)
 macros FILE:
     cargo run --package weaveback-macro -- "{{FILE}}"

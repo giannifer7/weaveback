@@ -179,7 +179,9 @@ fn annotate_chunk_ids(html: &str, adoc_file: &str, re: &Regex) -> String {
             let after_code = &after_div[code_start..];
             let tag_end = after_code.find('>')?;
             let code_content = &after_code[tag_end + 1..];
-            let search_zone = &code_content[..code_content.len().min(400)];
+            let raw = code_content.len().min(400);
+            let end = (0..=raw).rev().find(|&i| code_content.is_char_boundary(i)).unwrap_or(0);
+            let search_zone = &code_content[..end];
             let cap = re.captures(search_zone)?;
             let raw = cap.get(1).or_else(|| cap.get(2))?.as_str().trim();
             // Strip @replace / @reversed modifiers

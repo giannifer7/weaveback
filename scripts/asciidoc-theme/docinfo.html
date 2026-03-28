@@ -529,6 +529,16 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
 }
 .wb-ai-save-btn:hover { background: var(--bg3); }
 .wb-ai-save-btn:disabled { opacity: .5; cursor: default; }
+#wb-serve-hint {
+  position: fixed; bottom: 1rem; right: 1rem;
+  background: var(--bg1); border: 1px solid var(--bg3);
+  border-radius: 6px; padding: 0.5rem 0.85rem;
+  font-size: 13px; color: var(--fg2);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  z-index: 9999;
+}
+#wb-serve-hint a { color: var(--blue) !important; }
+#wb-serve-hint code { color: var(--green) !important; background: var(--bg2); padding: 1px 4px; border-radius: 3px; }
 </style>
 <script>
 /* ── weaveback serve: edit button + live reload ───────────────── */
@@ -725,6 +735,12 @@ pre.rouge .cs, pre.rouge .ch {
 /* ── weaveback serve: inline editor + AI assistant panel ─────── */
 (function () {
   if (window.location.protocol === 'file:') return;
+  // Editor, AI panel, and live-reload are only available when the docs are
+  // served by `weaveback serve` on localhost.  On GitHub Pages or any other
+  // static host these endpoints do not exist.
+  var isLocal = window.location.hostname === 'localhost'
+             || window.location.hostname === '127.0.0.1'
+             || window.location.hostname === '::1';
 
   function parseSseBuf(buf) {
     var events = [], remaining = buf;
@@ -744,6 +760,15 @@ pre.rouge .cs, pre.rouge .ch {
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+
+    if (!isLocal) {
+      // Show a small hint so readers know interactive features exist locally.
+      var hint = document.createElement('div');
+      hint.id = 'wb-serve-hint';
+      hint.innerHTML = '\u2736 <a href="https://github.com/giannifer7/weaveback#live-documentation-server" target="_blank" rel="noopener">Run <code>weaveback serve</code> locally</a> for the inline editor and AI assistant.';
+      document.body.appendChild(hint);
+      return;
+    }
 
     /* ── Editor panel ──────────────────────────────────────────── */
     var editorPanel = document.createElement('div');

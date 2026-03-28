@@ -12,7 +12,7 @@
       packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {
         pname   = "weaveback";
         inherit version;
-        src     = pkgs.fetchurl { url = "${base}/weaveback-musl"; sha256 = "sha256-MbdMF40MNPsbyaGsoYbUJcwMBDoxVKIAzZ8XhllKs9M="; };
+        src     = pkgs.fetchurl { url = "${base}/weaveback-musl"; sha256 = "sha256-EXSNBXz9JFIFoA2WsPVHuD5IAIAdo6fdSLX4XaqC2hs="; };
         dontUnpack   = true;
         installPhase = "install -Dm755 $src $out/bin/weaveback";
       };

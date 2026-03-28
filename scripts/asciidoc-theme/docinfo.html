@@ -512,6 +512,23 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
 }
 #wb-ai-send:hover { background: var(--purple); color: var(--bg); }
 #wb-ai-send:disabled { opacity: .5; cursor: default; }
+#wb-ai-actions {
+  display: flex; gap: 4px; padding: 0 8px 6px; flex-wrap: wrap;
+}
+.wb-ai-action {
+  font-size: 11px; padding: 2px 8px; border-radius: 4px;
+  background: var(--bg2); color: var(--fg2); border: 1px solid var(--bg3);
+  cursor: pointer; white-space: nowrap;
+}
+.wb-ai-action:hover { background: var(--bg3); color: var(--fg); }
+.wb-ai-save-btn {
+  display: inline-block; margin-top: 6px; font-size: 11px;
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--bg2); color: var(--aqua); border: 1px solid var(--bg3);
+  cursor: pointer;
+}
+.wb-ai-save-btn:hover { background: var(--bg3); }
+.wb-ai-save-btn:disabled { opacity: .5; cursor: default; }
 </style>
 <script>
 /* ── weaveback serve: edit button + live reload ───────────────── */
@@ -802,6 +819,12 @@ pre.rouge .cs, pre.rouge .ch {
         '<button id="wb-ai-close" title="Close">\u00d7</button>' +
       '</div>' +
       '<div id="wb-ai-messages"></div>' +
+      '<div id="wb-ai-actions">' +
+        '<button class="wb-ai-action" data-prompt="Explain what this chunk does and why it\u2019s designed this way.">Explain</button>' +
+        '<button class="wb-ai-action" data-prompt="Explain the direct dependencies of this chunk and how they are used.">Deps</button>' +
+        '<button class="wb-ai-action" data-prompt="Where is this chunk referenced, and what does it contribute to the output?">Where used?</button>' +
+        '<button class="wb-ai-action" data-prompt="What could be improved in this chunk? Consider correctness, clarity, and edge cases.">Improve</button>' +
+      '</div>' +
       '<div id="wb-ai-input-row">' +
         '<textarea id="wb-ai-input" rows="2" placeholder="Ask about this chunk\u2026" spellcheck="false"></textarea>' +
         '<button id="wb-ai-send">Send</button>' +
@@ -872,7 +895,27 @@ pre.rouge .cs, pre.rouge .ch {
                   try { assistantEl.textContent = JSON.parse(ev.data).error || 'Error'; } catch (_) { assistantEl.textContent = 'Error'; }
                   assistantEl.classList.add('system'); done = true;
                 } else if (ev.type === 'done') {
-                  if (!fullText) assistantEl.textContent = '(no response)'; done = true;
+                  if (!fullText) assistantEl.textContent = '(no response)';
+                  if (fullText && aFile) {
+                    var saveBtn = document.createElement('button');
+                    saveBtn.className = 'wb-ai-save-btn';
+                    saveBtn.textContent = '\u2193 Save as [NOTE]';
+                    (function (text, file, name, nth, btn) {
+                      btn.addEventListener('click', function () {
+                        btn.disabled = true; btn.textContent = 'Saving\u2026';
+                        fetch('/__save_note', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ file: file, name: name, nth: nth, note: text })
+                        }).then(function (r) { return r.json(); })
+                          .then(function (d) { btn.textContent = d.ok ? '\u2713 Saved' : '\u2717 ' + (d.error || 'failed'); })
+                          .catch(function (e) { btn.textContent = '\u2717 ' + e; });
+                      });
+                    })(fullText, aFile, aName, aNth, saveBtn);
+                    assistantEl.appendChild(document.createElement('br'));
+                    assistantEl.appendChild(saveBtn);
+                  }
+                  done = true;
                 }
               });
               if (done) { sendBtn.disabled = false; return; }
@@ -888,6 +931,13 @@ pre.rouge .cs, pre.rouge .ch {
     inputEl.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
       if (e.key === 'Escape') { closeAiPanel(); }
+    });
+
+    document.querySelectorAll('.wb-ai-action').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        inputEl.value = btn.getAttribute('data-prompt');
+        sendQuestion();
+      });
     });
 
     /* ── Attach ✎ Edit + ✦ Ask buttons to annotated blocks ───── */

@@ -155,7 +155,7 @@ fn open_in_editor(file: &str, line: u32, project_root: &Path) {
 }
 
 fn parse_query(url: &str) -> HashMap<String, String> {
-    let query = url.splitn(2, '?').nth(1).unwrap_or("");
+    let query = url.split_once('?').map(|x| x.1).unwrap_or("");
     query
         .split('&')
         .filter_map(|pair| {
@@ -511,9 +511,9 @@ pub(crate) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) 
 
 pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     let mut chain: Vec<(usize, String)> = Vec::new();
-    for i in 0..def_start {
-        if let Some(level) = heading_level(lines[i]) {
-            let title = lines[i][level + 1..].trim().to_string();
+    for line in lines.iter().take(def_start) {
+        if let Some(level) = heading_level(line) {
+            let title = line[level + 1..].trim().to_string();
             chain.retain(|(l, _)| *l < level);
             chain.push((level, title));
         }
@@ -525,8 +525,7 @@ pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String 
     let end = end.min(lines.len());
     let mut in_fence = false;
     let mut out: Vec<&str> = Vec::new();
-    for i in start..end {
-        let l = lines[i];
+    for l in lines.iter().take(end).skip(start) {
         if l.trim() == "----" { in_fence = !in_fence; continue; }
         if !in_fence { out.push(l); }
     }
@@ -726,15 +725,13 @@ fn call_claude_cli(
         if v["type"] == "assistant" {
             if let Some(content) = v["message"]["content"].as_array() {
                 for block in content {
-                    if block["type"] == "text" {
-                        if let Some(text) = block["text"].as_str() {
-                            if !text.is_empty() {
-                                let data = serde_json::json!({"t": text}).to_string();
-                                if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
-                                    let _ = child.kill();
-                                    return;
-                                }
-                            }
+                    if block["type"] == "text"
+                        && let Some(text) = block["text"].as_str()
+                        && !text.is_empty() {
+                        let data = serde_json::json!({"t": text}).to_string();
+                        if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                            let _ = child.kill();
+                            return;
                         }
                     }
                 }
@@ -791,14 +788,12 @@ fn call_anthropic_api(
             Ok(v) => v,
             Err(_) => continue,
         };
-        if v["type"] == "content_block_delta" {
-            if let Some(text) = v["delta"]["text"].as_str() {
-                if !text.is_empty() {
-                    let data = serde_json::json!({"t": text}).to_string();
-                    if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
-                        return;
-                    }
-                }
+        if v["type"] == "content_block_delta"
+            && let Some(text) = v["delta"]["text"].as_str()
+            && !text.is_empty() {
+            let data = serde_json::json!({"t": text}).to_string();
+            if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                return;
             }
         } else if v["type"] == "message_stop" {
             break;
@@ -888,6 +883,73 @@ fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let response = Response::new(StatusCode(200), sse_headers(), reader, None, None);
     let _ = request.respond(response);
 }
+fn handle_save_note(mut request: Request, project_root: &Path) {
+    let mut body_str = String::new();
+    if request.as_reader().read_to_string(&mut body_str).is_err() {
+        let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"io_error"})));
+        return;
+    }
+    let params: serde_json::Value = match serde_json::from_str(&body_str) {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"invalid_json"})));
+            return;
+        }
+    };
+    let file = match params["file"].as_str().filter(|s| !s.is_empty()) {
+        Some(f) => f,
+        None => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"missing_file"}))); return; }
+    };
+    let name = match params["name"].as_str().filter(|s| !s.is_empty()) {
+        Some(n) => n,
+        None => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"missing_name"}))); return; }
+    };
+    let nth: u32 = params["nth"].as_u64().unwrap_or(0) as u32;
+    let note = match params["note"].as_str().filter(|s| !s.is_empty()) {
+        Some(n) => n,
+        None => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"missing_note"}))); return; }
+    };
+
+    let db_path = project_root.join("weaveback.db");
+    let db = match weaveback_tangle::WeavebackDb::open_read_only(&db_path) {
+        Ok(d) => d,
+        Err(e) => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":format!("{e}")}))); return; }
+    };
+    let entry = match db.get_chunk_def(file, name, nth) {
+        Ok(Some(e)) => e,
+        _ => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"chunk_not_found"}))); return; }
+    };
+
+    let src_path = project_root.join(file);
+    let src_text = match std::fs::read_to_string(&src_path) {
+        Ok(t) => t,
+        Err(e) => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":format!("{e}")}))); return; }
+    };
+
+    let lines: Vec<&str> = src_text.lines().collect();
+    let def_end_0 = entry.def_end as usize;
+    let insert_after = if def_end_0 < lines.len() && lines[def_end_0].trim() == "----" {
+        def_end_0 + 1
+    } else {
+        def_end_0
+    };
+
+    let had_trailing_newline = src_text.ends_with('\n');
+    let before = lines[..insert_after].join("\n");
+    let after  = if insert_after < lines.len() { lines[insert_after..].join("\n") } else { String::new() };
+    let note_block = format!("\n[NOTE]\n====\n{}\n====\n", note.trim());
+    let mut new_content = if after.is_empty() {
+        format!("{}{}", before, note_block)
+    } else {
+        format!("{}{}\n{}", before, note_block, after)
+    };
+    if had_trailing_newline && !new_content.ends_with('\n') { new_content.push('\n'); }
+
+    match std::fs::write(&src_path, &new_content) {
+        Ok(()) => { let _ = request.respond(json_resp(serde_json::json!({"ok":true}))); }
+        Err(e) => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":format!("{e}")}))); }
+    }
+}
 fn handle_request(
     request: Request,
     html_dir: &Path,
@@ -947,18 +1009,21 @@ fn handle_request(
         return;
     }
 
+    if url == "/__save_note" {
+        handle_save_note(request, project_root);
+        return;
+    }
+
     serve_static(request, &url, html_dir);
 }
 fn find_project_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("cannot determine cwd");
     loop {
         let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-                if content.contains("[workspace]") {
-                    return dir;
-                }
-            }
+        if cargo_toml.exists()
+            && let Ok(content) = std::fs::read_to_string(&cargo_toml)
+            && content.contains("[workspace]") {
+            return dir;
         }
         if !dir.pop() {
             break;

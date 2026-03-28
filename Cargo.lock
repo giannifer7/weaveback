@@ -2118,7 +2118,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2136,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-docgen"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "regex",
  "serde",
@@ -2147,7 +2147,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-macro"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-tangle"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_cmd",
  "chrono",

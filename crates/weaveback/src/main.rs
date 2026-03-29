@@ -517,14 +517,18 @@ fn main() {
     }
 }
 
-fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), Error> {
+fn open_db(db_path: &Path) -> Result<weaveback_tangle::db::WeavebackDb, Error> {
     if !db_path.exists() {
         return Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
         )));
     }
-    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+    Ok(weaveback_tangle::db::WeavebackDb::open_read_only(db_path)?)
+}
+
+fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), Error> {
+    let db = open_db(&db_path)?;
 
     match lookup::perform_where(&out_file, line, &db, &gen_dir) {
         Ok(Some(json)) => {
@@ -549,13 +553,7 @@ fn dot_id(name: &str) -> String {
 }
 
 fn run_impact(chunk: String, db_path: PathBuf) -> Result<(), Error> {
-    if !db_path.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
-        )));
-    }
-    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+    let db = open_db(&db_path)?;
 
     // BFS forward through chunk_deps to collect all transitively reachable chunks.
     let mut reachable: Vec<String> = Vec::new();
@@ -592,13 +590,7 @@ fn run_impact(chunk: String, db_path: PathBuf) -> Result<(), Error> {
 }
 
 fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
-    if !db_path.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
-        )));
-    }
-    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+    let db = open_db(&db_path)?;
 
     let edges: Vec<(String, String)> = if let Some(ref root) = chunk {
         // BFS to collect only the edges in the subgraph reachable from root.
@@ -629,13 +621,7 @@ fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
 }
 
 fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: weaveback_macro::evaluator::EvalConfig) -> Result<(), Error> {
-    if !db_path.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
-        )));
-    }
-    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?;
+    let db = open_db(&db_path)?;
 
     match lookup::perform_trace(&out_file, line, col, &db, &gen_dir, eval_config) {
         Ok(Some(json)) => {

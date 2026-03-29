@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "weaveback": {
+      "command": "/usr/bin/weaveback",
+      "args": ["mcp"],
+      "cwd": "/home/g4/_prj/weaveback"
+    }
+  }
+}

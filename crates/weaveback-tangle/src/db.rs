@@ -446,59 +446,8 @@ impl WeavebackDb {
             .optional()?)
     }
 
-    /// Return all chunk definitions, optionally filtered to a single source file.
-    /// Results are ordered by `src_file`, `nth`.
-    pub fn list_chunk_defs(
-        &self,
-        src_file: Option<&str>,
-    ) -> Result<Vec<ChunkDefEntry>, DbError> {
-        if let Some(file) = src_file {
-            let mut stmt = self.conn.prepare_cached(
-                "SELECT src_file, chunk_name, nth, def_start, def_end
-                 FROM chunk_defs WHERE src_file = ?1
-                 ORDER BY def_start, nth",
-            )?;
-            let rows = stmt.query_map(params![file], |row| {
-                Ok(ChunkDefEntry {
-                    src_file:   row.get(0)?,
-                    chunk_name: row.get(1)?,
-                    nth:        row.get::<_, u32>(2)?,
-                    def_start:  row.get::<_, u32>(3)?,
-                    def_end:    row.get::<_, u32>(4)?,
-                })
-            })?;
-            rows.collect::<Result<_, _>>().map_err(DbError::Sql)
-        } else {
-            let mut stmt = self.conn.prepare_cached(
-                "SELECT src_file, chunk_name, nth, def_start, def_end
-                 FROM chunk_defs ORDER BY src_file, def_start, nth",
-            )?;
-            let rows = stmt.query_map([], |row| {
-                Ok(ChunkDefEntry {
-                    src_file:   row.get(0)?,
-                    chunk_name: row.get(1)?,
-                    nth:        row.get::<_, u32>(2)?,
-                    def_start:  row.get::<_, u32>(3)?,
-                    def_end:    row.get::<_, u32>(4)?,
-                })
-            })?;
-            rows.collect::<Result<_, _>>().map_err(DbError::Sql)
-        }
-    }
-
-    /// Return all definitions of `chunk_name` across all source files.
-    /// Useful for resolving cross-file chunk references without knowing which
-    /// file the dep lives in.
-    pub fn find_chunk_defs_by_name(
-        &self,
-        chunk_name: &str,
-    ) -> Result<Vec<ChunkDefEntry>, DbError> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT src_file, chunk_name, nth, def_start, def_end
-             FROM chunk_defs WHERE chunk_name = ?1
-             ORDER BY src_file, nth",
-        )?;
-        let rows = stmt.query_map(params![chunk_name], |row| {
+    pub fn list_chunk_defs(&self, src_file: Option<&str>) -> Result<Vec<ChunkDefEntry>, DbError> {
+        fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkDefEntry> {
             Ok(ChunkDefEntry {
                 src_file:   row.get(0)?,
                 chunk_name: row.get(1)?,
@@ -506,8 +455,38 @@ impl WeavebackDb {
                 def_start:  row.get::<_, u32>(3)?,
                 def_end:    row.get::<_, u32>(4)?,
             })
-        })?;
-        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+        }
+        if let Some(f) = src_file {
+            let mut stmt = self.conn.prepare(
+                "SELECT src_file, chunk_name, nth, def_start, def_end
+                 FROM chunk_defs WHERE src_file = ?1
+                 ORDER BY src_file, def_start",
+            )?;
+            Ok(stmt.query_map(params![f], map_row)?.collect::<Result<Vec<_>, _>>()?)
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT src_file, chunk_name, nth, def_start, def_end
+                 FROM chunk_defs ORDER BY src_file, def_start",
+            )?;
+            Ok(stmt.query_map([], map_row)?.collect::<Result<Vec<_>, _>>()?)
+        }
+    }
+
+    pub fn find_chunk_defs_by_name(&self, chunk_name: &str) -> Result<Vec<ChunkDefEntry>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT src_file, chunk_name, nth, def_start, def_end
+             FROM chunk_defs WHERE chunk_name = ?1
+             ORDER BY src_file, nth",
+        )?;
+        Ok(stmt.query_map(params![chunk_name], |row| {
+            Ok(ChunkDefEntry {
+                src_file:   row.get(0)?,
+                chunk_name: row.get(1)?,
+                nth:        row.get::<_, u32>(2)?,
+                def_start:  row.get::<_, u32>(3)?,
+                def_end:    row.get::<_, u32>(4)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?)
     }
 }
 impl WeavebackDb {

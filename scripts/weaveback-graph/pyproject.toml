@@ -1,0 +1,15 @@
+[project]
+name = "weaveback-graph"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "giannifer7", email = "gianni.ferrarotti@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "real-ladybug>=0.15.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

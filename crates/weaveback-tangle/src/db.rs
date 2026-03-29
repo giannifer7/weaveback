@@ -497,6 +497,14 @@ impl WeavebackDb {
             })
         })?.collect::<Result<Vec<_>, _>>()?)
     }
+
+    pub fn list_all_chunk_defs(&self) -> Result<Vec<ChunkDefEntry>, DbError> {
+        self.list_chunk_defs(None)
+    }
+
+    pub fn list_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        self.query_all_chunk_deps()
+    }
 }
 impl WeavebackDb {
     pub fn set_macro_map_entries(

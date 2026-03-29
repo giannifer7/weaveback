@@ -10,6 +10,7 @@ members = [
     "crates/weaveback-docgen",
     "crates/weaveback-core",
     "crates/weaveback-lsp",
+    "examples/graph-prototype",
 ]
 
 [workspace.package]

@@ -1,0 +1,28 @@
+version = 1
+requires-python = ">=3.14"
+
+[[package]]
+name = "real-ladybug"
+version = "0.15.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/f7/ccac519b83a2726955aecb6b8ca434b0828633d63996592be2717ac712dd/real_ladybug-0.15.2.tar.gz", hash = "sha256:677803a5116051b2b3a3d1939904f803c8e39cb95fd94ec7341641349d65446a", size = 9940961 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/6d/066aaedc5adeb03c3fc6e98b8c448c2df8d43a2a7f9e852aa2b9271f6a24/real_ladybug-0.15.2-cp314-cp314-macosx_13_0_arm64.whl", hash = "sha256:2041c19e1197af6e61f0fac75dac382c2c9174b487ee2e7674694f61642d9c2a", size = 4018837 },
+    { url = "https://files.pythonhosted.org/packages/a3/77/666540182ba2c54b24a5f48f9e83f28b84ea59986a9c6de70c2e731e2f97/real_ladybug-0.15.2-cp314-cp314-macosx_13_0_x86_64.whl", hash = "sha256:6bffc911c78a9d2cadf01496d0378b95715271470d682368e5b9fce0473094eb", size = 4484799 },
+    { url = "https://files.pythonhosted.org/packages/00/24/5325cb662dc0850cf372fad58b21832e416acf208138e6fa341dca7c70a4/real_ladybug-0.15.2-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a0b7ebca459bb5f03e29ac4b43c6a2706a358927bc57d4e60437f507ab295c53", size = 6870657 },
+    { url = "https://files.pythonhosted.org/packages/66/a3/c9fe077213185bcbd7777c4751bd0d15832d554d969409e643be481e1dd0/real_ladybug-0.15.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d8b1814030e1b5b6b06084f54d58df607242b9dcb2edc837eaa125c84c6db889", size = 7772626 },
+    { url = "https://files.pythonhosted.org/packages/55/08/5bebc6ca5b3d0bda1bcd4aa18b68fd96d2c6c720004d2181a6b3739cf92a/real_ladybug-0.15.2-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:325a3804e2ca3858e96537c27d4b2399e2c5f31e26884681df03f2531d753088", size = 8037665 },
+    { url = "https://files.pythonhosted.org/packages/ac/ae/4777ce989a14dee00562fc9b9da0a77746fa28662e6d4a81faf5d8b136f7/real_ladybug-0.15.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:14b323efddfe8291d82391e2de7fc47ceca2eb9fed98f2b0a806e8500b195911", size = 8788214 },
+    { url = "https://files.pythonhosted.org/packages/06/2f/0c762acc20626ff6d6d2eb496d2902e104f5ba9164eaa19093dad6ccda67/real_ladybug-0.15.2-cp314-cp314-win_amd64.whl", hash = "sha256:9b8f128eb04dafe6d147630967c5839a9ff94c23c9f41b2bcd3269068d8c26bb", size = 5236560 },
+]
+
+[[package]]
+name = "weaveback-graph"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "real-ladybug" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "real-ladybug", specifier = ">=0.15.2" }]

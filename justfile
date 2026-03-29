@@ -42,6 +42,10 @@ fmt-check:
 fmt:
     cargo fmt
 
+# Find code duplicates
+duplicates TARGET='.':
+    npx jscpd -g --ignore "test-data/**,tree-sitter-weaveback/src/*.json" {{TARGET}}
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 # Run the combined weaveback tool (usage: just weaveback src/foo.md)

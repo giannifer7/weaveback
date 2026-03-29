@@ -374,7 +374,7 @@ pub struct MacroDefRaw {
 [source,rust]
 ----
 // <<max recursion>>=
-pub const MAX_RECURSION_DEPTH: usize = 100;
+pub use weaveback_core::MAX_RECURSION_DEPTH;
 // @
 ----
 

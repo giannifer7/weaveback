@@ -23,6 +23,7 @@ use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanK
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string_precise;
 use weaveback_tangle::db::WeavebackDb;
+use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry, normalize_path};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -66,9 +67,8 @@ pub fn perform_where(
         return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
     }
     let out_line_0 = line - 1;
-    let db_lookup_path = normalize_path(out_file, gen_dir);
 
-    if let Some(entry) = db.get_noweb_entry(&db_lookup_path, out_line_0)? {
+    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
         Ok(Some(json!({
             "out_file": out_file,
             "out_line": line,
@@ -115,9 +115,8 @@ pub fn perform_trace(
         return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
     }
     let out_line_0 = line - 1;
-    let db_lookup_path = normalize_path(out_file, gen_dir);
 
-    let nw_entry = match db.get_noweb_entry(&db_lookup_path, out_line_0)? {
+    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
         None => return Ok(None),
         Some(e) => e,
     };
@@ -315,122 +314,6 @@ fn append_def_locations(
 // @
 ----
 
-== find_line_col
-
-`find_line_col` converts a byte offset into a `(line, col)` pair, both
-1-indexed, with `col` counting UTF-8 characters (not bytes).  Used to report
-source positions in all JSON output.
-
-[source,rust]
-----
-// <<lookup-line-col>>=
-/// Returns (line, col) both 1-indexed; col counts UTF-8 characters.
-pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
-    let offset = byte_offset.min(text.len());
-    let prefix = &text[..offset];
-    let line_1 = prefix.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
-    let line_start = prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col_1 = prefix[line_start..].chars().count() as u32 + 1;
-    (line_1, col_1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::find_line_col;
-
-    #[test]
-    fn ascii_start() {
-        assert_eq!(find_line_col("hello", 0), (1, 1));
-    }
-
-    #[test]
-    fn ascii_middle() {
-        assert_eq!(find_line_col("hello", 2), (1, 3));
-    }
-
-    #[test]
-    fn ascii_end() {
-        assert_eq!(find_line_col("hello", 4), (1, 5));
-    }
-
-    #[test]
-    fn ascii_multiline() {
-        let s = "foo\nbar\nbaz";
-        assert_eq!(find_line_col(s, 0), (1, 1));
-        assert_eq!(find_line_col(s, 4), (2, 1));
-        assert_eq!(find_line_col(s, 6), (2, 3));
-        assert_eq!(find_line_col(s, 8), (3, 1));
-    }
-
-    #[test]
-    fn two_byte_char_positions() {
-        // "héllo": h(0), é(1-2), l(3), l(4), o(5)  — bytes
-        //           1       2     3     4     5      — chars (1-indexed)
-        let s = "héllo";
-        assert_eq!(find_line_col(s, 0), (1, 1));
-        assert_eq!(find_line_col(s, 1), (1, 2));
-        assert_eq!(find_line_col(s, 3), (1, 3));
-        assert_eq!(find_line_col(s, 4), (1, 4));
-        assert_eq!(find_line_col(s, 5), (1, 5));
-    }
-
-    #[test]
-    fn three_byte_char_positions() {
-        let s = "日本語";
-        assert_eq!(find_line_col(s, 0), (1, 1));
-        assert_eq!(find_line_col(s, 3), (1, 2));
-        assert_eq!(find_line_col(s, 6), (1, 3));
-    }
-
-    #[test]
-    fn multiline_mixed() {
-        let s = "héllo\n日本語";
-        assert_eq!(find_line_col(s, 1),  (1, 2));
-        assert_eq!(find_line_col(s, 7),  (2, 1));
-        assert_eq!(find_line_col(s, 10), (2, 2));
-        assert_eq!(find_line_col(s, 13), (2, 3));
-    }
-}
-// @
-----
-
-== Path normalisation
-
-`normalize_path` strips the `gen/` prefix from an output file path so the
-result matches the relative keys stored in the noweb-map database.
-Canonicalisation is attempted first; a string-prefix strip is the fallback.
-
-`normalize_path_pub` re-exports the private function for use in
-link:mcp.adoc[`mcp.rs`].
-
-[source,rust]
-----
-// <<lookup-normalize>>=
-pub fn normalize_path_pub(out_file: &str, gen_dir: &Path) -> String {
-    normalize_path(out_file, gen_dir)
-}
-
-fn normalize_path(out_file: &str, gen_dir: &Path) -> String {
-    let mut db_lookup_path = out_file.to_string();
-    if let (Ok(canon_gen), Ok(canon_out)) = (
-        gen_dir.canonicalize(),
-        Path::new(out_file).canonicalize(),
-    ) {
-        if let Ok(rel) = canon_out.strip_prefix(&canon_gen) {
-            db_lookup_path = rel.to_string_lossy().into_owned();
-        }
-    } else {
-        let prefix = gen_dir.to_string_lossy();
-        if out_file.starts_with(prefix.as_ref()) {
-            let stripped = out_file.trim_start_matches(prefix.as_ref());
-            db_lookup_path = stripped.trim_start_matches('/').to_string();
-        }
-    }
-    db_lookup_path
-}
-// @
-----
-
 == Assembly
 
 [source,rust]
@@ -444,8 +327,8 @@ fn normalize_path(out_file: &str, gen_dir: &Path) -> String {
 
 // <<lookup-span>>
 
-// <<lookup-line-col>>
-
-// <<lookup-normalize>>
+pub fn normalize_path_pub(out_file: &str, gen_dir: &Path) -> String {
+    normalize_path(out_file, gen_dir)
+}
 // @
 ----

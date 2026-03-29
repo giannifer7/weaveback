@@ -31,7 +31,9 @@ use crate::serve::build_chunk_context;
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string;
 use weaveback_tangle::db::WeavebackDb;
+use weaveback_lsp::LspClient;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 // @
@@ -52,8 +54,27 @@ The loop exits cleanly on EOF or an I/O error.
 [source,rust]
 ----
 // <<mcp-run>>=
+fn get_or_spawn_lsp<'a>(
+    clients: &'a mut HashMap<String, LspClient>,
+    ext: &str,
+) -> Result<&'a mut LspClient, String> {
+    let (lsp_cmd, lsp_lang) = weaveback_lsp::get_lsp_config(ext)
+        .ok_or_else(|| format!("unsupported file extension: .{}", ext))?;
+
+    if !clients.contains_key(&lsp_lang) {
+        let project_root = std::env::current_dir().map_err(|e| e.to_string())?;
+        let mut c = LspClient::spawn(&lsp_cmd, &[], &project_root, lsp_lang.clone())
+            .map_err(|e| format!("failed to spawn LSP '{}': {e}", lsp_cmd))?;
+        c.initialize(&project_root)
+            .map_err(|e| format!("failed to initialize LSP '{}': {e}", lsp_cmd))?;
+        clients.insert(lsp_lang.clone(), c);
+    }
+    Ok(clients.get_mut(&lsp_lang).unwrap())
+}
+
 pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), crate::Error> {
     let stdin = io::stdin();
+    let mut lsp_clients: HashMap<String, LspClient> = HashMap::new();
 
     for line in stdin.lock().lines() {
         let line = match line {
@@ -155,14 +176,41 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "name": { "type": "string", "description": "Chunk name to look up" }
-                                },
-                                "required": ["name"]
-                            }
-                        }
-                    ]
-                }));
-            }
+                                    "file": { "type": "string", "description": "Chunk name to look up" }
+                                    },
+                                    "required": ["name"]
+                                    }
+                                    },
+                                    {
+                                    "name": "weaveback_lsp_definition",
+                                    "description": "Find the definition of a symbol at a given position in a generated file, and map it back to its original literate source. Requires rust-analyzer.",
+                                    "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                    "out_file": { "type": "string", "description": "Path to the generated file" },
+                                    "line":     { "type": "integer", "description": "1-indexed line number" },
+                                    "col":      { "type": "integer", "description": "1-indexed character position" }
+                                    },
+                                    "required": ["out_file", "line", "col"]
+                                    }
+                                    },
+                                    {
+                                    "name": "weaveback_lsp_references",
+                                    "description": "Find all references to a symbol at a given position in a generated file, and map them back to their original literate sources. Requires rust-analyzer.",
+                                    "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                    "out_file": { "type": "string", "description": "Path to the generated file" },
+                                    "line":     { "type": "integer", "description": "1-indexed line number" },
+                                    "col":      { "type": "integer", "description": "1-indexed character position" }
+                                    },
+                                    "required": ["out_file", "line", "col"]
+                                    }
+                                    }
+                                    ]
+                                    }));
+                                    }
+
 
             "tools/call" => {
                 let params = req.get("params").and_then(|p| p.as_object());
@@ -328,6 +376,110 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         }
                     }
 
+                    Some("weaveback_lsp_definition") => {
+                        let Some(input) = input else {
+                            send_error(id, "Missing arguments");
+                            continue;
+                        };
+                        let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
+                        let line     = input.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let col      = input.get("col").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+                        if out_file.is_empty() || line == 0 || col == 0 {
+                            send_error(id, "out_file, line, and col are required and must be > 0");
+                            continue;
+                        }
+
+                        let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
+                            Ok(c) => c,
+                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                        };
+
+                        match client.goto_definition(std::path::Path::new(out_file), line - 1, col - 1) {
+                            Ok(Some(loc)) => {
+                                if let Ok(target_path) = loc.uri.to_file_path() {
+                                    let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
+                                    let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+                                    
+                                    match lookup::perform_trace(
+                                        target_path.to_string_lossy().as_ref(),
+                                        loc.range.start.line + 1,
+                                        loc.range.start.character + 1,
+                                        &db,
+                                        &gen_dir,
+                                        eval_config.clone(),
+                                    ) {
+                                        Ok(Some(res)) => send_text(id, &serde_json::to_string_pretty(&res).unwrap()),
+                                        Ok(None) => send_text(id, &serde_json::to_string_pretty(&json!({
+                                            "out_file": target_path.to_string_lossy(),
+                                            "out_line": loc.range.start.line + 1,
+                                            "out_col":  loc.range.start.character + 1,
+                                            "note": "LSP result could not be mapped to source"
+                                        })).unwrap()),
+                                        Err(e) => send_error(id, &format!("Mapping error: {e:?}")),
+                                    }
+                                } else {
+                                    send_error(id, "LSP returned non-file URI");
+                                }
+                            }
+                            Ok(None) => send_text(id, "No definition found."),
+                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                        }
+                    }
+
+                    Some("weaveback_lsp_references") => {
+                        let Some(input) = input else {
+                            send_error(id, "Missing arguments");
+                            continue;
+                        };
+                        let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
+                        let line     = input.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let col      = input.get("col").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+                        if out_file.is_empty() || line == 0 || col == 0 {
+                            send_error(id, "out_file, line, and col are required and must be > 0");
+                            continue;
+                        }
+
+                        let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
+                            Ok(c) => c,
+                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                        };
+
+                        match client.find_references(std::path::Path::new(out_file), line - 1, col - 1) {
+                            Ok(locs) => {
+                                let mut results = Vec::new();
+                                let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
+                                let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+
+                                for loc in locs {
+                                    if let Ok(target_path) = loc.uri.to_file_path() {
+                                        match lookup::perform_trace(
+                                            target_path.to_string_lossy().as_ref(),
+                                            loc.range.start.line + 1,
+                                            loc.range.start.character + 1,
+                                            &db,
+                                            &gen_dir,
+                                            eval_config.clone(),
+                                        ) {
+                                            Ok(Some(res)) => results.push(res),
+                                            _ => results.push(json!({
+                                                "out_file": target_path.to_string_lossy(),
+                                                "out_line": loc.range.start.line + 1,
+                                                "out_col":  loc.range.start.character + 1,
+                                                "note": "LSP result could not be mapped to source"
+                                            })),
+                                        }
+                                    }
+                                }
+                                send_text(id, &serde_json::to_string_pretty(&results).unwrap());
+                            }
+                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                        }
+                    }
+
                     other => send_error(id, &format!("Unknown tool: {:?}", other)),
                 }
             }
@@ -412,7 +564,14 @@ fn apply_fix(
 
     // Oracle: re-evaluate and check expanded line.
     let oracle_path = std::path::Path::new(src_file).with_file_name("<oracle>");
-    let mut evaluator = Evaluator::new(eval_config.clone());
+    
+    // Retrieve configuration used when this file was tangled.
+    let mut oracle_config = eval_config.clone();
+    if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(db, src_file) {
+        oracle_config.special_char = cfg.special_char;
+    }
+
+    let mut evaluator = Evaluator::new(oracle_config);
     let expanded_bytes = process_string(&patched, Some(&oracle_path), &mut evaluator)
         .map_err(|e| format!("Evaluation error: {e:?}"))?;
     let expanded = String::from_utf8_lossy(&expanded_bytes);

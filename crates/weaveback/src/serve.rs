@@ -187,14 +187,22 @@ fn percent_decode(s: &str) -> String {
     out
 }
 /// Which backend `/__ai` uses to answer questions.
-///
-/// * `ClaudeCli` (default) — shells out to `claude -p --output-format
-///   stream-json`.  Uses the existing Claude Code session; no API key required.
-/// * `Api` — calls the Anthropic API directly via HTTP.  Requires the
-///   `ANTHROPIC_API_KEY` environment variable.
+#[derive(Clone, Debug)]
 pub enum AiBackend {
+    /// Shells out to `claude -p --output-format stream-json`.
+    /// Uses the existing Claude Code session; no API key required.
     ClaudeCli,
-    Api,
+    /// Calls the Anthropic API directly via HTTP.
+    /// Requires the `ANTHROPIC_API_KEY` environment variable.
+    Anthropic,
+    /// Calls the Google Gemini API directly via HTTP.
+    /// Requires the `GOOGLE_API_KEY` environment variable.
+    Gemini,
+    /// Calls a local Ollama API via HTTP.
+    Ollama,
+    /// Calls an OpenAI-compatible API via HTTP.
+    /// Requires the `OPENAI_API_KEY` environment variable (if not using a local provider).
+    OpenAi,
 }
 
 pub struct TangleConfig {
@@ -203,6 +211,8 @@ pub struct TangleConfig {
     pub chunk_end:       String,
     pub comment_markers: Vec<String>,
     pub ai_backend:      AiBackend,
+    pub ai_model:        Option<String>,
+    pub ai_endpoint:     Option<String>,
 }
 
 impl Default for TangleConfig {
@@ -213,6 +223,8 @@ impl Default for TangleConfig {
             chunk_end:       "@@".into(),
             comment_markers: vec!["//".into()],
             ai_backend:      AiBackend::ClaudeCli,
+            ai_model:        None,
+            ai_endpoint:     None,
         }
     }
 }
@@ -834,6 +846,217 @@ fn call_anthropic_api(
     let _ = tx.send("event: done\ndata:\n\n".to_string());
 }
 
+/// Call the Google Gemini API directly via HTTP.
+///
+/// Requires `GOOGLE_API_KEY`. Uses the `streamGenerateContent` endpoint.
+fn call_gemini_api(
+    api_key: String,
+    model: String,
+    system_prompt: String,
+    user_content: String,
+    tx: std::sync::mpsc::Sender<String>,
+) {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?key={}",
+        model, api_key
+    );
+
+    let body = serde_json::json!({
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{ "text": format!("System: {}\n\n{}", system_prompt, user_content) }]
+            }
+        ],
+        "generationConfig": {
+            "maxOutputTokens": 1024,
+        }
+    });
+
+    let resp = match ureq::AgentBuilder::new()
+        .build()
+        .post(&url)
+        .set("Content-Type", "application/json")
+        .send_json(&body)
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!(
+                "event: error\ndata: {}\n\nevent: done\ndata:\n\n",
+                serde_json::json!({"error": format!("{e}")})
+            );
+            let _ = tx.send(msg);
+            return;
+        }
+    };
+
+    let mut reader = std::io::BufReader::new(resp.into_reader());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        
+        // Gemini stream format is a JSON array of objects, but delivered as individual
+        // chunks. Sometimes it starts with '[' and ends with ']'.
+        let clean = trimmed.trim_start_matches(',').trim_start_matches('[').trim_end_matches(']');
+        if clean.is_empty() { continue; }
+
+        let v: serde_json::Value = match serde_json::from_str(clean) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if let Some(text) = v["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+            let data = serde_json::json!({"t": text}).to_string();
+            if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                return;
+            }
+        }
+    }
+    let _ = tx.send("event: done\ndata:\n\n".to_string());
+}
+
+/// Call a local Ollama API via HTTP.
+///
+/// Uses the `/api/chat` endpoint with `stream: true`.
+fn call_ollama_api(
+    base_url: String,
+    model: String,
+    system_prompt: String,
+    user_content: String,
+    tx: std::sync::mpsc::Sender<String>,
+) {
+    let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_content }
+        ],
+        "stream": true,
+    });
+
+    let resp = match ureq::AgentBuilder::new()
+        .build()
+        .post(&url)
+        .set("Content-Type", "application/json")
+        .send_json(&body)
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!(
+                "event: error\ndata: {}\n\nevent: done\ndata:\n\n",
+                serde_json::json!({"error": format!("{e}")})
+            );
+            let _ = tx.send(msg);
+            return;
+        }
+    };
+
+    let mut reader = std::io::BufReader::new(resp.into_reader());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+
+        let v: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if let Some(text) = v["message"]["content"].as_str() {
+            let data = serde_json::json!({"t": text}).to_string();
+            if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                return;
+            }
+        }
+        if v["done"].as_bool().unwrap_or(false) {
+            break;
+        }
+    }
+    let _ = tx.send("event: done\ndata:\n\n".to_string());
+}
+
+/// Call an OpenAI-compatible API directly via HTTP.
+///
+/// Handles standard Chat Completions streaming format.
+fn call_openai_api(
+    api_key: Option<String>,
+    base_url: String,
+    model: String,
+    system_prompt: String,
+    user_content: String,
+    tx: std::sync::mpsc::Sender<String>,
+) {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_content }
+        ],
+        "stream": true,
+    });
+
+    let mut req = ureq::AgentBuilder::new()
+        .build()
+        .post(&url)
+        .set("Content-Type", "application/json");
+    
+    if let Some(key) = api_key {
+        req = req.set("Authorization", &format!("Bearer {}", key));
+    }
+
+    let resp = match req.send_json(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!(
+                "event: error\ndata: {}\n\nevent: done\ndata:\n\n",
+                serde_json::json!({"error": format!("{e}")})
+            );
+            let _ = tx.send(msg);
+            return;
+        }
+    };
+
+    let mut reader = std::io::BufReader::new(resp.into_reader());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let trimmed = line.trim();
+        if !trimmed.starts_with("data: ") { continue; }
+        let data_str = &trimmed[6..];
+        if data_str == "[DONE]" { break; }
+
+        let v: serde_json::Value = match serde_json::from_str(data_str) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if let Some(text) = v["choices"][0]["delta"]["content"].as_str() {
+            let data = serde_json::json!({"t": text}).to_string();
+            if tx.send(format!("event: token\ndata: {data}\n\n")).is_err() {
+                return;
+            }
+        }
+    }
+    let _ = tx.send("event: done\ndata:\n\n".to_string());
+}
+
 fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
@@ -889,7 +1112,7 @@ fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
         AiBackend::ClaudeCli => {
             thread::spawn(move || call_claude_cli(system_prompt, user_content, tx));
         }
-        AiBackend::Api => {
+        AiBackend::Anthropic => {
             let api_key = match std::env::var("ANTHROPIC_API_KEY") {
                 Ok(k) if !k.is_empty() => k,
                 _ => {
@@ -900,14 +1123,40 @@ fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
                     return;
                 }
             };
+            let model = cfg.ai_model.clone().unwrap_or_else(|| "claude-3-5-sonnet-20240620".to_string());
             let api_body = serde_json::json!({
-                "model":    "claude-sonnet-4-6",
+                "model":    model,
                 "max_tokens": 1024,
                 "stream":   true,
                 "system":   system_prompt,
                 "messages": [{ "role": "user", "content": user_content }],
             });
             thread::spawn(move || call_anthropic_api(api_key, api_body, tx));
+        }
+        AiBackend::Gemini => {
+            let api_key = match std::env::var("GOOGLE_API_KEY") {
+                Ok(k) if !k.is_empty() => k,
+                _ => {
+                    let _ = request.respond(json_resp(serde_json::json!({
+                        "ok": false,
+                        "error": "no_api_key: set GOOGLE_API_KEY env var"
+                    })));
+                    return;
+                }
+            };
+            let model = cfg.ai_model.clone().unwrap_or_else(|| "gemini-1.5-pro".to_string());
+            thread::spawn(move || call_gemini_api(api_key, model, system_prompt, user_content, tx));
+        }
+        AiBackend::Ollama => {
+            let base_url = cfg.ai_endpoint.clone().unwrap_or_else(|| "http://localhost:11434".to_string());
+            let model = cfg.ai_model.clone().unwrap_or_else(|| "llama3".to_string());
+            thread::spawn(move || call_ollama_api(base_url, model, system_prompt, user_content, tx));
+        }
+        AiBackend::OpenAi => {
+            let api_key = std::env::var("OPENAI_API_KEY").ok();
+            let base_url = cfg.ai_endpoint.clone().unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let model = cfg.ai_model.clone().unwrap_or_else(|| "gpt-4o".to_string());
+            thread::spawn(move || call_openai_api(api_key, base_url, model, system_prompt, user_content, tx));
         }
     }
 

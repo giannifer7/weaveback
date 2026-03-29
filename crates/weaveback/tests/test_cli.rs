@@ -5,6 +5,7 @@
 //   - --depfile and --stamp (build-system integration)
 
 use assert_cmd::Command;
+use predicates::prelude::*;
 use predicates::str::contains;
 use std::fs;
 use std::path::Path;
@@ -423,4 +424,33 @@ fn test_depfile_lists_source_files() {
         dep_content.contains("fragment.md"),
         "depfile should list fragment.md; got:\n{dep_content}"
     );
+}
+
+// ── Serve command ────────────────────────────────────────────────────────────
+
+/// `weaveback serve` accepts AI configuration flags.
+#[test]
+fn test_serve_ai_flags() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    
+    // Create dummy docs/html so serve doesn't fail immediately.
+    fs::create_dir_all(root.join("docs/html")).unwrap();
+    fs::write(root.join("docs/html/index.html"), "<html></html>").unwrap();
+
+    // We can't easily test the full server loop, but we can verify it parses
+    // the new flags and starts up (before we kill it).
+    use std::time::Duration;
+    weaveback_in(&root)
+        .arg("serve")
+        .arg("--port").arg("0") // Random port
+        .arg("--ai-backend").arg("ollama")
+        .arg("--ai-model").arg("llama3")
+        .arg("--ai-endpoint").arg("http://localhost:11434")
+        .timeout(Duration::from_secs(2))
+        .assert()
+        // It might fail because of "Address already in use" if we are unlucky,
+        // or just timeout (which is success for a server test).
+        // But we want to see it didn't fail with "Unknown argument".
+        .stderr(predicates::str::contains("Unknown argument").not());
 }

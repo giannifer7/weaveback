@@ -527,7 +527,7 @@ fn test_error_messages_format() {
     let err = setup.clip.expand("a", "").unwrap_err();
     let error_msg = err.to_string();
 
-    assert!(error_msg.contains("Error: errors.nw line 2:"));
+    assert!(error_msg.contains("Chunk error: errors.nw line 2:"));
     assert!(error_msg.contains("recursive reference detected in chunk 'a'"));
     assert!(error_msg.contains("cycle: a -> a"));
 }

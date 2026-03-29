@@ -15,6 +15,28 @@ def main():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(project_root)
 
+    # weaveback-lsp (semantic language server bridge)
+    run([
+        "weaveback",
+        "--dir", "crates/weaveback-lsp/",
+        "--ext", "adoc",
+        "--gen", "crates/",
+        "--no-macros",
+        "--open-delim", "<<",
+        "--close-delim", ">>",
+    ])
+
+    # weaveback-core (shared constants)
+    run([
+        "weaveback",
+        "--dir", "crates/weaveback-core/",
+        "--ext", "adoc",
+        "--gen", "crates/",
+        "--no-macros",
+        "--open-delim", "<<",
+        "--close-delim", ">>",
+    ])
+
     # weaveback-macro adocs use << >> delimiters (no self-hosting conflict).
     run([
         "weaveback",

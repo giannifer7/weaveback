@@ -9,6 +9,7 @@ license.workspace = true
 description = "Core macro processing library for Weaveback"
 
 [dependencies]
+weaveback-core.workspace = true
 memchr.workspace = true
 clap.workspace = true
 thiserror.workspace = true

@@ -1,0 +1,26 @@
+= Weaveback Core
+:toc: left
+
+`weaveback-core` contains shared constants and basic types used by both the 
+macro expander and the noweb tangle tool. By keeping these here, we ensure
+consistency across the entire pipeline without creating a circular dependency
+between the macro and tangle crates.
+
+== Shared Constants
+
+[source,rust]
+----
+// <<core-constants>>=
+/// Maximum recursion depth for macro expansion and noweb chunk expansion.
+pub const MAX_RECURSION_DEPTH: usize = 100;
+// @
+----
+
+== Assembly
+
+[source,rust]
+----
+// <<@file weaveback-core/src/lib.rs>>=
+// <<core-constants>>
+// @
+----

@@ -84,7 +84,9 @@ fn trace_json(dir: &Path, out_file: &str, line: u32) -> Value {
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}", String::from_utf8_lossy(&out.stdout)))
+        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}", 
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)))
 }
 
 // ── Correctness: weaveback where ──────────────────────────────────────────────────
@@ -367,4 +369,83 @@ fn test_trace_speed_large() {
     eprintln!("─────────────────────────────────────────────────");
 
     assert!(elapsed < 5000, "large workload took {elapsed} ms, expected < 5000 ms");
+}
+
+// ── Path Normalization and Config Recording ──────────────────────────────────
+
+/// Verifies that `weaveback trace` correctly normalizes paths with common prefixes.
+#[test]
+fn test_trace_path_normalization() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    
+    // Create a "crates" subdirectory to mimic the workspace layout.
+    let crates_dir = root.join("crates");
+    fs::create_dir_all(&crates_dir).unwrap();
+    
+    write(&crates_dir, "foo.md", "# <[@file out.txt]>=\nHello path normalization\n# @\n");
+    
+    weaveback()
+        .arg("--dir").arg("crates")
+        .arg("--gen").arg("gen")
+        .arg("--ext").arg("md")
+        .current_dir(&root)
+        .assert()
+        .success();
+
+    // The DB stores "out.txt". We query with "gen/out.txt" and "crates/gen/out.txt".
+    let j1 = trace_json(&root, "gen/out.txt", 1);
+    assert_eq!(j1["out_file"], "gen/out.txt");
+    assert_eq!(j1["chunk"], "@file out.txt");
+
+    // Even with a deeper prefix, it should find it.
+    let out = weaveback()
+        .arg("--gen").arg("gen")
+        .arg("trace").arg("crates/gen/out.txt").arg("1")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "trace failed for prefixed path: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// Verifies that the special character is correctly recorded and used by apply-back.
+#[test]
+fn test_apply_back_config_recording() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    
+    // Use a non-standard special char '^'
+    write(&root, "source.md", "^def(val, hello)\n# <[@file out.txt]>=\n^val()\n# @\n");
+    
+    weaveback()
+        .arg("--special").arg("^")
+        .arg("--gen").arg("gen")
+        .arg("source.md")
+        .current_dir(&root)
+        .assert()
+        .success();
+
+    // Modify the generated file.
+    write(&root, "gen/out.txt", "world\n");
+
+    // Run apply-back. It should use the stored '^' config to verify the fix.
+    // Without config recording, it would default to '%' and fail to verify the macro call.
+    let out = weaveback()
+        .arg("--gen").arg("gen")
+        .arg("apply-back")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    
+    if !out.status.success() {
+        panic!("apply-back failed: {}\nstdout: {}\nstderr: {}", 
+            out.status,
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr));
+    }
+    println!("apply-back stdout: {}", String::from_utf8_lossy(&out.stdout));
+    println!("apply-back stderr: {}", String::from_utf8_lossy(&out.stderr));
+
+    let patched = fs::read_to_string(root.join("source.md")).unwrap();
+    assert!(patched.contains("^def(val, world)"), "apply-back failed to patch with correct special char: {}", patched);
 }

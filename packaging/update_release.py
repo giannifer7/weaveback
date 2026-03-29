@@ -160,6 +160,7 @@ package() {{
     install -Dm755 weaveback        -t "${{pkgdir}}/usr/bin"
     install -Dm755 weaveback-macro  -t "${{pkgdir}}/usr/bin"
     install -Dm755 weaveback-tangle -t "${{pkgdir}}/usr/bin"
+    install -Dm755 weaveback-docgen -t "${{pkgdir}}/usr/bin"
 }}
 """
 

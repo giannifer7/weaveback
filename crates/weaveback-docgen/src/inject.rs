@@ -95,11 +95,16 @@ fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
     symbols.sort();
     symbols.dedup();
 
+    let mut lsp_links: Vec<XrefLink> = entries.iter().flat_map(|e| e.lsp_links.iter().cloned()).collect();
+    lsp_links.sort_by(|a, b| a.key.cmp(&b.key));
+    lsp_links.dedup_by(|a, b| a.key == b.key);
+
     XrefEntry {
         html: html.to_string(),
         imports,
         imported_by,
         symbols,
+        lsp_links,
     }
 }
 fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String>) {

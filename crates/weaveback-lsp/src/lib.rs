@@ -1,0 +1,225 @@
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::io::{BufRead, BufReader, Write, Read};
+use std::path::Path;
+use serde_json::{json, Value};
+use lsp_types::*;
+use url::Url;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum LspError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("LSP error: {0}")]
+    Protocol(String),
+    #[error("Server exited")]
+    Exited,
+}
+
+pub struct LspClient {
+    child: Child,
+    stdin: ChildStdin,
+    reader: BufReader<std::process::ChildStdout>,
+    next_id: i64,
+    language_id: String,
+}
+
+impl LspClient {
+    pub fn spawn(
+        cmd: &str,
+        args: &[&str],
+        root_dir: &Path,
+        language_id: String,
+    ) -> Result<Self, LspError> {
+        let mut child = Command::new(cmd)
+            .args(args)
+            .current_dir(root_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()?;
+
+        let stdin = child.stdin.take().ok_or_else(|| LspError::Protocol("failed to open stdin".into()))?;
+        let stdout = child.stdout.take().ok_or_else(|| LspError::Protocol("failed to open stdout".into()))?;
+        let reader = BufReader::new(stdout);
+
+        Ok(Self {
+            child,
+            stdin,
+            reader,
+            next_id: 1,
+            language_id,
+        })
+    }
+
+    pub fn initialize(&mut self, root_path: &Path) -> Result<(), LspError> {
+        let root_uri = Url::from_directory_path(root_path)
+            .map_err(|_| LspError::Protocol("invalid root path".into()))?;
+
+        let params = InitializeParams {
+            workspace_folders: Some(vec![WorkspaceFolder {
+                uri: root_uri,
+                name: "root".to_string(),
+            }]),
+            ..Default::default()
+        };
+
+        self.call("initialize", params)?;
+        self.notify("initialized", json!({}))?;
+        
+        // Give the server some time to index.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        
+        Ok(())
+    }
+
+    pub fn call<P: serde::Serialize>(&mut self, method: &str, params: P) -> Result<Value, LspError> {
+        let id = self.next_id;
+        self.next_id += 1;
+
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+
+        self.write_request(&req)?;
+        self.read_response(id)
+    }
+
+    pub fn notify<P: serde::Serialize>(&mut self, method: &str, params: P) -> Result<(), LspError> {
+        let req = json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        self.write_request(&req)
+    }
+
+    pub fn did_open(&mut self, path: &Path) -> Result<(), LspError> {
+        let uri = Url::from_file_path(path)
+            .map_err(|_| LspError::Protocol("invalid file path".into()))?;
+        let text = std::fs::read_to_string(path)?;
+        
+        let params = DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri,
+                language_id: self.language_id.clone(),
+                version: 1,
+                text,
+            },
+        };
+        self.notify("textDocument/didOpen", params)
+    }
+
+    fn write_request(&mut self, req: &Value) -> Result<(), LspError> {
+        let body = serde_json::to_string(req)?;
+        write!(self.stdin, "Content-Length: {}\r\n\r\n{}", body.len(), body)?;
+        self.stdin.flush()?;
+        Ok(())
+    }
+
+    fn read_response(&mut self, expected_id: i64) -> Result<Value, LspError> {
+        loop {
+            let mut line = String::new();
+            self.reader.read_line(&mut line)?;
+            if line.is_empty() { return Err(LspError::Exited); }
+
+            if let Some(stripped) = line.strip_prefix("Content-Length: ") {
+                let len: usize = stripped.trim().parse()
+                    .map_err(|_| LspError::Protocol("invalid content-length".into()))?;
+                
+                // Skip the \r\n\r\n
+                let mut junk = String::new();
+                self.reader.read_line(&mut junk)?;
+
+                let mut body = vec![0u8; len];
+                self.reader.read_exact(&mut body)?;
+                let resp: Value = serde_json::from_slice(&body)?;
+
+                if let Some(id) = resp.get("id") 
+                    && id.as_i64() == Some(expected_id) {
+                    if let Some(error) = resp.get("error") {
+                        return Err(LspError::Protocol(error.to_string()));
+                    }
+                    return Ok(resp.get("result").cloned().unwrap_or(Value::Null));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for LspClient {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+impl LspClient {
+    pub fn goto_definition(
+        &mut self,
+        path: &Path,
+        line: u32,
+        col: u32,
+    ) -> Result<Option<Location>, LspError> {
+        let uri = Url::from_file_path(path)
+            .map_err(|_| LspError::Protocol("invalid file path".into()))?;
+        
+        let params = TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier::new(uri),
+            position: Position::new(line, col),
+        };
+
+        let res = self.call("textDocument/definition", params)?;
+        if res.is_null() { return Ok(None); }
+
+        // Definition can return Location, Vec<Location>, or Vec<LocationLink>
+        if let Ok(loc) = serde_json::from_value::<Location>(res.clone()) {
+            Ok(Some(loc))
+        } else if let Ok(locs) = serde_json::from_value::<Vec<Location>>(res.clone()) {
+            Ok(locs.into_iter().next())
+        } else {
+            // For now, ignore LocationLink and other complex types
+            Ok(None)
+        }
+    }
+
+    pub fn find_references(
+        &mut self,
+        path: &Path,
+        line: u32,
+        col: u32,
+    ) -> Result<Vec<Location>, LspError> {
+        let uri = Url::from_file_path(path)
+            .map_err(|_| LspError::Protocol("invalid file path".into()))?;
+        
+        let params = ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri),
+                position: Position::new(line, col),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: ReferenceContext {
+                include_declaration: true,
+            },
+        };
+
+        let res = self.call("textDocument/references", params)?;
+        if res.is_null() { return Ok(vec![]); }
+
+        let locs: Vec<Location> = serde_json::from_value(res)?;
+        Ok(locs)
+    }
+}
+/// Returns (command, language_id) for a given file extension.
+pub fn get_lsp_config(ext: &str) -> Option<(String, String)> {
+    match ext {
+        "rs"  => Some(("rust-analyzer".to_string(), "rust".to_string())),
+        "nim" => Some(("nimlsp".to_string(), "nim".to_string())),
+        "py"  => Some(("pyright-langserver --stdio".to_string(), "python".to_string())),
+        _     => None,
+    }
+}

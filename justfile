@@ -140,6 +140,16 @@ docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- --special % --special ^
 
+# Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
+docs-ai:
+    node scripts/serve-ui/build.mjs
+    cargo run --release --package weaveback-docgen -- --special % --special ^ --ai-xref
+
+# Semantic language server operations (requires rust-analyzer)
+# Usage: just lsp definition crates/weaveback/src/main.rs 123 45
+lsp *ARGS:
+    cargo run --package weaveback -- lsp {{ARGS}}
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 
 # cargo clean + dist/

@@ -8,10 +8,12 @@ members = [
     "crates/weaveback-macro",
     "crates/weaveback-tangle",
     "crates/weaveback-docgen",
+    "crates/weaveback-core",
+    "crates/weaveback-lsp",
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"
@@ -62,7 +64,11 @@ escargot = "0.5"
 
 syn = { version = "2", features = ["full"] }
 walkdir = "2"
+lsp-types = "0.95"
+url = "2.4"
 
 # Internal crate dependencies (points to the sub-crate on disk)
+weaveback-core = { path = "crates/weaveback-core" }
 weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }
+weaveback-lsp = { path = "crates/weaveback-lsp" }

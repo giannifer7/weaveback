@@ -146,6 +146,39 @@ produced that token.
 
 See link:tracing.adoc[docs/tracing.adoc] for the full output schema and examples.
 
+== Semantic language-server integration (`weaveback lsp`)
+
+`weaveback lsp` provides semantic navigation by bridging language-specific
+LSPs (like `rust-analyzer`) with Weaveback's literate source maps. This allows
+developers and coding agents to perform "Go to Definition" and "Find References"
+queries on generated code and have the results mapped directly back to the
+original `.adoc` or `.md` source.
+
+[source,bash]
+----
+weaveback lsp definition gen/src/main.rs 100 8
+weaveback lsp references gen/src/main.rs 100 8
+----
+
+=== How it works
+
+1.  **LSP Query**: Weaveback spawns a background language server (currently
+    Rust-only via `rust-analyzer`) and sends a standard LSP request for the
+    requested position in the generated file.
+2.  **Semantic Resolution**: The LSP server resolves the query using its full
+    semantic knowledge of the project (types, traits, macros).
+3.  **Transitive Mapping**: Weaveback takes the resulting generated-file
+    position and calls `perform_trace` to map it back to the original literate
+    source line and character column.
+
+=== Enriched documentation (`docs-ai`)
+
+The `docs-ai` recipe in the `justfile` uses the LSP integration during
+documentation generation to build a precise symbol graph. This captures
+relationships like call sites and trait implementations that a simple structural
+parser (like `syn`) cannot resolve, and injects them as semantic links in the
+generated HTML.
+
 == MCP server (`weaveback mcp`)
 
 `weaveback mcp` exposes tracing and surgical source-editing over the
@@ -364,6 +397,15 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 
 | link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
 | `crates/weaveback-tangle/src/tests/` (4 files)
+|===
+
+.weaveback-lsp literate sources
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp crate index]
+| `crates/weaveback-lsp/src/lib.rs`
 |===
 
 .weaveback-macro literate sources

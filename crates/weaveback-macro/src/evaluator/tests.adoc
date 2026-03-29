@@ -446,7 +446,7 @@ fn test_def_macro_nested() {
 
 #[test]
 fn test_recursion_depth_limit_returns_error() {
-    // A directly self-recursive macro must hit MAX_RECURSION_DEPTH (100) and
+    // A directly self-recursive macro must hit MAX_RECURSION_DEPTH and
     // return a Runtime error rather than stack-overflowing the process.
     let result = process_string_defaults("%def(loop, %loop())\n%loop()");
     assert!(

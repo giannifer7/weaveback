@@ -53,7 +53,7 @@ jobs:
       - name: Generate docs
         env:
           DIAGRAM_PLANTUML_CLASSPATH: /opt/plantuml/plantuml.jar
-        run: cargo run --release --package weaveback-docgen
+        run: cargo run --release --package weaveback-docgen -- --special % --special ^
 
       - name: Copy static assets
         run: |

@@ -7,49 +7,24 @@ use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 pub enum SafeWriterError {
-    IoError(io::Error),
+    #[error("IO error: {0}")]
+    IoError(#[from] io::Error),
+    #[error("Failed to create directory: {0}")]
     DirectoryCreationFailed(PathBuf),
+    #[error("Failed to create backup for: {0}")]
     BackupFailed(PathBuf),
+    #[error("File was modified externally: {0}")]
     ModifiedExternally(PathBuf),
+    #[error("Security violation: {0}")]
     SecurityViolation(String),
+    #[error("Formatter error: {0}")]
     FormatterError(String),
-    DbError(DbError),
-}
-
-impl std::fmt::Display for SafeWriterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SafeWriterError::IoError(e) => write!(f, "IO error: {}", e),
-            SafeWriterError::DirectoryCreationFailed(path) => {
-                write!(f, "Failed to create directory: {}", path.display())
-            }
-            SafeWriterError::BackupFailed(path) => {
-                write!(f, "Failed to create backup for: {}", path.display())
-            }
-            SafeWriterError::ModifiedExternally(path) => {
-                write!(f, "File was modified externally: {}", path.display())
-            }
-            SafeWriterError::SecurityViolation(msg) => write!(f, "Security violation: {}", msg),
-            SafeWriterError::FormatterError(msg) => write!(f, "Formatter error: {}", msg),
-            SafeWriterError::DbError(e) => write!(f, "Database error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for SafeWriterError {}
-
-impl From<io::Error> for SafeWriterError {
-    fn from(err: io::Error) -> Self {
-        SafeWriterError::IoError(err)
-    }
-}
-
-impl From<DbError> for SafeWriterError {
-    fn from(err: DbError) -> Self {
-        SafeWriterError::DbError(err)
-    }
+    #[error("Database error: {0}")]
+    DbError(#[from] DbError),
 }
 #[derive(Debug, Clone)]
 pub struct SafeWriterConfig {

@@ -33,75 +33,43 @@ impl ChunkDef {
         }
     }
 }
+use thiserror::Error;
+
 #[derive(Debug, Clone)]
 pub struct ChunkLocation {
     pub file_idx: usize,
     pub line: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ChunkError {
+    #[error("{file_name} line {}: maximum recursion depth exceeded while expanding chunk '{chunk}'", .location.line + 1)]
     RecursionLimit {
         chunk: String,
         file_name: String,
         location: ChunkLocation,
     },
+    #[error("{file_name} line {}: recursive reference detected in chunk '{chunk}' (cycle: {})", .location.line + 1, .cycle.join(" -> "))]
     RecursiveReference {
         chunk: String,
         cycle: Vec<String>,
         file_name: String,
         location: ChunkLocation,
     },
+    #[error("{file_name} line {}: referenced chunk '{chunk}' is undefined", .location.line + 1)]
     UndefinedChunk {
         chunk: String,
         file_name: String,
         location: ChunkLocation,
     },
-    IoError(io::Error),
+    #[error("I/O error: {0}")]
+    IoError(#[from] io::Error),
+    #[error("{file_name} line {}: file chunk '{file_chunk}' is already defined (use @replace to redefine)", .location.line + 1)]
     FileChunkRedefinition {
         file_chunk: String,
         file_name: String,
         location: ChunkLocation,
     },
-}
-
-impl std::fmt::Display for ChunkError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChunkError::RecursionLimit { chunk, file_name, location } => write!(
-                f,
-                "Error: {} line {}: maximum recursion depth exceeded while expanding chunk '{}'",
-                file_name, location.line + 1, chunk
-            ),
-            ChunkError::RecursiveReference { chunk, cycle, file_name, location } => {
-                let trace = cycle.join(" -> ");
-                write!(
-                    f,
-                    "Error: {} line {}: recursive reference detected in chunk '{}' (cycle: {})",
-                    file_name, location.line + 1, chunk, trace
-                )
-            }
-            ChunkError::UndefinedChunk { chunk, file_name, location } => write!(
-                f,
-                "Error: {} line {}: referenced chunk '{}' is undefined",
-                file_name, location.line + 1, chunk
-            ),
-            ChunkError::IoError(e) => write!(f, "Error: I/O error: {}", e),
-            ChunkError::FileChunkRedefinition { file_chunk, file_name, location } => write!(
-                f,
-                "Error: {} line {}: file chunk '{}' is already defined (use @replace to redefine)",
-                file_name, location.line + 1, file_chunk
-            ),
-        }
-    }
-}
-
-impl std::error::Error for ChunkError {}
-
-impl From<io::Error> for ChunkError {
-    fn from(e: io::Error) -> Self {
-        ChunkError::IoError(e)
-    }
 }
 
 impl From<WeavebackError> for ChunkError {
@@ -355,8 +323,7 @@ impl ChunkStore {
         reference_location: ChunkLocation,
         reversed_mode: bool,
     ) -> Result<Vec<(String, NowebMapEntry)>, ChunkError> {
-        const MAX_DEPTH: usize = 100;
-        if state.stack.len() > MAX_DEPTH {
+        if state.stack.len() > weaveback_core::MAX_RECURSION_DEPTH {
             let file_name = self
                 .file_names
                 .get(reference_location.file_idx)

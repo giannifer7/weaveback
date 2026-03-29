@@ -44,6 +44,7 @@ Options:
                        must print a JSON object matching HashMap<key, XrefEntry>
                        to stdout.  Replaces the built-in Rust scanner.
   --no-xref            Skip cross-reference analysis entirely.
+  --ai-xref            Use LSP (rust-analyzer) to build precise cross-references.
   --help               Print this message and exit.
 
 Cross-reference notes:
@@ -57,6 +58,7 @@ struct Args {
     specials: Vec<char>,
     xref_cmd: Option<String>,
     no_xref: bool,
+    ai_xref: bool,
     out_dir: Option<PathBuf>,
     theme_dir: Option<PathBuf>,
 }
@@ -66,6 +68,7 @@ fn parse_args() -> Args {
     let mut specials = Vec::new();
     let mut xref_cmd = None;
     let mut no_xref = false;
+    let mut ai_xref = false;
     let mut out_dir = None;
     let mut theme_dir = None;
     let mut i = 1;
@@ -109,11 +112,14 @@ fn parse_args() -> Args {
             "--no-xref" => {
                 no_xref = true;
             }
+            "--ai-xref" => {
+                ai_xref = true;
+            }
             _ => {}
         }
         i += 1;
     }
-    Args { specials, xref_cmd, no_xref, out_dir, theme_dir }
+    Args { specials, xref_cmd, no_xref, ai_xref, out_dir, theme_dir }
 }
 fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
     let output = Command::new(cmd)
@@ -157,7 +163,7 @@ fn main() {
         (data, HashMap::new())
     } else if crates_dir.exists() {
         println!("xref: analysing crates...");
-        let data = xref::build_xref(&root);
+        let data = xref::build_xref(&root, args.ai_xref);
         let adoc_map = xref::scan_adoc_file_declarations(&root, &crates_dir);
         println!("xref: {} modules indexed, {} adoc overrides", data.len(), adoc_map.len());
         (data, adoc_map)

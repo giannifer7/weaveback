@@ -48,10 +48,10 @@ pub struct ApplyBackOptions {
 
 /// Where a patch lands and how to apply it.
 enum PatchSource {
-    /// Line from noweb-level expanded text (no macro attribution available).
-    Noweb { src_file: String, src_line: usize },
+    /// Hunk from noweb-level expanded text (no macro attribution available).
+    Noweb { src_file: String, src_line: usize, len: usize },
     /// Literal text from the original literate source — safe to auto-patch.
-    Literal { src_file: String, src_line: usize },
+    Literal { src_file: String, src_line: usize, len: usize },
     /// Macro body text with no variable references — safe to auto-patch.
     MacroBodyLiteral { src_file: String, src_line: usize, macro_name: String },
     /// Macro body text containing `%(...)` references.
@@ -85,13 +85,11 @@ impl PatchSource {
 
 struct Patch {
     source: PatchSource,
-    /// Indent-stripped baseline gen/ line (what the source *was*).
+    /// Indent-stripped baseline gen/ text (may be multiple lines).
     old_text: String,
-    /// Indent-stripped modified gen/ line (what the source *should become*).
+    /// Indent-stripped modified gen/ text (may be multiple lines).
     new_text: String,
-    /// 0-indexed line in the macro-expanded intermediate (= nw_entry.src_line).
-    /// Used as the oracle check point: after patching the source and re-evaluating,
-    /// this line in the expanded output must equal `new_text`.
+    /// 0-indexed first line in the macro-expanded intermediate.
     expanded_line: u32,
 }
 
@@ -186,8 +184,13 @@ fn attempt_macro_body_fix(
 ) -> Option<String> {
     if old_expanded == new_expanded { return None; }
 
+    // If the body line is exactly the expanded text, just return the new text.
+    if body_line.trim() == old_expanded.trim() {
+        return Some(new_expanded.to_string());
+    }
+
     let special_esc = regex::escape(&special_char.to_string());
-    let var_re = Regex::new(&format!(r"{}[(][^)]+[)]", special_esc)).ok()?;
+    let var_re = Regex::new(&format!(r"{}[(][A-Za-z_][A-Za-z0-9_]*[)]", special_esc)).ok()?;
 
     let mut lits: Vec<&str> = Vec::new();
     let mut var_refs: Vec<&str> = Vec::new();
@@ -200,7 +203,13 @@ fn attempt_macro_body_fix(
     lits.push(&body_line[pos..]);
 
     if var_refs.is_empty() {
-        return Some(new_expanded.to_string());
+        // No variables. Just try to replace old_expanded in body_line.
+        if let Some(start) = body_line.find(old_expanded) {
+            let mut s = body_line.to_string();
+            s.replace_range(start..start + old_expanded.len(), new_expanded);
+            return Some(s);
+        }
+        return None;
     }
 
     let mut var_vals: Vec<&str> = Vec::new();
@@ -250,6 +259,7 @@ fn resolve_patch_source(
     nw_src_line: u32,
     snapshot: Option<&[u8]>,
     special_char: char,
+    len: usize,
 ) -> Result<PatchSource, ApplyBackError> {
     let trace = lookup::perform_trace(
         rel_path,
@@ -264,6 +274,7 @@ fn resolve_patch_source(
         return Ok(PatchSource::Noweb {
             src_file: nw_src_file.to_string(),
             src_line: nw_src_line as usize,
+            len,
         });
     };
 
@@ -278,13 +289,14 @@ fn resolve_patch_source(
         _ => return Ok(PatchSource::Noweb {
             src_file: nw_src_file.to_string(),
             src_line: nw_src_line as usize,
+            len,
         }),
     };
 
     let kind = obj.get("kind").and_then(|k| k.as_str()).unwrap_or("Literal");
 
     match kind {
-        "Literal" => Ok(PatchSource::Literal { src_file, src_line: src_line_0 }),
+        "Literal" => Ok(PatchSource::Literal { src_file, src_line: src_line_0, len }),
 
         "MacroBody" => {
             let macro_name = obj.get("macro_name")
@@ -324,9 +336,10 @@ fn resolve_patch_source(
 fn do_patch(
     src_file: &str,
     src_line: usize,
+    old_len: usize,
     old_text: &str,
     new_text: &str,
-    lines: &mut [String],
+    lines: &mut Vec<String>,
     dry_run: bool,
     skipped: &mut usize,
     applied: &mut usize,
@@ -334,105 +347,137 @@ fn do_patch(
     label_suffix: Option<&str>,
     out: &mut dyn Write,
 ) {
-    let label = match label_suffix {
-        Some(s) => format!("{}:{} ({})", src_file, src_line + 1, s),
-        None    => format!("{}:{}", src_file, src_line + 1),
-    };
-
-    let effective_idx = if src_line < lines.len() && lines[src_line] == old_text {
-        src_line
-    } else if src_line < lines.len() && lines[src_line] == new_text {
-        let _ = writeln!(out, "  {}: already applied", label);
-        return;
+    let label = if old_len <= 1 {
+        match label_suffix {
+            Some(s) => format!("{}:{} ({})", src_file, src_line + 1, s),
+            None    => format!("{}:{}", src_file, src_line + 1),
+        }
     } else {
-        match fuzzy_find_line(lines, src_line, old_text, 15) {
-            Some(fi) if lines[fi] == new_text => {
-                let _ = writeln!(out, "  {}:{}: already applied (fuzzy)", src_file, fi + 1);
-                return;
-            }
-            Some(fi) => fi,
-            None => {
-                let _ = writeln!(out,
-                    "  CONFLICT {}\n    expected: {:?}\n    current:  {:?}\n    desired:  {:?}",
-                    label, old_text,
-                    lines.get(src_line).map(|s| s.as_str()).unwrap_or("<out of range>"),
-                    new_text,
-                );
-                *conflicts += 1;
-                *skipped += 1;
-                return;
-            }
+        match label_suffix {
+            Some(s) => format!("{}:{}-{} ({})", src_file, src_line + 1, src_line + old_len, s),
+            None    => format!("{}:{}-{}", src_file, src_line + 1, src_line + old_len),
         }
     };
 
-    if dry_run {
-        let _ = writeln!(out, "  [dry-run] {}:{}: {:?} → {:?}", src_file, effective_idx + 1, old_text, new_text);
+    // Check if the range matches the old text.
+    let matches_old = if src_line + old_len <= lines.len() {
+        let current_hunk = lines[src_line..src_line + old_len].join("\n");
+        current_hunk == old_text
     } else {
-        lines[effective_idx] = new_text.to_string();
-        let _ = writeln!(out, "  {}: patched", label);
+        false
+    };
+
+    if matches_old {
+        if dry_run {
+            let _ = writeln!(out, "  [dry-run] {}: replaced", label);
+        } else {
+            let new_lines: Vec<String> = new_text.lines().map(|l| l.to_string()).collect();
+            lines.splice(src_line..src_line + old_len, new_lines);
+            let _ = writeln!(out, "  {}: patched", label);
+        }
+        *applied += 1;
+    } else {
+        // Check if already applied.
+        let new_lines_count = new_text.lines().count();
+        let matches_new = if src_line + new_lines_count <= lines.len() {
+            let current_hunk = lines[src_line..src_line + new_lines_count].join("\n");
+            current_hunk == new_text
+        } else {
+            false
+        };
+
+        if matches_new {
+            let _ = writeln!(out, "  {}: already applied", label);
+        } else {
+            if old_len == 1 && let Some(idx) = fuzzy_find_line(lines, src_line, old_text, 15) {
+                if dry_run {
+                    let _ = writeln!(out, "  [dry-run] {}: replaced (fuzzy match at line {})", label, idx + 1);
+                } else {
+                    let new_lines: Vec<String> = new_text.lines().map(|l| l.to_string()).collect();
+                    lines.splice(idx..idx + 1, new_lines);
+                    let _ = writeln!(out, "  {}: patched (fuzzy match at line {})", label, idx + 1);
+                }
+                *applied += 1;
+                return;
+            }
+
+            let _ = writeln!(out, "  CONFLICT {}: source does not match expected text", label);
+            let _ = writeln!(out, "    expected: {:?}", old_text);
+            if src_line < lines.len() {
+                let actual = if old_len == 1 { lines[src_line].clone() } else { lines[src_line.. (src_line + old_len).min(lines.len())].join("\n") };
+                let _ = writeln!(out, "    actual:   {:?}", actual);
+            }
+            *conflicts += 1;
+            *skipped += 1;
+        }
     }
-    *applied += 1;
+}
+
+struct FilePatchContext<'a> {
+    src_file: &'a str,
+    patches: &'a [Patch],
+    dry_run: bool,
+    eval_config: Option<EvalConfig>,
+    snapshot: Option<&'a [u8]>,
+    special_char: char,
 }
 
 fn apply_patches_to_file(
-    src_file: &str,
-    patches: &[Patch],
-    dry_run: bool,
+    ctx: FilePatchContext,
     skipped: &mut usize,
-    eval_config: Option<&EvalConfig>,
-    snapshot: Option<&[u8]>,
     out: &mut dyn Write,
 ) -> Result<(), ApplyBackError> {
-    let content = std::fs::read_to_string(src_file)?;
+    let content = std::fs::read_to_string(ctx.src_file)?;
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let had_trailing_newline = content.ends_with('\n');
 
     let mut applied = 0;
     let mut conflicts = 0;
 
-    let src_path = std::path::Path::new(src_file);
+    let src_path = std::path::Path::new(ctx.src_file);
 
-    for patch in patches {
+    for patch in ctx.patches {
         match &patch.source {
             PatchSource::Unpatchable { src_line, kind_label, .. } => {
-                let _ = writeln!(out, "  SKIP {}:{}: {} — cannot auto-patch", src_file, src_line + 1, kind_label);
+                let _ = writeln!(out, "  SKIP {}:{}: {} — cannot auto-patch", ctx.src_file, src_line + 1, kind_label);
                 *skipped += 1;
             }
 
-            PatchSource::Noweb { src_line, .. }
-            | PatchSource::Literal { src_line, .. } => {
-                do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
-                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts, None, out);
+            PatchSource::Noweb { src_line, len, .. }
+            | PatchSource::Literal { src_line, len, .. } => {
+                do_patch(ctx.src_file, *src_line, *len, &patch.old_text, &patch.new_text,
+                         &mut lines, ctx.dry_run, skipped, &mut applied, &mut conflicts, None, out);
             }
 
             PatchSource::MacroBodyLiteral { src_line, macro_name, .. } => {
-                do_patch(src_file, *src_line, &patch.old_text, &patch.new_text,
-                         &mut lines, dry_run, skipped, &mut applied, &mut conflicts,
+                do_patch(ctx.src_file, *src_line, 1, &patch.old_text, &patch.new_text,
+                         &mut lines, ctx.dry_run, skipped, &mut applied, &mut conflicts,
                          Some(&format!("macro body `{}`", macro_name)), out);
             }
 
             PatchSource::MacroBodyWithVars { src_line, macro_name, .. } => {
-                let label = format!("{}:{} (macro body `{}`)", src_file, src_line + 1, macro_name);
+                let label = format!("{}:{} (macro body `{}`)", ctx.src_file, src_line + 1, macro_name);
 
-                let body_template = snapshot
+                let body_template = ctx.snapshot
                     .and_then(|b| String::from_utf8_lossy(b).lines().nth(*src_line).map(|l| l.to_string()));
 
                 let candidate = body_template.as_deref().and_then(|tmpl| {
-                    attempt_macro_body_fix(tmpl, &patch.old_text, &patch.new_text, '%')
+                    attempt_macro_body_fix(tmpl, &patch.old_text, &patch.new_text, ctx.special_char)
                 });
 
-                match (candidate, eval_config) {
+                match (candidate, ctx.eval_config.clone()) {
                     (Some(new_line), Some(ec)) => {
                         let hint = *src_line;
-                        let idx = if hint < lines.len() && lines[hint] == patch.old_text {
+                        let old_line_to_find = body_template.as_deref().unwrap_or(&patch.old_text);
+                        let idx = if hint < lines.len() && lines[hint] == old_line_to_find {
                             Some(hint)
                         } else {
-                            fuzzy_find_line(&lines, hint, &patch.old_text, 15)
+                            fuzzy_find_line(&lines, hint, old_line_to_find, 15)
                         };
                         if let Some(idx) = idx {
                             let candidate_src = splice_line(&lines, idx, &new_line, had_trailing_newline);
-                            if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
-                                if dry_run {
+                            if verify_candidate(&candidate_src, src_path, &ec, patch.expanded_line, &patch.new_text) {
+                                if ctx.dry_run {
                                     let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
                                 } else {
                                     lines[idx] = new_line;
@@ -456,15 +501,15 @@ fn apply_patches_to_file(
             }
 
             PatchSource::MacroArg { src_line, src_col, macro_name, param_name, .. } => {
-                let label = format!("{}:{} (arg `{}` of `{}`)", src_file, src_line + 1, param_name, macro_name);
+                let label = format!("{}:{} (arg `{}` of `{}`)", ctx.src_file, src_line + 1, param_name, macro_name);
 
                 let candidate = attempt_macro_arg_patch(&lines, *src_line, *src_col, &patch.old_text, &patch.new_text);
 
-                match (candidate, eval_config) {
+                match (candidate, ctx.eval_config.clone()) {
                     (Some(new_line), Some(ec)) => {
                         let candidate_src = splice_line(&lines, *src_line, &new_line, had_trailing_newline);
-                        if verify_candidate(&candidate_src, src_path, ec, patch.expanded_line, &patch.new_text) {
-                            if dry_run {
+                        if verify_candidate(&candidate_src, src_path, &ec, patch.expanded_line, &patch.new_text) {
+                            if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
                             } else {
                                 lines[*src_line] = new_line;
@@ -489,14 +534,14 @@ fn apply_patches_to_file(
         }
     }
 
-    if !dry_run && applied > 0 {
+    if !ctx.dry_run && applied > 0 {
         let mut content_out = lines.join("\n");
         if had_trailing_newline { content_out.push('\n'); }
-        std::fs::write(src_file, content_out)?;
+        std::fs::write(ctx.src_file, content_out)?;
     }
 
     if conflicts > 0 {
-        let _ = writeln!(out, "  {} conflict(s) in {}", conflicts, src_file);
+        let _ = writeln!(out, "  {} conflict(s) in {}", conflicts, ctx.src_file);
     }
 
     Ok(())
@@ -562,18 +607,14 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                 similar::DiffOp::Equal { .. } => {}
 
                 similar::DiffOp::Replace { old_index, old_len, new_index, new_len } => {
-                    if old_len != new_len {
-                        let _ = writeln!(out,
-                            "  skip lines {}-{}: size-changing hunk ({} → {} lines) — edit literate source manually",
-                            old_index + 1, old_index + old_len, old_len, new_len,
-                        );
-                        skipped += old_len;
-                        continue;
-                    }
-                    for i in 0..*old_len {
-                        let out_line_0 = (old_index + i) as u32;
-                        let old_line = baseline_lines.get(old_index + i).copied().unwrap_or("");
-                        let new_line = current_lines .get(new_index  + i).copied().unwrap_or("");
+                    let old_lines = &baseline_lines[*old_index..*old_index + *old_len];
+                    let new_lines = &current_lines[*new_index..*new_index + *new_len];
+
+                    // If it's a 1-for-1 replacement, we try to go two levels deep (macros).
+                    if old_len == new_len && *old_len == 1 {
+                        let out_line_0 = *old_index as u32;
+                        let old_line = old_lines[0];
+                        let new_line = new_lines[0];
 
                         match db.get_noweb_entry(rel_path, out_line_0)? {
                             None => {
@@ -591,17 +632,28 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                     })
                                     .as_deref();
 
-                                let source = if let Some(ec) = &opts.eval_config {
+                                // Retrieve the config used for this source file to get the correct special_char.
+                                let mut file_eval_config = opts.eval_config.clone();
+                                let mut file_special_char = special_char;
+                                if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, &entry.src_file) {
+                                    if let Some(ec) = &mut file_eval_config {
+                                        ec.special_char = cfg.special_char;
+                                    }
+                                    file_special_char = cfg.special_char;
+                                }
+
+                                let source = if let Some(ec) = &file_eval_config {
                                     resolve_patch_source(
                                         rel_path, out_line_0,
                                         &db, &opts.gen_dir, ec,
                                         &entry.src_file, entry.src_line,
-                                        snap, special_char,
+                                        snap, file_special_char, 1,
                                     )?
                                 } else {
                                     PatchSource::Noweb {
                                         src_file: entry.src_file.clone(),
                                         src_line: entry.src_line as usize,
+                                        len: 1,
                                     }
                                 };
 
@@ -617,10 +669,81 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                     });
                             }
                         }
+                        continue;
                     }
+
+                    // For multi-line or size-changing Replace, we only support Noweb-level patching for now.
+                    // Check if the entire hunk maps to a continuous region in one source file.
+                    let mut hunk_entries = Vec::new();
+                    for i in 0..*old_len {
+                        hunk_entries.push(db.get_noweb_entry(rel_path, (*old_index + i) as u32)?);
+                    }
+
+                    if hunk_entries.iter().all(|e| e.is_some()) {
+                        let entries: Vec<_> = hunk_entries.into_iter().flatten().collect();
+                        let first = &entries[0];
+                        if entries.iter().all(|e| e.src_file == first.src_file && e.indent == first.indent)
+                            && entries.windows(2).all(|w| w[1].src_line == w[0].src_line + 1)
+                        {
+                            let old_text = old_lines.iter().map(|l| strip_indent(l, &first.indent)).collect::<Vec<_>>().join("\n");
+                            let new_text = new_lines.iter().map(|l| strip_indent(l, &first.indent)).collect::<Vec<_>>().join("\n");
+
+                            src_patches
+                                .entry(first.src_file.clone())
+                                .or_default()
+                                .push(Patch {
+                                    source: PatchSource::Noweb {
+                                        src_file: first.src_file.clone(),
+                                        src_line: first.src_line as usize,
+                                        len: *old_len,
+                                    },
+                                    old_text,
+                                    new_text,
+                                    expanded_line: first.src_line,
+                                });
+                            continue;
+                        }
+                    }
+
+                    let _ = writeln!(out,
+                        "  skip lines {}-{}: complex size-changing hunk ({} → {} lines) — edit literate source manually",
+                        old_index + 1, old_index + old_len, old_len, new_len,
+                    );
+                    skipped += old_len;
                 }
 
                 similar::DiffOp::Delete { old_index, old_len, .. } => {
+                    let mut hunk_entries = Vec::new();
+                    for i in 0..*old_len {
+                        hunk_entries.push(db.get_noweb_entry(rel_path, (*old_index + i) as u32)?);
+                    }
+
+                    if hunk_entries.iter().all(|e| e.is_some()) {
+                        let entries: Vec<_> = hunk_entries.into_iter().flatten().collect();
+                        let first = &entries[0];
+                        if entries.iter().all(|e| e.src_file == first.src_file && e.indent == first.indent)
+                            && entries.windows(2).all(|w| w[1].src_line == w[0].src_line + 1)
+                        {
+                            let old_text = baseline_lines[*old_index..*old_index + *old_len]
+                                .iter().map(|l| strip_indent(l, &first.indent)).collect::<Vec<_>>().join("\n");
+
+                            src_patches
+                                .entry(first.src_file.clone())
+                                .or_default()
+                                .push(Patch {
+                                    source: PatchSource::Noweb {
+                                        src_file: first.src_file.clone(),
+                                        src_line: first.src_line as usize,
+                                        len: *old_len,
+                                    },
+                                    old_text,
+                                    new_text: "".to_string(),
+                                    expanded_line: first.src_line,
+                                });
+                            continue;
+                        }
+                    }
+
                     let _ = writeln!(out,
                         "  skip lines {}-{}: {} deleted line(s) — remove from literate source manually",
                         old_index + 1, old_index + old_len, old_len,
@@ -628,22 +751,75 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                     skipped += old_len;
                 }
 
-                similar::DiffOp::Insert { old_index, new_len, .. } => {
-                    let _ = writeln!(out,
-                        "  skip {} inserted line(s) after gen/ line {} — add to literate source manually",
-                        new_len, old_index,
-                    );
-                    skipped += new_len;
+                similar::DiffOp::Insert { old_index, new_index, new_len, .. } => {
+                    let mut is_after = true;
+                    let target_entry = if *old_index > 0 {
+                        db.get_noweb_entry(rel_path, (*old_index - 1) as u32)?
+                    } else {
+                        is_after = false;
+                        db.get_noweb_entry(rel_path, *old_index as u32)?
+                    };
+
+                    if let Some(entry) = target_entry {
+                        let new_text = current_lines[*new_index..*new_index + *new_len]
+                            .iter().map(|l| strip_indent(l, &entry.indent)).collect::<Vec<_>>().join("\n");
+                        
+                        let src_line = if is_after { entry.src_line as usize + 1 } else { entry.src_line as usize };
+
+                        src_patches
+                            .entry(entry.src_file.clone())
+                            .or_default()
+                            .push(Patch {
+                                source: PatchSource::Noweb {
+                                    src_file: entry.src_file.clone(),
+                                    src_line,
+                                    len: 0,
+                                },
+                                old_text: "".to_string(),
+                                new_text: format!("{}\n", new_text),
+                                expanded_line: entry.src_line,
+                            });
+                    } else {
+                        let _ = writeln!(out,
+                            "  skip {} inserted line(s) at gen/ line {} — add to literate source manually",
+                            new_len, old_index + 1,
+                        );
+                        skipped += new_len;
+                    }
                 }
             }
         }
 
         // Apply collected patches to each source file.
         for (src_file, patches) in &src_patches {
-            let snap = snapshot_cache.get(src_file.as_str()).and_then(|o| o.as_deref());
+            let snap = snapshot_cache
+                .entry(src_file.clone())
+                .or_insert_with(|| {
+                    db.get_src_snapshot(src_file).ok().flatten()
+                })
+                .as_deref();
+            
+            // Retrieve the config used for this source file to get the correct special_char.
+            let mut file_eval_config = opts.eval_config.clone();
+            let mut file_special_char = special_char;
+            if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, src_file) {
+                if let Some(ec) = &mut file_eval_config {
+                    ec.special_char = cfg.special_char;
+                }
+                file_special_char = cfg.special_char;
+            }
+
             apply_patches_to_file(
-                src_file, patches, opts.dry_run, &mut skipped,
-                opts.eval_config.as_ref(), snap, out,
+                FilePatchContext {
+                    src_file,
+                    patches,
+                    dry_run: opts.dry_run,
+                    eval_config: file_eval_config,
+                    snapshot: snap,
+                    special_char: file_special_char,
+                },
+                &mut skipped,
+                out,
             )?;
         }
 

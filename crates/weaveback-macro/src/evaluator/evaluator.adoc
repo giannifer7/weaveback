@@ -107,7 +107,7 @@ Consequences worth knowing:
 * **Argument side-effects are scoped.**  `%set` inside an argument lives in
   the callee's frame and does not bleed into the caller (see above).
 * **Recursion depth limit.**  A macro calling itself (directly or indirectly)
-  will hit `MAX_RECURSION_DEPTH = 100` and return a runtime error rather than
+  will hit `MAX_RECURSION_DEPTH` and return a runtime error rather than
   stack-overflow.
 * **`early_exit` stops everything.**  Once `%here` sets `early_exit = true`,
   every subsequent call to `evaluate()` or `evaluate_to()` returns an empty

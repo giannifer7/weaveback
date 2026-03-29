@@ -126,7 +126,7 @@ pub struct MacroDefRaw {
     /// Byte length of the whole def(...) call.
     pub length: u32,
 }
-pub const MAX_RECURSION_DEPTH: usize = 100;
+pub use weaveback_core::MAX_RECURSION_DEPTH;
 pub struct EvaluatorState {
     pub config: EvalConfig,
     pub scope_stack: Vec<ScopeFrame>,

@@ -62,31 +62,27 @@ CREATE TABLE IF NOT EXISTS chunk_defs (
     PRIMARY KEY (src_file, chunk_name, nth)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS literate_source_config (
+    src_file        TEXT    PRIMARY KEY NOT NULL,
+    special_char    TEXT    NOT NULL,
+    open_delim      TEXT    NOT NULL,
+    close_delim     TEXT    NOT NULL,
+    chunk_end       TEXT    NOT NULL,
+    comment_markers TEXT    NOT NULL
+) STRICT;
+
 CREATE INDEX IF NOT EXISTS idx_var_defs_name    ON var_defs(var_name);
 CREATE INDEX IF NOT EXISTS idx_macro_defs_name  ON macro_defs(macro_name);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_from  ON chunk_deps(from_chunk);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_chunk_defs_file  ON chunk_defs(src_file);
 ";
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 pub enum DbError {
-    Sql(rusqlite::Error),
-}
-
-impl std::fmt::Display for DbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DbError::Sql(e) => write!(f, "database error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for DbError {}
-
-impl From<rusqlite::Error> for DbError {
-    fn from(e: rusqlite::Error) -> Self {
-        DbError::Sql(e)
-    }
+    #[error("database error: {0}")]
+    Sql(#[from] rusqlite::Error),
 }
 
 /// How reliably a post-formatter output line was traced back to its source.
@@ -117,6 +113,15 @@ impl Confidence {
             _            => Confidence::Exact,
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TangleConfig {
+    pub special_char: char,
+    pub open_delim: String,
+    pub close_delim: String,
+    pub chunk_end: String,
+    pub comment_markers: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -528,6 +533,48 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+impl WeavebackDb {
+    pub fn set_source_config(
+        &self,
+        src_file: &str,
+        cfg: &TangleConfig,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO literate_source_config
+             (src_file, special_char, open_delim, close_delim, chunk_end, comment_markers)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                src_file,
+                cfg.special_char.to_string(),
+                cfg.open_delim,
+                cfg.close_delim,
+                cfg.chunk_end,
+                cfg.comment_markers.join(",")
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_source_config(&self, src_file: &str) -> Result<Option<TangleConfig>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT special_char, open_delim, close_delim, chunk_end, comment_markers
+             FROM literate_source_config WHERE src_file = ?1",
+        )?;
+        Ok(stmt.query_row(params![src_file], |row| {
+            let sc_str: String = row.get(0)?;
+            let special_char = sc_str.chars().next().unwrap_or('%');
+            let cm_str: String = row.get(4)?;
+            let comment_markers = cm_str.split(',').map(|s| s.to_string()).collect();
+            Ok(TangleConfig {
+                special_char,
+                open_delim: row.get(1)?,
+                close_delim: row.get(2)?,
+                chunk_end: row.get(3)?,
+                comment_markers,
+            })
+        }).optional()?)
+    }
+}
 /// Escape a string for use inside a SQLite single-quoted string literal.
 fn sqlite_string_literal(s: &str) -> String {
     s.replace('\'', "''")
@@ -551,16 +598,20 @@ impl WeavebackDb {
 
         let result = (|| -> rusqlite::Result<()> {
             self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-            self.conn.execute_batch(
-                "INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
-                 INSERT OR REPLACE INTO target.noweb_map     SELECT * FROM noweb_map;
-                 INSERT OR REPLACE INTO target.macro_map     SELECT * FROM macro_map;
-                 INSERT OR REPLACE INTO target.src_snapshots SELECT * FROM src_snapshots;
-                 INSERT OR REPLACE INTO target.var_defs      SELECT * FROM var_defs;
-                 INSERT OR REPLACE INTO target.macro_defs    SELECT * FROM macro_defs;
-                 INSERT OR REPLACE INTO target.chunk_deps    SELECT * FROM chunk_deps;
-                 INSERT OR REPLACE INTO target.chunk_defs    SELECT * FROM chunk_defs;",
-            )?;
+            
+            let tables = [
+                "gen_baselines", "noweb_map", "macro_map", "src_snapshots",
+                "var_defs", "macro_defs", "chunk_deps", "chunk_defs",
+                "literate_source_config"
+            ];
+
+            for table in tables {
+                self.conn.execute_batch(&format!(
+                    "INSERT OR REPLACE INTO target.{} SELECT * FROM {};",
+                    table, table
+                ))?;
+            }
+
             self.conn.execute_batch("COMMIT;")?;
             Ok(())
         })();

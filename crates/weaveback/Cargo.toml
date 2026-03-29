@@ -12,8 +12,10 @@ name = "weaveback"
 path = "src/main.rs"
 
 [dependencies]
+thiserror.workspace = true
 weaveback-macro.workspace = true
 weaveback-tangle.workspace = true
+weaveback-lsp.workspace = true
 clap = { workspace = true }
 serde_json.workspace = true
 similar.workspace = true

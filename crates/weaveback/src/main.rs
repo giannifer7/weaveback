@@ -4,6 +4,7 @@ use weaveback_macro::{
 };
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
 use clap::Parser;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -71,6 +72,17 @@ enum Commands {
         #[arg(long)]
         chunk: Option<String>,
     },
+    /// Semantic language server operations (requires rust-analyzer)
+    Lsp {
+        /// Manual override for the LSP command (e.g. "nimlsp")
+        #[arg(long)]
+        lsp_cmd: Option<String>,
+        /// Manual override for the language ID (e.g. "nim")
+        #[arg(long)]
+        lsp_lang: Option<String>,
+        #[command(subcommand)]
+        cmd: LspCommands,
+    },
     /// Serve docs/html/ locally with live reload and "Edit source" navigation
     Serve {
         /// TCP port to listen on
@@ -91,10 +103,31 @@ enum Commands {
         /// Comment markers for the tangle oracle (comma-separated, default: //)
         #[arg(long, default_value = "//")]
         comment_markers: String,
-        /// AI backend for /__ai: "claude-cli" (default, uses local Claude Code session)
-        /// or "api" (calls Anthropic API directly; requires ANTHROPIC_API_KEY)
+        /// AI backend for /__ai: "claude-cli" (default), "anthropic", "gemini", "ollama", "openai"
         #[arg(long, default_value = "claude-cli")]
         ai_backend: String,
+        /// AI model name (e.g. "claude-3-5-sonnet-20240620", "gemini-1.5-pro", "llama3")
+        #[arg(long)]
+        ai_model: Option<String>,
+        /// AI API endpoint / base URL (for ollama or openai-compatible backends)
+        #[arg(long)]
+        ai_endpoint: Option<String>,
+    },
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum LspCommands {
+    /// Go to definition of a symbol and map it to literate source
+    Definition {
+        out_file: String,
+        line: u32,
+        col: u32,
+    },
+    /// Find all references to a symbol and map them to literate sources
+    References {
+        out_file: String,
+        line: u32,
+        col: u32,
     },
 }
 
@@ -199,32 +232,18 @@ struct Args {
     dry_run: bool,
 }
 
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Debug, Error)]
 enum Error {
-    Macro(EvalError),
-    Noweb(WeavebackError),
-    Io(std::io::Error),
+    #[error("{0}")]
+    Macro(#[from] EvalError),
+    #[error("{0}")]
+    Noweb(#[from] WeavebackError),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::Macro(e) => write!(f, "{e}"),
-            Error::Noweb(e) => write!(f, "{e}"),
-            Error::Io(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl From<EvalError> for Error {
-    fn from(e: EvalError) -> Self { Error::Macro(e) }
-}
-impl From<WeavebackError> for Error {
-    fn from(e: WeavebackError) -> Self { Error::Noweb(e) }
-}
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self { Error::Io(e) }
-}
 impl From<weaveback_tangle::db::DbError> for Error {
     fn from(e: weaveback_tangle::db::DbError) -> Self {
         Error::Noweb(WeavebackError::Db(e))
@@ -363,6 +382,16 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 1: process each driver and feed result to noweb.
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
+        
+        // Record the configuration used for this source file.
+        let tangle_cfg = weaveback_tangle::db::TangleConfig {
+            special_char: args.special,
+            open_delim: args.open_delim.clone(),
+            close_delim: args.close_delim.clone(),
+            chunk_end: args.chunk_end.clone(),
+            comment_markers: comment_markers.clone(),
+        };
+        clip.db().set_source_config(&full_path.to_string_lossy(), &tangle_cfg)?;
 
         if args.no_macros {
             // Skip macro expansion: feed the raw file directly to the tangle pass.
@@ -493,10 +522,17 @@ fn main() {
         Some(Commands::Graph { chunk }) => {
             run_graph(chunk, cli.args.db)
         }
-        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend }) => {
+        Some(Commands::Lsp { lsp_cmd, lsp_lang, cmd }) => {
+            let eval_config = build_eval_config(&cli.args);
+            run_lsp(cmd, cli.args.db, cli.args.gen_dir, eval_config, lsp_cmd, lsp_lang)
+        }
+        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint }) => {
             let backend = match ai_backend.as_str() {
-                "api" => serve::AiBackend::Api,
-                _     => serve::AiBackend::ClaudeCli,
+                "anthropic" => serve::AiBackend::Anthropic,
+                "gemini"    => serve::AiBackend::Gemini,
+                "ollama"    => serve::AiBackend::Ollama,
+                "openai"    => serve::AiBackend::OpenAi,
+                _           => serve::AiBackend::ClaudeCli,
             };
             let tangle_cfg = serve::TangleConfig {
                 open_delim,
@@ -504,6 +540,8 @@ fn main() {
                 chunk_end,
                 comment_markers: comment_markers.split(',').map(|s| s.trim().to_string()).collect(),
                 ai_backend: backend,
+                ai_model,
+                ai_endpoint,
             };
             serve::run_serve(port, html, tangle_cfg)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
@@ -638,4 +676,123 @@ fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: P
         Err(lookup::LookupError::Db(e)) => Err(Error::Noweb(WeavebackError::Db(e))),
         Err(lookup::LookupError::Io(e)) => Err(Error::Io(e)),
     }
+}
+
+use weaveback_lsp::LspClient;
+
+fn run_lsp(
+    cmd: LspCommands,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+    override_cmd: Option<String>,
+    override_lang: Option<String>,
+) -> Result<(), Error> {
+    let project_root = std::env::current_dir()?;
+    let db = open_db(&db_path)?;
+
+    // Determine LSP config based on input file or overrides.
+    let sample_file = match &cmd {
+        LspCommands::Definition { out_file, .. } => out_file,
+        LspCommands::References { out_file, .. } => out_file,
+    };
+    let ext = Path::new(sample_file).extension().and_then(|e| e.to_str()).unwrap_or("");
+    
+    let (lsp_cmd, lsp_lang) = match (override_cmd, override_lang) {
+        (Some(c), Some(l)) => (c, l),
+        (c, l) => {
+            let (def_cmd, def_lang) = weaveback_lsp::get_lsp_config(ext)
+                .ok_or_else(|| Error::Io(std::io::Error::other(format!("unsupported file extension: .{}", ext))))?;
+            (c.unwrap_or(def_cmd), l.unwrap_or(def_lang))
+        }
+    };
+
+    let mut client = LspClient::spawn(&lsp_cmd, &[], &project_root, lsp_lang)
+        .map_err(|e| Error::Io(std::io::Error::other(format!("failed to start LSP '{}': {e}", lsp_cmd))))?;
+
+    client.initialize(&project_root)
+        .map_err(|e| Error::Io(std::io::Error::other(format!("LSP initialization failed: {e}"))))?;
+
+    match cmd {
+        LspCommands::Definition { out_file, line, col } => {
+            let path = Path::new(&out_file).canonicalize()
+                .map_err(|e| Error::Io(std::io::Error::other(format!("invalid file path '{}': {e}", out_file))))?;
+            
+            client.did_open(&path)
+                .map_err(|e| Error::Io(std::io::Error::other(format!("LSP didOpen failed: {e}"))))?;
+
+            let loc = client.goto_definition(&path, line - 1, col - 1)
+                .map_err(|e| Error::Io(std::io::Error::other(format!("LSP definition call failed: {e}"))))?;
+
+            if let Some(loc) = loc {
+                let target_path = loc.uri.to_file_path()
+                    .map_err(|_| Error::Io(std::io::Error::other("LSP returned non-file URI")))?;
+                let target_line = loc.range.start.line + 1;
+                let target_col = loc.range.start.character + 1;
+
+                // Map back to source
+                let trace = lookup::perform_trace(
+                    &target_path.to_string_lossy(),
+                    target_line,
+                    target_col,
+                    &db,
+                    &gen_dir,
+                    eval_config,
+                ).map_err(|e| Error::Io(std::io::Error::other(format!("Mapping failed: {e:?}"))))?;
+
+                if let Some(res) = trace {
+                    println!("{}", serde_json::to_string_pretty(&res).unwrap());
+                } else {
+                    println!("{}", json!({
+                        "out_file": target_path.to_string_lossy(),
+                        "out_line": target_line,
+                        "out_col":  target_col,
+                        "note": "LSP result could not be mapped to source"
+                    }));
+                }
+            } else {
+                println!("No definition found.");
+            }
+        }
+        LspCommands::References { out_file, line, col } => {
+            let path = Path::new(&out_file).canonicalize()
+                .map_err(|e| Error::Io(std::io::Error::other(format!("invalid file path '{}': {e}", out_file))))?;
+            
+            client.did_open(&path)
+                .map_err(|e| Error::Io(std::io::Error::other(format!("LSP didOpen failed: {e}"))))?;
+
+            let locs = client.find_references(&path, line - 1, col - 1)
+                .map_err(|e| Error::Io(std::io::Error::other(format!("LSP references call failed: {e}"))))?;
+
+            let mut results = Vec::new();
+            for loc in locs {
+                let target_path = loc.uri.to_file_path()
+                    .map_err(|_| Error::Io(std::io::Error::other("LSP returned non-file URI")))?;
+                let target_line = loc.range.start.line + 1;
+                let target_col = loc.range.start.character + 1;
+
+                let trace = lookup::perform_trace(
+                    &target_path.to_string_lossy(),
+                    target_line,
+                    target_col,
+                    &db,
+                    &gen_dir,
+                    eval_config.clone(),
+                ).map_err(|e| Error::Io(std::io::Error::other(format!("Mapping failed: {e:?}"))))?;
+
+                if let Some(res) = trace {
+                    results.push(res);
+                } else {
+                    results.push(json!({
+                        "out_file": target_path.to_string_lossy(),
+                        "out_line": target_line,
+                        "out_col":  target_col,
+                        "note": "LSP result could not be mapped to source"
+                    }));
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&results).unwrap());
+        }
+    }
+    Ok(())
 }

@@ -18,12 +18,15 @@ pub enum LspError {
     Exited,
 }
 
+use std::collections::HashMap;
+
 pub struct LspClient {
     child: Child,
     stdin: ChildStdin,
     reader: BufReader<std::process::ChildStdout>,
     next_id: i64,
     language_id: String,
+    diagnostics: HashMap<Url, Vec<Diagnostic>>,
 }
 
 impl LspClient {
@@ -51,6 +54,7 @@ impl LspClient {
             reader,
             next_id: 1,
             language_id,
+            diagnostics: HashMap::new(),
         })
     }
 
@@ -66,13 +70,24 @@ impl LspClient {
             ..Default::default()
         };
 
-        self.call("initialize", params)?;
+        let res = self.call("initialize", params)?;
+        
+        // Basic capability check - ensure the server can actually do what we need.
+        if let Some(caps) = res.get("capabilities") 
+            && caps.get("definitionProvider").is_none() {
+            log::warn!("LSP server does not support gotoDefinition");
+        }
+
         self.notify("initialized", json!({}))?;
         
         // Give the server some time to index.
         std::thread::sleep(std::time::Duration::from_secs(2));
         
         Ok(())
+    }
+
+    pub fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     pub fn call<P: serde::Serialize>(&mut self, method: &str, params: P) -> Result<Value, LspError> {
@@ -115,6 +130,11 @@ impl LspClient {
         self.notify("textDocument/didOpen", params)
     }
 
+    pub fn get_diagnostics(&self, path: &Path) -> Vec<Diagnostic> {
+        let Ok(uri) = Url::from_file_path(path) else { return vec![]; };
+        self.diagnostics.get(&uri).cloned().unwrap_or_default()
+    }
+
     fn write_request(&mut self, req: &Value) -> Result<(), LspError> {
         let body = serde_json::to_string(req)?;
         write!(self.stdin, "Content-Length: {}\r\n\r\n{}", body.len(), body)?;
@@ -146,6 +166,15 @@ impl LspClient {
                         return Err(LspError::Protocol(error.to_string()));
                     }
                     return Ok(resp.get("result").cloned().unwrap_or(Value::Null));
+                }
+
+                // Handle notifications (no ID)
+                if resp.get("id").is_none()
+                    && let Some(method) = resp.get("method").and_then(|m| m.as_str())
+                    && method == "textDocument/publishDiagnostics"
+                    && let Ok(params) = serde_json::from_value::<PublishDiagnosticsParams>(resp["params"].clone())
+                {
+                    self.diagnostics.insert(params.uri, params.diagnostics);
                 }
             }
         }
@@ -212,6 +241,47 @@ impl LspClient {
 
         let locs: Vec<Location> = serde_json::from_value(res)?;
         Ok(locs)
+    }
+
+    pub fn hover(
+        &mut self,
+        path: &Path,
+        line: u32,
+        col: u32,
+    ) -> Result<Option<Hover>, LspError> {
+        let uri = Url::from_file_path(path)
+            .map_err(|_| LspError::Protocol("invalid file path".into()))?;
+        
+        let params = TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier::new(uri),
+            position: Position::new(line, col),
+        };
+
+        let res = self.call("textDocument/hover", params)?;
+        if res.is_null() { return Ok(None); }
+
+        let hover: Hover = serde_json::from_value(res)?;
+        Ok(Some(hover))
+    }
+
+    pub fn document_symbols(
+        &mut self,
+        path: &Path,
+    ) -> Result<Vec<DocumentSymbolResponse>, LspError> {
+        let uri = Url::from_file_path(path)
+            .map_err(|_| LspError::Protocol("invalid file path".into()))?;
+        
+        let params = DocumentSymbolParams {
+            text_document: TextDocumentIdentifier::new(uri),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        };
+
+        let res = self.call("textDocument/documentSymbol", params)?;
+        if res.is_null() { return Ok(vec![]); }
+
+        let symbols: Vec<DocumentSymbolResponse> = serde_json::from_value(res)?;
+        Ok(symbols)
     }
 }
 /// Returns (command, language_id) for a given file extension.

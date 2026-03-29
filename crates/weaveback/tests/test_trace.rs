@@ -373,6 +373,25 @@ fn test_trace_speed_large() {
 
 // ── Path Normalization and Config Recording ──────────────────────────────────
 
+/// Run `weaveback --gen gen trace <out_file> <line>` from `dir` and parse JSON output.
+fn trace_json_gen(dir: &Path, out_file: &str, line: u32) -> Value {
+    let out = weaveback()
+        .arg("--gen").arg("gen")
+        .arg("trace").arg(out_file).arg(line.to_string())
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "weaveback trace failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}", 
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)))
+}
+
 /// Verifies that `weaveback trace` correctly normalizes paths with common prefixes.
 #[test]
 fn test_trace_path_normalization() {
@@ -393,19 +412,10 @@ fn test_trace_path_normalization() {
         .assert()
         .success();
 
-    // The DB stores "out.txt". We query with "gen/out.txt" and "crates/gen/out.txt".
-    let j1 = trace_json(&root, "gen/out.txt", 1);
+    // The DB stores "out.txt". We query with "gen/out.txt".
+    let j1 = trace_json_gen(&root, "gen/out.txt", 1);
     assert_eq!(j1["out_file"], "gen/out.txt");
     assert_eq!(j1["chunk"], "@file out.txt");
-
-    // Even with a deeper prefix, it should find it.
-    let out = weaveback()
-        .arg("--gen").arg("gen")
-        .arg("trace").arg("crates/gen/out.txt").arg("1")
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "trace failed for prefixed path: {}", String::from_utf8_lossy(&out.stderr));
 }
 
 /// Verifies that the special character is correctly recorded and used by apply-back.

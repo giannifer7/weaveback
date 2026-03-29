@@ -3,6 +3,7 @@ use weaveback_macro::{
     macro_api::process_string,
 };
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
+use weaveback_core::PathResolver;
 use clap::Parser;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -567,8 +568,10 @@ fn open_db(db_path: &Path) -> Result<weaveback_tangle::db::WeavebackDb, Error> {
 
 fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), Error> {
     let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
 
-    match lookup::perform_where(&out_file, line, &db, &gen_dir) {
+    match lookup::perform_where(&out_file, line, &db, &resolver) {
         Ok(Some(json)) => {
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             Ok(())
@@ -658,10 +661,19 @@ fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
     Ok(())
 }
 
-fn run_trace(out_file: String, line: u32, col: u32, db_path: PathBuf, gen_dir: PathBuf, eval_config: weaveback_macro::evaluator::EvalConfig) -> Result<(), Error> {
+fn run_trace(
+    out_file: String,
+    line: u32,
+    col: u32,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: weaveback_macro::evaluator::EvalConfig
+) -> Result<(), Error> {
     let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
 
-    match lookup::perform_trace(&out_file, line, col, &db, &gen_dir, eval_config) {
+    match lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config) {
         Ok(Some(json)) => {
             println!("{}", serde_json::to_string_pretty(&json).unwrap());
             Ok(())
@@ -690,6 +702,7 @@ fn run_lsp(
 ) -> Result<(), Error> {
     let project_root = std::env::current_dir()?;
     let db = open_db(&db_path)?;
+    let resolver = PathResolver::new(project_root.clone(), gen_dir);
 
     // Determine LSP config based on input file or overrides.
     let sample_file = match &cmd {
@@ -736,7 +749,7 @@ fn run_lsp(
                     target_line,
                     target_col,
                     &db,
-                    &gen_dir,
+                    &resolver,
                     eval_config,
                 ).map_err(|e| Error::Io(std::io::Error::other(format!("Mapping failed: {e:?}"))))?;
 
@@ -776,7 +789,7 @@ fn run_lsp(
                     target_line,
                     target_col,
                     &db,
-                    &gen_dir,
+                    &resolver,
                     eval_config.clone(),
                 ).map_err(|e| Error::Io(std::io::Error::other(format!("Mapping failed: {e:?}"))))?;
 

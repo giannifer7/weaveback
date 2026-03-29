@@ -2,9 +2,9 @@ use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanK
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string_precise;
 use weaveback_tangle::db::WeavebackDb;
-use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry, normalize_path};
+use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry};
+use weaveback_core::PathResolver;
 use serde_json::{Value, json};
-use std::path::Path;
 
 #[derive(Debug)]
 pub enum LookupError {
@@ -24,19 +24,18 @@ impl From<std::io::Error> for LookupError {
         LookupError::Io(e)
     }
 }
-
 pub fn perform_where(
     out_file: &str,
     line: u32,
     db: &WeavebackDb,
-    gen_dir: &Path,
+    resolver: &PathResolver,
 ) -> Result<Option<Value>, LookupError> {
     if line == 0 {
         return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
     }
     let out_line_0 = line - 1;
 
-    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
+    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
         Ok(Some(json!({
             "out_file": out_file,
             "out_line": line,
@@ -50,13 +49,12 @@ pub fn perform_where(
         Ok(None)
     }
 }
-
 pub fn perform_trace(
     out_file: &str,
     line: u32,
     col: u32,
     db: &WeavebackDb,
-    gen_dir: &Path,
+    resolver: &PathResolver,
     eval_config: EvalConfig,
 ) -> Result<Option<Value>, LookupError> {
     if line == 0 {
@@ -64,7 +62,7 @@ pub fn perform_trace(
     }
     let out_line_0 = line - 1;
 
-    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
+    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
         None => return Ok(None),
         Some(e) => e,
     };
@@ -129,7 +127,6 @@ pub fn perform_trace(
 
     Ok(Some(result))
 }
-
 /// Find the `SourceSpan` covering `col_char_0` (0-indexed character position)
 /// of 0-indexed `line_0` in the given expanded text and span ranges.
 fn span_at_line<'a>(
@@ -240,8 +237,4 @@ fn append_def_locations(
     if !locations.is_empty() {
         obj.insert(field.into(), Value::Array(locations));
     }
-}
-
-pub fn normalize_path_pub(out_file: &str, gen_dir: &Path) -> String {
-    normalize_path(out_file, gen_dir)
 }

@@ -145,12 +145,13 @@ not as a primary structuring mechanism.
 
 == Agent and IDE integration
 
-Weaveback exposes a small set of operations via MCP:
+Weaveback exposes a set of operations via MCP:
 
-- trace a generated line to its source
-- retrieve full chunk context (code, prose, dependencies)
-- apply verified edits
-- propagate changes back
+- *Source Tracing*: trace a generated line to its exact source chunk.
+- *Semantic Intelligence*: "Go to Definition" and "Find References" using LSP (Rust, Nim, Python).
+- *Literate Diagnostics*: see compiler errors and hover info directly in the source document.
+- *Contextual Understanding*: retrieve full chunk context (code, prose, dependencies).
+- *Verified Editing*: apply surgical, oracle-verified edits to source files.
 
 This enables a workflow closer to:
 
@@ -232,6 +233,9 @@ Not production-ready. The focus is on the design, not completeness.
 
 | link:docs/tracing.adoc[Source tracing]
 | `trace`, `apply-back`, MCP workflow
+
+| link:docs/architecture.adoc[Architecture]
+| Pipeline, source maps, server design
 
 | link:docs/install.adoc[Installation]
 | Platforms and binaries

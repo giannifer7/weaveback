@@ -23,9 +23,9 @@ use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanK
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string_precise;
 use weaveback_tangle::db::WeavebackDb;
-use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry, normalize_path};
+use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry};
+use weaveback_core::PathResolver;
 use serde_json::{Value, json};
-use std::path::Path;
 
 #[derive(Debug)]
 pub enum LookupError {
@@ -61,14 +61,14 @@ pub fn perform_where(
     out_file: &str,
     line: u32,
     db: &WeavebackDb,
-    gen_dir: &Path,
+    resolver: &PathResolver,
 ) -> Result<Option<Value>, LookupError> {
     if line == 0 {
         return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
     }
     let out_line_0 = line - 1;
 
-    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
+    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
         Ok(Some(json!({
             "out_file": out_file,
             "out_line": line,
@@ -108,7 +108,7 @@ pub fn perform_trace(
     line: u32,
     col: u32,
     db: &WeavebackDb,
-    gen_dir: &Path,
+    resolver: &PathResolver,
     eval_config: EvalConfig,
 ) -> Result<Option<Value>, LookupError> {
     if line == 0 {
@@ -116,7 +116,7 @@ pub fn perform_trace(
     }
     let out_line_0 = line - 1;
 
-    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, gen_dir)? {
+    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
         None => return Ok(None),
         Some(e) => e,
     };
@@ -320,15 +320,8 @@ fn append_def_locations(
 ----
 // <<@file weaveback/src/lookup.rs>>=
 // <<lookup-types>>
-
 // <<lookup-where>>
-
 // <<lookup-trace>>
-
 // <<lookup-span>>
-
-pub fn normalize_path_pub(out_file: &str, gen_dir: &Path) -> String {
-    normalize_path(out_file, gen_dir)
-}
 // @
 ----

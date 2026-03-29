@@ -60,3 +60,13 @@ in reverse order (last-defined first). Useful for stack / LIFO patterns:
 Chunk definitions accumulate — a chunk may be defined in multiple places and
 all definitions are concatenated in order when the chunk is referenced (unless
 `@replace` or `@reversed` is used).
+
+== Semantic navigation
+
+When using language servers (LSP), weaveback can bridge the gap between chunk
+boundaries and semantic definitions. For example, a symbol defined in one chunk
+and used in another can be resolved semantically, taking you directly to the
+original source chunk of the definition.
+
+See link:architecture.adoc#_semantic_language_server_integration_weaveback_lsp[architecture.adoc]
+for the full LSP and MCP tool documentation.

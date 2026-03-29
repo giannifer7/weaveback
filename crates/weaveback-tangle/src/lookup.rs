@@ -1,5 +1,6 @@
 use std::path::Path;
 use crate::db::{WeavebackDb, NowebMapEntry, DbError};
+use weaveback_core::PathResolver;
 
 /// Returns (line, col) both 1-indexed; col counts UTF-8 characters.
 pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
@@ -11,66 +12,23 @@ pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     (line_1, col_1)
 }
 
-/// Normalize an output path relative to `gen_dir`.  Attempts to be robust
-/// against various input prefixes (e.g. "crates/foo.rs" vs "foo.rs").
-pub fn normalize_path(out_file: &str, gen_dir: &Path) -> String {
-    let path = Path::new(out_file);
-    
-    // 1. If absolute, try stripping gen_dir prefix.
-    if path.is_absolute() {
-        if let Ok(rel) = path.strip_prefix(gen_dir) {
-            return rel.to_string_lossy().into_owned();
-        }
-        if let (Ok(canon_gen), Ok(canon_out)) = (gen_dir.canonicalize(), path.canonicalize()) 
-            && let Ok(rel) = canon_out.strip_prefix(&canon_gen) {
-            return rel.to_string_lossy().into_owned();
-        }
-    }
-
-    // 2. If it already starts with gen_dir (as a relative path), strip it.
-    let gen_dir_str = gen_dir.to_string_lossy();
-    let gen_dir_prefix = if gen_dir_str == "." { 
-        "".to_string() 
-    } else if gen_dir_str.ends_with('/') { 
-        gen_dir_str.to_string() 
-    } else { 
-        format!("{}/", gen_dir_str) 
-    };
-
-    if !gen_dir_prefix.is_empty() 
-        && let Some(stripped) = out_file.strip_prefix(&gen_dir_prefix) {
-        return stripped.to_string();
-    }
-
-    // 3. Fallback: just return the input and let the DB lookup try its best.
-    out_file.to_string()
-}
-
 /// Attempt to find a noweb-map entry for `out_file`.  Tries the raw path,
-/// then the normalized path, then strips common prefixes like "crates/".
+/// then the normalized path.
 pub fn find_best_noweb_entry(
     db: &WeavebackDb,
     out_file: &str,
     out_line_0: u32,
-    gen_dir: &Path,
+    resolver: &PathResolver,
 ) -> Result<Option<NowebMapEntry>, DbError> {
     // Try 1: Exact match as provided.
     if let Some(entry) = db.get_noweb_entry(out_file, out_line_0)? {
         return Ok(Some(entry));
     }
 
-    // Try 2: Normalized against gen_dir.
-    let norm = normalize_path(out_file, gen_dir);
+    // Try 2: Normalized via PathResolver.
+    let norm = resolver.normalize(out_file);
     if norm != out_file && let Some(entry) = db.get_noweb_entry(&norm, out_line_0)? {
         return Ok(Some(entry));
-    }
-
-    // Try 3: Strip "crates/" or "gen/" if present (common in this workspace).
-    for prefix in &["crates/", "gen/"] {
-        if let Some(stripped) = out_file.strip_prefix(prefix) 
-            && let Some(entry) = db.get_noweb_entry(stripped, out_line_0)? {
-            return Ok(Some(entry));
-        }
     }
 
     Ok(None)

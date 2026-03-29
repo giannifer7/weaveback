@@ -85,10 +85,42 @@ weaveback-tangle expanded.adoc --gen src/
 | Noweb chunk extractor, safe file writer, SQLite source-map database
 
 | link:../crates/weaveback/src/weaveback.adoc[weaveback]
-| Combined binary: macro + tangle in one pass; apply-back, MCP server
+| Combined binary: macro + tangle in one pass; apply-back, MCP server, LSP bridge
 
 | link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
+
+| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core]
+| Shared constants, configuration, and path resolution logic
+
+| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp]
+| Language Server Protocol (LSP) client for Rust, Nim, and Python
+|===
+
+== weaveback CLI literate sources
+
+The `weaveback` crate contains the combined entry point and high-level 
+integration features (MCP, LSP, Documentation Server).
+
+.weaveback adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback/src/weaveback.adoc[weaveback CLI index]
+| `crates/weaveback/src/main.rs`
+
+| link:../crates/weaveback/src/mcp.adoc[MCP server]
+| `crates/weaveback/src/mcp.rs`
+
+| link:../crates/weaveback/src/serve.adoc[live documentation server]
+| `crates/weaveback/src/serve.rs`
+
+| link:../crates/weaveback/src/apply_back.adoc[apply-back reconciliation]
+| `crates/weaveback/src/apply_back.rs`
+
+| link:../crates/weaveback/src/lookup.adoc[source lookup and tracing]
+| `crates/weaveback/src/lookup.rs`
 |===
 
 == weaveback-tangle literate sources
@@ -185,12 +217,35 @@ for the module map and error hierarchy, then follow the dependency order:
 | `crates/weaveback-macro/src/bin/weaveback-macro.rs`
 |===
 
+== weaveback-core literate sources
+
+.weaveback-core adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core index]
+| `crates/weaveback-core/src/lib.rs`
+|===
+
+== weaveback-lsp literate sources
+
+.weaveback-lsp adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp index]
+| `crates/weaveback-lsp/src/lib.rs`
+|===
+
 == Architecture and design
 
 See link:architecture.adoc[architecture.adoc] for a detailed discussion of:
 
 * The literate-programming model and toolchain pipeline
-* The backpropagation apply-back tool design
-* The MCP server interface
-* Macro tracing and the source-map schema
+* link:architecture.adoc#_propagating_gen_edits_back_to_the_source_apply_back[Backpropagation (`apply-back`)] tool design
+* link:architecture.adoc#_mcp_server_weaveback_mcp[MCP server] interface and agent tools
+* link:architecture.adoc#_semantic_language_server_integration_weaveback_lsp[Semantic LSP bridge] (Go to Definition, Find References)
+* link:architecture.adoc#_source_tracing_weaveback_trace[Macro tracing] and the source-map schema
 * Build-system integration (`--depfile`, `--stamp`)

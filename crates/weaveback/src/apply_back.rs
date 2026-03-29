@@ -1,6 +1,7 @@
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string;
 use weaveback_tangle::db::{WeavebackDb, DbError};
+use weaveback_core::PathResolver;
 use regex::Regex;
 use similar::TextDiff;
 use std::collections::HashMap;
@@ -253,7 +254,7 @@ fn resolve_patch_source(
     rel_path: &str,
     out_line_0: u32,
     db: &WeavebackDb,
-    gen_dir: &std::path::Path,
+    resolver: &PathResolver,
     eval_config: &EvalConfig,
     nw_src_file: &str,
     nw_src_line: u32,
@@ -266,7 +267,7 @@ fn resolve_patch_source(
         out_line_0 + 1,
         0,
         db,
-        gen_dir,
+        resolver,
         eval_config.clone(),
     )?;
 
@@ -561,6 +562,8 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
     }
 
     let db = WeavebackDb::open(&opts.db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, opts.gen_dir.clone());
 
     let baselines: Vec<(String, Vec<u8>)> = if opts.files.is_empty() {
         db.list_baselines()?
@@ -645,7 +648,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                 let source = if let Some(ec) = &file_eval_config {
                                     resolve_patch_source(
                                         rel_path, out_line_0,
-                                        &db, &opts.gen_dir, ec,
+                                        &db, &resolver, ec,
                                         &entry.src_file, entry.src_line,
                                         snap, file_special_char, 1,
                                     )?

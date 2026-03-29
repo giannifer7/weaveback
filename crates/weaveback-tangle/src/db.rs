@@ -76,6 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_macro_defs_name  ON macro_defs(macro_name);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_from  ON chunk_deps(from_chunk);
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_chunk_defs_file  ON chunk_defs(src_file);
+CREATE INDEX IF NOT EXISTS idx_noweb_map_src    ON noweb_map(src_file, src_line);
 ";
 use thiserror::Error;
 
@@ -177,6 +178,9 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
             PRIMARY KEY (src_file, chunk_name, nth)
         ) STRICT;
         CREATE INDEX IF NOT EXISTS idx_chunk_defs_file ON chunk_defs(src_file);
+    ");
+    let _ = conn.execute_batch("
+        CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
     ");
     Ok(())
 }
@@ -574,6 +578,41 @@ impl WeavebackDb {
             })
         }).optional()?)
     }
+
+    /// Returns the (out_file, out_line) for a given literate source location.
+    pub fn get_output_location(
+        &self,
+        src_file: &str,
+        src_line: u32,
+    ) -> Result<Option<(String, u32)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT out_file, out_line FROM noweb_map
+             WHERE src_file = ?1 AND src_line = ?2
+             LIMIT 1",
+        )?;
+        Ok(stmt.query_row(params![src_file, src_line], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        }).optional()?)
+    }
+
+    /// Returns all (out_file, out_line) mappings for a given literate source file.
+    pub fn get_all_output_mappings(
+        &self,
+        src_file: &str,
+    ) -> Result<Vec<(u32, String, u32)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT src_line, out_file, out_line FROM noweb_map
+             WHERE src_file = ?1",
+        )?;
+        let rows = stmt.query_map(params![src_file], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        let mut res = Vec::new();
+        for row in rows {
+            res.push(row?);
+        }
+        Ok(res)
+    }
 }
 /// Escape a string for use inside a SQLite single-quoted string literal.
 fn sqlite_string_literal(s: &str) -> String {
@@ -618,6 +657,9 @@ impl WeavebackDb {
 
         if result.is_err() {
             let _ = self.conn.execute_batch("ROLLBACK;");
+        } else {
+            // Optional: run maintenance on the target file occasionally.
+            let _ = self.conn.execute_batch("VACUUM;");
         }
         // Always detach, even on error.
         let _ = self.conn.execute_batch("DETACH DATABASE target");

@@ -2156,6 +2156,7 @@ dependencies = [
  "thiserror",
  "tiny_http",
  "ureq",
+ "weaveback-core",
  "weaveback-lsp",
  "weaveback-macro",
  "weaveback-tangle",

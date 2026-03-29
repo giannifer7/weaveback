@@ -18,6 +18,12 @@ Literate source (.md / .adoc / …)
         │               optionally runs a formatter (e.g. rustfmt)
         ▼                 → link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map]
   gen/ (output files)   written only when content changes
+        │
+        ▲
+  weaveback-lsp            (Semantic Bridge)
+        │               interfaces with rust-analyzer, nimlsp, pyright
+        ▼
+  Semantic Insights        mapped back to literate sources (Hover, Definition)
 ....
 
 The two passes run in-process when you invoke the combined `weaveback` binary.
@@ -37,7 +43,14 @@ below).
 project/
 ├── src/                   literate source files
 ├── gen/                   generated output files  ← do not edit
-└── weaveback.db               source-map and modification-baseline database
+├── crates/
+│   ├── weaveback/         combined CLI and high-level integration
+│   ├── weaveback-macro/   macro expansion engine
+│   ├── weaveback-tangle/  noweb chunk extractor and database
+│   ├── weaveback-docgen/  documentation generator
+│   ├── weaveback-core/    shared constants and path resolution
+│   └── weaveback-lsp/     language server protocol client
+└── weaveback.db           source-map and modification-baseline database
 ....
 
 `weaveback.db` is a SQLite database (WAL mode) written by the tool after each
@@ -61,6 +74,24 @@ sqlite3 weaveback.db "SELECT out_file, out_line, src_file, src_line FROM noweb_m
 ----
 
 Commit `gen/` to version control; add `weaveback.db` to `.gitignore`.
+
+== Path normalization (`PathResolver`)
+
+Weaveback uses a centralized `PathResolver` (implemented in
+link:../crates/weaveback-core/src/weaveback_core.adoc[`weaveback-core`]) to
+ensure consistency between how humans, agents, and language servers see the
+project directory.
+
+The resolver handles:
+- **Absolute paths**: converting `/home/user/project/gen/src/main.rs` to `src/main.rs`.
+- **Workspace prefixes**: handling `crates/weaveback/src/main.rs` by stripping the 
+  member name if it matches the current context.
+- **Auto-detection**: resolving `./` and other relative prefixes to match the
+  database's canonical relative format.
+
+This robust resolution is critical for the **Semantic Bridge**, as language
+servers often return absolute URIs while Weaveback's database stores paths 
+relative to the generation directory (`--gen`).
 
 == Content-based writes
 
@@ -149,24 +180,34 @@ See link:tracing.adoc[docs/tracing.adoc] for the full output schema and examples
 == Semantic language-server integration (`weaveback lsp`)
 
 `weaveback lsp` provides semantic navigation by bridging language-specific
-LSPs (like `rust-analyzer`) with Weaveback's literate source maps. This allows
-developers and coding agents to perform "Go to Definition" and "Find References"
-queries on generated code and have the results mapped directly back to the
-original `.adoc` or `.md` source.
+LSPs with Weaveback's literate source maps. This allows
+developers and coding agents to perform semantic queries on generated code
+and have the results mapped directly back to the original source.
+
+Supported languages (auto-detected):
+- **Rust** (`rust-analyzer`)
+- **Nim** (`nimlsp`)
+- **Python** (`pyright-langserver`)
 
 [source,bash]
 ----
+# Go to definition of symbol at line 100, col 8
 weaveback lsp definition gen/src/main.rs 100 8
-weaveback lsp references gen/src/main.rs 100 8
+
+# Find all references to symbol at line 50, col 12
+weaveback lsp references gen/src/main.rs 50 12
+
+# Manual override for a custom server
+weaveback lsp --lsp-cmd "pylsp" definition gen/main.py 10 5
 ----
 
 === How it works
 
-1.  **LSP Query**: Weaveback spawns a background language server (currently
-    Rust-only via `rust-analyzer`) and sends a standard LSP request for the
+1.  **LSP Query**: Weaveback spawns or reuses a background language server 
+    and sends a standard LSP request (e.g. `textDocument/definition`) for the
     requested position in the generated file.
 2.  **Semantic Resolution**: The LSP server resolves the query using its full
-    semantic knowledge of the project (types, traits, macros).
+    semantic knowledge of the project.
 3.  **Transitive Mapping**: Weaveback takes the resulting generated-file
     position and calls `perform_trace` to map it back to the original literate
     source line and character column.
@@ -209,6 +250,15 @@ single-line (`src_line`) and multi-line (`src_line` + `src_line_end` +
 | `weaveback_apply_back`
 | Bulk baseline-reconciliation. Use only when `gen/` files have already been
 edited by hand.
+
+| `weaveback_lsp_hover`
+| Get type information and documentation for a symbol, mapped to literate source.
+
+| `weaveback_lsp_diagnostics`
+| Get compiler errors and warnings, mapped to original literate source lines.
+
+| `weaveback_lsp_symbols`
+| List semantic symbols (functions, structs) in a file with source locations.
 |===
 
 === How `weaveback_apply_fix` works
@@ -306,6 +356,22 @@ page.  Clicking it opens the corresponding `.adoc` file at line 1 in
 |===
 
 All `/__*` endpoints include `Access-Control-Allow-Origin: *`.
+
+=== AI assistant (`/__ai`)
+
+`weaveback serve` includes an AI assistant panel that provides context-aware 
+help. When a question is asked about a chunk, the server builds a 
+comprehensive context object:
+- **Source body**: the raw literate source of the chunk.
+- **Design notes**: all prose from the section containing the chunk.
+- **Dependencies**: the bodies of all chunks transitively referenced.
+
+This context is forwarded to the configured AI backend. Supported backends 
+include:
+- **Claude** (via local CLI or Anthropic API)
+- **Google Gemini** (API)
+- **Ollama** (local models like `llama3`)
+- **OpenAI** (and OpenAI-compatible APIs)
 
 === Chunk ID annotation
 
@@ -408,6 +474,15 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 | `crates/weaveback-lsp/src/lib.rs`
 |===
 
+.weaveback-core literate sources
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core crate index]
+| `crates/weaveback-core/src/lib.rs`
+|===
+
 .weaveback-macro literate sources
 [cols="2,3",options="header"]
 |===
@@ -470,6 +545,28 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 | `crates/weaveback-macro/src/evaluator/test_utils.rs` +
   `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 |===
+
+== For Coding Agents
+
+Weaveback's architecture is specifically designed to support autonomous coding 
+agents. Traditional repositories are difficult for agents because the "source 
+of truth" (the code) is often detached from the "intent" (the docs).
+
+By using Weaveback, agents gain several advantages:
+
+1.  **Contextual Precision**: The `weaveback_chunk_context` tool provides an 
+    agent with both the code and the developer's design notes in a single 
+    structured request.
+2.  **Verified Editing**: Agents do not have to "hope" their generation is 
+    correct. The `weaveback_apply_fix` oracle verifies that the change produces 
+    the expected output before any file is saved.
+3.  **Semantic Navigation**: Through the **LSP Bridge**, agents can navigate 
+    the codebase semantically ("Who calls this function?") while staying 
+    within the literate source documents.
+4.  **Automatic Synchronization**: The `apply-back` tool allows agents to 
+    use existing language-specific refactoring tools (like `rust-analyzer` 
+    renames) and automatically propagate those results back to the literate 
+    sources.
 
 == Tree-sitter grammar
 

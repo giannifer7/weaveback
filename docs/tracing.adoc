@@ -132,6 +132,18 @@ message per line on stdin/stdout).
 
 | `weaveback_find_chunk`
 | Find which source file(s) define a given chunk name. Returns `{ file, nth, def_start, def_end }` objects. Accepts `name`.
+
+| `weaveback_lsp_definition`
+| Find the semantic definition of a symbol at a generated file position and map it back to literate source. Requires a language server (e.g. `rust-analyzer`).
+
+| `weaveback_lsp_references`
+| Find all semantic references to a symbol and return their locations in the literate sources.
+
+| `weaveback_lsp_hover`
+| Get type information and documentation for a symbol, mapped back to literate source.
+
+| `weaveback_lsp_diagnostics`
+| Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.
 |===
 
 === Recommended agent workflow
@@ -174,8 +186,10 @@ multi-line ranges (`src_line` + `src_line_end` + `new_src_lines` array).
 already edited directly (by hand, by a language tool, or by an IDE).
 Use it to bulk-propagate those edits back to the literate source.
 
-It is *not* the primary edit path in an agent workflow.
-If no gen/ files were edited directly, use trace → apply_fix instead.
+It supports multi-line replacements, insertions, and deletions by attributing 
+changed hunks to the continuous source regions that produced them. If a hunk 
+is too complex or spans multiple chunks, the tool will skip it and report 
+where manual editing is required.
 
 === Context tools — understanding before editing
 

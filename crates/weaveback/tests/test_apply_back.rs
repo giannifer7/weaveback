@@ -301,3 +301,37 @@ fn test_apply_back_literal_line() {
         "driver.md should no longer contain '// version: 1.0' after apply-back:\n{after}"
     );
 }
+
+// ── weaveback apply-back: multi-line insertion ──────────────────────────────────
+
+/// Simulate an IDE edit: insert a new line between existing lines.
+/// `weaveback apply-back` must attribute this insertion to the preceding line's
+/// chunk and propagate it back to driver.md.
+#[test]
+fn test_apply_back_multi_line_insertion() {
+    let tmp = TempDir::new().unwrap();
+    let root = build(&tmp);
+
+    // Simulate IDE edit: insert a new comment after the version line
+    let hdr_path = root.join("header.nim");
+    let content = fs::read_to_string(&hdr_path).unwrap();
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    lines.insert(1, "# added via dogfooding".to_string());
+    fs::write(&hdr_path, lines.join("\n") + "\n").unwrap();
+
+    // Run apply-back
+    let out = weaveback()
+        .arg("--gen").arg(".")
+        .arg("apply-back")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "apply-back failed: {}", String::from_utf8_lossy(&out.stderr));
+
+    let after = fs::read_to_string(root.join("driver.md")).unwrap();
+    assert!(
+        after.contains("# added via dogfooding"),
+        "driver.md should contain the inserted line after apply-back:\n{after}"
+    );
+}

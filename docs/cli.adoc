@@ -85,7 +85,10 @@ think it is always missing and reruns the target on every build.
 ----
 weaveback where <file> <line>        # trace output line to its noweb chunk
 weaveback trace <file> <line>        # full two-level trace (noweb + macro)
-weaveback apply-back [OPTIONS] [FILES...]  # propagate gen/ edits to literate source
+weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
+weaveback impact <chunk>             # show transitive impact of a chunk change
+weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
+weaveback lsp <command> [ARGS]       # semantic language server operations
 weaveback mcp                        # start MCP server for IDE/agent integration
 ----
 
@@ -104,11 +107,65 @@ weaveback apply-back --dry-run           # show patches without writing
 weaveback --gen path/to/gen apply-back   # use non-default gen/ directory
 ----
 
-Lines that cannot be automatically patched (deleted/inserted lines) are
-reported and skipped — edit those in the literate source manually.
 Macro-generated content (`%def`, `%rhaidef` bodies) is traced back through
 the two-level source map to the original definition or call-site argument
 and patched automatically where unambiguous.
+
+`apply-back` supports size-changing edits (insertions and deletions) by
+attributing new lines to the chunk of the preceding or succeeding line.
+
+'''
+
+==== `impact`
+
+Shows every chunk and output file transitively affected if a given chunk changes.
+Outputs a JSON object.
+
+[source,bash]
+----
+weaveback impact my-config-chunk
+----
+
+'''
+
+==== `graph`
+
+Exports the chunk-dependency graph in DOT (Graphviz) format for visualization.
+
+[source,bash]
+----
+weaveback graph | dot -Tsvg -o deps.svg
+weaveback graph --chunk my-module | dot -Tpng -o my-module.png
+----
+
+'''
+
+==== `lsp`
+
+Provides semantic navigation and intelligence by bridging language-specific
+LSPs (like `rust-analyzer`) with Weaveback source maps.
+
+[source,bash]
+----
+weaveback lsp definition gen/main.rs 100 8
+weaveback lsp references gen/main.rs 100 8
+----
+
+[cols="3,4",options="header"]
+|===
+| Command | Description
+
+| `definition` | Find symbol definition and map back to `.adoc`
+| `references` | Find all references and map back to `.adoc`
+|===
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+
+| `--lsp-cmd <CMD>` | (auto) | Manual override for LSP command (e.g. `nimlsp`)
+| `--lsp-lang <ID>` | (auto) | Manual override for language ID (e.g. `nim`)
+|===
 
 '''
 
@@ -135,19 +192,28 @@ weaveback serve --html /other/dir       # serve a different directory
 | `--close-delim <STR>` | `]>` | Chunk-close delimiter for the tangle oracle
 | `--chunk-end <STR>` | `@@` | Chunk-end marker for the tangle oracle
 | `--comment-markers <STR>` | `//` | Comment prefixes for the oracle (comma-separated)
-| `--ai-backend <MODE>` | `claude-cli` | AI backend for `/__ai`: `claude-cli` or `api`
+| `--ai-backend <MODE>` | `claude-cli` | AI backend for `/__ai`: `claude-cli`, `anthropic`, `gemini`, `ollama`, or `openai`
+| `--ai-model <STR>`   | (default)    | AI model name (e.g. `gemini-1.5-pro`, `llama3`, `gpt-4o`)
+| `--ai-endpoint <URL>`| (default)    | Base URL for `ollama` or `openai` backends
 |===
 
 The tangle-oracle flags must match the delimiters used by the project being
 served.  They are only needed if you use non-default chunk syntax and intend
 to use the `/__apply` inline editor endpoint.
 
-`--ai-backend claude-cli` (default) shells out to `claude -p --output-format
-stream-json`, using the authenticated Claude Code session already on the
-machine — no extra credentials required.
-`--ai-backend api` calls the Anthropic Messages API directly and requires the
-`ANTHROPIC_API_KEY` environment variable; useful on servers or CI without a
-Claude Code session.
+=== AI Backend Modes
+
+`claude-cli` (default):: Shells out to `claude -p --output-format stream-json`,
+  using the authenticated Claude Code session already on the machine — no extra
+  credentials required.
+`anthropic`:: Calls the Anthropic Messages API directly. Requires the
+  `ANTHROPIC_API_KEY` environment variable.
+`gemini`:: Calls the Google Gemini API. Requires the `GOOGLE_API_KEY`
+  environment variable.
+`ollama`:: Calls a local Ollama instance. Uses `--ai-endpoint` (default:
+  `http://localhost:11434`) and `--ai-model` (default: `llama3`).
+`openai`:: Calls an OpenAI-compatible API. Requires `OPENAI_API_KEY` (unless
+  using a local provider) and `--ai-endpoint`.
 
 See link:architecture.adoc#_live_documentation_server_weaveback_serve[architecture.adoc]
 for the full design, HTTP endpoint reference, and inline editor documentation.
@@ -201,3 +267,30 @@ weaveback-tangle [OPTIONS] -              # read from stdin
 | `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox
 | `--dry-run` | off | Print output paths without writing anything
 |===
+
+'''
+
+== `weaveback-docgen` — documentation generator
+
+Renders AsciiDoc sources to HTML, post-processes them with chunk IDs and a 
+literate-source index, and optionally injects cross-reference data.
+
+[source,bash]
+----
+weaveback-docgen [OPTIONS]
+----
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+
+| `--out-dir <PATH>` | `docs/html` | Directory for rendered HTML output
+| `--theme-dir <PATH>` | | Directory with `docinfo.html` templates
+| `--special <CHAR>` | | De-duplicate CHAR (repeatable)
+| `--xref-cmd <CMD>` | | External command for cross-reference analysis
+| `--no-xref` | off | Skip cross-reference analysis entirely
+| `--ai-xref` | off | Use LSP (rust-analyzer) for precise semantic links
+|===
+
+See link:architecture.adoc#_documentation_generation_weaveback_docgen[architecture.adoc]
+for the full documentation pipeline details.

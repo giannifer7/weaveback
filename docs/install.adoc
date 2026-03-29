@@ -139,7 +139,7 @@ Then install Ruby and gems separately.
 |===
 | File | Platform | Notes
 
-| `weaveback-x86_64-linux.tar.gz` | Linux x86_64 | glibc — tarball with all three binaries
+| `weaveback-x86_64-linux.tar.gz` | Linux x86_64 | glibc — tarball with all four binaries
 | `weaveback-glibc` | Linux x86_64 | glibc, single binary
 | `weaveback-musl`  | Linux x86_64 | musl (fully static, works on any Linux)
 | `weaveback-fedora` | Fedora/RHEL |

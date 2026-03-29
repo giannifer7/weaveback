@@ -5,16 +5,62 @@
 
   outputs = { self, nixpkgs }:
     let
-      pkgs    = nixpkgs.legacyPackages.x86_64-linux;
-      version = "0.4.1";
+      lib     = nixpkgs.lib;
+      version = "0.5.0";
       base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
-    in {
-      packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {
-        pname   = "weaveback";
-        inherit version;
-        src     = pkgs.fetchurl { url = "${base}/weaveback-musl"; sha256 = "sha256-EXSNBXz9JFIFoA2WsPVHuD5IAIAdo6fdSLX4XaqC2hs="; };
-        dontUnpack   = true;
-        installPhase = "install -Dm755 $src $out/bin/weaveback";
+
+      # Pre-built musl binaries are x86_64-linux only.
+      # The devShell works on all common systems.
+      devSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forEachDevSystem = f: lib.genAttrs devSystems (s: f nixpkgs.legacyPackages.${s});
+
+      linuxPkgs = nixpkgs.legacyPackages.x86_64-linux;
+
+      releaseBin = { pname, sha256 }: linuxPkgs.stdenv.mkDerivation {
+        inherit pname version;
+        src        = linuxPkgs.fetchurl { url = "${base}/${pname}-musl"; inherit sha256; };
+        dontUnpack = true;
+        installPhase = "install -Dm755 $src $out/bin/${pname}";
       };
+
+    in {
+
+      packages.x86_64-linux = {
+        default          = releaseBin { pname = "weaveback";         sha256 = "sha256-bRpTc/xAOM1bhmsLiwse2Fllg/oR23SGhiGwYeipmtQ="; };
+        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-R4lqdcpaEcvXygfwiAkt394ktK2v6mcsjToor+Z3mx8="; };
+        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-tATW35dobRLjiAB2kEJxTCQXwl74BWQ0Qvu6qgAHn18="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-g+Q6M9URCc8Za/I6yEl8RszV1AiuIMHkyrpP7A+pvio="; };
+      };
+
+      # Full documentation + development toolchain.
+      # Usage: nix develop
+      devShells = forEachDevSystem (pkgs: {
+        default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            just         # task runner
+            asciidoctor  # AsciiDoc -> HTML (includes rouge)
+            plantuml     # UML diagrams; brings JDK for asciidoctor-diagram
+            nodejs       # TypeScript bundle for the serve UI
+            python3      # scripts/tangle.py, gen_docs.py, install.py
+            ruby         # gem install for asciidoctor-diagram
+            git
+          ];
+          shellHook = ''
+            gem install --user-install asciidoctor-diagram 2>/dev/null || true
+            gem_bin=$(ruby -e 'print Gem.user_bin_dir' 2>/dev/null)
+            case ":$PATH:" in
+              *":$gem_bin:"*) ;;
+              *) export PATH="$PATH:$gem_bin" ;;
+            esac
+            echo ""
+            echo "weaveback dev shell — available recipes:"
+            echo "  just tangle     regenerate source files from .adoc"
+            echo "  just docs       render HTML documentation"
+            echo "  just serve      live-reload server with inline editor"
+            echo "  just test       run all tests"
+            echo ""
+          '';
+        };
+      });
     };
 }

@@ -128,10 +128,16 @@ update-release:
 tangle:
     python3 scripts/tangle.py
 
+# Install weaveback + documentation toolchain (binary, asciidoctor, rouge)
+# Pass extra args: just install --diagrams  /  just install --source
+install *ARGS:
+    python3 scripts/install.py {{ARGS}}
+
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
 # --special % de-escapes %% in files that use % as the macro special char
 # --special ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as special)
 docs:
+    node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- --special % --special ^
 
 # ── Clean ─────────────────────────────────────────────────────────────────────

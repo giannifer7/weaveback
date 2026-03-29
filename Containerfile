@@ -45,12 +45,13 @@ COPY . .
 RUN cargo build --release --workspace
 RUN cargo deb -p weaveback --no-build
 RUN mkdir -p /out \
-    && cp target/release/weaveback        /out/weaveback-glibc \
-    && cp target/release/weaveback-macro /out/weaveback-macro-glibc \
-    && cp target/release/weaveback-tangle  /out/weaveback-tangle-glibc \
-    && cp target/debian/*.deb         /out/ \
+    && cp target/release/weaveback           /out/weaveback-glibc \
+    && cp target/release/weaveback-macro    /out/weaveback-macro-glibc \
+    && cp target/release/weaveback-tangle   /out/weaveback-tangle-glibc \
+    && cp target/release/weaveback-docgen   /out/weaveback-docgen-glibc \
+    && cp target/debian/*.deb               /out/ \
     && tar -czf /out/weaveback-x86_64-linux.tar.gz \
-         -C target/release weaveback weaveback-macro weaveback-tangle
+         -C target/release weaveback weaveback-macro weaveback-tangle weaveback-docgen
 
 # ── musl: static binary (Alpine — musl-native Python for PyO3) ───────────────
 FROM alpine:latest AS musl
@@ -64,9 +65,10 @@ WORKDIR /src
 COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl --workspace
 RUN mkdir -p /out \
-    && cp target/x86_64-unknown-linux-musl/release/weaveback        /out/weaveback-musl \
-    && cp target/x86_64-unknown-linux-musl/release/weaveback-macro /out/weaveback-macro-musl \
-    && cp target/x86_64-unknown-linux-musl/release/weaveback-tangle  /out/weaveback-tangle-musl
+    && cp target/x86_64-unknown-linux-musl/release/weaveback          /out/weaveback-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-macro   /out/weaveback-macro-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-tangle  /out/weaveback-tangle-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-docgen  /out/weaveback-docgen-musl
 
 # ── windows: MinGW cross-compilation (Fedora — has mingw64-python3-devel) ────
 FROM fedora:latest AS windows
@@ -91,9 +93,10 @@ RUN PYO3_CROSS_PYTHON_VERSION=$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/includ
     && rustup target add x86_64-pc-windows-gnu \
     && cargo build --release --target x86_64-pc-windows-gnu --workspace
 RUN mkdir -p /out \
-    && cp target/x86_64-pc-windows-gnu/release/weaveback.exe        /out/weaveback-mingw64.exe \
-    && cp target/x86_64-pc-windows-gnu/release/weaveback-macro.exe /out/weaveback-macro-mingw64.exe \
-    && cp target/x86_64-pc-windows-gnu/release/weaveback-tangle.exe  /out/weaveback-tangle-mingw64.exe
+    && cp target/x86_64-pc-windows-gnu/release/weaveback.exe           /out/weaveback-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-macro.exe    /out/weaveback-macro-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-tangle.exe   /out/weaveback-tangle-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-docgen.exe   /out/weaveback-docgen-mingw64.exe
 
 # ── fedora: RPM ───────────────────────────────────────────────────────────────
 FROM fedora:latest AS fedora
@@ -109,7 +112,8 @@ COPY . .
 RUN cargo build --release --workspace
 RUN cargo generate-rpm -p crates/weaveback
 RUN mkdir -p /out \
-    && cp target/release/weaveback        /out/weaveback-fedora \
-    && cp target/release/weaveback-macro /out/weaveback-macro-fedora \
+    && cp target/release/weaveback          /out/weaveback-fedora \
+    && cp target/release/weaveback-macro   /out/weaveback-macro-fedora \
     && cp target/release/weaveback-tangle  /out/weaveback-tangle-fedora \
-    && cp target/generate-rpm/*.rpm   /out/
+    && cp target/release/weaveback-docgen  /out/weaveback-docgen-fedora \
+    && cp target/generate-rpm/*.rpm        /out/

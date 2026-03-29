@@ -38,7 +38,13 @@ RELEASES    = f"{HOMEPAGE}/releases/download"
 REPO        = "giannifer7/weaveback"
 API         = "https://api.github.com"
 
-NEEDED_ASSETS = ["weaveback-x86_64-linux.tar.gz", "weaveback-musl"]
+NEEDED_ASSETS = [
+    "weaveback-x86_64-linux.tar.gz",
+    "weaveback-musl",
+    "weaveback-macro-musl",
+    "weaveback-tangle-musl",
+    "weaveback-docgen-musl",
+]
 
 
 # ── auth ───────────────────────────────────────────────────────────────────────
@@ -158,7 +164,7 @@ package() {{
 """
 
 
-def flake(version: str, sri_weaveback: str) -> str:
+def flake(version: str, sri: dict) -> str:
     base = f"{RELEASES}/v${{version}}"
     return f"""\
 {{
@@ -168,17 +174,63 @@ def flake(version: str, sri_weaveback: str) -> str:
 
   outputs = {{ self, nixpkgs }}:
     let
-      pkgs    = nixpkgs.legacyPackages.x86_64-linux;
+      lib     = nixpkgs.lib;
       version = "{version}";
       base    = "{base}";
-    in {{
-      packages.x86_64-linux.default = pkgs.stdenv.mkDerivation {{
-        pname   = "weaveback";
-        inherit version;
-        src     = pkgs.fetchurl {{ url = "${{base}}/weaveback-musl"; sha256 = "{sri_weaveback}"; }};
-        dontUnpack   = true;
-        installPhase = "install -Dm755 $src $out/bin/weaveback";
+
+      # Pre-built musl binaries are x86_64-linux only.
+      # The devShell works on all common systems.
+      devSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forEachDevSystem = f: lib.genAttrs devSystems (s: f nixpkgs.legacyPackages.${{s}});
+
+      linuxPkgs = nixpkgs.legacyPackages.x86_64-linux;
+
+      releaseBin = {{ pname, sha256 }}: linuxPkgs.stdenv.mkDerivation {{
+        inherit pname version;
+        src        = linuxPkgs.fetchurl {{ url = "${{base}}/${{pname}}-musl"; inherit sha256; }};
+        dontUnpack = true;
+        installPhase = "install -Dm755 $src $out/bin/${{pname}}";
       }};
+
+    in {{
+
+      packages.x86_64-linux = {{
+        default          = releaseBin {{ pname = "weaveback";         sha256 = "{sri['weaveback-musl']}"; }};
+        weaveback-macro  = releaseBin {{ pname = "weaveback-macro";   sha256 = "{sri['weaveback-macro-musl']}"; }};
+        weaveback-tangle = releaseBin {{ pname = "weaveback-tangle";  sha256 = "{sri['weaveback-tangle-musl']}"; }};
+        weaveback-docgen = releaseBin {{ pname = "weaveback-docgen";  sha256 = "{sri['weaveback-docgen-musl']}"; }};
+      }};
+
+      # Full documentation + development toolchain.
+      # Usage: nix develop
+      devShells = forEachDevSystem (pkgs: {{
+        default = pkgs.mkShell {{
+          buildInputs = with pkgs; [
+            just         # task runner
+            asciidoctor  # AsciiDoc -> HTML (includes rouge)
+            plantuml     # UML diagrams; brings JDK for asciidoctor-diagram
+            nodejs       # TypeScript bundle for the serve UI
+            python3      # scripts/tangle.py, gen_docs.py, install.py
+            ruby         # gem install for asciidoctor-diagram
+            git
+          ];
+          shellHook = ''
+            gem install --user-install asciidoctor-diagram 2>/dev/null || true
+            gem_bin=$(ruby -e 'print Gem.user_bin_dir' 2>/dev/null)
+            case ":$PATH:" in
+              *":$gem_bin:"*) ;;
+              *) export PATH="$PATH:$gem_bin" ;;
+            esac
+            echo ""
+            echo "weaveback dev shell — available recipes:"
+            echo "  just tangle     regenerate source files from .adoc"
+            echo "  just docs       render HTML documentation"
+            echo "  just serve      live-reload server with inline editor"
+            echo "  just test       run all tests"
+            echo ""
+          '';
+        }};
+      }});
     }};
 }}
 """
@@ -242,13 +294,13 @@ def main() -> None:
     release = wait_for_release(version, token)
     assets  = fetch_assets(release, token)
 
-    tarball   = assets["weaveback-x86_64-linux.tar.gz"]
-    weaveback_bin = assets["weaveback-musl"]
+    tarball = assets["weaveback-x86_64-linux.tar.gz"]
+    sri     = {name: sha256_sri(data) for name, data in assets.items() if name != "weaveback-x86_64-linux.tar.gz"}
 
     (aur_dir / "PKGBUILD").write_text(pkgbuild(version, sha256_hex(tarball)))
     print("  Written aur-weaveback-bin/PKGBUILD")
 
-    (REPO_ROOT / "flake.nix").write_text(flake(version, sha256_sri(weaveback_bin)))
+    (REPO_ROOT / "flake.nix").write_text(flake(version, sri))
     print("  Written flake.nix")
 
     if args.dry_run:

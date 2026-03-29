@@ -172,16 +172,24 @@ image::docs/ai-panel.png[AI assistant panel,width=700]
 
 == Install
 
+*Installer script* (Linux, macOS, Windows — handles binary + asciidoctor + rouge):
+
+[source,sh]
+----
+python3 scripts/install.py             # core
+python3 scripts/install.py --diagrams  # + PlantUML support
+----
+
 *Arch Linux:* `paru -S weaveback-bin`
 
 *Nix:* `nix profile install github:giannifer7/weaveback`
 
-*Quick (musl, any Linux):*
+*Quick binary only (musl, any Linux):*
 
 [source,sh]
 ----
 curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
-     -o /usr/local/bin/weaveback && chmod +x /usr/local/bin/weaveback
+     -o ~/.local/bin/weaveback && chmod +x ~/.local/bin/weaveback
 ----
 
 → link:docs/install.adoc[Full installation guide]

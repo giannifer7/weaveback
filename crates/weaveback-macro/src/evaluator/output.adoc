@@ -353,6 +353,35 @@ impl EvalOutput for TracingOutput {
 }
 // @
 ----
+[NOTE]
+====
+## `TracingOutput` — what it does and why
+
+`TracingOutput` is an output sink for the macro evaluator that records **which source location produced each line of output**. It implements `EvalOutput` and accumulates text while building a parallel `line_spans: Vec<Option<SourceSpan>>` — one entry per completed (`\n`-terminated) output line.
+
+### Core design decisions
+
+**One span per line, not per token.**
+The comment says it directly: allocations are proportional to *line count*, not *token count*. A macro expansion can call `push_str` many times per output line (once per token, variable interpolation, etc.). Recording every push would be expensive and mostly redundant for the apply-back use case, which only needs to know *which source line* a given output line came from.
+
+**First-span-wins per line.**
+`push_str` only sets `current_line_span` when it's `None`. The first tracked push on a new output line claims the attribution for that line. Later pushes on the same line are ignored for span purposes. This is conservative but correct: the first token on a line is usually the one that "owns" it semantically.
+
+**Tracked vs. untracked pushes.**
+- `push_str` — carries a `SourceSpan`, used for macro-defined text (e.g. `%def` bodies, variable substitutions with known origin).
+- `push_untracked` — no span; used for Rhai results and builtins whose output can't be attributed to a single source location. It still advances the line counter by scanning for `\n` bytes, keeping `line_spans` in sync with the actual output.
+
+**Multi-line literal propagation.**
+When a single `push_str` call contains multiple `\n` bytes (a multi-line string literal), the span is propagated to intermediate lines — but *not* to the line following the final `\n`. That trailing line starts fresh (`current_line_span = None`) so the next `push_str` call takes attribution normally. Without this, every line after a multi-line literal would be incorrectly attributed to wherever that literal came from.
+
+**`finish()` discards the span data.**
+`finish(self) -> String` returns just the buffer. The caller is expected to have already consumed `line_spans` (via `into_macro_map_entries` or equivalent) before calling `finish`. The span bookkeeping is a write-time concern; the final string is all downstream consumers need.
+
+### Why this matters in context
+
+`TracingOutput` feeds the `macro_map` redb table — the source-map layer above the noweb-level `noweb_map`. Together they let the apply-back tool trace a line in a generated file back through tangle (noweb expansion) and then through macro expansion to the original `.adoc` source, enabling bidirectional sync.
+====
+
 
 == `MacroMapEntry` — database record
 

@@ -1,68 +1,178 @@
 = Installing weaveback
+:toc: left
 
-== Arch Linux
+weaveback has two layers of dependencies:
 
-[source,bash]
+* *Core binary* — the `weaveback` executable (Rust, self-contained).
+* *Documentation toolchain* — asciidoctor + rouge for HTML output;
+  optionally asciidoctor-diagram + JDK for PlantUML diagrams.
+  Only needed if you use `weaveback serve` or generate HTML docs.
+
+The installer script handles both layers on all platforms.
+
+== Installer script (recommended)
+
+Python 3 is required.  It is available on every supported platform.
+
+[source,sh]
 ----
-paru -S weaveback-bin   # or: yay -S weaveback-bin
-----
-
-== Nix
-
-[source,bash]
-----
-nix profile install github:giannifer7/weaveback
-----
-
-Or in a flake input:
-
-[source,nix]
-----
-inputs.weaveback.url = "github:giannifer7/weaveback";
-environment.systemPackages = [ inputs.weaveback.packages.x86_64-linux.default ];
+# Clone or download the repo, then:
+python3 scripts/install.py
 ----
 
-== Pre-built binaries
+With PlantUML support:
 
-Download from the https://github.com/giannifer7/weaveback/releases/latest[latest release]:
+[source,sh]
+----
+python3 scripts/install.py --diagrams
+----
+
+Build from source instead of downloading a release binary:
+
+[source,sh]
+----
+python3 scripts/install.py --source
+----
+
+Full options:
+
+----
+  --diagrams          Install JDK and asciidoctor-diagram (PlantUML)
+  --source            Build from source (requires cargo / Rust toolchain)
+  --prefix DIR        Install binary to DIR
+                        default: ~/.local/bin          (Linux/macOS)
+                                 %LOCALAPPDATA%\Programs\weaveback  (Windows)
+  --version VER       Pin to a specific release, e.g. v0.4.1
+  --gems-only         Re-install Ruby gems only (binary already installed)
+----
+
+The script detects your package manager (paru/yay, apt, dnf, brew, winget,
+choco, scoop), installs system packages (Ruby, JDK), downloads the right
+binary from GitHub releases, and runs `gem install`.
+
+On Arch Linux it installs the binary via `paru -S weaveback-bin` instead of
+downloading a tarball.
+
+== Manual installation
+
+=== Arch Linux
+
+[source,sh]
+----
+paru -S weaveback-bin       # or: yay -S weaveback-bin
+sudo pacman -S ruby
+gem install --user-install asciidoctor rouge
+# with diagrams:
+sudo pacman -S jdk-openjdk
+gem install --user-install asciidoctor-diagram
+----
+
+=== Debian / Ubuntu
+
+[source,sh]
+----
+# Download the .deb from https://github.com/giannifer7/weaveback/releases/latest
+sudo apt install ./weaveback_*.deb
+sudo apt install ruby-full
+gem install --user-install asciidoctor rouge
+# with diagrams:
+sudo apt install default-jdk-headless
+gem install --user-install asciidoctor-diagram
+----
+
+=== Fedora / RHEL
+
+[source,sh]
+----
+sudo dnf install ./weaveback-*.rpm
+sudo dnf install ruby ruby-devel
+gem install --user-install asciidoctor rouge
+# with diagrams:
+sudo dnf install java-latest-openjdk-headless
+gem install --user-install asciidoctor-diagram
+----
+
+=== macOS
+
+No pre-built macOS binary is provided yet.  Build from source:
+
+[source,sh]
+----
+brew install ruby openjdk          # openjdk only needed for --diagrams
+cargo install --path crates/weaveback
+gem install asciidoctor rouge
+# with diagrams:
+gem install asciidoctor-diagram
+----
+
+=== Windows
+
+Download `weaveback.exe` from the
+https://github.com/giannifer7/weaveback/releases/latest[latest release]
+and place it somewhere on your `%PATH%`, or use the installer script which
+handles this automatically via winreg.
+
+[source,cmd]
+----
+winget install RubyInstallerTeam.Ruby.3.3
+gem install asciidoctor rouge
+rem with diagrams:
+winget install Microsoft.OpenJDK.21
+gem install asciidoctor-diagram
+----
+
+=== Any Linux (musl, no package manager)
+
+Quick one-liner for the binary only:
+
+[source,sh]
+----
+curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
+     -o ~/.local/bin/weaveback && chmod +x ~/.local/bin/weaveback
+----
+
+Then install Ruby and gems separately.
+
+== Pre-built binary reference
 
 [cols="2,2,3",options="header"]
 |===
 | File | Platform | Notes
 
 | `weaveback-x86_64-linux.tar.gz` | Linux x86_64 | glibc — tarball with all three binaries
-| `weaveback-glibc` / `weaveback-macro-glibc` / `weaveback-tangle-glibc` | Linux x86_64 | glibc, individual binaries
-| `weaveback-musl` / `weaveback-macro-musl` / `weaveback-tangle-musl` | Linux x86_64 | musl (fully static)
-| `weaveback-fedora` / `weaveback-macro-fedora` / `weaveback-tangle-fedora` | Fedora/RHEL |
-| `*.deb` | Debian/Ubuntu | `sudo dpkg -i`
-| `*.rpm` | Fedora/RHEL | `sudo rpm -i`
-| `weaveback.exe` / `weaveback-macro.exe` / `weaveback-tangle.exe` | Windows x86_64 | native build
-| `weaveback-mingw64.exe` / ... | Windows x86_64 | MinGW cross-compiled
+| `weaveback-glibc` | Linux x86_64 | glibc, single binary
+| `weaveback-musl`  | Linux x86_64 | musl (fully static, works on any Linux)
+| `weaveback-fedora` | Fedora/RHEL |
+| `*.deb` | Debian/Ubuntu |
+| `*.rpm` | Fedora/RHEL |
+| `weaveback.exe` | Windows x86_64 | native MSVC build
+| `weaveback-mingw64.exe` | Windows x86_64 | MinGW cross-compiled
 |===
 
-=== musl vs glibc
-
-The musl builds are fully statically linked — no shared library dependencies.
-Use them on any Linux distro regardless of glibc version (old RHEL/CentOS,
-Alpine, containers).
-
-The glibc builds are dynamically linked and are the better choice on standard
-Debian/Ubuntu/Fedora systems where glibc's runtime is already present.
-
-=== Quick install (musl, no package manager)
-
-[source,bash]
-----
-curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
-     -o /usr/local/bin/weaveback && chmod +x /usr/local/bin/weaveback
-----
+The musl builds are fully statically linked — use them on old distros,
+Alpine, or containers where glibc version is uncertain.
 
 == Build from source
 
-[source,bash]
+[source,sh]
 ----
 git clone https://github.com/giannifer7/weaveback
 cd weaveback
 cargo build --release
-# binaries: target/release/weaveback  target/release/weaveback-macro  target/release/weaveback-tangle
+# binary: target/release/weaveback
+----
+
+== Nix
+
+[source,sh]
+----
+nix profile install github:giannifer7/weaveback
+----
+
+Or in a flake:
+
+[source,nix]
+----
+inputs.weaveback.url = "github:giannifer7/weaveback";
+environment.systemPackages = [ inputs.weaveback.packages.x86_64-linux.default ];
 ----

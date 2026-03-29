@@ -258,13 +258,20 @@ impl SafeFileWriter {
         }
 
         // Step 2: content-based modification detection.
+        // When a stored baseline exists, compare the on-disk file against it:
+        // any difference means the file was hand-edited since the last tangle.
+        // When no baseline exists (fresh checkout or reset db), compare against
+        // what tangle is about to write: in a consistent literate project the
+        // committed generated file should match the committed .adoc, so any
+        // difference still indicates a hand-edit.
         if output_file.is_file() {
-            let baseline = self.db.get_baseline(&key)?;
-            if let Some(baseline_bytes) = baseline {
-                let current = fs::read(&output_file)?;
-                if current != baseline_bytes {
-                    return Err(SafeWriterError::ModifiedExternally(output_file));
-                }
+            let current = fs::read(&output_file)?;
+            let reference = match self.db.get_baseline(&key)? {
+                Some(b) => b,
+                None => fs::read(&tmp_path)?,
+            };
+            if current != reference {
+                return Err(SafeWriterError::ModifiedExternally(output_file));
             }
         }
 

@@ -6,7 +6,7 @@
   outputs = { self, nixpkgs }:
     let
       lib     = nixpkgs.lib;
-      version = "0.5.0";
+      version = "0.6.0";
       base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
 
       # Pre-built musl binaries are x86_64-linux only.
@@ -26,10 +26,10 @@
     in {
 
       packages.x86_64-linux = {
-        default          = releaseBin { pname = "weaveback";         sha256 = "sha256-bRpTc/xAOM1bhmsLiwse2Fllg/oR23SGhiGwYeipmtQ="; };
-        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-R4lqdcpaEcvXygfwiAkt394ktK2v6mcsjToor+Z3mx8="; };
-        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-tATW35dobRLjiAB2kEJxTCQXwl74BWQ0Qvu6qgAHn18="; };
-        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-g+Q6M9URCc8Za/I6yEl8RszV1AiuIMHkyrpP7A+pvio="; };
+        default          = releaseBin { pname = "weaveback";         sha256 = "sha256-SfrpWOAopyDLsVVXl1T1nOvxsOTmTGWG6+VJKpa/dXE="; };
+        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-E/atGzjBiOVQtnYLuAkRPQa9549ibpV4rHxZROzm0F8="; };
+        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-dsgV7o8mXgmm3e5aUrq/LnRYXrEghkO0iCK2cEOBrMc="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-OwbryF2VBBn+oKr5YNOSsxEN040SxUrU8cUB5vB3AXM="; };
       };
 
       # Full documentation + development toolchain.

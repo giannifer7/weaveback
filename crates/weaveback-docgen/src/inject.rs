@@ -143,11 +143,9 @@ fn do_inject(html_file: &Path, entry: &XrefEntry, existing_html: &HashSet<String
     let patched = content.replacen("</head>", &format!("{}</head>", tag), 1);
     let _ = std::fs::write(html_file, patched);
 }
-
 fn chunk_open_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        // Matches HTML-encoded chunk-open markers in both <[name]>= and <<name>>= styles.
         Regex::new(r"&lt;(?:\[([^\]]+)\]&gt;|&lt;([^&<>]+)&gt;&gt;)=").unwrap()
     })
 }
@@ -160,7 +158,6 @@ fn chunk_id_strip_re() -> &'static Regex {
 }
 
 fn annotate_chunk_ids(html: &str, adoc_file: &str, re: &Regex) -> String {
-    // Strip stale chunk-id attrs first (idempotency).
     let html_cow = chunk_id_strip_re().replace_all(html, "");
     let html: &str = html_cow.as_ref();
 
@@ -184,7 +181,6 @@ fn annotate_chunk_ids(html: &str, adoc_file: &str, re: &Regex) -> String {
             let search_zone = &code_content[..end];
             let cap = re.captures(search_zone)?;
             let raw = cap.get(1).or_else(|| cap.get(2))?.as_str().trim();
-            // Strip @replace / @reversed modifiers
             let name = raw
                 .strip_prefix("@replace")
                 .map(|s| s.trim_start())

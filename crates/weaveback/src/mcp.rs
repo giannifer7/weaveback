@@ -64,6 +64,24 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             }
                         },
                         {
+                            "name": "weaveback_apply_fix",
+                            "description": "**Preferred tool for all literate-source edits.** Apply a source edit (single line or multi-line range) and oracle-verify it produces the expected output before writing. Workflow: (1) use weaveback_trace to find src_file/src_line, (2) read the source, (3) call this tool with the replacement and the expected output line. The macro expander re-runs as an oracle — the file is written only if the expected output is produced, making the edit safe to apply without a full rebuild. Use apply_back only when you have already edited gen/ files directly and need to reconcile the baseline.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "src_file":        { "type": "string",  "description": "Absolute path of the literate source file to edit" },
+                                    "src_line":        { "type": "integer", "description": "1-indexed first line to replace in src_file" },
+                                    "src_line_end":    { "type": "integer", "description": "1-indexed last line of the replacement range (inclusive, defaults to src_line for single-line edits)" },
+                                    "new_src_line":    { "type": "string",  "description": "Replacement text when replacing a single line (without trailing newline)" },
+                                    "new_src_lines":   { "type": "array", "items": { "type": "string" }, "description": "Replacement lines for multi-line edits (each element is one line without trailing newline); overrides new_src_line when present" },
+                                    "out_file":        { "type": "string",  "description": "Generated file path (used for oracle lookup)" },
+                                    "out_line":        { "type": "integer", "description": "1-indexed line in the generated file (oracle check point)" },
+                                    "expected_output": { "type": "string",  "description": "The exact content of out_line expected after the fix (indent-stripped); oracle rejects the edit if this does not match" }
+                                },
+                                "required": ["src_file", "src_line", "out_file", "out_line", "expected_output"]
+                            }
+                        },
+                        {
                             "name": "weaveback_chunk_context",
                             "description": "Return full context for a named noweb chunk: its body, the AsciiDoc section title breadcrumb, the full prose of the enclosing section (paragraphs, admonitions, design notes), bodies of all direct dependencies, reverse-dep names, output files, and recent git log entries. Use this before editing or reasoning about a chunk.",
                             "inputSchema": {
@@ -96,24 +114,6 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     "name": { "type": "string", "description": "Chunk name to look up" }
                                 },
                                 "required": ["name"]
-                            }
-                        },
-                        {
-                            "name": "weaveback_apply_fix",
-                            "description": "**Preferred tool for all literate-source edits.** Apply a source edit (single line or multi-line range) and oracle-verify it produces the expected output before writing. Workflow: (1) use weaveback_trace to find src_file/src_line, (2) read the source, (3) call this tool with the replacement and the expected output line. The macro expander re-runs as an oracle — the file is written only if the expected output is produced, making the edit safe to apply without a full rebuild. Use apply_back only when you have already edited gen/ files directly and need to reconcile the baseline.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "src_file":        { "type": "string",  "description": "Absolute path of the literate source file to edit" },
-                                    "src_line":        { "type": "integer", "description": "1-indexed first line to replace in src_file" },
-                                    "src_line_end":    { "type": "integer", "description": "1-indexed last line of the replacement range (inclusive, defaults to src_line for single-line edits)" },
-                                    "new_src_line":    { "type": "string",  "description": "Replacement text when replacing a single line (without trailing newline)" },
-                                    "new_src_lines":   { "type": "array", "items": { "type": "string" }, "description": "Replacement lines for multi-line edits (each element is one line without trailing newline); overrides new_src_line when present" },
-                                    "out_file":        { "type": "string",  "description": "Generated file path (used for oracle lookup)" },
-                                    "out_line":        { "type": "integer", "description": "1-indexed line in the generated file (oracle check point)" },
-                                    "expected_output": { "type": "string",  "description": "The exact content of out_line expected after the fix (indent-stripped); oracle rejects the edit if this does not match" }
-                                },
-                                "required": ["src_file", "src_line", "out_file", "out_line", "expected_output"]
                             }
                         }
                     ]

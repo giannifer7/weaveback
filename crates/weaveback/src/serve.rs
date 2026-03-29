@@ -478,6 +478,8 @@ use std::process::Stdio;
 
 // ── AsciiDoc source helpers ───────────────────────────────────────────────────
 
+/// Return the heading depth if `line` is an AsciiDoc `=`-style heading
+/// (1 = `=`, 2 = `==`, …), otherwise `None`.
 pub(crate) fn heading_level(line: &str) -> Option<usize> {
     let t = line.trim_end();
     if t.is_empty() { return None; }
@@ -489,6 +491,10 @@ pub(crate) fn heading_level(line: &str) -> Option<usize> {
     }
 }
 
+/// Find the `(start, end)` line range (0-based, end exclusive) of the AsciiDoc
+/// section that contains line `def_start`.  The section starts at the nearest
+/// heading above `def_start` and ends just before the next heading at the same
+/// or shallower nesting level.
 pub(crate) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
     let mut sec_start = 0usize;
     let mut sec_level = 1usize;
@@ -509,6 +515,9 @@ pub(crate) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) 
     (sec_start, sec_end)
 }
 
+/// Build the heading breadcrumb trail leading to `def_start`.
+/// Returns titles from outermost to innermost, e.g.
+/// `["Module overview", "Parsing", "Error recovery"]`.
 pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     let mut chain: Vec<(usize, String)> = Vec::new();
     for line in lines.iter().take(def_start) {
@@ -521,6 +530,10 @@ pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     chain.into_iter().map(|(_, t)| t).collect()
 }
 
+/// Extract all prose lines from `lines[start..end]`, skipping content inside
+/// `----` listing-block fences.  The result is the human-written narrative
+/// of the section — headings, paragraphs, admonitions, lists — without any
+/// code.
 pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;
@@ -529,11 +542,14 @@ pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String 
         if l.trim() == "----" { in_fence = !in_fence; continue; }
         if !in_fence { out.push(l); }
     }
+    // Trim leading/trailing blank lines.
     while out.first().map(|l| l.trim().is_empty()).unwrap_or(false) { out.remove(0); }
     while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) { out.pop(); }
     out.join("\n")
 }
 
+/// Return the body text of each direct dependency of `chunk_name`.
+/// Keys are chunk names; values are `{ "file": "…", "body": "…" }`.
 pub(crate) fn dep_bodies(
     db: &weaveback_tangle::WeavebackDb,
     project_root: &Path,
@@ -559,11 +575,15 @@ pub(crate) fn dep_bodies(
         } else {
             String::new()
         };
-        map.insert(dep_name.clone(), serde_json::json!({ "file": def.src_file, "body": body }));
+        map.insert(dep_name.clone(), serde_json::json!({
+            "file": def.src_file,
+            "body": body,
+        }));
     }
     map
 }
 
+/// Return recent `git log --oneline` entries for `src_file`.
 pub(crate) fn git_log_for_file(project_root: &Path, src_file: &str) -> Vec<String> {
     let root = project_root.to_string_lossy();
     match std::process::Command::new("git")
@@ -602,22 +622,27 @@ pub(crate) fn build_chunk_context(
     let def_start = entry.def_start as usize;
     let def_end   = entry.def_end   as usize;
 
+    // Chunk body (lines between the open and close markers).
     let body = if def_start < src_lines.len() && def_end <= src_lines.len() && def_end > 0 {
         src_lines[def_start..def_end - 1].join("\n")
     } else {
         String::new()
     };
 
+    // Section context: title breadcrumb + full prose of the enclosing section.
     let chain  = title_chain(&src_lines, def_start);
     let (sec_start, sec_end) = section_range(&src_lines, def_start);
     let section_prose = extract_prose(&src_lines, sec_start, sec_end);
 
+    // Dependency graph.
     let raw_deps: Vec<(String, String)> = db.query_chunk_deps(name).unwrap_or_default();
     let dep_map = dep_bodies(&db, project_root, &raw_deps);
     let rev_deps: Vec<String> = db.query_reverse_deps(name)
         .unwrap_or_default()
         .into_iter().map(|(from, _)| from).collect();
     let output_files: Vec<String> = db.query_chunk_output_files(name).unwrap_or_default();
+
+    // Recent git history for this source file.
     let log = git_log_for_file(project_root, file);
 
     serde_json::json!({
@@ -675,11 +700,17 @@ fn sse_headers() -> Vec<Header> {
     ]
 }
 
-/// Call `claude -p --output-format stream-json` as a subprocess.
+/// Call `claude -p --output-format stream-json --verbose` as a subprocess.
 ///
 /// Uses the existing Claude Code session credentials — no API key needed.
 /// The system context is appended to the default Claude Code system prompt via
 /// `--append-system-prompt`.  `user_content` is passed as the `-p` argument.
+///
+/// The `stream-json --verbose` format emits one JSON object per line.
+/// We handle two event types:
+/// * `type == "assistant"` — message with `message.content[].text` fields;
+///   send each text chunk as a token event.
+/// * `type == "result"` — final summary; stop reading.
 fn call_claude_cli(
     system_prompt: String,
     user_content: String,
@@ -723,6 +754,7 @@ fn call_claude_cli(
             Err(_) => continue,
         };
         if v["type"] == "assistant" {
+            // Content is an array of blocks; we want text blocks.
             if let Some(content) = v["message"]["content"].as_array() {
                 for block in content {
                     if block["type"] == "text"
@@ -927,6 +959,8 @@ fn handle_save_note(mut request: Request, project_root: &Path) {
     };
 
     let lines: Vec<&str> = src_text.lines().collect();
+    // def_end is 1-indexed; lines[def_end - 1] = chunk end marker.
+    // lines[def_end] (0-indexed) should be the closing "----" fence.
     let def_end_0 = entry.def_end as usize;
     let insert_after = if def_end_0 < lines.len() && lines[def_end_0].trim() == "----" {
         def_end_0 + 1

@@ -113,10 +113,12 @@ weaveback apply-back --dry-run      # show what would change without writing
 * *Size-preserving edits* (same number of lines changed) — handled line-by-line.
 * *Added or deleted lines* — reported and skipped; edit the literate source
   manually for those.
-* *Macro-generated content* (`%def`, `%rhaidef` bodies) — reported as a
-  conflict and skipped. The source map points through the noweb level only;
-  macro-level back-propagation is handled surgically via `weaveback_apply_fix`
-  in the MCP server (see below).
+* *Macro-generated content* (`%def`, `%rhaidef` bodies) — traced through the
+  two-level source map (noweb_map → macro_map) back to the original definition
+  or call-site argument in the literate source, then patched automatically where
+  unambiguous.  Conflicts (source also changed since last run) are reported for
+  manual resolution.  `weaveback_apply_fix` in the MCP server handles surgical
+  single-line fixes with oracle verification.
 
 After applying, `apply-back` updates the baselines in `weaveback.db` so the next
 `weaveback` run proceeds without a `ModifiedExternally` error.

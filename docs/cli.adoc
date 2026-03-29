@@ -104,9 +104,11 @@ weaveback apply-back --dry-run           # show patches without writing
 weaveback --gen path/to/gen apply-back   # use non-default gen/ directory
 ----
 
-Lines that cannot be automatically patched (deleted/inserted lines,
-macro-generated content) are reported and skipped — edit those in the literate
-source manually.
+Lines that cannot be automatically patched (deleted/inserted lines) are
+reported and skipped — edit those in the literate source manually.
+Macro-generated content (`%def`, `%rhaidef` bodies) is traced back through
+the two-level source map to the original definition or call-site argument
+and patched automatically where unambiguous.
 
 '''
 

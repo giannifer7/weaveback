@@ -84,10 +84,10 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle]
 | Noweb chunk extractor, safe file writer, SQLite source-map database
 
-| `weaveback`
+| link:../crates/weaveback/src/weaveback.adoc[weaveback]
 | Combined binary: macro + tangle in one pass; apply-back, MCP server
 
-| `weaveback-docgen`
+| link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
 |===
 

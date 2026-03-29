@@ -77,13 +77,13 @@ pass and for subcommands that need `--db`, `--gen`, etc.).
 
 `Commands` covers the six named subcommands:
 
-* `trace` — two-level source attribution to the original literate token
-* `where` — noweb-level lookup only (faster, no macro re-evaluation)
-* `mcp` — start the MCP JSON-RPC server
-* `apply-back` — propagate `gen/` edits back to the literate source
-* `impact` — list every chunk and output file transitively affected by a change
-* `graph` — export the chunk-dependency graph as DOT (Graphviz)
-* `serve` — serve `docs/html/` locally with live-reload and "Edit source" navigation
+* link:lookup.adoc#_perform_trace[`trace`] — two-level source attribution to the original literate token
+* link:lookup.adoc#_perform_where[`where`] — noweb-level lookup only (faster, no macro re-evaluation)
+* link:mcp.adoc#_run_mcp[`mcp`] — start the MCP JSON-RPC server
+* link:apply_back.adoc#_entry_point[`apply-back`] — propagate `gen/` edits back to the literate source
+* link:weaveback.adoc#_impact[`impact`] — list every chunk and output file transitively affected by a change
+* link:weaveback.adoc#_graph[`graph`] — export the chunk-dependency graph as DOT (Graphviz)
+* link:serve.adoc#_entry_point[`serve`] — serve `docs/html/` locally with live-reload and "Edit source" navigation
 
 `Args` groups all shared flags.  It is `flatten`-ed into `Cli` so the flags
 appear at the top level when no subcommand is given.

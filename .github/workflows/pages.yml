@@ -55,6 +55,11 @@ jobs:
           DIAGRAM_PLANTUML_CLASSPATH: /opt/plantuml/plantuml.jar
         run: cargo run --release --package weaveback-docgen
 
+      - name: Copy static assets
+        run: |
+          mkdir -p docs/html/docs
+          cp docs/ai-panel.png docs/html/docs/ai-panel.png
+
       - name: Create root index
         run: cp docs/html/README.html docs/html/index.html
 

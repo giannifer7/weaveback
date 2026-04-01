@@ -115,7 +115,7 @@ rpm:
 
 # Bump Cargo.toml version first, then: just tag
 # Commits Cargo.lock, tags, waits for CI, writes PKGBUILD to aur-weaveback-bin/, updates flake.nix
-tag:
+tag: lint
     python packaging/update_release.py --tag
 
 # Re-tag HEAD (same version, re-triggers CI) then publish

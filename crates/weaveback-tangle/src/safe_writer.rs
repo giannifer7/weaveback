@@ -179,7 +179,7 @@ impl SafeFileWriter {
             let mut result = Vec::with_capacity(content.len());
             for line in text.lines() {
                 result.extend_from_slice(
-                    line.trim_end_matches(|c| c == ' ' || c == '\t' || c == '\r').as_bytes()
+                    line.trim_end_matches([' ', '\t', '\r']).as_bytes()
                 );
                 result.push(b'\n');
             }

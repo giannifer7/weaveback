@@ -172,6 +172,24 @@ impl SafeFileWriter {
         }
         Ok(())
     }
+
+    fn trim_trailing_whitespace(&self, path: &Path) -> io::Result<()> {
+        let content = fs::read(path)?;
+        if let Ok(text) = std::str::from_utf8(&content) {
+            let mut result = Vec::with_capacity(content.len());
+            for line in text.lines() {
+                result.extend_from_slice(
+                    line.trim_end_matches(|c| c == ' ' || c == '\t' || c == '\r').as_bytes()
+                );
+                result.push(b'\n');
+            }
+            if result.len() == 1 && result[0] == b'\n' && content.is_empty() {
+                result.clear();
+            }
+            fs::write(path, result)?;
+        }
+        Ok(())
+    }
 }
 impl SafeFileWriter {
     pub fn before_write<P: AsRef<Path>>(
@@ -219,6 +237,8 @@ impl SafeFileWriter {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
+
+        let mut formatted = false;
         if let Some(cmd) = self.config.formatters.get(ext).cloned() {
             let pre_size = fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
             self.run_formatter(&cmd, &tmp_path)?;
@@ -230,6 +250,11 @@ impl SafeFileWriter {
                     )));
                 }
             }
+            formatted = true;
+        }
+
+        if !formatted {
+            self.trim_trailing_whitespace(&tmp_path)?;
         }
 
         // Step 2: content-based modification detection.

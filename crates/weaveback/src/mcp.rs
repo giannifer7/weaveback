@@ -399,7 +399,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 if let Ok(target_path) = loc.uri.to_file_path() {
                                     let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
                                     let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
-                                    
+
                                     match lookup::perform_trace(
                                         target_path.to_string_lossy().as_ref(),
                                         loc.range.start.line + 1,
@@ -502,10 +502,10 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             Ok(Some(hover)) => {
                                 let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
                                 let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
-                                
+
                                 // Also trace the current point to show which chunk we are in
                                 let trace = lookup::perform_trace(out_file, line, col, &db, &resolver, eval_config.clone()).ok().flatten();
-                                
+
                                 let mut res = json!({
                                     "hover": hover,
                                 });
@@ -647,7 +647,7 @@ fn apply_fix(
 
     // Oracle: re-evaluate and check expanded line.
     let oracle_path = std::path::Path::new(src_file).with_file_name("<oracle>");
-    
+
     // Retrieve configuration used when this file was tangled.
     let mut oracle_config = eval_config.clone();
     if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(db, src_file) {

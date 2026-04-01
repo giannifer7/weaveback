@@ -68,7 +68,7 @@ noweb FILE:
 
 # Regenerate the c_enum example
 example-c-enum:
-    cd examples/c_enum && cargo run --package weaveback -- status.md --gen .
+    cd examples/c_enum && cargo run --package weaveback -- status.adoc --gen .
 
 # Regenerate the events fan-out example
 example-events:
@@ -82,6 +82,10 @@ example-nim-adoc:
 # Remove build intermediates from nim-adoc; keep gen/ and docs/html/ for commit
 example-nim-adoc-clean:
     rm -rf examples/nim-adoc/build examples/nim-adoc/weaveback.db
+
+# Render the examples index page to HTML
+examples-index:
+    cd examples && asciidoctor -a docinfo=shared -a docinfodir=../scripts/asciidoc-theme -D . index.adoc
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 

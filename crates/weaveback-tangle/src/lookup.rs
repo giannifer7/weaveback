@@ -46,7 +46,7 @@ pub fn find_best_source_config(
     }
 
     // Try 2: If it starts with ./, try without it.
-    if let Some(stripped) = src_file.strip_prefix("./") 
+    if let Some(stripped) = src_file.strip_prefix("./")
         && let Some(cfg) = db.get_source_config(stripped)? {
         return Ok(Some(cfg));
     }

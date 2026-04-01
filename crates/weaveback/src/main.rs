@@ -85,6 +85,7 @@ enum Commands {
         cmd: LspCommands,
     },
     /// Serve docs/html/ locally with live reload and "Edit source" navigation
+    #[cfg(feature = "server")]
     Serve {
         /// TCP port to listen on
         #[arg(long, default_value = "7779")]
@@ -383,7 +384,7 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 1: process each driver and feed result to noweb.
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
-        
+
         // Record the configuration used for this source file.
         let tangle_cfg = weaveback_tangle::db::TangleConfig {
             special_char: args.special,
@@ -459,6 +460,11 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 4: merge temp db into the db file.
     clip.finish(&args.db)?;
 
+    // Persist gen_dir so that apply-back can find generated files without --gen.
+    if let Ok(db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
+        let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
+    }
+
     // Write depfile if requested.
     if let Some(ref depfile_path) = args.depfile {
         let deps: Vec<PathBuf> = if args.directory.is_some() {
@@ -527,6 +533,7 @@ fn main() {
             let eval_config = build_eval_config(&cli.args);
             run_lsp(cmd, cli.args.db, cli.args.gen_dir, eval_config, lsp_cmd, lsp_lang)
         }
+        #[cfg(feature = "server")]
         Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint }) => {
             let backend = match ai_backend.as_str() {
                 "anthropic" => serve::AiBackend::Anthropic,
@@ -710,7 +717,7 @@ fn run_lsp(
         LspCommands::References { out_file, .. } => out_file,
     };
     let ext = Path::new(sample_file).extension().and_then(|e| e.to_str()).unwrap_or("");
-    
+
     let (lsp_cmd, lsp_lang) = match (override_cmd, override_lang) {
         (Some(c), Some(l)) => (c, l),
         (c, l) => {
@@ -730,7 +737,7 @@ fn run_lsp(
         LspCommands::Definition { out_file, line, col } => {
             let path = Path::new(&out_file).canonicalize()
                 .map_err(|e| Error::Io(std::io::Error::other(format!("invalid file path '{}': {e}", out_file))))?;
-            
+
             client.did_open(&path)
                 .map_err(|e| Error::Io(std::io::Error::other(format!("LSP didOpen failed: {e}"))))?;
 
@@ -770,7 +777,7 @@ fn run_lsp(
         LspCommands::References { out_file, line, col } => {
             let path = Path::new(&out_file).canonicalize()
                 .map_err(|e| Error::Io(std::io::Error::other(format!("invalid file path '{}': {e}", out_file))))?;
-            
+
             client.did_open(&path)
                 .map_err(|e| Error::Io(std::io::Error::other(format!("LSP didOpen failed: {e}"))))?;
 

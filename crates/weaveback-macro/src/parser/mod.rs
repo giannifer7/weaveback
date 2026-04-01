@@ -155,7 +155,7 @@ impl Parser {
             stack: Vec::new(),
         }
     }
-    
+
     fn create_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
         let node = ParseNode {
             kind,
@@ -167,13 +167,13 @@ impl Parser {
         self.nodes.push(node);
         self.nodes.len() - 1
     }
-    
+
     fn add_child(&mut self, parent_idx: usize, child_idx: usize) {
         if let Some(parent) = self.nodes.get_mut(parent_idx) {
             parent.parts.push(child_idx);
         }
     }
-    
+
     fn create_add_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
         let new_idx = self.create_node(kind, src, token);
         // Attach it to the node on top of the stack
@@ -182,14 +182,14 @@ impl Parser {
         }
         new_idx
     }
-    
+
     /// Convenience: `create_add_node` + push a new stack frame in one call.
     fn push_node(&mut self, state: ParserState, kind: NodeKind, src: u32, token: Token) -> usize {
         let idx = self.create_add_node(kind, src, token);
         self.stack.push((state, idx));
         idx
     }
-    
+
     /// Set `end_pos` on the node currently at the top of the stack.
     /// Must be called *before* the corresponding `stack.pop()`.
     /// Returns `Err` rather than panicking so callers can propagate cleanly.
@@ -207,7 +207,7 @@ impl Parser {
             .end_pos = end;
         Ok(())
     }
-    
+
     /// Close all open nodes and clear the stack.  Called on both error and
     /// normal termination paths to keep the tree structurally consistent.
     fn unwind_stack(&mut self, end: usize) {
@@ -322,13 +322,13 @@ impl Parser {
     pub fn parse(&mut self, tokens: &[Token], content: &[u8], line_index: &LineIndex) -> Result<(), ParserError> {
         self.nodes.clear();
         self.stack.clear();
-    
+
         if tokens.is_empty() {
             return Ok(());
         }
-    
+
         let ctx = ParseContext::new(content, line_index);
-    
+
         // Root is a synthetic Block: it has no source token.
         let root_idx = self.create_node(
             NodeKind::Block,
@@ -336,15 +336,15 @@ impl Parser {
             Token::synthetic(tokens[0].src, 0),
         );
         self.stack.push((ParserState::Block { tag_pos: 0, tag_len: 0 }, root_idx));
-    
+
         for token in tokens {
             let token = *token;
-    
+
             // EOF is a structural sentinel, not an AST node.
             if token.kind == TokenKind::EOF {
                 break;
             }
-    
+
             let consumed = match self.stack.last().map(|&(st, _)| st) {
                 Some(ParserState::Block { tag_pos, tag_len }) => {
                     self.handle_block(token, &ctx, tag_pos, tag_len)?
@@ -369,11 +369,11 @@ impl Parser {
                     ));
                 }
             };
-    
+
             if consumed {
                 continue;
             }
-    
+
             // Tokens that open new structure or become leaf nodes.
             match token.kind {
                 TokenKind::BlockOpen => {
@@ -424,9 +424,9 @@ impl Parser {
                 }
             }
         }
-    
+
         let end = tokens.last().map(|t| t.end()).unwrap_or(0);
-    
+
         // Report unclosed non-root structures (stack[0] is always the root block).
         if self.stack.len() > 1 {
             let err = match self.stack.last().map(|&(st, idx)| (st, idx)) {
@@ -454,11 +454,11 @@ impl Parser {
             self.unwind_stack(end);
             return Err(err);
         }
-    
+
         // Normal termination: close the root block.
         self.close_top(end)?;
         self.stack.pop();
-    
+
         Ok(())
     }
     fn parse_token_from_parts(parts: Vec<&str>) -> Result<Token, ParserError> {
@@ -484,7 +484,7 @@ impl Parser {
                 .map_err(|e| ParserError::TokenData(format!("Invalid length: {}", e)))?,
         })
     }
-    
+
     fn parse_tokens<I>(lines: I) -> Result<Vec<Token>, ParserError>
     where
         I: Iterator<Item = Result<String, std::io::Error>>,
@@ -498,13 +498,13 @@ impl Parser {
         }
         Ok(tokens)
     }
-    
+
     pub fn read_tokens(path: &str) -> Result<Vec<Token>, ParserError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         Self::parse_tokens(reader.lines())
     }
-    
+
     pub fn read_tokens_from_stdin() -> Result<Vec<Token>, ParserError> {
         let stdin = io::stdin();
         Self::parse_tokens(stdin.lock().lines())
@@ -513,16 +513,16 @@ impl Parser {
     pub fn get_node(&self, idx: usize) -> Option<&ParseNode> {
         self.nodes.get(idx)
     }
-    
+
     /// Get a mutable reference to a node by index
     pub fn get_node_mut(&mut self, idx: usize) -> Option<&mut ParseNode> {
         self.nodes.get_mut(idx)
     }
-    
+
     pub fn get_node_info(&self, idx: usize) -> Option<(&ParseNode, NodeKind)> {
         self.nodes.get(idx).map(|node| (node, node.kind))
     }
-    
+
     #[cfg(test)]
     pub fn to_json(&self) -> String {
         self.nodes
@@ -531,7 +531,7 @@ impl Parser {
             .collect::<Vec<_>>()
             .join("\n")
     }
-    
+
     /// Get the root node's index (usually 0 if parse succeeded)
     pub fn get_root_index(&self) -> Option<usize> {
         if self.nodes.is_empty() {
@@ -540,36 +540,36 @@ impl Parser {
             Some(0) // The root is always the first node
         }
     }
-    
+
     /// Process AST including space stripping
     pub fn process_ast(&mut self, content: &[u8]) -> Result<ASTNode, String> {
         let root_idx = self
             .get_root_index()
             .ok_or_else(|| "Empty parse tree".to_string())?;
-    
+
         crate::ast::strip_space_before_comments(content, self, root_idx)
             .map_err(|e| e.to_string())?;
-    
+
         crate::ast::build_ast(self).map_err(|e| e.to_string())
     }
-    
+
     /// Direct build without space stripping
     pub fn build_ast(&self) -> Result<ASTNode, String> {
         crate::ast::build_ast(self).map_err(|e| e.to_string())
     }
-    
+
     /// Strip ending spaces from a node's token
     pub fn strip_ending_space(&mut self, content: &[u8], node_idx: usize) -> Result<(), String> {
         let node = self
             .get_node_mut(node_idx)
             .ok_or_else(|| format!("Node index {} not found", node_idx))?;
-    
+
         let start = node.token.pos;
         let end = node.token.pos + node.token.length;
         if start >= content.len() {
             return Ok(());
         }
-    
+
         let mut space_count = 0;
         for c in content[start..end.min(content.len())].iter().rev() {
             if *c == b'\n' || *c == b'\r' || *c == b' ' || *c == b'\t' {
@@ -578,15 +578,15 @@ impl Parser {
                 break;
             }
         }
-    
+
         if space_count > 0 {
             node.token.length = node.token.length.saturating_sub(space_count);
             node.end_pos = node.token.pos + node.token.length;
         }
-    
+
         Ok(())
     }
-    
+
     #[cfg(test)]
     pub fn add_node(&mut self, node: ParseNode) -> usize {
         self.nodes.push(node);

@@ -71,18 +71,18 @@ impl LspClient {
         };
 
         let res = self.call("initialize", params)?;
-        
+
         // Basic capability check - ensure the server can actually do what we need.
-        if let Some(caps) = res.get("capabilities") 
+        if let Some(caps) = res.get("capabilities")
             && caps.get("definitionProvider").is_none() {
             log::warn!("LSP server does not support gotoDefinition");
         }
 
         self.notify("initialized", json!({}))?;
-        
+
         // Give the server some time to index.
         std::thread::sleep(std::time::Duration::from_secs(2));
-        
+
         Ok(())
     }
 
@@ -118,7 +118,7 @@ impl LspClient {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
         let text = std::fs::read_to_string(path)?;
-        
+
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri,
@@ -151,7 +151,7 @@ impl LspClient {
             if let Some(stripped) = line.strip_prefix("Content-Length: ") {
                 let len: usize = stripped.trim().parse()
                     .map_err(|_| LspError::Protocol("invalid content-length".into()))?;
-                
+
                 // Skip the \r\n\r\n
                 let mut junk = String::new();
                 self.reader.read_line(&mut junk)?;
@@ -160,7 +160,7 @@ impl LspClient {
                 self.reader.read_exact(&mut body)?;
                 let resp: Value = serde_json::from_slice(&body)?;
 
-                if let Some(id) = resp.get("id") 
+                if let Some(id) = resp.get("id")
                     && id.as_i64() == Some(expected_id) {
                     if let Some(error) = resp.get("error") {
                         return Err(LspError::Protocol(error.to_string()));
@@ -195,7 +195,7 @@ impl LspClient {
     ) -> Result<Option<Location>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-        
+
         let params = TextDocumentPositionParams {
             text_document: TextDocumentIdentifier::new(uri),
             position: Position::new(line, col),
@@ -223,7 +223,7 @@ impl LspClient {
     ) -> Result<Vec<Location>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-        
+
         let params = ReferenceParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: TextDocumentIdentifier::new(uri),
@@ -251,7 +251,7 @@ impl LspClient {
     ) -> Result<Option<Hover>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-        
+
         let params = TextDocumentPositionParams {
             text_document: TextDocumentIdentifier::new(uri),
             position: Position::new(line, col),
@@ -270,7 +270,7 @@ impl LspClient {
     ) -> Result<Vec<DocumentSymbolResponse>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-        
+
         let params = DocumentSymbolParams {
             text_document: TextDocumentIdentifier::new(uri),
             work_done_progress_params: WorkDoneProgressParams::default(),

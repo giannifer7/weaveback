@@ -4,7 +4,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 
-const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
+const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "asciidoc-parser"];
 
 fn diagram_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();

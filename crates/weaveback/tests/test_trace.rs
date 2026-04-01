@@ -84,7 +84,7 @@ fn trace_json(dir: &Path, out_file: &str, line: u32) -> Value {
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}", 
+        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)))
 }
@@ -387,7 +387,7 @@ fn trace_json_gen(dir: &Path, out_file: &str, line: u32) -> Value {
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}", 
+        .unwrap_or_else(|e| panic!("bad JSON from 'weaveback trace': {e}\nstdout: {}\nstderr: {}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)))
 }
@@ -397,13 +397,13 @@ fn trace_json_gen(dir: &Path, out_file: &str, line: u32) -> Value {
 fn test_trace_path_normalization() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path().canonicalize().unwrap();
-    
+
     // Create a "crates" subdirectory to mimic the workspace layout.
     let crates_dir = root.join("crates");
     fs::create_dir_all(&crates_dir).unwrap();
-    
+
     write(&crates_dir, "foo.md", "# <[@file out.txt]>=\nHello path normalization\n# @\n");
-    
+
     weaveback()
         .arg("--dir").arg("crates")
         .arg("--gen").arg("gen")
@@ -423,10 +423,10 @@ fn test_trace_path_normalization() {
 fn test_apply_back_config_recording() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path().canonicalize().unwrap();
-    
+
     // Use a non-standard special char '^'
     write(&root, "source.md", "^def(val, hello)\n# <[@file out.txt]>=\n^val()\n# @\n");
-    
+
     weaveback()
         .arg("--special").arg("^")
         .arg("--gen").arg("gen")
@@ -446,9 +446,9 @@ fn test_apply_back_config_recording() {
         .current_dir(&root)
         .output()
         .unwrap();
-    
+
     if !out.status.success() {
-        panic!("apply-back failed: {}\nstdout: {}\nstderr: {}", 
+        panic!("apply-back failed: {}\nstdout: {}\nstderr: {}",
             out.status,
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr));

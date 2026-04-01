@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS noweb_map (
     indent     TEXT    NOT NULL,
     confidence TEXT    NOT NULL DEFAULT 'exact',
     PRIMARY KEY (out_file, out_line)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS macro_map (
     driver_file   TEXT    NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS var_defs (
     pos      INTEGER NOT NULL,
     length   INTEGER NOT NULL,
     PRIMARY KEY (var_name, src_file, pos)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS macro_defs (
     macro_name TEXT    NOT NULL,
@@ -44,14 +44,14 @@ CREATE TABLE IF NOT EXISTS macro_defs (
     pos        INTEGER NOT NULL,
     length     INTEGER NOT NULL,
     PRIMARY KEY (macro_name, src_file, pos)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS chunk_deps (
     from_chunk TEXT NOT NULL,
     to_chunk   TEXT NOT NULL,
     src_file   TEXT NOT NULL,
     PRIMARY KEY (from_chunk, to_chunk, src_file)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS chunk_defs (
     src_file    TEXT    NOT NULL,
@@ -60,22 +60,24 @@ CREATE TABLE IF NOT EXISTS chunk_defs (
     def_start   INTEGER NOT NULL,
     def_end     INTEGER NOT NULL,
     PRIMARY KEY (src_file, chunk_name, nth)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS literate_source_config (
-    src_file        TEXT    PRIMARY KEY NOT NULL,
+    src_file        TEXT    NOT NULL,
     special_char    TEXT    NOT NULL,
     open_delim      TEXT    NOT NULL,
     close_delim     TEXT    NOT NULL,
     chunk_end       TEXT    NOT NULL,
-    comment_markers TEXT    NOT NULL
-) STRICT;
+    comment_markers TEXT    NOT NULL,
+    PRIMARY KEY (src_file)
+) STRICT, WITHOUT ROWID;
 
-CREATE INDEX IF NOT EXISTS idx_var_defs_name    ON var_defs(var_name);
-CREATE INDEX IF NOT EXISTS idx_macro_defs_name  ON macro_defs(macro_name);
-CREATE INDEX IF NOT EXISTS idx_chunk_deps_from  ON chunk_deps(from_chunk);
+CREATE TABLE IF NOT EXISTS run_config (
+    key   TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
+
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
-CREATE INDEX IF NOT EXISTS idx_chunk_defs_file  ON chunk_defs(src_file);
 CREATE INDEX IF NOT EXISTS idx_noweb_map_src    ON noweb_map(src_file, src_line);
 ";
 use thiserror::Error;
@@ -163,8 +165,7 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
             to_chunk   TEXT NOT NULL,
             src_file   TEXT NOT NULL,
             PRIMARY KEY (from_chunk, to_chunk, src_file)
-        ) STRICT;
-        CREATE INDEX IF NOT EXISTS idx_chunk_deps_from ON chunk_deps(from_chunk);
+        ) STRICT, WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS idx_chunk_deps_to   ON chunk_deps(to_chunk);
     ");
     // chunk_defs was added later; CREATE TABLE IF NOT EXISTS is idempotent.
@@ -176,11 +177,16 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
             def_start   INTEGER NOT NULL,
             def_end     INTEGER NOT NULL,
             PRIMARY KEY (src_file, chunk_name, nth)
-        ) STRICT;
-        CREATE INDEX IF NOT EXISTS idx_chunk_defs_file ON chunk_defs(src_file);
+        ) STRICT, WITHOUT ROWID;
     ");
     let _ = conn.execute_batch("
         CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
+    ");
+    let _ = conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS run_config (
+            key   TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
     ");
     Ok(())
 }
@@ -603,6 +609,21 @@ impl WeavebackDb {
         }).optional()?)
     }
 
+    pub fn set_run_config(&self, key: &str, value: &str) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO run_config (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_run_config(&self, key: &str) -> Result<Option<String>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT value FROM run_config WHERE key = ?1",
+        )?;
+        Ok(stmt.query_row(params![key], |row| row.get(0)).optional()?)
+    }
+
     /// Returns all (out_file, out_line) mappings for a given literate source file.
     pub fn get_all_output_mappings(
         &self,
@@ -645,7 +666,7 @@ impl WeavebackDb {
 
         let result = (|| -> rusqlite::Result<()> {
             self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-            
+
             let tables = [
                 "gen_baselines", "noweb_map", "macro_map", "src_snapshots",
                 "var_defs", "macro_defs", "chunk_deps", "chunk_defs",

@@ -1,0 +1,67 @@
+= Hello World in Weaveback
+
+This is a minimal example showing how to use Weaveback to generate a C
+program from a single literate source file. It demonstrates two core
+features: *macros* (parameterized text replacement) and *chunks* (named
+code fragments that assemble into output files).
+
+To generate and run:
+
+[source,sh]
+----
+weaveback hello.adoc --gen .
+gcc hello.c -o hello && ./hello
+----
+
+To generate the dark-themed HTML documentation (from this directory):
+
+[source,sh]
+----
+asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . hello.adoc
+----
+
+== Making a Macro
+
+A macro is a parameterized text replacement. Here we define a simple
+logging macro that expands to a `printf` call.
+
+[source,weaveback]
+----
+%def(log_msg, level, msg, %{
+    printf("[%(level)] %s\n", %(msg));
+%})
+----
+
+== Program Outline
+
+Let's declare our target output file. The `//` is the comment marker
+for C.
+
+[source,c]
+----
+// <[@file hello.c]>=
+#include <stdio.h>
+
+<[main_function]>
+// @
+----
+
+== The Main Function
+
+Now we define `<[main_function]>`, which will be injected into our C
+file. Notice how we use the `log_msg` macro we defined earlier, and
+wrap the string argument in `%{...%}` because it contains a comma.
+
+[source,c]
+----
+// <[main_function]>=
+int main(void) {
+    %log_msg(level=INFO, msg=%{"Hello, literate programming!"%})
+    return 0;
+}
+// @
+----
+
+To experiment with the bidirectional workflow, edit `hello.c` directly
+and run `weaveback apply-back` — weaveback finds the generated file and
+reports which literate source lines to update.

@@ -11,13 +11,22 @@ def run(cmd):
     if result.returncode != 0:
         sys.exit(result.returncode)
 
+def find_weaveback(project_root):
+    """Prefer the locally-built binary over whatever is in PATH."""
+    for candidate in ["target/release/weaveback", "target/debug/weaveback"]:
+        path = os.path.join(project_root, candidate)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return "weaveback"  # fall back to PATH
+
 def main():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     os.chdir(project_root)
+    wb = find_weaveback(project_root)
 
     # weaveback-lsp (semantic language server bridge)
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback-lsp/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -28,7 +37,7 @@ def main():
 
     # weaveback-core (shared constants)
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback-core/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -39,7 +48,7 @@ def main():
 
     # weaveback-macro adocs use << >> delimiters (no self-hosting conflict).
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback-macro/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -52,7 +61,7 @@ def main():
     # No macros are used; --no-macros avoids any collision with literal % or ^
     # in the embedded Rust source.
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback-tangle/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -65,7 +74,7 @@ def main():
 
     # weaveback-docgen adocs use the same <[ ]> / // / @@ conventions as tangle.
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback-docgen/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -78,7 +87,7 @@ def main():
 
     # weaveback (combined) adocs use << >> delimiters and no macros.
     run([
-        "weaveback",
+        wb,
         "--dir", "crates/weaveback/",
         "--ext", "adoc",
         "--gen", "crates/",
@@ -90,7 +99,7 @@ def main():
     # tree-sitter-weaveback adocs use << >> delimiters, // comment marker, no macros.
     # Generates grammar.js, query .scm files, and editor integration files.
     run([
-        "weaveback",
+        wb,
         "--dir", "tree-sitter-weaveback/",
         "--ext", "adoc",
         "--gen", "tree-sitter-weaveback/",

@@ -150,7 +150,17 @@ fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newlin
     s
 }
 
-/// For a `MacroArg` span: replace `old_text` at byte column `src_col` with `new_text`.
+/// For a `MacroArg` span: replace the changed portion at or after byte column `src_col`.
+///
+/// Primary strategy: exact match of `old_text` at `src_col` (works when `old_text` is
+/// already the raw argument value).
+///
+/// Fallback: find the prefix where old/new expanded text first differ, then try
+/// progressively shorter suffix lengths until we find an old fragment that actually
+/// appears in the source from `src_col`.  This handles the common case where
+/// `old_text` is the full expanded output line, not just the argument value — and
+/// avoids false suffix matches when the old string is a suffix of the new one
+/// (e.g. `literate` vs `illiterate`).
 fn attempt_macro_arg_patch(
     lines: &[String],
     src_line: usize,
@@ -160,13 +170,49 @@ fn attempt_macro_arg_patch(
 ) -> Option<String> {
     let line = lines.get(src_line)?;
     let col = src_col as usize;
+
+    // Primary: exact col match.
     if col + old_text.len() <= line.len() && &line[col..col + old_text.len()] == old_text {
         let mut new_line = line.to_string();
         new_line.replace_range(col..col + old_text.len(), new_text);
-        Some(new_line)
-    } else {
-        None
+        return Some(new_line);
     }
+
+    // Fallback.
+    let old_chars: Vec<char> = old_text.chars().collect();
+    let new_chars: Vec<char> = new_text.chars().collect();
+
+    // pfx: length of the common prefix between old and new.
+    let pfx = old_chars.iter().zip(new_chars.iter())
+        .take_while(|(a, b)| a == b).count();
+
+    // max_sfx: upper bound on common suffix length.
+    let max_sfx = old_chars.iter().rev().zip(new_chars.iter().rev())
+        .take_while(|(a, b)| a == b).count();
+
+    let search_start = col.min(line.len());
+    let search_region = &line[search_start..];
+
+    // Try increasing sfx values (longest fragment first) until we find an old_frag
+    // that appears in the source.  Longest-first avoids false matches on short fragments
+    // (e.g. a single "l" matching the wrong letter in the source line).
+    for sfx in 0..=max_sfx {
+        let end = old_chars.len().checked_sub(sfx)?;
+        if pfx >= end { continue; }
+        let old_frag: String = old_chars[pfx..end].iter().collect();
+        if old_frag.is_empty() { continue; }
+
+        if let Some(pos) = search_region.find(old_frag.as_str()) {
+            let new_end = new_chars.len().checked_sub(sfx)?;
+            if pfx > new_end { continue; }
+            let new_frag: String = new_chars[pfx..new_end].iter().collect();
+            let abs_pos = search_start + pos;
+            let mut new_line = line.to_string();
+            new_line.replace_range(abs_pos..abs_pos + old_frag.len(), &new_frag);
+            return Some(new_line);
+        }
+    }
+    None
 }
 
 /// For a `MacroBodyWithVars` span: reconstruct the body template with only the
@@ -253,6 +299,7 @@ fn attempt_macro_body_fix(
 fn resolve_patch_source(
     rel_path: &str,
     out_line_0: u32,
+    col: u32,
     db: &WeavebackDb,
     resolver: &PathResolver,
     eval_config: &EvalConfig,
@@ -265,7 +312,7 @@ fn resolve_patch_source(
     let trace = lookup::perform_trace(
         rel_path,
         out_line_0 + 1,
-        0,
+        col,
         db,
         resolver,
         eval_config.clone(),
@@ -416,6 +463,7 @@ fn do_patch(
 
 struct FilePatchContext<'a> {
     src_file: &'a str,
+    src_root: &'a std::path::Path,
     patches: &'a [Patch],
     dry_run: bool,
     eval_config: Option<EvalConfig>,
@@ -428,14 +476,16 @@ fn apply_patches_to_file(
     skipped: &mut usize,
     out: &mut dyn Write,
 ) -> Result<(), ApplyBackError> {
-    let content = std::fs::read_to_string(ctx.src_file)?;
+    let src_path = {
+        let p = std::path::Path::new(ctx.src_file);
+        if p.is_absolute() || p.exists() { p.to_path_buf() } else { ctx.src_root.join(p) }
+    };
+    let content = std::fs::read_to_string(&src_path)?;
     let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
     let had_trailing_newline = content.ends_with('\n');
 
     let mut applied = 0;
     let mut conflicts = 0;
-
-    let src_path = std::path::Path::new(ctx.src_file);
 
     for patch in ctx.patches {
         match &patch.source {
@@ -477,7 +527,7 @@ fn apply_patches_to_file(
                         };
                         if let Some(idx) = idx {
                             let candidate_src = splice_line(&lines, idx, &new_line, had_trailing_newline);
-                            if verify_candidate(&candidate_src, src_path, &ec, patch.expanded_line, &patch.new_text) {
+                            if verify_candidate(&candidate_src, &src_path, &ec, patch.expanded_line, &patch.new_text) {
                                 if ctx.dry_run {
                                     let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
                                 } else {
@@ -509,7 +559,7 @@ fn apply_patches_to_file(
                 match (candidate, ctx.eval_config.clone()) {
                     (Some(new_line), Some(ec)) => {
                         let candidate_src = splice_line(&lines, *src_line, &new_line, had_trailing_newline);
-                        if verify_candidate(&candidate_src, src_path, &ec, patch.expanded_line, &patch.new_text) {
+                        if verify_candidate(&candidate_src, &src_path, &ec, patch.expanded_line, &patch.new_text) {
                             if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
                             } else {
@@ -538,7 +588,7 @@ fn apply_patches_to_file(
     if !ctx.dry_run && applied > 0 {
         let mut content_out = lines.join("\n");
         if had_trailing_newline { content_out.push('\n'); }
-        std::fs::write(ctx.src_file, content_out)?;
+        std::fs::write(&src_path, content_out)?;
     }
 
     if conflicts > 0 {
@@ -562,8 +612,26 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
     }
 
     let db = WeavebackDb::open(&opts.db_path)?;
-    let project_root = std::env::current_dir().unwrap_or_default();
-    let resolver = PathResolver::new(project_root, opts.gen_dir.clone());
+
+    // If gen_dir is the default "gen" and that directory doesn't exist, fall back
+    // to the gen_dir stored in the database from the last tangle run.
+    let gen_dir = {
+        let default_gen = std::path::PathBuf::from("gen");
+        if opts.gen_dir == default_gen && !default_gen.exists() {
+            db.get_run_config("gen_dir")?
+                .map(std::path::PathBuf::from)
+                .unwrap_or(opts.gen_dir)
+        } else {
+            opts.gen_dir
+        }
+    };
+
+    let project_root = opts.db_path
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let resolver = PathResolver::new(project_root.clone(), gen_dir.clone());
 
     let baselines: Vec<(String, Vec<u8>)> = if opts.files.is_empty() {
         db.list_baselines()?
@@ -582,7 +650,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
     let mut any_changed = false;
 
     for (rel_path, baseline_bytes) in &baselines {
-        let gen_path = opts.gen_dir.join(rel_path);
+        let gen_path = gen_dir.join(rel_path);
         let current_bytes = match std::fs::read(&gen_path) {
             Ok(b) => b,
             Err(_) => {
@@ -645,9 +713,19 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                     file_special_char = cfg.special_char;
                                 }
 
+                                // Find the first character that differs between old and new
+                                // (in the indent-stripped text) and use it as the trace column.
+                                // This lets perform_trace land on the specific macro argument
+                                // rather than the start of the body.
+                                let first_diff = old_text.chars().zip(new_text.chars())
+                                    .position(|(a, b)| a != b)
+                                    .unwrap_or(0) as u32;
+                                let indent_chars = entry.indent.chars().count() as u32;
+                                let diff_col = indent_chars + first_diff + 1; // 1-indexed
+
                                 let source = if let Some(ec) = &file_eval_config {
                                     resolve_patch_source(
-                                        rel_path, out_line_0,
+                                        rel_path, out_line_0, diff_col,
                                         &db, &resolver, ec,
                                         &entry.src_file, entry.src_line,
                                         snap, file_special_char, 1,
@@ -766,7 +844,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                     if let Some(entry) = target_entry {
                         let new_text = current_lines[*new_index..*new_index + *new_len]
                             .iter().map(|l| strip_indent(l, &entry.indent)).collect::<Vec<_>>().join("\n");
-                        
+
                         let src_line = if is_after { entry.src_line as usize + 1 } else { entry.src_line as usize };
 
                         src_patches
@@ -801,7 +879,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                     db.get_src_snapshot(src_file).ok().flatten()
                 })
                 .as_deref();
-            
+
             // Retrieve the config used for this source file to get the correct special_char.
             let mut file_eval_config = opts.eval_config.clone();
             let mut file_special_char = special_char;
@@ -815,6 +893,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
             apply_patches_to_file(
                 FilePatchContext {
                     src_file,
+                    src_root: &project_root,
                     patches,
                     dry_run: opts.dry_run,
                     eval_config: file_eval_config,

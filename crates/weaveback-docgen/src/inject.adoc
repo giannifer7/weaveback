@@ -292,7 +292,7 @@ fn annotate_chunk_ids(html: &str, adoc_file: &str, re: &Regex) -> String {
         })();
 
         if let Some(id) = chunk_id {
-            result.push_str(&format!(r#"<div class="listingblock" data-chunk-id="{id}">"#));
+            result.push_str(&format!(r#"<div class="listingblock" id="{id}" data-chunk-id="{id}">"#));
         } else {
             result.push_str(marker);
         }

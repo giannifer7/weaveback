@@ -18,9 +18,16 @@ pub const MAX_RECURSION_DEPTH: usize = 100;
 
 == Path Resolution
 
-`PathResolver` provides a single, unified logic for normalizing paths across the 
-entire toolchain. It handles absolute paths, relative paths from the project 
-root, and workspace-specific prefixes like `crates/`.
+`PathResolver` maps between the two path spaces the toolchain works with:
+
+* *gen paths* — keys stored in the database, relative to `gen_dir`
+* *source paths* — paths to literate `.adoc` files, relative to `project_root`
+
+`project_root` should be set to the directory containing `weaveback.db`, which
+is also the directory from which weaveback was originally run.  Using the db
+location (rather than the current working directory) ensures that paths resolve
+correctly when subcommands like `apply-back` are invoked from a different
+directory.
 
 [source,rust]
 ----
@@ -37,54 +44,48 @@ impl PathResolver {
         Self { project_root, gen_dir }
     }
 
+    /// Convert any representation of a generated file path into the
+    /// db key form (relative to gen_dir, no leading `./`).
     pub fn normalize(&self, input: &str) -> String {
         let path = Path::new(input);
 
-        // 1. If gen_dir is ".", we just strip "./" and leading slashes.
-        if self.gen_dir == Path::new(".") {
-            return input.trim_start_matches("./").trim_start_matches('/').to_string();
-        }
-
-        // 2. Try stripping gen_dir from absolute or root-relative path.
+        // 1. Strip gen_dir prefix (relative path case).
         if let Ok(rel) = path.strip_prefix(&self.gen_dir) {
             return rel.to_string_lossy().into_owned();
         }
 
-        // 3. Try stripping project_root/gen_dir.
-        let full_gen = self.project_root.join(&self.gen_dir);
-        if let Ok(rel) = path.strip_prefix(&full_gen) {
+        // 2. Strip project_root/gen_dir prefix (absolute path case).
+        if let Ok(rel) = path.strip_prefix(self.project_root.join(&self.gen_dir)) {
             return rel.to_string_lossy().into_owned();
         }
 
-        // 4. Try stripping workspace members prefix (e.g. "crates/").
-        for prefix in &["crates/", "./crates/"] {
-            if let Some(stripped) = input.strip_prefix(prefix) {
-                let stripped_path = Path::new(stripped);
-                if let Ok(rel) = stripped_path.strip_prefix(&self.gen_dir) {
-                    return rel.to_string_lossy().into_owned();
-                }
-                // Also try if the gen_dir itself was relative to the crate.
-                let gen_str = self.gen_dir.to_string_lossy();
-                if let Some(final_path) = stripped.strip_prefix(gen_str.as_ref()) {
-                    return final_path.trim_start_matches('/').to_string();
-                }
+        // 3. String-based fallback (covers platforms where Path::strip_prefix
+        //    is stricter about trailing separators).
+        let gen_str = self.gen_dir.to_string_lossy();
+        if gen_str != "." {
+            let prefix = format!("{}/", gen_str);
+            if let Some(rest) = input.strip_prefix(prefix.as_str()) {
+                return rest.to_string();
             }
         }
 
-        // 5. If the path starts with the gen_dir as a string, strip it manually.
-        let gen_str = self.gen_dir.to_string_lossy();
-        let gen_prefix = if gen_str.ends_with('/') { gen_str.to_string() } else { format!("{}/", gen_str) };
-        if input.starts_with(&gen_prefix) {
-            return input[gen_prefix.len()..].to_string();
-        }
-
-        // 6. Fallback: if it's already relative and doesn't start with gen_dir,
-        // it might already be in the DB format.
+        // 4. Already a db key: strip any leading "./".
         input.trim_start_matches("./").to_string()
     }
 
+    /// Resolve a source-file path from the database to a concrete disk path.
+    /// Paths in the db are relative to `project_root`; if the path does not
+    /// exist relative to the current directory, fall back to `project_root`.
+    pub fn resolve_src(&self, src_file: &str) -> PathBuf {
+        let p = Path::new(src_file);
+        if p.is_absolute() || p.exists() {
+            p.to_path_buf()
+        } else {
+            self.project_root.join(p)
+        }
+    }
 
-    /// Resolves a database path (relative to gen_dir) back to an absolute disk path.
+    /// Resolve a db key back to the absolute path of the generated file.
     pub fn resolve_gen(&self, db_path: &str) -> PathBuf {
         self.project_root.join(&self.gen_dir).join(db_path)
     }

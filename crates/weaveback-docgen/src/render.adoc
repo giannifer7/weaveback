@@ -29,7 +29,7 @@ locates the binary without a JAR on the classpath.
 [source,rust]
 ----
 // <[render-exclude]>=
-const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
+const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "asciidoc-parser"];
 
 fn diagram_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();

@@ -1,18 +1,29 @@
+#[cfg(feature = "server")]
 use std::collections::HashMap;
+#[cfg(feature = "server")]
 use std::io::{BufRead, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "server")]
+use std::path::PathBuf;
+#[cfg(feature = "server")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "server")]
 use std::thread;
 
+#[cfg(feature = "server")]
 use notify::{RecursiveMode, Watcher};
+#[cfg(feature = "server")]
 use tiny_http::{Header, Request, Response, Server, StatusCode};
+#[cfg(feature = "server")]
 use weaveback_tangle::tangle_check;
+#[cfg(feature = "server")]
 struct SseReader {
     rx: std::sync::mpsc::Receiver<()>,
     buf: Vec<u8>,
     pos: usize,
 }
 
+#[cfg(feature = "server")]
 impl SseReader {
     fn new(rx: std::sync::mpsc::Receiver<()>) -> Self {
         // Prime the buffer with a keepalive comment so the SSE connection is
@@ -25,6 +36,7 @@ impl SseReader {
     }
 }
 
+#[cfg(feature = "server")]
 impl Read for SseReader {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         loop {
@@ -45,8 +57,10 @@ impl Read for SseReader {
         }
     }
 }
+#[cfg(feature = "server")]
 type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
 
+#[cfg(feature = "server")]
 fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders) {
     thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -67,6 +81,7 @@ fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders) {
         drop(watcher);
     });
 }
+#[cfg(feature = "server")]
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
@@ -80,6 +95,7 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
+#[cfg(feature = "server")]
 fn safe_path(html_dir: &Path, url_path: &str) -> Option<PathBuf> {
     let rel = url_path.trim_start_matches('/');
     if rel.split('/').any(|c| c == "..") {
@@ -96,6 +112,7 @@ fn safe_path(html_dir: &Path, url_path: &str) -> Option<PathBuf> {
     }
 }
 
+#[cfg(feature = "server")]
 fn serve_static(request: Request, url: &str, html_dir: &Path) {
     let url_path = url.split('?').next().unwrap_or(url);
 
@@ -134,6 +151,7 @@ fn serve_static(request: Request, url: &str, html_dir: &Path) {
         }
     }
 }
+#[cfg(feature = "server")]
 fn open_in_editor(file: &str, line: u32, project_root: &Path) {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
@@ -154,6 +172,7 @@ fn open_in_editor(file: &str, line: u32, project_root: &Path) {
     let _ = std::process::Command::new(&editor).args(&args).spawn();
 }
 
+#[cfg(feature = "server")]
 fn parse_query(url: &str) -> HashMap<String, String> {
     let query = url.split_once('?').map(|x| x.1).unwrap_or("");
     query
@@ -170,6 +189,7 @@ fn parse_query(url: &str) -> HashMap<String, String> {
         .collect()
 }
 
+#[cfg(feature = "server")]
 fn percent_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut bytes = s.bytes();
@@ -187,6 +207,7 @@ fn percent_decode(s: &str) -> String {
     out
 }
 /// Which backend `/__ai` uses to answer questions.
+#[cfg(feature = "server")]
 #[derive(Clone, Debug)]
 pub enum AiBackend {
     /// Shells out to `claude -p --output-format stream-json`.
@@ -205,6 +226,7 @@ pub enum AiBackend {
     OpenAi,
 }
 
+#[cfg(feature = "server")]
 pub struct TangleConfig {
     pub open_delim:      String,
     pub close_delim:     String,
@@ -215,6 +237,7 @@ pub struct TangleConfig {
     pub ai_endpoint:     Option<String>,
 }
 
+#[cfg(feature = "server")]
 impl Default for TangleConfig {
     fn default() -> Self {
         Self {
@@ -228,12 +251,14 @@ impl Default for TangleConfig {
         }
     }
 }
+#[cfg(feature = "server")]
 fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(val.to_string())
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
         .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap())
 }
 
+#[cfg(feature = "server")]
 fn tangle_oracle(
     project_root: &Path,
     modified_file: &str,
@@ -282,6 +307,7 @@ fn tangle_oracle(
         .map_err(|e| e.to_string())
 }
 
+#[cfg(feature = "server")]
 fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     // Read and parse request body.
     let mut body_str = String::new();
@@ -410,6 +436,7 @@ fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
 
     let _ = request.respond(json_resp(serde_json::json!({ "ok": true })));
 }
+#[cfg(feature = "server")]
 fn handle_chunk(request: Request, url: &str, project_root: &Path) {
     let params = parse_query(url);
     let file = params.get("file").map(|s| s.as_str()).unwrap_or("").to_string();
@@ -486,6 +513,7 @@ fn handle_chunk(request: Request, url: &str, project_root: &Path) {
         "def_end":   entry.def_end,
     })));
 }
+#[cfg(feature = "server")]
 use std::process::Stdio;
 
 // ── AsciiDoc source helpers ───────────────────────────────────────────────────
@@ -673,12 +701,14 @@ pub(crate) fn build_chunk_context(
     })
 }
 
+#[cfg(feature = "server")]
 struct AiChannelReader {
     rx:  std::sync::mpsc::Receiver<String>,
     buf: Vec<u8>,
     pos: usize,
 }
 
+#[cfg(feature = "server")]
 impl AiChannelReader {
     fn new(rx: std::sync::mpsc::Receiver<String>) -> Self {
         // Prime with a keepalive comment so EventSource confirms the connection.
@@ -686,6 +716,7 @@ impl AiChannelReader {
     }
 }
 
+#[cfg(feature = "server")]
 impl Read for AiChannelReader {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         loop {
@@ -703,6 +734,7 @@ impl Read for AiChannelReader {
     }
 }
 
+#[cfg(feature = "server")]
 fn sse_headers() -> Vec<Header> {
     vec![
         Header::from_bytes("Content-Type",               "text/event-stream").unwrap(),
@@ -723,6 +755,7 @@ fn sse_headers() -> Vec<Header> {
 /// * `type == "assistant"` — message with `message.content[].text` fields;
 ///   send each text chunk as a token event.
 /// * `type == "result"` — final summary; stop reading.
+#[cfg(feature = "server")]
 fn call_claude_cli(
     system_prompt: String,
     user_content: String,
@@ -792,6 +825,7 @@ fn call_claude_cli(
 ///
 /// Requires `ANTHROPIC_API_KEY`.  Parses the native Anthropic SSE stream
 /// (`content_block_delta` events) and forwards text deltas to the channel.
+#[cfg(feature = "server")]
 fn call_anthropic_api(
     api_key: String,
     api_body: serde_json::Value,
@@ -849,6 +883,7 @@ fn call_anthropic_api(
 /// Call the Google Gemini API directly via HTTP.
 ///
 /// Requires `GOOGLE_API_KEY`. Uses the `streamGenerateContent` endpoint.
+#[cfg(feature = "server")]
 fn call_gemini_api(
     api_key: String,
     model: String,
@@ -900,7 +935,7 @@ fn call_gemini_api(
         }
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
-        
+
         // Gemini stream format is a JSON array of objects, but delivered as individual
         // chunks. Sometimes it starts with '[' and ends with ']'.
         let clean = trimmed.trim_start_matches(',').trim_start_matches('[').trim_end_matches(']');
@@ -924,6 +959,7 @@ fn call_gemini_api(
 /// Call a local Ollama API via HTTP.
 ///
 /// Uses the `/api/chat` endpoint with `stream: true`.
+#[cfg(feature = "server")]
 fn call_ollama_api(
     base_url: String,
     model: String,
@@ -990,6 +1026,7 @@ fn call_ollama_api(
 /// Call an OpenAI-compatible API directly via HTTP.
 ///
 /// Handles standard Chat Completions streaming format.
+#[cfg(feature = "server")]
 fn call_openai_api(
     api_key: Option<String>,
     base_url: String,
@@ -1012,7 +1049,7 @@ fn call_openai_api(
         .build()
         .post(&url)
         .set("Content-Type", "application/json");
-    
+
     if let Some(key) = api_key {
         req = req.set("Authorization", &format!("Bearer {}", key));
     }
@@ -1057,6 +1094,7 @@ fn call_openai_api(
     let _ = tx.send("event: done\ndata:\n\n".to_string());
 }
 
+#[cfg(feature = "server")]
 fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
@@ -1164,6 +1202,7 @@ fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let response = Response::new(StatusCode(200), sse_headers(), reader, None, None);
     let _ = request.respond(response);
 }
+#[cfg(feature = "server")]
 fn handle_save_note(mut request: Request, project_root: &Path) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
@@ -1233,6 +1272,7 @@ fn handle_save_note(mut request: Request, project_root: &Path) {
         Err(e) => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":format!("{e}")}))); }
     }
 }
+#[cfg(feature = "server")]
 fn handle_request(
     request: Request,
     html_dir: &Path,
@@ -1299,6 +1339,7 @@ fn handle_request(
 
     serve_static(request, &url, html_dir);
 }
+#[cfg(feature = "server")]
 fn find_project_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("cannot determine cwd");
     loop {
@@ -1315,6 +1356,7 @@ fn find_project_root() -> PathBuf {
     std::env::current_dir().unwrap()
 }
 
+#[cfg(feature = "server")]
 pub fn run_serve(
     port: u16,
     html_override: Option<PathBuf>,

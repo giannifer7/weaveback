@@ -351,7 +351,7 @@ pub fn build_xref(project_root: &Path, use_lsp: bool) -> HashMap<String, XrefEnt
         for key in keys {
             let data = &raw[key];
             let ext = data.path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            
+
             if let Some((lsp_cmd, lsp_lang)) = weaveback_lsp::get_lsp_config(ext) {
                 if !clients.contains_key(&lsp_lang)
                     && let Ok(mut client) = weaveback_lsp::LspClient::spawn(&lsp_cmd, &[], project_root, lsp_lang.clone())

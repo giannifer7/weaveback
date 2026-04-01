@@ -133,11 +133,11 @@ pub fn perform_trace(
 
     // Re-evaluate the driver file with precise tracing.
     // Prefer the stored snapshot for reproducibility; fall back to disk.
-    let src_path = std::path::Path::new(&nw_entry.src_file);
+    let src_path = resolver.resolve_src(&nw_entry.src_file);
     let src_content = if let Ok(Some(bytes)) = db.get_src_snapshot(&nw_entry.src_file) {
         String::from_utf8_lossy(&bytes).into_owned()
     } else {
-        match std::fs::read_to_string(src_path) {
+        match std::fs::read_to_string(&src_path) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("Warning: cannot read {} for trace: {}", nw_entry.src_file, e);
@@ -147,7 +147,7 @@ pub fn perform_trace(
     };
 
     let mut evaluator = Evaluator::new(eval_config.clone());
-    match process_string_precise(&src_content, Some(src_path), &mut evaluator) {
+    match process_string_precise(&src_content, Some(&src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;
             // `col` is a 1-indexed character position in the *output* file line,

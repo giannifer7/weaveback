@@ -433,7 +433,7 @@ fn test_depfile_lists_source_files() {
 fn test_serve_ai_flags() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path().canonicalize().unwrap();
-    
+
     // Create dummy docs/html so serve doesn't fail immediately.
     fs::create_dir_all(root.join("docs/html")).unwrap();
     fs::write(root.join("docs/html/index.html"), "<html></html>").unwrap();

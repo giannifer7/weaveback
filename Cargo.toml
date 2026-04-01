@@ -10,11 +10,10 @@ members = [
     "crates/weaveback-docgen",
     "crates/weaveback-core",
     "crates/weaveback-lsp",
-    "examples/graph-prototype",
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"

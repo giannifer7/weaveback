@@ -1,6 +1,6 @@
 = Literate source index
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `literate_index.rs` injects an "Implementation pages" section into the HTML
 index page of every crate that has literate-source documentation.

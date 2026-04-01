@@ -1,6 +1,6 @@
 = Grammar definition
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `grammar.js` defines the tree-sitter grammar for the Weaveback macro language.
 It is generated from this document by `just tangle`.

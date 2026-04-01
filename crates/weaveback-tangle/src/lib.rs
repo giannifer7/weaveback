@@ -1,3 +1,4 @@
+pub mod block_parser;
 pub mod db;
 pub mod noweb;
 pub mod safe_writer;
@@ -28,6 +29,7 @@ impl From<std::io::Error> for WeavebackError {
     }
 }
 
+pub use crate::block_parser::{parse_source_blocks, SourceBlockEntry};
 pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry};
 pub use crate::noweb::{Clip, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;

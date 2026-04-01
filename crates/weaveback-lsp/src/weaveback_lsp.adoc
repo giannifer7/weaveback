@@ -1,6 +1,6 @@
 = Weaveback LSP
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `weaveback-lsp` provides a client interface for communicating with
 language-specific LSP servers (like `rust-analyzer`). It is used to resolve

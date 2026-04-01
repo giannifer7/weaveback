@@ -1,0 +1,60 @@
+# weaveback.toml — multi-pass tangle configuration for `weaveback tangle`
+# Each [[pass]] maps to one `weaveback` invocation.  Fields not present use
+# the weaveback CLI defaults: open_delim = "<[", close_delim = "]>",
+# chunk_end = "@", ext = "md".
+
+gen = "crates/"
+
+[[pass]]
+dir = "crates/weaveback-lsp/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-core/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-macro/"
+ext = "adoc"
+open_delim = "<<"
+close_delim = ">>"
+special = ["^"]
+
+[[pass]]
+dir = "crates/weaveback-tangle/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback-docgen/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "tree-sitter-weaveback/"
+gen = "tree-sitter-weaveback/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"

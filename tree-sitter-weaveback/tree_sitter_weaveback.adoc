@@ -1,6 +1,6 @@
 = tree-sitter-weaveback
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `tree-sitter-weaveback` is a
 https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the

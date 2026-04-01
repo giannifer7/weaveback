@@ -1,6 +1,6 @@
 = weaveback-tangle
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `weaveback-tangle` reads literate source documents in noweb style, extracts
 named code chunks, and writes the resulting files to disk atomically.  It is
@@ -82,6 +82,7 @@ so callers can use `?` on I/O operations without wrapping manually.
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/lib.rs]>=
+pub mod block_parser;
 pub mod db;
 pub mod noweb;
 pub mod safe_writer;
@@ -112,6 +113,7 @@ impl From<std::io::Error> for WeavebackError {
     }
 }
 
+pub use crate::block_parser::{parse_source_blocks, SourceBlockEntry};
 pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry};
 pub use crate::noweb::{Clip, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;

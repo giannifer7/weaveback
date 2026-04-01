@@ -1,6 +1,6 @@
 = Highlight and injection queries
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 This document covers the three tree-sitter query files that drive syntax
 highlighting and language injection for Weaveback source files.

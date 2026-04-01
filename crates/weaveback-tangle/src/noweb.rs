@@ -1,3 +1,4 @@
+use memchr;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -125,6 +126,13 @@ pub struct ChunkStore {
     open_re: Regex,
     slot_re: Regex,
     close_re: Regex,
+    /// Byte sequence of the open delimiter — used as a fast pre-filter
+    /// before running `open_re` or `slot_re`.  A line without these bytes
+    /// cannot contain a chunk marker.
+    open_bytes: Box<[u8]>,
+    /// Byte sequence of the chunk-end marker — used as a fast pre-filter
+    /// before running `close_re`.
+    close_bytes: Box<[u8]>,
     file_names: Vec<String>,
     /// When `true`, referencing an undefined chunk is a fatal error
     /// and `@file` redefinition without `@replace` is also a fatal error.
@@ -170,6 +178,8 @@ impl ChunkStore {
             open_re: Regex::new(&open_pattern).expect("Invalid open pattern"),
             slot_re: Regex::new(&slot_pattern).expect("Invalid slot pattern"),
             close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
+            open_bytes: open_delim.as_bytes().into(),
+            close_bytes: chunk_end.as_bytes().into(),
             file_names: Vec::new(),
             strict_undefined: false,
             parse_errors: Vec::new(),
@@ -197,6 +207,36 @@ impl ChunkStore {
         let mut current_chunk: Option<(String, usize)> = None;
 
         for (line_no, line) in text.lines().enumerate() {
+            let bytes = line.as_bytes();
+            // Fast reject: skip regex entirely when the open-delimiter bytes
+            // are absent.  memmem uses SIMD and is much cheaper than the regex
+            // NFA for the common case where most lines are plain prose or code.
+            if memchr::memmem::find(bytes, &self.open_bytes).is_some() {
+            } else {
+                // No open delimiter — can only be a close marker or content.
+                if memchr::memmem::find(bytes, &self.close_bytes).is_some()
+                    && self.close_re.is_match(line)
+                {
+                    if let Some((ref cname, idx)) = current_chunk
+                        && let Some(chunk) = self.chunks.get_mut(cname)
+                        && let Some(def) = chunk.definitions.get_mut(idx)
+                    {
+                        def.def_end = Some(line_no);
+                    }
+                    current_chunk = None;
+                } else if let Some((ref cname, idx)) = current_chunk
+                    && let Some(chunk) = self.chunks.get_mut(cname)
+                {
+                    let def = chunk.definitions.get_mut(idx)
+                        .expect("internal invariant: def_idx is valid");
+                    if line.ends_with('\n') {
+                        def.content.push(line.to_string());
+                    } else {
+                        def.content.push(format!("{}\n", line));
+                    }
+                }
+                continue;
+            }
             if let Some(caps) = self.open_re.captures(line) {
                 let indentation = caps.name("indent").map_or("", |m| m.as_str());
                 let base_name = caps.name("name").map_or("", |m| m.as_str()).to_string();
@@ -260,7 +300,9 @@ impl ChunkStore {
                 continue;
             }
 
-            if self.close_re.is_match(line) {
+            if memchr::memmem::find(bytes, &self.close_bytes).is_some()
+                && self.close_re.is_match(line)
+            {
                 if let Some((ref cname, idx)) = current_chunk
                     && let Some(chunk) = self.chunks.get_mut(cname)
                     && let Some(def) = chunk.definitions.get_mut(idx)
@@ -394,7 +436,9 @@ impl ChunkStore {
                 .unwrap_or_default();
 
             for (line_count, line) in def.content.iter().enumerate() {
-                if let Some(caps) = self.slot_re.captures(line) {
+                if let Some(caps) = memchr::memmem::find(line.as_bytes(), &self.open_bytes)
+                    .and_then(|_| self.slot_re.captures(line))
+                {
                     let add_indent = caps.get(1).map_or("", |m| m.as_str());
                     let modifier = caps.get(2).map_or("", |m| m.as_str());
                     let referenced_chunk = caps.get(3).map_or("", |m| m.as_str());
@@ -866,6 +910,71 @@ pub fn tangle_check(
     Ok(out)
 }
 impl Clip {
+    /// Write all `@file` chunks, skipping those whose name is in `skip`.
+    /// Skipped chunks do not expand or write; the source-map and chunk_deps
+    /// entries for them are not updated (the previous run's entries remain).
+    /// Chunk definitions for all chunks (including skipped ones) are still
+    /// recorded so `weaveback serve` navigation stays accurate.
+    pub fn write_files_incremental(
+        &mut self,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<(), WeavebackError> {
+        if self.store.strict_undefined && !self.store.parse_errors.is_empty() {
+            return Err(WeavebackError::Chunk(
+                self.store.parse_errors.remove(0),
+            ));
+        }
+        let fc = self.store.get_file_chunks().to_vec();
+        let mut all_referenced = HashSet::new();
+        for name in &fc {
+            if skip.contains(name) {
+                continue;
+            }
+            let (lines, map_entries, referenced, deps) = self.store.expand_with_map(name, "")?;
+            all_referenced.extend(referenced);
+
+            let mut cw = ChunkWriter::new(&mut self.writer);
+            let written_bytes = cw.write_chunk(name, &lines)?;
+
+            let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
+
+            let keyed = if let Some(bytes) = written_bytes {
+                let formatted = String::from_utf8_lossy(&bytes);
+                let pre_content: String = lines.concat();
+                if formatted.as_ref() != pre_content {
+                    remap_noweb_entries(&lines, formatted.as_ref(), map_entries)
+                } else {
+                    map_entries.into_iter().enumerate()
+                        .map(|(i, e)| (i as u32, e)).collect()
+                }
+            } else {
+                map_entries.into_iter().enumerate()
+                    .map(|(i, e)| (i as u32, e)).collect()
+            };
+
+            self.writer
+                .db_mut()
+                .set_noweb_entries(out_file, &keyed)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+            self.writer
+                .db_mut()
+                .set_chunk_deps(&deps)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+        }
+        let chunk_def_entries = self.store.chunk_defs();
+        self.writer
+            .db_mut()
+            .set_chunk_defs(&chunk_def_entries)
+            .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+        let warns = self.store.check_unused_chunks(&all_referenced);
+        for w in warns {
+            eprintln!("{}", w);
+        }
+        Ok(())
+    }
+
     pub fn write_files(&mut self) -> Result<(), WeavebackError> {
         // In strict mode, promote any parse-time errors (e.g. @file redefinition)
         // to hard errors before writing anything.
@@ -945,6 +1054,10 @@ impl Clip {
 
     pub fn db(&self) -> &crate::db::WeavebackDb {
         self.writer.db()
+    }
+
+    pub fn db_mut(&mut self) -> &mut crate::db::WeavebackDb {
+        self.writer.db_mut()
     }
 
     pub fn finish(self, target: &Path) -> Result<(), WeavebackError> {

@@ -1,5 +1,6 @@
 mod inject;
 mod literate_index;
+mod plantuml;
 mod render;
 mod xref;
 
@@ -45,6 +46,8 @@ Options:
                        to stdout.  Replaces the built-in Rust scanner.
   --no-xref            Skip cross-reference analysis entirely.
   --ai-xref            Use LSP (rust-analyzer) to build precise cross-references.
+  --plantuml-jar <path>  Path to plantuml.jar; renders [plantuml] blocks via JAR
+                         instead of asciidoctor-diagram (SVGs cached by BLAKE3).
   --help               Print this message and exit.
 
 Cross-reference notes:
@@ -61,6 +64,7 @@ struct Args {
     ai_xref: bool,
     out_dir: Option<PathBuf>,
     theme_dir: Option<PathBuf>,
+    plantuml_jar: Option<PathBuf>,
 }
 
 fn parse_args() -> Args {
@@ -71,6 +75,7 @@ fn parse_args() -> Args {
     let mut ai_xref = false;
     let mut out_dir = None;
     let mut theme_dir = None;
+    let mut plantuml_jar = None;
     let mut i = 1;
     while i < raw.len() {
         match raw[i].as_str() {
@@ -109,6 +114,13 @@ fn parse_args() -> Args {
                     continue;
                 }
             }
+            "--plantuml-jar" => {
+                if let Some(p) = raw.get(i + 1) {
+                    plantuml_jar = Some(PathBuf::from(p));
+                    i += 2;
+                    continue;
+                }
+            }
             "--no-xref" => {
                 no_xref = true;
             }
@@ -119,7 +131,7 @@ fn parse_args() -> Args {
         }
         i += 1;
     }
-    Args { specials, xref_cmd, no_xref, ai_xref, out_dir, theme_dir }
+    Args { specials, xref_cmd, no_xref, ai_xref, out_dir, theme_dir, plantuml_jar }
 }
 fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
     let output = Command::new(cmd)
@@ -145,7 +157,13 @@ fn main() {
     let out_dir = args.out_dir.clone().unwrap_or_else(|| root.join("docs").join("html"));
     let theme_dir = args.theme_dir.clone().unwrap_or_else(|| root.join("scripts").join("asciidoc-theme"));
 
-    let all_html = render::render_docs(&root, &theme_dir, &out_dir, &args.specials);
+    let all_html = render::render_docs(
+        &root,
+        &theme_dir,
+        &out_dir,
+        &args.specials,
+        args.plantuml_jar.as_deref(),
+    );
     let existing_html: std::collections::HashSet<String> = all_html
         .iter()
         .filter_map(|p| p.strip_prefix(&out_dir).ok())

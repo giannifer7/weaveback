@@ -5,6 +5,7 @@ use weaveback_macro::{
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
 use weaveback_core::PathResolver;
 use clap::Parser;
+use rayon::prelude::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -52,6 +53,12 @@ enum Commands {
     Where {
         out_file: String,
         line: u32,
+    },
+    /// Run all tangle passes from weaveback.toml (or --config <file>)
+    Tangle {
+        /// Path to the tangle config file
+        #[arg(long, default_value = "weaveback.toml")]
+        config: std::path::PathBuf,
     },
     /// Run as an MCP server for IDE/agent integration
     Mcp,
@@ -114,6 +121,9 @@ enum Commands {
         /// AI API endpoint / base URL (for ollama or openai-compatible backends)
         #[arg(long)]
         ai_endpoint: Option<String>,
+        /// Watch .adoc and theme sources; tangle + re-render docs on each change
+        #[arg(long)]
+        watch: bool,
     },
 }
 
@@ -285,6 +295,129 @@ fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Resul
     std::fs::write(path, out)
 }
 
+/// Compute the set of `@file …` chunk names that can be skipped this run.
+///
+/// A chunk is skippable when every source block that overlaps its definition
+/// line range has an unchanged BLAKE3 hash compared to the previous run's
+/// database.  We only skip chunks that already have a `gen_baseline` in the
+/// previous db (i.e., have been written at least once before) — that way a
+/// first-ever run always writes everything.
+///
+/// The algorithm:
+/// 1. For each driver file, parse its source into blocks and compare hashes
+///    against the previous run's `source_blocks` table.  Collect (file, block)
+///    pairs whose hash changed.
+/// 2. Store the new block hashes in the current-run db (always, so the next run
+///    has an up-to-date baseline).
+/// 3. For each changed block, find all chunk defs overlapping its line range
+///    (from the previous run's `chunk_defs` table), and mark those chunks dirty.
+/// 4. BFS backward through `chunk_deps` (reverse deps) to transitively mark
+///    any `@file` chunk that depends on a dirty chunk as dirty too.
+/// 5. Return the complement: all `@file` chunks not in the dirty set that also
+///    have a gen_baseline.
+fn compute_skip_set(
+    source_contents: &HashMap<String, String>,
+    prev_db: &Option<weaveback_tangle::db::WeavebackDb>,
+    current_db: &mut weaveback_tangle::db::WeavebackDb,
+) -> HashSet<String> {
+    use weaveback_tangle::parse_source_blocks;
+
+    // Step 1: parse all source blocks in parallel (pure, BLAKE3-heavy).
+    let parsed: Vec<(&String, Vec<_>)> = source_contents
+        .par_iter()
+        .map(|(path, content)| {
+            let ext = std::path::Path::new(path.as_str())
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            (path, parse_source_blocks(content, ext))
+        })
+        .collect();
+
+    // Step 2: store new hashes (sequential — requires &mut db) and collect
+    // dirty chunk names by comparing against the previous run's hashes.
+    let mut dirty_chunks: HashSet<String> = HashSet::new();
+
+    for (path, new_blocks) in &parsed {
+        // Store new block hashes into the current-run db (always).
+        if let Err(e) = current_db.set_source_blocks(path, new_blocks) {
+            eprintln!("warning: set_source_blocks failed for {path}: {e}");
+            // If we can't record blocks, treat the whole file as dirty.
+            dirty_chunks.insert("*".to_string());
+            continue;
+        }
+
+        let prev = prev_db.as_ref();
+        let prev_hashes: HashMap<u32, Vec<u8>> = prev
+            .and_then(|db| db.get_source_block_hashes(path).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        for blk in new_blocks {
+            let changed = prev_hashes
+                .get(&blk.block_index)
+                .map(|old| old.as_slice() != blk.content_hash.as_slice())
+                .unwrap_or(true); // new block (no prior hash) ⇒ changed
+
+            if changed
+                && let Some(db) = prev
+                && let Ok(chunk_defs) = db.query_chunk_defs_overlapping(path, blk.line_start, blk.line_end) {
+                    for def in chunk_defs {
+                        dirty_chunks.insert(def.chunk_name.clone());
+                    }
+            }
+        }
+    }
+
+    // Step 4: BFS backward through chunk_deps to find transitively dirty chunks.
+    if let Some(db) = prev_db.as_ref() {
+        let mut queue: Vec<String> = dirty_chunks.iter().cloned().collect();
+        while let Some(chunk) = queue.pop() {
+            if let Ok(rev_deps) = db.query_reverse_deps(&chunk) {
+                for (from_chunk, _src_file) in rev_deps {
+                    if dirty_chunks.insert(from_chunk.clone()) {
+                        queue.push(from_chunk);
+                    }
+                }
+            }
+        }
+    }
+
+    // If any entry is "*" (failed to record blocks for some file), skip nothing.
+    if dirty_chunks.contains("*") {
+        return HashSet::new();
+    }
+
+    // Step 5: collect skippable @file chunks.
+    let Some(prev) = prev_db.as_ref() else {
+        return HashSet::new();
+    };
+
+    let all_file_chunks: Vec<String> = prev
+        .list_chunk_defs(None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.chunk_name.starts_with("@file "))
+        .map(|e| e.chunk_name)
+        .collect::<std::collections::BTreeSet<_>>() // deduplicate
+        .into_iter()
+        .collect();
+
+    let mut skip: HashSet<String> = HashSet::new();
+    for name in all_file_chunks {
+        if dirty_chunks.contains(&name) {
+            continue;
+        }
+        // Only skip if the file was written before (has a baseline).
+        let out_file = name.strip_prefix("@file ").unwrap_or(&name).trim();
+        if prev.get_baseline(out_file).ok().flatten().is_some() {
+            skip.insert(name);
+        }
+    }
+    skip
+}
+
 fn run(args: Args) -> Result<(), Error> {
     if args.inputs.is_empty() && args.directory.is_none() {
         use clap::CommandFactory;
@@ -381,9 +514,19 @@ fn run(args: Args) -> Result<(), Error> {
         (drivers.clone(), drivers)
     };
 
+    // Open the previous run's db (read-only) so we can compare block hashes.
+    let prev_db = if args.db.exists() {
+        weaveback_tangle::db::WeavebackDb::open_read_only(&args.db).ok()
+    } else {
+        None
+    };
+
     // Phase 1: process each driver and feed result to noweb.
+    // Collect original (pre-expansion) source content for block-hash comparison.
+    let mut source_contents: HashMap<String, String> = HashMap::new();
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path)?;
+        source_contents.insert(full_path.to_string_lossy().into_owned(), content.clone());
 
         // Record the configuration used for this source file.
         let tangle_cfg = weaveback_tangle::db::TangleConfig {
@@ -439,7 +582,12 @@ fn run(args: Args) -> Result<(), Error> {
         }
         return Ok(());
     }
-    clip.write_files()?;
+
+    // Compute which @file chunks can be skipped because none of their source
+    // blocks changed since the last run.  Store the new block hashes first so
+    // the next run can compare against this run's content.
+    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut());
+    clip.write_files_incremental(&skip_set)?;
 
     // Phase 3: snapshot all source files read this run.
     (|| -> Result<(), weaveback_tangle::WeavebackError> {
@@ -508,6 +656,9 @@ fn main() {
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
         }
+        Some(Commands::Tangle { config }) => {
+            run_tangle_all(&config)
+        }
         Some(Commands::Mcp) => {
             let eval_config = build_eval_config(&cli.args);
             mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config)
@@ -534,7 +685,7 @@ fn main() {
             run_lsp(cmd, cli.args.db, cli.args.gen_dir, eval_config, lsp_cmd, lsp_lang)
         }
         #[cfg(feature = "server")]
-        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint }) => {
+        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint, watch }) => {
             let backend = match ai_backend.as_str() {
                 "anthropic" => serve::AiBackend::Anthropic,
                 "gemini"    => serve::AiBackend::Gemini,
@@ -551,7 +702,7 @@ fn main() {
                 ai_model,
                 ai_endpoint,
             };
-            serve::run_serve(port, html, tangle_cfg)
+            serve::run_serve(port, html, tangle_cfg, watch)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
         None => run(cli.args),
@@ -813,6 +964,88 @@ fn run_lsp(
             }
             println!("{}", serde_json::to_string_pretty(&results).unwrap());
         }
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct TanglePassCfg {
+    dir:              String,
+    #[serde(rename = "gen")]
+    output_dir:       Option<String>,
+    ext:              Option<String>,
+    #[serde(default)]
+    no_macros:        bool,
+    open_delim:       Option<String>,
+    close_delim:      Option<String>,
+    chunk_end:        Option<String>,
+    comment_markers:  Option<String>,
+    #[serde(default)]
+    special:          Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TangleCfg {
+    #[serde(rename = "gen")]
+    default_gen:      Option<String>,
+    #[serde(rename = "pass")]
+    passes:           Vec<TanglePassCfg>,
+}
+
+fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--dir").arg(&pass.dir);
+    cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
+    if let Some(ext) = &pass.ext {
+        cmd.arg("--ext").arg(ext);
+    }
+    if pass.no_macros {
+        cmd.arg("--no-macros");
+    }
+    if let Some(od) = &pass.open_delim {
+        cmd.arg("--open-delim").arg(od);
+    }
+    if let Some(cd) = &pass.close_delim {
+        cmd.arg("--close-delim").arg(cd);
+    }
+    if let Some(ce) = &pass.chunk_end {
+        cmd.arg("--chunk-end").arg(ce);
+    }
+    if let Some(cm) = &pass.comment_markers {
+        cmd.arg("--comment-markers").arg(cm);
+    }
+    for s in &pass.special {
+        cmd.arg("--special").arg(s);
+    }
+    cmd
+}
+
+fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
+    let src = std::fs::read_to_string(config_path)
+        .map_err(|e| Error::Io(std::io::Error::new(e.kind(),
+            format!("{}: {e}", config_path.display()))))?;
+    let cfg: TangleCfg = toml::from_str(&src)
+        .map_err(|e| Error::Io(std::io::Error::other(
+            format!("{}: {e}", config_path.display()))))?;
+
+    let exe = std::env::current_exe()
+        .map_err(Error::Io)?;
+    let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
+
+    let errors: Vec<String> = cfg.passes
+        .par_iter()
+        .filter_map(|pass| {
+            let mut cmd = build_pass_cmd(&exe, pass, default_gen);
+            match cmd.status() {
+                Err(e)                => Some(format!("{}: {e}", pass.dir)),
+                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
+                _                     => None,
+            }
+        })
+        .collect();
+
+    if let Some(msg) = errors.into_iter().next() {
+        return Err(Error::Io(std::io::Error::other(msg)));
     }
     Ok(())
 }

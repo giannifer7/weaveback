@@ -1,6 +1,6 @@
 = HTML post-processing
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `inject.rs` performs two post-processing passes on the generated HTML tree.
 

@@ -1,7 +1,7 @@
 = weaveback-macro vs GNU m4
 :toc: left
 :toc-title: Contents
-:source-highlighter: rouge
+:source-highlighter: syntect
 :icons: font
 
 GNU m4 is the oldest surviving general-purpose macro processor and the

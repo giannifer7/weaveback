@@ -1,48 +1,20 @@
-= Asciidoctor renderer
+= acdc renderer
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
-`render.rs` orchestrates asciidoctor to convert `.adoc` files to HTML.
-Simple files (no diagram blocks) are batched into a single asciidoctor
-invocation; files that contain `[plantuml]`, `[ditaa]`, or similar diagram
-blocks are rendered one at a time because each needs its own `imagesoutdir`.
+`render.rs` uses `acdc` to convert `.adoc` files to HTML in-process.
+`[plantuml]` blocks are pre-processed via `plantuml::preprocess_plantuml`
+before parsing so that `acdc` never sees diagram blocks and
+`asciidoctor-diagram` is not required.
 
 See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
 
-== Stale checking
-
-Each `.adoc` file is checked against its HTML output and the theme directory's
-maximum modification time.  A file is stale when the output does not yet
-exist, the `.adoc` is newer than the output, or any theme file is newer than
-the output.  The theme directory mtime is computed once and reused as a single
-threshold for all files.
-
-== PlantUML detection
-
-`find_plantuml_native` looks for the `plantuml` binary in `/usr/bin`,
-`/usr/local/bin`, and `~/.local/bin`.  When found it passes
-`-a plantuml-native=<path>` to asciidoctor so that asciidoctor-diagram 3.x
-locates the binary without a JAR on the classpath.
-
-== Constants and diagram detection
+== Constants
 
 [source,rust]
 ----
 // <[render-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "asciidoc-parser"];
-
-fn diagram_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?m)^\[(?:plantuml|ditaa|graphviz|mermaid|a2s|blockdiag)").unwrap()
-    })
-}
-
-fn has_diagram_blocks(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .map(|s| diagram_re().is_match(&s))
-        .unwrap_or(false)
-}
 // @@
 ----
 
@@ -69,39 +41,15 @@ fn theme_max_mtime(theme_dir: &Path) -> SystemTime {
 // @@
 ----
 
-== PlantUML native detection
-
-[source,rust]
-----
-// <[render-plantuml]>=
-fn find_plantuml_native() -> Option<String> {
-    let candidates = [
-        "/usr/bin/plantuml".to_string(),
-        "/usr/local/bin/plantuml".to_string(),
-        format!(
-            "{}/.local/bin/plantuml",
-            std::env::var("HOME").unwrap_or_default()
-        ),
-    ];
-    candidates.into_iter().find(|c| Path::new(c).is_file())
-}
-// @@
-----
-
 == Special-char deduplication
 
 When a `.adoc` file was processed by the weaveback macro expander, a doubled
 special character (e.g. `%%` or `^^`) is the escape sequence for a literal
-special character.  Asciidoctor knows nothing about this convention and renders
+special character.  `acdc` knows nothing about this convention and would render
 the doubled sequence verbatim.
 
 `dedup_specials` replaces every `{s}{s}` → `{s}` for each char in `specials`
 and returns the cleaned content, or `None` if no substitution was needed.
-
-For files that need preprocessing, `write_temp_adoc` writes the cleaned content
-to a hidden sibling file (`.wbd-<name>.adoc`) so that asciidoctor resolves
-relative includes and images exactly as it would for the original.  The caller
-is responsible for deleting the temp file after rendering.
 
 [source,rust]
 ----
@@ -118,164 +66,269 @@ fn dedup_specials(content: &str, specials: &[char]) -> Option<String> {
     }
     if changed { Some(out) } else { None }
 }
+// @@
+----
 
-/// Write preprocessed content alongside `original` as a hidden temp file.
-/// Returns the temp path; the caller must delete it after asciidoctor runs.
-fn write_temp_adoc(original: &Path, content: &str) -> Option<PathBuf> {
-    let name = original.file_name()?.to_string_lossy();
-    let temp = original.with_file_name(format!(".wbd-{name}"));
-    std::fs::write(&temp, content).ok()?;
-    Some(temp)
+== Theme asset injection
+
+`copy_theme_assets` copies `wb-theme.css` and `wb-theme.js` from the theme
+directory to the root of `out_dir` so they are served at `/wb-theme.css` and
+`/wb-theme.js`.  This is called once before the parallel render loop.
+
+`read_docinfo` reads the small `docinfo.html` head fragment (just a `<meta>`
+tag and a `<link rel="stylesheet" href="/wb-theme.css">` reference).
+`inject_docinfo` splices it into the rendered HTML just before `</head>`.
+
+`read_footer` reads `docinfo-footer.html` (a `<script src="/wb-theme.js">`
+reference).  `inject_footer` splices it just before `</body>`.
+
+[source,rust]
+----
+// <[render-docinfo]>=
+fn copy_theme_assets(theme_dir: &Path, out_dir: &Path) {
+    for name in &["wb-theme.css", "wb-theme.js"] {
+        let src = theme_dir.join(name);
+        let dst = out_dir.join(name);
+        if src.exists() {
+            std::fs::copy(&src, &dst).ok();
+        }
+    }
+}
+
+fn read_docinfo(theme_dir: &Path) -> Option<String> {
+    let path = theme_dir.join("docinfo.html");
+    std::fs::read_to_string(&path).ok()
+}
+
+fn read_footer(theme_dir: &Path) -> Option<String> {
+    let path = theme_dir.join("docinfo-footer.html");
+    std::fs::read_to_string(&path).ok()
+}
+
+fn inject_docinfo(mut html: String, docinfo: &str) -> String {
+    if let Some(pos) = html.find("</head>") {
+        html.insert_str(pos, docinfo);
+    }
+    html
+}
+
+fn inject_footer(mut html: String, footer: &str) -> String {
+    if let Some(pos) = html.find("</body>") {
+        html.insert_str(pos, footer);
+    }
+    html
 }
 // @@
 ----
 
 == render_docs
 
-`render_docs` builds the base asciidoctor argument list (rouge highlighting,
-gruvbox style, shared docinfo), partitions stale files into a batch of simple
-files and a list of files that need individual rendering (either because they
-contain diagram blocks or because they need special-char deduplication), then
-renders both groups.
+`render_docs` walks all `.adoc` files under `project_root`, skips those whose
+HTML output is up-to-date, pre-processes stale files (plantuml + dedup), parses
+with `acdc_parser`, converts with `acdc_converters_html`, injects docinfo, and
+writes the result.
 
-The `specials` slice lists the weaveback special characters in use across the
-project (e.g. `['%', '^']`).  When non-empty, every stale `.adoc` file is
-scanned for doubled specials; those that need preprocessing are pulled out of
-the batch and rendered individually via a temp file.
+Rendering proceeds in two phases:
+
+1. **Pre-scan** (sequential): for every stale `.adoc` file that contains
+   plantuml blocks, collect diagram sources that are not yet in the SVG cache.
+   All uncached diagrams are then passed to `plantuml::batch_render_plantuml`,
+   which invokes `java -jar` exactly once regardless of diagram count.
+
+2. **Parallel render** (rayon): each file is independently processed.
+   The plantuml preprocessing step at this point only copies SVGs from the
+   warm cache — no further JVM invocations.
+
+The PlantUML SVG cache lives at `<out_dir>/../.plantuml-cache/` — a sibling of
+the output directory — so that `rm -rf <out_dir>` does not invalidate it.
 
 [source,rust]
 ----
 // <[render-entry]>=
-pub fn render_docs(project_root: &Path, theme_dir: &Path, out_dir: &Path, specials: &[char]) -> Vec<PathBuf> {
+pub fn render_docs(
+    project_root: &Path,
+    theme_dir: &Path,
+    out_dir: &Path,
+    specials: &[char],
+    plantuml_jar: Option<&Path>,
+) -> Vec<PathBuf> {
+    use acdc_converters_core::Converter as _;
+    use rayon::prelude::*;
+
     std::fs::create_dir_all(out_dir).ok();
+    copy_theme_assets(theme_dir, out_dir);
 
-    let plantuml_native = find_plantuml_native();
-
-    let mut base_args: Vec<String> = vec![
-        "-r".into(),
-        "asciidoctor-diagram".into(),
-        "-a".into(),
-        "source-highlighter=rouge".into(),
-        "-a".into(),
-        "rouge-css=class".into(),
-        "-a".into(),
-        "rouge-style=gruvbox".into(),
-        "-a".into(),
-        "docinfo=shared".into(),
-        "-a".into(),
-        format!("docinfodir={}", theme_dir.display()),
-        "-a".into(),
-        "imagesdir=.".into(),
-    ];
-    if let Some(native) = plantuml_native {
-        base_args.push("-a".into());
-        base_args.push(format!("plantuml-native={}", native));
-    }
-
+    let docinfo = read_docinfo(theme_dir);
+    let footer = read_footer(theme_dir);
     let theme_mtime = theme_max_mtime(theme_dir);
     let adoc_files = find_adoc_files(project_root);
 
-    let mut stale_simple: Vec<PathBuf> = Vec::new();
-    // Individual-render queue: (adoc, out, preprocessed_content).
-    // preprocessed_content is Some(cleaned) when dedup is needed, None otherwise.
-    let mut stale_individual: Vec<(PathBuf, PathBuf, Option<String>)> = Vec::new();
-    let mut all_html: Vec<PathBuf> = Vec::new();
-
-    for adoc in &adoc_files {
-        let rel = adoc.strip_prefix(project_root).unwrap_or(adoc);
-        let out_file = out_dir.join(rel).with_extension("html");
-        std::fs::create_dir_all(out_file.parent().unwrap()).ok();
-
-        let adoc_mtime = mtime(adoc);
-        let html_mtime = mtime(&out_file);
-
-        all_html.push(out_file.clone());
-
-        if out_file.exists() && html_mtime >= adoc_mtime && html_mtime >= theme_mtime {
-            continue;
-        }
-
-        let content = std::fs::read_to_string(adoc).unwrap_or_default();
-        let preprocessed = dedup_specials(&content, specials);
-        let needs_individual = has_diagram_blocks(adoc) || preprocessed.is_some();
-        if needs_individual {
-            stale_individual.push((adoc.clone(), out_file, preprocessed));
-        } else {
-            stale_simple.push(adoc.clone());
-        }
+    // SVG cache lives outside out_dir so `rm -rf <out_dir>` doesn't blow it away.
+    let svg_cache_dir = out_dir.parent().unwrap_or(out_dir).join(".plantuml-cache");
+    if plantuml_jar.is_some() {
+        std::fs::create_dir_all(&svg_cache_dir).ok();
     }
 
-    if stale_simple.is_empty() && stale_individual.is_empty() {
-        println!("docs: nothing to do");
-        return all_html;
-    }
+    // Phase 1: collect uncached PlantUML diagrams from all stale files, then
+    // batch-render them in a single JVM invocation.
+    if let Some(jar) = plantuml_jar {
+        let mut to_render: Vec<(String, PathBuf)> = Vec::new();
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
-    if !stale_simple.is_empty() {
-        println!("docs: rendering {} file(s) (batch)", stale_simple.len());
-        let mut args = base_args.clone();
-        args.extend([
-            "-R".into(),
-            project_root.to_string_lossy().into_owned(),
-            "-D".into(),
-            out_dir.to_string_lossy().into_owned(),
-        ]);
-        for f in &stale_simple {
-            args.push(f.to_string_lossy().into_owned());
-        }
-        let status = Command::new("asciidoctor")
-            .args(&args)
-            .status()
-            .expect("failed to launch asciidoctor");
-        if !status.success() {
-            eprintln!("asciidoctor batch failed");
-            std::process::exit(status.code().unwrap_or(1));
-        }
-    }
-
-    for (adoc, out_file, preprocessed) in &stale_individual {
-        let label = adoc.strip_prefix(project_root).unwrap_or(adoc);
-        let has_diag = has_diagram_blocks(adoc);
-        println!(
-            "docs: rendering {}{}",
-            label.display(),
-            match (has_diag, preprocessed.is_some()) {
-                (true, true)  => " (diagrams + dedup)",
-                (true, false) => " (diagrams)",
-                (false, true) => " (dedup)",
-                (false, false) => "",
+        for adoc in &adoc_files {
+            let rel = adoc.strip_prefix(project_root).unwrap_or(adoc);
+            let out_file = out_dir.join(rel).with_extension("html");
+            if out_file.exists()
+                && mtime(&out_file) >= mtime(adoc)
+                && mtime(&out_file) >= theme_mtime
+            {
+                continue;
             }
-        );
-
-        // Write temp file for preprocessing; use original path otherwise.
-        let temp_path = preprocessed.as_deref().and_then(|c| write_temp_adoc(adoc, c));
-        let render_path = temp_path.as_deref().unwrap_or(adoc);
-
-        let mut args = base_args.clone();
-        if has_diag {
-            args.extend([
-                "-a".into(),
-                format!("imagesoutdir={}", out_file.parent().unwrap().display()),
-            ]);
-        }
-        args.extend([
-            "-o".into(),
-            out_file.to_string_lossy().into_owned(),
-            render_path.to_string_lossy().into_owned(),
-        ]);
-        let status = Command::new("asciidoctor")
-            .args(&args)
-            .status()
-            .expect("failed to launch asciidoctor");
-
-        // Clean up temp file whether or not asciidoctor succeeded.
-        if let Some(ref tp) = temp_path {
-            let _ = std::fs::remove_file(tp);
+            let source = std::fs::read_to_string(adoc).unwrap_or_default();
+            let label = adoc.strip_prefix(project_root).unwrap_or(adoc).to_string_lossy();
+            for (diagram_src, cache_path) in crate::plantuml::collect_uncached_plantuml_diagrams(
+                &source, &svg_cache_dir, &label,
+            ) {
+                if seen.insert(cache_path.clone()) {
+                    to_render.push((diagram_src, cache_path));
+                }
+            }
         }
 
-        if !status.success() {
-            eprintln!("asciidoctor failed: {}", adoc.display());
-            std::process::exit(status.code().unwrap_or(1));
+        if !to_render.is_empty() {
+            if let Err(e) = crate::plantuml::batch_render_plantuml(&to_render, jar) {
+                eprintln!("plantuml batch: {e}");
+                std::process::exit(1);
+            }
         }
+    }
+
+    // Phase 2: parallel acdc render; plantuml preprocessing only copies from cache.
+    let results: Vec<(PathBuf, bool)> = adoc_files
+        .par_iter()
+        .map(|adoc| {
+            let rel = adoc.strip_prefix(project_root).unwrap_or(adoc);
+            let out_file = out_dir.join(rel).with_extension("html");
+            std::fs::create_dir_all(out_file.parent().unwrap()).ok();
+
+            if out_file.exists()
+                && mtime(&out_file) >= mtime(adoc)
+                && mtime(&out_file) >= theme_mtime
+            {
+                return (out_file, false);
+            }
+
+            let source = std::fs::read_to_string(adoc).unwrap_or_default();
+
+            // 1. PlantUML pre-processing.
+            let after_plantuml: Option<String> = if let Some(jar) = plantuml_jar {
+                let images_dir = out_file.parent().unwrap_or(out_dir);
+                let label = adoc.strip_prefix(project_root).unwrap_or(adoc).to_string_lossy();
+                match crate::plantuml::preprocess_plantuml(
+                    &source, jar, images_dir, &svg_cache_dir, &label,
+                ) {
+                    Ok(opt) => opt,
+                    Err(e) => {
+                        eprintln!("plantuml: {}: {}", adoc.display(), e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                None
+            };
+
+            // 2. Special-char deduplication.
+            let base = after_plantuml.as_deref().unwrap_or(&source);
+            let processed: String = dedup_specials(base, specials)
+                .or(after_plantuml)
+                .unwrap_or_else(|| source.clone());
+
+            // 3. Build per-file acdc options.
+            let source_dir = adoc.parent().unwrap_or(project_root);
+            let docname = adoc
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_owned();
+            let images_dir = out_file
+                .parent()
+                .unwrap_or(out_dir)
+                .to_string_lossy()
+                .into_owned();
+
+            let parse_options = acdc_parser::Options::builder()
+                .with_attribute("imagesdir", images_dir)
+                .with_attribute("source-highlighter", "syntect")
+                .with_attribute("syntect-css", "class")
+                .build();
+
+            // 4. Parse — catch panics from parser bugs in experimental acdc.
+            let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                acdc_parser::parse(&processed, &parse_options)
+            }));
+            let doc = match parse_result {
+                Ok(Ok(d)) => d,
+                Ok(Err(e)) => {
+                    eprintln!("acdc parse: {}: {}", adoc.display(), e);
+                    return (out_file, false);
+                }
+                Err(_) => {
+                    eprintln!("acdc parse: {}: parser panicked, skipping", adoc.display());
+                    return (out_file, false);
+                }
+            };
+
+            // 5. Render to HTML — catch panics from renderer bugs in experimental acdc.
+            let conv_options = acdc_converters_core::Options::builder().build();
+            let processor = acdc_converters_html::Processor::new(
+                conv_options,
+                doc.attributes.clone(),
+            );
+            let render_opts = acdc_converters_html::RenderOptions {
+                embedded: false,
+                source_dir: Some(source_dir.to_path_buf()),
+                docname: Some(docname),
+                ..Default::default()
+            };
+            let render_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                processor.convert_to_string(&doc, &render_opts)
+            }));
+            let mut html = match render_result {
+                Ok(Ok(h)) => h,
+                Ok(Err(e)) => {
+                    eprintln!("acdc render: {}: {}", adoc.display(), e);
+                    return (out_file, false);
+                }
+                Err(_) => {
+                    eprintln!("acdc render: {}: renderer panicked, skipping", adoc.display());
+                    return (out_file, false);
+                }
+            };
+
+            // 6. Inject head fragment (link tag) and footer script tag.
+            if let Some(ref di) = docinfo {
+                html = inject_docinfo(html, di);
+            }
+            if let Some(ref f) = footer {
+                html = inject_footer(html, f);
+            }
+
+            if let Err(e) = std::fs::write(&out_file, &html) {
+                eprintln!("write {}: {}", out_file.display(), e);
+                std::process::exit(1);
+            }
+
+            (out_file, true)
+        })
+        .collect();
+
+    let all_html: Vec<PathBuf> = results.iter().map(|(p, _)| p.clone()).collect();
+    let rendered = results.iter().filter(|(_, r)| *r).count();
+
+    if rendered == 0 {
+        println!("docs: nothing to do");
+    } else {
+        println!("docs: rendered {rendered} file(s)");
     }
 
     all_html
@@ -321,16 +374,13 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
 [source,rust]
 ----
 // <[@file weaveback-docgen/src/render.rs]>=
-use regex::Regex;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::OnceLock;
 use std::time::SystemTime;
 
 // <[render-exclude]>
 // <[render-mtime]>
-// <[render-plantuml]>
 // <[render-dedup]>
+// <[render-docinfo]>
 // <[render-entry]>
 // <[render-discover]>
 // @@

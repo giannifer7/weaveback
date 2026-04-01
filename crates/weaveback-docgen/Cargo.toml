@@ -15,6 +15,13 @@ serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
 weaveback-lsp.workspace = true
+asciidoc-parser.workspace = true
+blake3.workspace = true
+rayon.workspace = true
+tempfile.workspace = true
+acdc-parser.workspace = true
+acdc-converters-core.workspace = true
+acdc-converters-html.workspace = true
 
 [[bin]]
 name = "weaveback-docgen"

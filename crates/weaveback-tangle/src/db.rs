@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS run_config (
     value TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 
+CREATE TABLE IF NOT EXISTS source_blocks (
+    src_file    INTEGER NOT NULL REFERENCES files(id),
+    block_index INTEGER NOT NULL,
+    block_type  TEXT    NOT NULL,
+    line_start  INTEGER NOT NULL,
+    line_end    INTEGER NOT NULL,
+    content_hash BLOB   NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
 ";
@@ -141,6 +151,16 @@ pub struct NowebMapEntry {
     pub confidence: Confidence,
 }
 
+/// One parsed logical block stored in `source_blocks`.
+#[derive(Debug, Clone)]
+pub struct StoredBlockInfo {
+    pub block_index:  u32,
+    pub block_type:   String,
+    pub line_start:   u32,
+    pub line_end:     u32,
+    pub content_hash: Vec<u8>,
+}
+
 /// Location of a chunk definition within a literate source file.
 /// `def_start` is the 1-indexed line of the open marker (`// <<name>>=`).
 /// `def_end`   is the 1-indexed line of the close marker (`// @@`).
@@ -190,6 +210,7 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
             DROP TABLE IF EXISTS chunk_deps;
             DROP TABLE IF EXISTS chunk_defs;
             DROP TABLE IF EXISTS literate_source_config;
+            DROP TABLE IF EXISTS source_blocks;
         ")?;
     }
 
@@ -554,6 +575,33 @@ impl WeavebackDb {
     pub fn list_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
         self.query_all_chunk_deps()
     }
+
+    /// Return all chunk definitions in `src_file` whose line range overlaps
+    /// `[line_start, line_end]`.  Used by incremental-build skip-set computation.
+    pub fn query_chunk_defs_overlapping(
+        &self,
+        src_file: &str,
+        line_start: u32,
+        line_end: u32,
+    ) -> Result<Vec<ChunkDefEntry>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+             FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+             WHERE f.path = ?1
+               AND cdef.def_start <= ?3
+               AND cdef.def_end   >= ?2",
+        )?;
+        let rows = stmt.query_map(params![src_file, line_start, line_end], |row| {
+            Ok(ChunkDefEntry {
+                src_file:   row.get(0)?,
+                chunk_name: row.get(1)?,
+                nth:        row.get::<_, u32>(2)?,
+                def_start:  row.get::<_, u32>(3)?,
+                def_end:    row.get::<_, u32>(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
 }
 impl WeavebackDb {
     pub fn set_macro_map_entries(
@@ -694,6 +742,80 @@ impl WeavebackDb {
         Ok(res)
     }
 }
+impl WeavebackDb {
+    pub fn set_source_blocks(
+        &mut self,
+        src_file: &str,
+        blocks: &[crate::block_parser::SourceBlockEntry],
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        let tx = self.conn.transaction()?;
+        {
+            let mut del = tx.prepare_cached(
+                "DELETE FROM source_blocks WHERE src_file = ?1",
+            )?;
+            del.execute(params![file_id])?;
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO source_blocks
+                 (src_file, block_index, block_type, line_start, line_end, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for b in blocks {
+                ins.execute(params![
+                    file_id,
+                    b.block_index,
+                    b.block_type,
+                    b.line_start,
+                    b.line_end,
+                    b.content_hash.as_slice()
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_source_block_hashes(
+        &self,
+        src_file: &str,
+    ) -> Result<Vec<(u32, Vec<u8>)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT sb.block_index, sb.content_hash
+             FROM source_blocks sb JOIN files f ON f.id = sb.src_file
+             WHERE f.path = ?1
+             ORDER BY sb.block_index",
+        )?;
+        let rows = stmt.query_map(params![src_file], |row| {
+            Ok((row.get::<_, u32>(0)?, row.get::<_, Vec<u8>>(1)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn query_blocks_overlapping_range(
+        &self,
+        src_file: &str,
+        line_start: u32,
+        line_end: u32,
+    ) -> Result<Vec<StoredBlockInfo>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+             FROM source_blocks sb JOIN files f ON f.id = sb.src_file
+             WHERE f.path = ?1
+               AND sb.line_start <= ?3
+               AND sb.line_end   >= ?2",
+        )?;
+        let rows = stmt.query_map(params![src_file, line_start, line_end], |row| {
+            Ok(StoredBlockInfo {
+                block_index:  row.get::<_, u32>(0)?,
+                block_type:   row.get(1)?,
+                line_start:   row.get::<_, u32>(2)?,
+                line_end:     row.get::<_, u32>(3)?,
+                content_hash: row.get::<_, Vec<u8>>(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+}
 /// Escape a string for use inside a SQLite single-quoted string literal.
 fn sqlite_string_literal(s: &str) -> String {
     s.replace('\'', "''")
@@ -802,6 +924,15 @@ impl WeavebackDb {
                     lsc.special_char, lsc.open_delim, lsc.close_delim,
                     lsc.chunk_end, lsc.comment_markers
                 FROM literate_source_config lsc;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.source_blocks
+                SELECT
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = sb.src_file)),
+                    sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+                FROM source_blocks sb;
             ")?;
 
             self.conn.execute_batch("COMMIT;")?;

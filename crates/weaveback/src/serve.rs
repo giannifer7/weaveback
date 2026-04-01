@@ -82,6 +82,86 @@ fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders) {
     });
 }
 #[cfg(feature = "server")]
+fn find_docgen_bin() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.with_file_name("weaveback-docgen");
+        if sibling.exists() { return sibling; }
+    }
+    PathBuf::from("weaveback-docgen")
+}
+
+#[cfg(feature = "server")]
+fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
+    if tangle {
+        eprintln!("weaveback serve --watch: tangle...");
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| PathBuf::from("weaveback"));
+        let ok = std::process::Command::new(&exe)
+            .arg("tangle")
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("weaveback serve --watch: tangle failed"); return; }
+    }
+    if theme {
+        eprintln!("weaveback serve --watch: theme...");
+        let ok = std::process::Command::new("node")
+            .arg(project_root.join("scripts").join("serve-ui").join("build.mjs"))
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("weaveback serve --watch: theme build failed"); return; }
+    }
+    eprintln!("weaveback serve --watch: docs...");
+    let _ = std::process::Command::new(find_docgen_bin())
+        .args(["--special", "%", "--special", "^"])
+        .current_dir(project_root)
+        .status();
+}
+
+#[cfg(feature = "server")]
+fn spawn_source_watcher(project_root: PathBuf) {
+    use std::time::Duration;
+    thread::spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => { eprintln!("weaveback serve: source watcher error: {e}"); return; }
+        };
+        if let Err(e) = watcher.watch(&project_root, RecursiveMode::Recursive) {
+            eprintln!("weaveback serve: source watch error: {e}");
+            return;
+        }
+        let docs_html  = project_root.join("docs").join("html");
+        let target_dir = project_root.join("target");
+        let theme_src  = project_root.join("scripts").join("serve-ui").join("src");
+        while let Ok(first) = rx.recv() {
+            let mut need_tangle = false;
+            let mut need_theme  = false;
+            if let Ok(event) = first {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            while let Ok(Ok(event)) = rx.recv_timeout(Duration::from_millis(500)) {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            if need_tangle || need_theme {
+                run_rebuild(&project_root, need_tangle, need_theme);
+            }
+        }
+        drop(watcher);
+    });
+}
+#[cfg(feature = "server")]
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
@@ -1361,6 +1441,7 @@ pub fn run_serve(
     port: u16,
     html_override: Option<PathBuf>,
     tangle_cfg: TangleConfig,
+    watch: bool,
 ) -> Result<(), String> {
     let project_root = find_project_root();
     let html_dir = html_override.unwrap_or_else(|| project_root.join("docs").join("html"));
@@ -1375,6 +1456,9 @@ pub fn run_serve(
 
     let senders: SseSenders = Arc::new(Mutex::new(Vec::new()));
     spawn_watcher(html_dir.clone(), senders.clone());
+    if watch {
+        spawn_source_watcher(project_root.clone());
+    }
 
     let addr = format!("127.0.0.1:{port}");
     let server = Server::http(&addr).map_err(|e| e.to_string())?;
@@ -1387,6 +1471,9 @@ pub fn run_serve(
         std::env::var("VISUAL")
             .or_else(|_| std::env::var("EDITOR"))
             .unwrap_or_else(|_| "vi (fallback)".into()));
+    if watch {
+        println!("  Watch:   .adoc + theme sources (tangle + docs on change)");
+    }
     println!("  Press Ctrl-C to stop.");
 
     for request in server.incoming_requests() {

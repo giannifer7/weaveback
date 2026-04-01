@@ -1,6 +1,6 @@
 = MCP Server
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `mcp.rs` implements a JSON-RPC 2.0 server over stdin/stdout following the
 Model Context Protocol (MCP).  It exposes six tools to IDE and agent

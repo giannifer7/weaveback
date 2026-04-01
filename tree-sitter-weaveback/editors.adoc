@@ -1,6 +1,6 @@
 = Editor integration
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 This document covers the installation scripts and configuration files for
 Helix and Neovim.  Both editors use tree-sitter for syntax highlighting;

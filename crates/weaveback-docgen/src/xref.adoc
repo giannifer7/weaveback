@@ -1,6 +1,6 @@
 = Rust cross-reference graph
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `xref.rs` builds a forward-and-reverse cross-reference graph from the
 workspace Rust source files.  It uses `syn` to parse each `.rs` file, collects

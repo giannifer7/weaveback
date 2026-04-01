@@ -18,7 +18,10 @@ weaveback-macro.workspace = true
 weaveback-tangle.workspace = true
 weaveback-lsp.workspace = true
 clap = { workspace = true }
+serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
+rayon.workspace = true
 similar.workspace = true
 regex.workspace = true
 tiny_http = { workspace = true, optional = true }
@@ -26,7 +29,7 @@ notify = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
 
 [features]
-default = []
+default = ["server"]
 server = ["dep:tiny_http", "dep:notify", "dep:ureq"]
 
 [dev-dependencies]

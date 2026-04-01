@@ -1,5 +1,12 @@
 # justfile — weaveback workspace
 
+# Prefer locally-built release binary; fall back to debug, then PATH.
+_wb := if path_exists("target/release/weaveback") == "true" { \
+           "./target/release/weaveback" \
+       } else if path_exists("target/debug/weaveback") == "true" { \
+           "./target/debug/weaveback" \
+       } else { "weaveback" }
+
 # Default: list available recipes
 default:
     @just --list
@@ -55,6 +62,10 @@ weaveback FILE:
 # Serve docs/html/ locally with live reload and inline editor (dev build)
 serve *ARGS:
     cargo run --release --package weaveback -- serve {{ARGS}}
+
+# Serve with auto-rebuild: edits to .adoc or theme sources trigger tangle + docs
+dev *ARGS:
+    cargo run --release --package weaveback -- serve --watch {{ARGS}}
 
 # Run weaveback-macro on a file (usage: just macros src/foo.md)
 macros FILE:
@@ -128,26 +139,33 @@ update-release:
 
 # ── Literate programming ──────────────────────────────────────────────────────
 
-# Tangle all .adoc literate sources under crates/ into generated Rust files
+# Tangle all .adoc literate sources from weaveback.toml
 tangle:
-    python3 scripts/tangle.py
+    {{_wb}} tangle
 
 # Install weaveback + documentation toolchain (binary, asciidoctor, rouge)
 # Pass extra args: just install --diagrams  /  just install --source
 install *ARGS:
     python3 scripts/install.py {{ARGS}}
 
+PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
+
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
 # --special % de-escapes %% in files that use % as the macro special char
 # --special ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as special)
 docs:
     node scripts/serve-ui/build.mjs
-    cargo run --release --package weaveback-docgen -- --special % --special ^
+    cargo run --release --package weaveback-docgen -- \
+        --special % --special ^ \
+        --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
-    cargo run --release --package weaveback-docgen -- --special % --special ^ --ai-xref
+    cargo run --release --package weaveback-docgen -- \
+        --special % --special ^ \
+        --plantuml-jar {{PLANTUML_JAR}} \
+        --ai-xref
 
 # Semantic language server operations (requires rust-analyzer)
 # Usage: just lsp definition crates/weaveback/src/main.rs 123 45

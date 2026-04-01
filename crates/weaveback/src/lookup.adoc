@@ -1,6 +1,6 @@
 = Source Lookup
 :toc: left
-:source-highlighter: rouge
+:source-highlighter: syntect
 
 `lookup.rs` answers two questions about a generated file line:
 

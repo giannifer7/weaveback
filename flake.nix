@@ -29,7 +29,7 @@
         default          = releaseBin { pname = "weaveback";         sha256 = "sha256-+yW1ftR+wjHEzQWs/faNJ6P+YQw2W8dQu09h60i9Ubo="; };
         weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-E1TJDn7T/Tmlk8iBh3Ssa9ANjrUF8NUZKN+38M6Ouiw="; };
         weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-SyGek/hXOfwyoxWRirLQ6yDJxI/XnhEyTn+BpjqtJi8="; };
-        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-gMiqlUYEzBVUdeUfOc+A0bL85/hL5+AX0PcYQsaR18Q="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-iPIBLb0VD9CpNc+y/wWxhybiwNfqcMnXOrPLuWA3/Ls="; };
       };
 
       # Full documentation + development toolchain.

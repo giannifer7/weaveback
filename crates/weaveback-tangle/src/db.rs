@@ -2,15 +2,20 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::path::Path;
 
 const CREATE_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS files (
+    id   INTEGER PRIMARY KEY,
+    path TEXT    NOT NULL UNIQUE
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS gen_baselines (
     path    TEXT PRIMARY KEY NOT NULL,
     content BLOB NOT NULL
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS noweb_map (
-    out_file   TEXT    NOT NULL,
+    out_file   INTEGER NOT NULL REFERENCES files(id),
     out_line   INTEGER NOT NULL,
-    src_file   TEXT    NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
     chunk_name TEXT    NOT NULL,
     src_line   INTEGER NOT NULL,
     indent     TEXT    NOT NULL,
@@ -19,7 +24,7 @@ CREATE TABLE IF NOT EXISTS noweb_map (
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS macro_map (
-    driver_file   TEXT    NOT NULL,
+    driver_file   INTEGER NOT NULL REFERENCES files(id),
     expanded_line INTEGER NOT NULL,
     data          BLOB    NOT NULL,
     PRIMARY KEY (driver_file, expanded_line)
@@ -32,7 +37,7 @@ CREATE TABLE IF NOT EXISTS src_snapshots (
 
 CREATE TABLE IF NOT EXISTS var_defs (
     var_name TEXT    NOT NULL,
-    src_file TEXT    NOT NULL,
+    src_file INTEGER NOT NULL REFERENCES files(id),
     pos      INTEGER NOT NULL,
     length   INTEGER NOT NULL,
     PRIMARY KEY (var_name, src_file, pos)
@@ -40,21 +45,21 @@ CREATE TABLE IF NOT EXISTS var_defs (
 
 CREATE TABLE IF NOT EXISTS macro_defs (
     macro_name TEXT    NOT NULL,
-    src_file   TEXT    NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
     pos        INTEGER NOT NULL,
     length     INTEGER NOT NULL,
     PRIMARY KEY (macro_name, src_file, pos)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS chunk_deps (
-    from_chunk TEXT NOT NULL,
-    to_chunk   TEXT NOT NULL,
-    src_file   TEXT NOT NULL,
+    from_chunk TEXT    NOT NULL,
+    to_chunk   TEXT    NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
     PRIMARY KEY (from_chunk, to_chunk, src_file)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS chunk_defs (
-    src_file    TEXT    NOT NULL,
+    src_file    INTEGER NOT NULL REFERENCES files(id),
     chunk_name  TEXT    NOT NULL,
     nth         INTEGER NOT NULL DEFAULT 0,
     def_start   INTEGER NOT NULL,
@@ -63,7 +68,7 @@ CREATE TABLE IF NOT EXISTS chunk_defs (
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS literate_source_config (
-    src_file        TEXT    NOT NULL,
+    src_file        INTEGER NOT NULL REFERENCES files(id),
     special_char    TEXT    NOT NULL,
     open_delim      TEXT    NOT NULL,
     close_delim     TEXT    NOT NULL,
@@ -77,8 +82,8 @@ CREATE TABLE IF NOT EXISTS run_config (
     value TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 
-CREATE INDEX IF NOT EXISTS idx_chunk_deps_to    ON chunk_deps(to_chunk);
-CREATE INDEX IF NOT EXISTS idx_noweb_map_src    ON noweb_map(src_file, src_line);
+CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
+CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
 ";
 use thiserror::Error;
 
@@ -151,43 +156,44 @@ pub struct WeavebackDb {
     conn: Connection,
 }
 
+/// Intern a file path: insert if not present, return the row id.
+fn intern_file(conn: &Connection, path: &str) -> Result<i64, DbError> {
+    conn.execute("INSERT OR IGNORE INTO files (path) VALUES (?1)", params![path])?;
+    Ok(conn.query_row(
+        "SELECT id FROM files WHERE path = ?1",
+        params![path],
+        |row| row.get(0),
+    )?)
+}
+
+/// Detect whether the db uses the pre-file-ID schema (noweb_map.out_file is TEXT).
+fn needs_file_id_migration(conn: &Connection) -> Result<bool, DbError> {
+    let col_type: Option<String> = conn.query_row(
+        "SELECT type FROM pragma_table_info('noweb_map') WHERE name='out_file'",
+        [],
+        |row| row.get(0),
+    ).optional()?;
+    Ok(col_type.as_deref() == Some("TEXT"))
+}
+
 fn apply_schema(conn: &Connection) -> Result<(), DbError> {
+    // If the db was created with the old TEXT-based file columns, drop those
+    // tables so CREATE_SCHEMA recreates them with integer IDs.  The db is a
+    // disposable build artefact; gen_baselines and src_snapshots (which store
+    // the per-file baselines and source snapshots) are left intact.
+    if needs_file_id_migration(conn)? {
+        conn.execute_batch("
+            DROP TABLE IF EXISTS noweb_map;
+            DROP TABLE IF EXISTS macro_map;
+            DROP TABLE IF EXISTS var_defs;
+            DROP TABLE IF EXISTS macro_defs;
+            DROP TABLE IF EXISTS chunk_deps;
+            DROP TABLE IF EXISTS chunk_defs;
+            DROP TABLE IF EXISTS literate_source_config;
+        ")?;
+    }
+
     conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)?;
-    // Migrations: add columns / tables introduced after initial release.
-    // SQLite errors if a column already exists; we ignore those errors.
-    let _ = conn.execute_batch(
-        "ALTER TABLE noweb_map ADD COLUMN confidence TEXT NOT NULL DEFAULT 'exact';"
-    );
-    // chunk_deps was added later; CREATE TABLE IF NOT EXISTS is idempotent.
-    let _ = conn.execute_batch("
-        CREATE TABLE IF NOT EXISTS chunk_deps (
-            from_chunk TEXT NOT NULL,
-            to_chunk   TEXT NOT NULL,
-            src_file   TEXT NOT NULL,
-            PRIMARY KEY (from_chunk, to_chunk, src_file)
-        ) STRICT, WITHOUT ROWID;
-        CREATE INDEX IF NOT EXISTS idx_chunk_deps_to   ON chunk_deps(to_chunk);
-    ");
-    // chunk_defs was added later; CREATE TABLE IF NOT EXISTS is idempotent.
-    let _ = conn.execute_batch("
-        CREATE TABLE IF NOT EXISTS chunk_defs (
-            src_file    TEXT    NOT NULL,
-            chunk_name  TEXT    NOT NULL,
-            nth         INTEGER NOT NULL DEFAULT 0,
-            def_start   INTEGER NOT NULL,
-            def_end     INTEGER NOT NULL,
-            PRIMARY KEY (src_file, chunk_name, nth)
-        ) STRICT, WITHOUT ROWID;
-    ");
-    let _ = conn.execute_batch("
-        CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
-    ");
-    let _ = conn.execute_batch("
-        CREATE TABLE IF NOT EXISTS run_config (
-            key   TEXT PRIMARY KEY NOT NULL,
-            value TEXT NOT NULL
-        ) STRICT, WITHOUT ROWID;
-    ");
     Ok(())
 }
 
@@ -254,6 +260,16 @@ impl WeavebackDb {
         if entries.is_empty() {
             return Ok(());
         }
+        // Pre-intern all file paths before opening the transaction.
+        let out_file_id = intern_file(&self.conn, out_file)?;
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for (_, e) in entries {
+            if let std::collections::hash_map::Entry::Vacant(v) =
+                src_ids.entry(e.src_file.as_str())
+            {
+                v.insert(intern_file(&self.conn, &e.src_file)?);
+            }
+        }
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -263,9 +279,9 @@ impl WeavebackDb {
             )?;
             for (line, e) in entries {
                 stmt.execute(params![
-                    out_file,
+                    out_file_id,
                     *line,
-                    e.src_file,
+                    src_ids[e.src_file.as_str()],
                     e.chunk_name,
                     e.src_line,
                     e.indent,
@@ -285,8 +301,11 @@ impl WeavebackDb {
         Ok(self
             .conn
             .query_row(
-                "SELECT src_file, chunk_name, src_line, indent, confidence
-                 FROM noweb_map WHERE out_file = ?1 AND out_line = ?2",
+                "SELECT f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+                 FROM noweb_map nm
+                 JOIN files f_out ON f_out.id = nm.out_file
+                 JOIN files f_src ON f_src.id = nm.src_file
+                 WHERE f_out.path = ?1 AND nm.out_line = ?2",
                 params![out_file, out_line],
                 |row| {
                     Ok(NowebMapEntry {
@@ -316,25 +335,30 @@ impl WeavebackDb {
         if deps.is_empty() {
             return Ok(());
         }
+        // Pre-intern all src_files.
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for (_, _, src) in deps {
+            if let std::collections::hash_map::Entry::Vacant(v) = src_ids.entry(src.as_str()) {
+                v.insert(intern_file(&self.conn, src)?);
+            }
+        }
         let tx = self.conn.transaction()?;
         {
-            // Collect unique source files and purge their old edges first.
-            let mut src_files: Vec<&str> = deps.iter().map(|(_, _, s)| s.as_str()).collect();
-            src_files.sort_unstable();
-            src_files.dedup();
+            let mut unique_ids: Vec<i64> = src_ids.values().copied().collect();
+            unique_ids.sort_unstable();
+            unique_ids.dedup();
             let mut del = tx.prepare_cached(
                 "DELETE FROM chunk_deps WHERE src_file = ?1",
             )?;
-            for sf in &src_files {
-                del.execute(params![sf])?;
+            for id in &unique_ids {
+                del.execute(params![id])?;
             }
-            // Reinsert fresh edges.
             let mut ins = tx.prepare_cached(
                 "INSERT INTO chunk_deps (from_chunk, to_chunk, src_file)
                  VALUES (?1, ?2, ?3)",
             )?;
             for (from, to, src) in deps {
-                ins.execute(params![from, to, src])?;
+                ins.execute(params![from, to, src_ids[src.as_str()]])?;
             }
         }
         tx.commit()?;
@@ -348,7 +372,9 @@ impl WeavebackDb {
         chunk_name: &str,
     ) -> Result<Vec<(String, String)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT to_chunk, src_file FROM chunk_deps WHERE from_chunk = ?1",
+            "SELECT cd.to_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             WHERE cd.from_chunk = ?1",
         )?;
         let rows = stmt.query_map(params![chunk_name], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -363,7 +389,9 @@ impl WeavebackDb {
         chunk_name: &str,
     ) -> Result<Vec<(String, String)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT from_chunk, src_file FROM chunk_deps WHERE to_chunk = ?1",
+            "SELECT cd.from_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             WHERE cd.to_chunk = ?1",
         )?;
         let rows = stmt.query_map(params![chunk_name], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -376,8 +404,9 @@ impl WeavebackDb {
     /// `weaveback graph` to export the full DOT representation.
     pub fn query_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT from_chunk, to_chunk, src_file FROM chunk_deps
-             ORDER BY from_chunk, to_chunk",
+            "SELECT cd.from_chunk, cd.to_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             ORDER BY cd.from_chunk, cd.to_chunk",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
@@ -397,8 +426,9 @@ impl WeavebackDb {
         chunk_name: &str,
     ) -> Result<Vec<String>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT DISTINCT out_file FROM noweb_map
-             WHERE chunk_name = ?1 ORDER BY out_file",
+            "SELECT DISTINCT f.path
+             FROM noweb_map nm JOIN files f ON f.id = nm.out_file
+             WHERE nm.chunk_name = ?1 ORDER BY f.path",
         )?;
         let rows = stmt.query_map(params![chunk_name], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<_, _>>().map_err(DbError::Sql)
@@ -409,21 +439,33 @@ impl WeavebackDb {
         if entries.is_empty() {
             return Ok(());
         }
-        // Delete old records for every src_file represented in this batch.
-        let src_files: std::collections::HashSet<&str> =
-            entries.iter().map(|e| e.src_file.as_str()).collect();
-        let tx = self.conn.transaction()?;
-        for sf in &src_files {
-            tx.execute("DELETE FROM chunk_defs WHERE src_file = ?1", params![sf])?;
+        // Pre-intern all src_files.
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for e in entries {
+            if let std::collections::hash_map::Entry::Vacant(v) =
+                src_ids.entry(e.src_file.as_str())
+            {
+                v.insert(intern_file(&self.conn, &e.src_file)?);
+            }
         }
+        let tx = self.conn.transaction()?;
         {
+            let mut unique_ids: Vec<i64> = src_ids.values().copied().collect();
+            unique_ids.sort_unstable();
+            unique_ids.dedup();
+            let mut del = tx.prepare_cached(
+                "DELETE FROM chunk_defs WHERE src_file = ?1",
+            )?;
+            for id in &unique_ids {
+                del.execute(params![id])?;
+            }
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO chunk_defs (src_file, chunk_name, nth, def_start, def_end)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
             for e in entries {
                 stmt.execute(params![
-                    e.src_file,
+                    src_ids[e.src_file.as_str()],
                     e.chunk_name,
                     e.nth,
                     e.def_start,
@@ -444,9 +486,9 @@ impl WeavebackDb {
         Ok(self
             .conn
             .query_row(
-                "SELECT src_file, chunk_name, nth, def_start, def_end
-                 FROM chunk_defs
-                 WHERE src_file = ?1 AND chunk_name = ?2 AND nth = ?3",
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 WHERE f.path = ?1 AND cdef.chunk_name = ?2 AND cdef.nth = ?3",
                 params![src_file, chunk_name, nth],
                 |row| {
                     Ok(ChunkDefEntry {
@@ -473,15 +515,16 @@ impl WeavebackDb {
         }
         if let Some(f) = src_file {
             let mut stmt = self.conn.prepare(
-                "SELECT src_file, chunk_name, nth, def_start, def_end
-                 FROM chunk_defs WHERE src_file = ?1
-                 ORDER BY src_file, def_start",
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 WHERE f.path = ?1 ORDER BY f.path, cdef.def_start",
             )?;
             Ok(stmt.query_map(params![f], map_row)?.collect::<Result<Vec<_>, _>>()?)
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT src_file, chunk_name, nth, def_start, def_end
-                 FROM chunk_defs ORDER BY src_file, def_start",
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 ORDER BY f.path, cdef.def_start",
             )?;
             Ok(stmt.query_map([], map_row)?.collect::<Result<Vec<_>, _>>()?)
         }
@@ -489,9 +532,9 @@ impl WeavebackDb {
 
     pub fn find_chunk_defs_by_name(&self, chunk_name: &str) -> Result<Vec<ChunkDefEntry>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT src_file, chunk_name, nth, def_start, def_end
-             FROM chunk_defs WHERE chunk_name = ?1
-             ORDER BY src_file, nth",
+            "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+             FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+             WHERE cdef.chunk_name = ?1 ORDER BY f.path, cdef.nth",
         )?;
         Ok(stmt.query_map(params![chunk_name], |row| {
             Ok(ChunkDefEntry {
@@ -521,6 +564,7 @@ impl WeavebackDb {
         if entries.is_empty() {
             return Ok(());
         }
+        let file_id = intern_file(&self.conn, driver_file)?;
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -528,7 +572,7 @@ impl WeavebackDb {
                  VALUES (?1, ?2, ?3)",
             )?;
             for (line, bytes) in entries {
-                stmt.execute(params![driver_file, *line, bytes.as_slice()])?;
+                stmt.execute(params![file_id, *line, bytes.as_slice()])?;
             }
         }
         tx.commit()?;
@@ -543,8 +587,8 @@ impl WeavebackDb {
         Ok(self
             .conn
             .query_row(
-                "SELECT data FROM macro_map
-                 WHERE driver_file = ?1 AND expanded_line = ?2",
+                "SELECT mm.data FROM macro_map mm JOIN files f ON f.id = mm.driver_file
+                 WHERE f.path = ?1 AND mm.expanded_line = ?2",
                 params![driver_file, expanded_line],
                 |row| row.get(0),
             )
@@ -557,12 +601,13 @@ impl WeavebackDb {
         src_file: &str,
         cfg: &TangleConfig,
     ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
         self.conn.execute(
             "INSERT OR REPLACE INTO literate_source_config
              (src_file, special_char, open_delim, close_delim, chunk_end, comment_markers)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                src_file,
+                file_id,
                 cfg.special_char.to_string(),
                 cfg.open_delim,
                 cfg.close_delim,
@@ -575,8 +620,10 @@ impl WeavebackDb {
 
     pub fn get_source_config(&self, src_file: &str) -> Result<Option<TangleConfig>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT special_char, open_delim, close_delim, chunk_end, comment_markers
-             FROM literate_source_config WHERE src_file = ?1",
+            "SELECT lsc.special_char, lsc.open_delim, lsc.close_delim,
+                    lsc.chunk_end, lsc.comment_markers
+             FROM literate_source_config lsc JOIN files f ON f.id = lsc.src_file
+             WHERE f.path = ?1",
         )?;
         Ok(stmt.query_row(params![src_file], |row| {
             let sc_str: String = row.get(0)?;
@@ -600,8 +647,10 @@ impl WeavebackDb {
         src_line: u32,
     ) -> Result<Option<(String, u32)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT out_file, out_line FROM noweb_map
-             WHERE src_file = ?1 AND src_line = ?2
+            "SELECT f_out.path, nm.out_line FROM noweb_map nm
+             JOIN files f_out ON f_out.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             WHERE f_src.path = ?1 AND nm.src_line = ?2
              LIMIT 1",
         )?;
         Ok(stmt.query_row(params![src_file, src_line], |row| {
@@ -624,14 +673,16 @@ impl WeavebackDb {
         Ok(stmt.query_row(params![key], |row| row.get(0)).optional()?)
     }
 
-    /// Returns all (out_file, out_line) mappings for a given literate source file.
+    /// Returns all (src_line, out_file, out_line) mappings for a given literate source file.
     pub fn get_all_output_mappings(
         &self,
         src_file: &str,
     ) -> Result<Vec<(u32, String, u32)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT src_line, out_file, out_line FROM noweb_map
-             WHERE src_file = ?1",
+            "SELECT nm.src_line, f_out.path, nm.out_line FROM noweb_map nm
+             JOIN files f_out ON f_out.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             WHERE f_src.path = ?1",
         )?;
         let rows = stmt.query_map(params![src_file], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -649,12 +700,19 @@ fn sqlite_string_literal(s: &str) -> String {
 }
 
 impl WeavebackDb {
+    /// Merge all data from this (typically per-file temp) db into `target_path`.
+    ///
+    /// File paths are interned independently in each database, so their integer
+    /// IDs may differ.  The merge remaps IDs via the shared `files.path` strings:
+    /// source file paths are inserted into the target's `files` table first, then
+    /// each data table is inserted with subquery-based ID translation.
     pub fn merge_into(&self, target_path: &Path) -> Result<(), DbError> {
         {
             let t = Connection::open(target_path)?;
             t.busy_timeout(std::time::Duration::from_millis(200))?;
             t.pragma_update(None, "journal_mode", "WAL")?;
             t.pragma_update(None, "synchronous", "NORMAL")?;
+            t.pragma_update(None, "foreign_keys", "ON")?;
             apply_schema(&t)?;
         }
 
@@ -667,18 +725,84 @@ impl WeavebackDb {
         let result = (|| -> rusqlite::Result<()> {
             self.conn.execute_batch("BEGIN IMMEDIATE;")?;
 
-            let tables = [
-                "gen_baselines", "noweb_map", "macro_map", "src_snapshots",
-                "var_defs", "macro_defs", "chunk_deps", "chunk_defs",
-                "literate_source_config"
-            ];
+            // Ensure every source file path exists in the target's files table.
+            self.conn.execute_batch(
+                "INSERT OR IGNORE INTO target.files (path) SELECT path FROM files;"
+            )?;
 
-            for table in tables {
-                self.conn.execute_batch(&format!(
-                    "INSERT OR REPLACE INTO target.{} SELECT * FROM {};",
-                    table, table
-                ))?;
-            }
+            // Tables without file IDs: simple copy.
+            self.conn.execute_batch(
+                "INSERT OR REPLACE INTO target.gen_baselines SELECT * FROM gen_baselines;
+                 INSERT OR REPLACE INTO target.src_snapshots  SELECT * FROM src_snapshots;
+                 INSERT OR REPLACE INTO target.run_config     SELECT * FROM run_config;"
+            )?;
+
+            // Tables with file IDs: remap via path lookup in target.files.
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.noweb_map
+                SELECT
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = nm.out_file)),
+                    nm.out_line,
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = nm.src_file)),
+                    nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+                FROM noweb_map nm;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.macro_map
+                SELECT
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = mm.driver_file)),
+                    mm.expanded_line, mm.data
+                FROM macro_map mm;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.var_defs
+                SELECT vd.var_name,
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = vd.src_file)),
+                    vd.pos, vd.length
+                FROM var_defs vd;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.macro_defs
+                SELECT md.macro_name,
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = md.src_file)),
+                    md.pos, md.length
+                FROM macro_defs md;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.chunk_deps
+                SELECT cd.from_chunk, cd.to_chunk,
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = cd.src_file))
+                FROM chunk_deps cd;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.chunk_defs
+                SELECT
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = cdef.src_file)),
+                    cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                FROM chunk_defs cdef;
+            ")?;
+
+            self.conn.execute_batch("
+                INSERT OR REPLACE INTO target.literate_source_config
+                SELECT
+                    (SELECT t.id FROM target.files t
+                     WHERE t.path = (SELECT path FROM files WHERE id = lsc.src_file)),
+                    lsc.special_char, lsc.open_delim, lsc.close_delim,
+                    lsc.chunk_end, lsc.comment_markers
+                FROM literate_source_config lsc;
+            ")?;
 
             self.conn.execute_batch("COMMIT;")?;
             Ok(())
@@ -687,10 +811,8 @@ impl WeavebackDb {
         if result.is_err() {
             let _ = self.conn.execute_batch("ROLLBACK;");
         } else {
-            // Optional: run maintenance on the target file occasionally.
             let _ = self.conn.execute_batch("VACUUM;");
         }
-        // Always detach, even on error.
         let _ = self.conn.execute_batch("DETACH DATABASE target");
         result?;
         Ok(())
@@ -732,17 +854,20 @@ impl WeavebackDb {
         pos: u32,
         length: u32,
     ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
         self.conn.execute(
             "INSERT OR REPLACE INTO var_defs (var_name, src_file, pos, length)
              VALUES (?1, ?2, ?3, ?4)",
-            params![var_name, src_file, pos, length],
+            params![var_name, file_id, pos, length],
         )?;
         Ok(())
     }
 
     pub fn query_var_defs(&self, var_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT src_file, pos, length FROM var_defs WHERE var_name = ?1",
+            "SELECT f.path, vd.pos, vd.length
+             FROM var_defs vd JOIN files f ON f.id = vd.src_file
+             WHERE vd.var_name = ?1",
         )?;
         let rows = stmt.query_map(params![var_name], |row| {
             Ok((
@@ -762,10 +887,11 @@ impl WeavebackDb {
         pos: u32,
         length: u32,
     ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
         self.conn.execute(
             "INSERT OR REPLACE INTO macro_defs (macro_name, src_file, pos, length)
              VALUES (?1, ?2, ?3, ?4)",
-            params![macro_name, src_file, pos, length],
+            params![macro_name, file_id, pos, length],
         )?;
         Ok(())
     }
@@ -775,7 +901,9 @@ impl WeavebackDb {
         macro_name: &str,
     ) -> Result<Vec<(String, u32, u32)>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT src_file, pos, length FROM macro_defs WHERE macro_name = ?1",
+            "SELECT f.path, md.pos, md.length
+             FROM macro_defs md JOIN files f ON f.id = md.src_file
+             WHERE md.macro_name = ?1",
         )?;
         let rows = stmt.query_map(params![macro_name], |row| {
             Ok((

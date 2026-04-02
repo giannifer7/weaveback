@@ -173,7 +173,7 @@ image::docs/ai-panel.png[AI assistant panel,width=700]
 
 == Install
 
-*Installer script* (Linux, macOS, Windows — handles binary + asciidoctor + rouge):
+*Installer script* (Linux, macOS, Windows — downloads and installs the binary):
 
 [source,sh]
 ----

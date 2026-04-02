@@ -76,7 +76,7 @@ const highlighting = HighlightStyle.define([
 ]);
 
 // ── Language detection ────────────────────────────────────────────
-// lang is the value of data-lang on the <code> element set by asciidoctor/rouge,
+// lang is the value of data-lang on the <code> element set by acdc,
 // e.g. "rust", "typescript", "javascript", "python".
 function detectLang(lang: string) {
   switch (lang.toLowerCase()) {

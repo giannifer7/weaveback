@@ -1,14 +1,15 @@
 = Installing weaveback
 :toc: left
 
-weaveback has two layers of dependencies:
+weaveback is a self-contained Rust binary (or a set of four binaries in the
+tarball release).  HTML documentation rendering is built in via
+`weaveback-docgen`, which uses the Rust `acdc` AsciiDoc parser directly —
+no Ruby or external AsciiDoc toolchain required.
 
-* *Core binary* — the `weaveback` executable (Rust, self-contained).
-* *Documentation toolchain* — asciidoctor + rouge for HTML output;
-  optionally asciidoctor-diagram + JDK for PlantUML diagrams.
-  Only needed if you use `weaveback serve` or generate HTML docs.
+PlantUML diagram support requires a JDK and a `plantuml.jar` (pass
+`--plantuml-jar <path>` to `weaveback-docgen`).
 
-The installer script handles both layers on all platforms.
+The installer script handles binary download and, optionally, JDK installation.
 
 == Installer script (recommended)
 
@@ -20,7 +21,7 @@ Python 3 is required.  It is available on every supported platform.
 python3 scripts/install.py
 ----
 
-With PlantUML support:
+With PlantUML support (installs JDK):
 
 [source,sh]
 ----
@@ -37,18 +38,17 @@ python3 scripts/install.py --source
 Full options:
 
 ----
-  --diagrams          Install JDK and asciidoctor-diagram (PlantUML)
+  --diagrams          Install JDK (for PlantUML via --plantuml-jar)
   --source            Build from source (requires cargo / Rust toolchain)
   --prefix DIR        Install binary to DIR
                         default: ~/.local/bin          (Linux/macOS)
                                  %LOCALAPPDATA%\Programs\weaveback  (Windows)
   --version VER       Pin to a specific release, e.g. v0.4.1
-  --gems-only         Re-install Ruby gems only (binary already installed)
 ----
 
 The script detects your package manager (paru/yay, apt, dnf, brew, winget,
-choco, scoop), installs system packages (Ruby, JDK), downloads the right
-binary from GitHub releases, and runs `gem install`.
+choco, scoop), downloads the right binary from GitHub releases, and
+(with `--diagrams`) installs a JDK for PlantUML rendering.
 
 On Arch Linux it installs the binary via `paru -S weaveback-bin` instead of
 downloading a tarball.
@@ -60,11 +60,8 @@ downloading a tarball.
 [source,sh]
 ----
 paru -S weaveback-bin       # or: yay -S weaveback-bin
-sudo pacman -S ruby
-gem install --user-install asciidoctor rouge
 # with diagrams:
 sudo pacman -S jdk-openjdk
-gem install --user-install asciidoctor-diagram
 ----
 
 === Debian / Ubuntu
@@ -73,11 +70,8 @@ gem install --user-install asciidoctor-diagram
 ----
 # Download the .deb from https://github.com/giannifer7/weaveback/releases/latest
 sudo apt install ./weaveback_*.deb
-sudo apt install ruby-full
-gem install --user-install asciidoctor rouge
 # with diagrams:
 sudo apt install default-jdk-headless
-gem install --user-install asciidoctor-diagram
 ----
 
 === Fedora / RHEL
@@ -85,11 +79,8 @@ gem install --user-install asciidoctor-diagram
 [source,sh]
 ----
 sudo dnf install ./weaveback-*.rpm
-sudo dnf install ruby ruby-devel
-gem install --user-install asciidoctor rouge
 # with diagrams:
 sudo dnf install java-latest-openjdk-headless
-gem install --user-install asciidoctor-diagram
 ----
 
 === macOS
@@ -98,11 +89,9 @@ No pre-built macOS binary is provided yet.  Build from source:
 
 [source,sh]
 ----
-brew install ruby openjdk          # openjdk only needed for --diagrams
 cargo install --path crates/weaveback
-gem install asciidoctor rouge
 # with diagrams:
-gem install asciidoctor-diagram
+brew install openjdk
 ----
 
 === Windows
@@ -114,11 +103,8 @@ handles this automatically via winreg.
 
 [source,cmd]
 ----
-winget install RubyInstallerTeam.Ruby.3.3
-gem install asciidoctor rouge
 rem with diagrams:
 winget install Microsoft.OpenJDK.21
-gem install asciidoctor-diagram
 ----
 
 === Any Linux (musl, no package manager)
@@ -130,8 +116,6 @@ Quick one-liner for the binary only:
 curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
      -o ~/.local/bin/weaveback && chmod +x ~/.local/bin/weaveback
 ----
-
-Then install Ruby and gems separately.
 
 == Pre-built binary reference
 

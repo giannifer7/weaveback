@@ -208,20 +208,12 @@ def flake(version: str, sri: dict) -> str:
         default = pkgs.mkShell {{
           buildInputs = with pkgs; [
             just         # task runner
-            asciidoctor  # AsciiDoc -> HTML (includes rouge)
-            plantuml     # UML diagrams; brings JDK for asciidoctor-diagram
+            plantuml     # UML diagrams via --plantuml-jar (brings JDK)
             nodejs       # TypeScript bundle for the serve UI
-            python3      # scripts/tangle.py, gen_docs.py, install.py
-            ruby         # gem install for asciidoctor-diagram
+            python3      # scripts/install.py, packaging scripts
             git
           ];
           shellHook = ''
-            gem install --user-install asciidoctor-diagram 2>/dev/null || true
-            gem_bin=$(ruby -e 'print Gem.user_bin_dir' 2>/dev/null)
-            case ":$PATH:" in
-              *":$gem_bin:"*) ;;
-              *) export PATH="$PATH:$gem_bin" ;;
-            esac
             echo ""
             echo "weaveback dev shell — available recipes:"
             echo "  just tangle     regenerate source files from .adoc"

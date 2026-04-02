@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """
-install.py — weaveback full-stack installer
+install.py — weaveback installer
 
-Installs the weaveback binary and its documentation toolchain:
-  - weaveback binary (from GitHub releases, or built from source)
-  - Ruby + asciidoctor + rouge            (for HTML docs)
-  - JDK + asciidoctor-diagram             (for PlantUML, with --diagrams)
+Installs the weaveback binary from GitHub releases (or builds from source).
+With --diagrams, also installs a JDK so you can use --plantuml-jar.
 
 Usage:
   python3 install.py [options]
 
-  --diagrams          Also install JDK and asciidoctor-diagram
+  --diagrams          Also install JDK (for PlantUML diagram rendering)
   --source            Build from source instead of downloading a release
   --prefix DIR        Install binary to DIR
                         default: ~/.local/bin  (Unix)
                                  %LOCALAPPDATA%\\Programs\\weaveback  (Windows)
   --version VER       Install a specific release tag (default: latest)
-  --gems-only         Only (re-)install Ruby gems; skip binary and system deps
 """
 
 import argparse
@@ -31,9 +28,6 @@ import urllib.request
 from pathlib import Path
 
 REPO = "giannifer7/weaveback"
-
-GEMS_BASE     = ["asciidoctor", "rouge"]
-GEMS_DIAGRAMS = ["asciidoctor-diagram"]
 
 # ── Output helpers ─────────────────────────────────────────────────────────────
 
@@ -123,19 +117,6 @@ def detect_platform():
 
 # ── System dependency tables ───────────────────────────────────────────────────
 
-_RUBY = {
-    "paru":   ["ruby"],
-    "yay":    ["ruby"],
-    "pacman": ["ruby"],
-    "apt":    ["ruby-full"],
-    "dnf":    ["ruby", "ruby-devel"],
-    "zypper": ["ruby"],
-    "brew":   ["ruby"],
-    "winget": ["RubyInstallerTeam.Ruby.3.3"],
-    "choco":  ["ruby"],
-    "scoop":  ["ruby"],
-}
-
 _JDK = {
     "paru":   ["jdk-openjdk"],
     "yay":    ["jdk-openjdk"],
@@ -176,30 +157,21 @@ def _pkg_install(pm, packages):
 
 
 def install_system_deps(pf, diagrams):
+    if not diagrams:
+        return
     print("\n\u2500\u2500 System packages \u2500\u2500")
     pm = pf["pkg_manager"]
     if not pm:
-        warn("No supported package manager found \u2014 install Ruby (and JDK) manually.")
+        warn("No supported package manager found \u2014 install JDK manually.")
         return
-
-    if which("ruby") or which("ruby3"):
-        ok("Ruby already installed")
+    if which("java"):
+        ok("JDK already installed")
     else:
-        pkgs = _RUBY.get(pm)
+        pkgs = _JDK.get(pm)
         if pkgs:
             _pkg_install(pm, pkgs)
         else:
-            warn(f"Don\u2019t know how to install Ruby via {pm} \u2014 install manually.")
-
-    if diagrams:
-        if which("java"):
-            ok("JDK already installed")
-        else:
-            pkgs = _JDK.get(pm)
-            if pkgs:
-                _pkg_install(pm, pkgs)
-            else:
-                warn(f"Don\u2019t know how to install JDK via {pm} \u2014 install manually.")
+            warn(f"Don\u2019t know how to install JDK via {pm} \u2014 install manually.")
 
 
 # ── Binary installation ────────────────────────────────────────────────────────
@@ -359,34 +331,12 @@ def _windows_add_to_path(prefix: Path):
         warn(f"  Add manually: {prefix}")
 
 
-# ── Ruby gems ─────────────────────────────────────────────────────────────────
-
-def install_gems(diagrams):
-    print("\n\u2500\u2500 Ruby gems \u2500\u2500")
-    gem = shutil.which("gem") or shutil.which("gem3")
-    if not gem:
-        die("gem not found \u2014 Ruby installation may be incomplete or not in PATH")
-    gems = GEMS_BASE + (GEMS_DIAGRAMS if diagrams else [])
-    cmd  = [gem, "install"] + gems
-    if platform.system() != "Windows":
-        cmd.append("--user-install")
-    run(cmd)
-    ok(f"Installed: {', '.join(gems)}")
-    if platform.system() != "Windows":
-        # gem --user-install puts binaries in ~/.local/share/gem/ruby/*/bin or similar
-        result = subprocess.run([gem, "env", "bindir"], capture_output=True, text=True)
-        gem_bin = result.stdout.strip()
-        if gem_bin and not which("asciidoctor"):
-            warn(f"Add gem bindir to PATH:  export PATH=\"$PATH:{gem_bin}\"")
-
-
 # ── Verify ────────────────────────────────────────────────────────────────────
 
 def verify():
     print("\n\u2500\u2500 Verification \u2500\u2500")
     checks = [
-        ("weaveback",  ["weaveback", "--version"]),
-        ("asciidoctor", ["asciidoctor", "--version"]),
+        ("weaveback", ["weaveback", "--version"]),
     ]
     all_ok = True
     for name, cmd in checks:
@@ -414,27 +364,24 @@ def default_prefix():
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Install weaveback and its documentation toolchain.",
+        description="Install weaveback.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  python3 install.py                   # core install (binary + asciidoctor + rouge)
-  python3 install.py --diagrams        # also install JDK + asciidoctor-diagram
+  python3 install.py                   # install binary from latest release
+  python3 install.py --diagrams        # also install JDK for PlantUML
   python3 install.py --source          # build from source (needs cargo)
-  python3 install.py --gems-only       # (re-)install Ruby gems only
   python3 install.py --version v0.4.1  # pin to a specific release
 """,
     )
     ap.add_argument("--diagrams",  action="store_true",
-                    help="Install JDK and asciidoctor-diagram (PlantUML support)")
+                    help="Install JDK (for PlantUML support via --plantuml-jar)")
     ap.add_argument("--source",    action="store_true",
                     help="Build weaveback from source (requires Rust/cargo)")
     ap.add_argument("--prefix",    type=Path, default=None, metavar="DIR",
                     help="Directory to install the weaveback binary")
     ap.add_argument("--version",   default=None, metavar="VER",
                     help="Release tag to install, e.g. v0.4.1 (default: latest)")
-    ap.add_argument("--gems-only", action="store_true",
-                    help="Only (re-)install Ruby gems; skip binary and system deps")
     args = ap.parse_args()
 
     prefix = args.prefix or default_prefix()
@@ -446,15 +393,12 @@ Examples:
     print(f"Prefix   : {prefix}")
     print(f"Diagrams : {'yes' if args.diagrams else 'no'}")
 
-    if not args.gems_only:
-        install_system_deps(pf, args.diagrams)
+    install_system_deps(pf, args.diagrams)
 
-        if args.source:
-            install_from_source(prefix)
-        else:
-            install_binary_from_release(pf, prefix, version=args.version)
-
-    install_gems(args.diagrams)
+    if args.source:
+        install_from_source(prefix)
+    else:
+        install_binary_from_release(pf, prefix, version=args.version)
 
     all_good = verify()
     print()

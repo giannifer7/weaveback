@@ -3,7 +3,7 @@ name = "weaveback-docgen"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Documentation generator: xref analysis, asciidoctor orchestration, HTML post-processing"
+description = "Documentation generator: acdc AsciiDoc renderer, xref analysis, HTML post-processing"
 license.workspace = true
 repository = "https://github.com/giannifer7/weaveback"
 

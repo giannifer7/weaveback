@@ -35,13 +35,17 @@ jobs:
         with:
           key: docgen
 
-      - name: Install asciidoctor + gems
-        run: |
-          sudo gem install asciidoctor asciidoctor-diagram rouge --no-document
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build serve-ui assets
+        run: node scripts/serve-ui/build.mjs
 
       - name: Install PlantUML
         run: |
-          sudo apt-get install -y default-jre graphviz
+          sudo apt-get install -y default-jre-headless graphviz
           mkdir -p /opt/plantuml
           curl -L https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
                -o /opt/plantuml/plantuml.jar
@@ -51,9 +55,10 @@ jobs:
         run: cargo build --release --package weaveback-docgen
 
       - name: Generate docs
-        env:
-          DIAGRAM_PLANTUML_CLASSPATH: /opt/plantuml/plantuml.jar
-        run: cargo run --release --package weaveback-docgen -- --special % --special ^
+        run: |
+          cargo run --release --package weaveback-docgen -- \
+            --special % --special ^ \
+            --plantuml-jar /opt/plantuml/plantuml.jar
 
       - name: Copy static assets
         run: |

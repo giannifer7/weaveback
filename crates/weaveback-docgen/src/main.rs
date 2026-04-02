@@ -39,7 +39,7 @@ Options:
   --theme-dir <path>   Directory containing docinfo.html / docinfo-footer.html
                        (default: <project-root>/scripts/asciidoc-theme)
   --special   <char>   De-duplicate doubled occurrences of CHAR before
-                       passing .adoc files to asciidoctor (repeatable)
+                       passing .adoc files to the acdc renderer (repeatable)
   --xref-cmd  <cmd>    External command to supply cross-reference data.
                        Receives the project root as its first argument and
                        must print a JSON object matching HashMap<key, XrefEntry>
@@ -47,7 +47,7 @@ Options:
   --no-xref            Skip cross-reference analysis entirely.
   --ai-xref            Use LSP (rust-analyzer) to build precise cross-references.
   --plantuml-jar <path>  Path to plantuml.jar; renders [plantuml] blocks via JAR
-                         instead of asciidoctor-diagram (SVGs cached by BLAKE3).
+                         renders [plantuml] blocks directly (SVGs cached by BLAKE3).
   --help               Print this message and exit.
 
 Cross-reference notes:

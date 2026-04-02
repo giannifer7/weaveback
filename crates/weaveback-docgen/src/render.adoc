@@ -4,8 +4,8 @@
 
 `render.rs` uses `acdc` to convert `.adoc` files to HTML in-process.
 `[plantuml]` blocks are pre-processed via `plantuml::preprocess_plantuml`
-before parsing so that `acdc` never sees diagram blocks and
-`asciidoctor-diagram` is not required.
+before parsing so that `acdc` never sees diagram blocks; a `plantuml.jar`
+is sufficient and no Ruby toolchain is needed.
 
 See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
 

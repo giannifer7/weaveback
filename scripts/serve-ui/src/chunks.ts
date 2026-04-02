@@ -7,7 +7,7 @@ export function attachChunkButtons(openEditor: OpenEditor, openAi: OpenAi): void
     if (parts.length < 3) return;
     const [file, name, nthStr] = parts;
     const nth = parseInt(nthStr, 10);
-    // asciidoctor/rouge sets data-lang="rust" (etc.) on the <code> element
+    // acdc sets data-lang="rust" (etc.) on the <code> element
     const lang = block.querySelector<HTMLElement>('code[data-lang]')?.dataset.lang ?? '';
 
     const editBtn = document.createElement('button');

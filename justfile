@@ -94,9 +94,8 @@ example-nim-adoc:
 example-nim-adoc-clean:
     rm -rf examples/nim-adoc/build examples/nim-adoc/weaveback.db
 
-# Render the examples index page to HTML
-examples-index:
-    cd examples && asciidoctor -a docinfo=shared -a docinfodir=../scripts/asciidoc-theme -D . index.adoc
+# Render the examples index page to HTML (weaveback-docgen handles all .adoc)
+examples-index: docs
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
@@ -143,7 +142,7 @@ update-release:
 tangle:
     {{_wb}} tangle
 
-# Install weaveback + documentation toolchain (binary, asciidoctor, rouge)
+# Install weaveback binary (+ JDK for PlantUML diagrams with --diagrams)
 # Pass extra args: just install --diagrams  /  just install --source
 install *ARGS:
     python3 scripts/install.py {{ARGS}}

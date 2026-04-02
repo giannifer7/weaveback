@@ -7,7 +7,7 @@
 `rewrite_adoc_links` rewrites every `href="….adoc…"` to `href="….html…"`.
 AsciiDoc cross-document links use `.adoc` extensions by convention, but the
 rendered HTML files use `.html`, so a simple regex substitution is needed
-after asciidoctor runs.
+after the acdc render.
 
 `inject_xref` embeds a `window.__xref` JSON object in the `<head>` of every
 HTML page that has a matching cross-reference entry.  The object is consumed

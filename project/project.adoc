@@ -1,0 +1,762 @@
+= Root project files
+:toc: left
+
+Literate source for all root-level project configuration files.
+Tangle pass: `dir = "project/"`, `gen = "."`, `<<` `>>` delimiters.
+
+See link:../docs/architecture.adoc[architecture.adoc] for the high-level overview.
+
+== Workspace Cargo.toml
+
+Defines the Cargo workspace, shared versions, profile settings, and all
+workspace-level dependency versions.
+
+[source,toml]
+----
+// <<@file Cargo.toml>>=
+# Cargo.toml
+
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/weaveback",
+    "crates/weaveback-macro",
+    "crates/weaveback-tangle",
+    "crates/weaveback-docgen",
+    "crates/weaveback-core",
+    "crates/weaveback-lsp",
+]
+
+[workspace.package]
+version = "0.9.0"
+edition = "2024"
+authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
+license = "0BSD OR MIT OR Apache-2.0"
+repository = "https://github.com/giannifer7/weaveback"
+
+[profile.release]
+strip        = true
+lto          = true
+codegen-units = 1
+opt-level    = 3
+debug        = 0
+
+[profile.release-debug]
+inherits      = "release"
+strip         = false
+lto           = false
+codegen-units = 16
+
+[workspace.dependencies]
+# Shared dependencies, mandated for the entire workspace:
+clap = { version = "4.4", features = ["derive"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+regex = "1.9"
+lazy_static = "1.4"
+chrono = "0.4"
+
+rusqlite = { version = "0.31", features = ["bundled"] }
+similar = "2"
+tiny_http = "0.12"
+notify = "6"
+ureq = { version = "2", features = ["json"] }
+
+memchr = "2"
+rhai = "1"
+monty = { git = "https://github.com/pydantic/monty" }
+
+blake3 = "1"
+rayon = "1"
+pulldown-cmark = { version = "0.12", default-features = false }
+
+# Other potential shared dependencies:
+wasm-bindgen = "0.2.84"
+tempfile = "3.8"
+
+# Dev/test dependencies we might want across the workspace:
+pretty_assertions = "1.4"
+assert_cmd = "2.0"
+predicates = "3.0"
+escargot = "0.5"
+
+syn = { version = "2", features = ["full"] }
+walkdir = "2"
+lsp-types = "0.95"
+url = "2.4"
+
+# Internal crate dependencies (points to the sub-crate on disk)
+weaveback-core = { path = "crates/weaveback-core" }
+weaveback-macro = { path = "crates/weaveback-macro" }
+weaveback-tangle = { path = "crates/weaveback-tangle" }
+weaveback-lsp = { path = "crates/weaveback-lsp" }
+asciidoc-parser = { git = "https://github.com/giannifer7/asciidoc-parser", rev = "d0411b9" } # PR#498 pending merge
+acdc-parser = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
+acdc-converters-core = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
+acdc-converters-html = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978", features = ["highlighting"] }
+// @
+----
+
+== justfile
+
+Task runner configuration.  `just` is the build system for weaveback —
+it dispatches to cargo, node, python scripts, and weaveback itself.
+The `_wb` variable prefers a locally-built release binary.
+
+[source,makefile]
+----
+// <<@file justfile>>=
+# justfile — weaveback workspace
+
+# Prefer locally-built release binary; fall back to debug, then PATH.
+_wb := if path_exists("target/release/weaveback") == "true" { \
+           "./target/release/weaveback" \
+       } else if path_exists("target/debug/weaveback") == "true" { \
+           "./target/debug/weaveback" \
+       } else { "weaveback" }
+
+# Default: list available recipes
+default:
+    @just --list
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+
+# Build the whole workspace (debug)
+build:
+    cargo build
+
+# Build the whole workspace (release)
+release:
+    cargo build --release
+
+# ── Test ──────────────────────────────────────────────────────────────────────
+
+# Run all tests
+test:
+    cargo test
+
+# Run tests for weaveback-macro only
+test-macros:
+    cargo test --package weaveback-macro
+
+# Run tests for weaveback-tangle only
+test-noweb:
+    cargo test --package weaveback-tangle
+
+# ── Lint ──────────────────────────────────────────────────────────────────────
+
+# Clippy (warnings as errors)
+lint:
+    cargo clippy -- -D warnings
+
+# Format check
+fmt-check:
+    cargo fmt --check
+
+# Apply formatting
+fmt:
+    cargo fmt
+
+# Find code duplicates
+duplicates TARGET='.':
+    npx jscpd -g --ignore "test-data/**,tree-sitter-weaveback/src/*.json" {{TARGET}}
+
+# ── Run ───────────────────────────────────────────────────────────────────────
+
+# Run the combined weaveback tool (usage: just weaveback src/foo.md)
+weaveback FILE:
+    cargo run --package weaveback -- "{{FILE}}"
+
+# Serve docs/html/ locally with live reload and inline editor (dev build)
+serve *ARGS:
+    cargo run --release --package weaveback -- serve {{ARGS}}
+
+# Serve with auto-rebuild: edits to .adoc or theme sources trigger tangle + docs
+dev *ARGS:
+    cargo run --release --package weaveback -- serve --watch {{ARGS}}
+
+# Run weaveback-macro on a file (usage: just macros src/foo.md)
+macros FILE:
+    cargo run --package weaveback-macro -- "{{FILE}}"
+
+# Run weaveback-tangle on a file (usage: just noweb src/foo.md)
+noweb FILE:
+    cargo run --package weaveback-tangle -- "{{FILE}}"
+
+# ── Examples ──────────────────────────────────────────────────────────────────
+
+# Regenerate the c_enum example
+example-c-enum:
+    cd examples/c_enum && cargo run --package weaveback -- status.adoc --gen .
+
+# Regenerate the events fan-out example
+example-events:
+    cd examples/events && cargo run --package weaveback -- events.adoc --gen .
+
+# Regenerate the nim-adoc example via meson/ninja
+example-nim-adoc:
+    meson setup examples/nim-adoc/build examples/nim-adoc --wipe
+    ninja -C examples/nim-adoc/build
+
+# Remove build intermediates from nim-adoc; keep gen/ and docs/html/ for commit
+example-nim-adoc-clean:
+    rm -rf examples/nim-adoc/build examples/nim-adoc/weaveback.db
+
+# Render the examples index page to HTML (weaveback-docgen handles all .adoc)
+examples-index: docs
+
+# ── Packaging ─────────────────────────────────────────────────────────────────
+
+# Build container stage: glibc | musl | windows | fedora
+build-container TARGET:
+    podman build --target {{TARGET}} -t weaveback-{{TARGET}} .
+
+# Build container and export artifacts into dist/TARGET/
+export TARGET: (build-container TARGET)
+    mkdir -p dist/{{TARGET}}
+    podman create --name weaveback-export-{{TARGET}} weaveback-{{TARGET}}
+    podman cp weaveback-export-{{TARGET}}:/out/. dist/{{TARGET}}/
+    podman rm weaveback-export-{{TARGET}}
+
+# Build and export all targets
+export-all: (export "glibc") (export "musl") (export "windows") (export "fedora")
+
+# Build .deb locally (requires cargo-deb)
+deb:
+    cargo build --release --workspace
+    cargo deb -p weaveback --no-build
+
+# Build .rpm locally (requires cargo-generate-rpm)
+rpm:
+    cargo build --release --workspace
+    cargo generate-rpm -p crates/weaveback
+
+# Bump Cargo.toml version first, then: just tag
+# Commits Cargo.lock, tags, waits for CI, writes PKGBUILD to aur-weaveback-bin/, updates flake.nix
+tag: lint
+    python packaging/update_release.py --tag
+
+# Re-tag HEAD (same version, re-triggers CI) then publish
+re-tag:
+    python packaging/update_release.py --retag
+
+# Re-run publish only — tag already pushed and CI already done
+update-release:
+    python packaging/update_release.py
+
+# ── Literate programming ──────────────────────────────────────────────────────
+
+# Tangle all .adoc literate sources from weaveback.toml
+tangle:
+    {{_wb}} tangle
+
+# Install weaveback binary (+ JDK for PlantUML diagrams with --diagrams)
+# Pass extra args: just install --diagrams  /  just install --source
+install *ARGS:
+    python3 scripts/install.py {{ARGS}}
+
+PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
+
+# Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
+# --special % de-escapes %% in files that use % as the macro special char
+# --special ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as special)
+docs:
+    node scripts/serve-ui/build.mjs
+    cargo run --release --package weaveback-docgen -- \
+        --special % --special ^ \
+        --plantuml-jar {{PLANTUML_JAR}}
+
+# Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
+docs-ai:
+    node scripts/serve-ui/build.mjs
+    cargo run --release --package weaveback-docgen -- \
+        --special % --special ^ \
+        --plantuml-jar {{PLANTUML_JAR}} \
+        --ai-xref
+
+# Semantic language server operations (requires rust-analyzer)
+# Usage: just lsp definition crates/weaveback/src/main.rs 123 45
+lsp *ARGS:
+    cargo run --package weaveback -- lsp {{ARGS}}
+
+# ── Clean ─────────────────────────────────────────────────────────────────────
+
+# cargo clean + dist/
+clean:
+    cargo clean
+    rm -rf dist/
+// @
+----
+
+== .gitignore
+
+[source]
+----
+// <<@file .gitignore>>=
+/target
+/docs/html/
+
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+.venv
+
+.mypy_cache
+.pytest_cache
+.coverage
+coverage_report/
+
+*.db
+
+tarpaulin-report.html
+
+.idea
+
+.hist.txt
+hist-search.txt
+
+chats
+python/
+resume.txt
+
+scripts/serve-ui/node_modules/
+// @
+----
+
+== rust-toolchain.toml
+
+Pins the Rust toolchain to nightly (required for let-chain syntax in edition 2024).
+
+[source,toml]
+----
+// <<@file rust-toolchain.toml>>=
+[toolchain]
+channel    = "nightly"
+components = ["clippy", "rustfmt"]
+// @
+----
+
+== .mcp.json
+
+MCP server configuration — points Claude Desktop to the locally-installed
+`weaveback mcp` server.
+
+[source,json]
+----
+// <<@file .mcp.json>>=
+{
+  "mcpServers": {
+    "weaveback": {
+      "command": "/usr/bin/weaveback",
+      "args": ["mcp"],
+      "cwd": "/home/g4/_prj/weaveback"
+    }
+  }
+}
+// @
+----
+
+== .vscode/settings.json
+
+[source,json]
+----
+// <<@file .vscode/settings.json>>=
+{
+    "cmake.sourceDirectory": "/home/g4/_prj/weaveback/divagations/azantlr"
+}
+// @
+----
+
+== weaveback.toml
+
+Multi-pass tangle configuration.  Each `[[pass]]` maps to one `weaveback`
+invocation.  The global `gen = "crates/"` provides the default output directory
+for passes that don't override it.
+
+NOTE: This file is both the tangle configuration AND a generated output from
+this chunk.  If `just tangle` reports "modified externally" for `weaveback.toml`,
+it means the file was edited directly without updating this adoc source.
+
+[source,toml]
+----
+// <<@file weaveback.toml>>=
+# weaveback.toml — multi-pass tangle configuration for `weaveback tangle`
+# Each [[pass]] maps to one `weaveback` invocation.  Fields not present use
+# the weaveback CLI defaults: open_delim = "<[", close_delim = "]>",
+# chunk_end = "@", ext = "md".
+
+gen = "crates/"
+
+[[pass]]
+dir = "crates/weaveback-lsp/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-core/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-macro/"
+ext = "adoc"
+open_delim = "<<"
+close_delim = ">>"
+special = ["^"]
+
+[[pass]]
+dir = "crates/weaveback-tangle/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback-docgen/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback/tests/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<<"
+close_delim = ">>>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "scripts/serve-ui/"
+gen = "scripts/serve-ui/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "project/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = ".github/workflows/"
+gen = ".github/workflows/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "packaging/"
+gen = "packaging/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "scripts/"
+gen = "scripts/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "windows/"
+gen = "windows/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "test-data/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/events/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/hello-world/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/c_enum/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/nim-adoc/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/graph-prototype/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "tree-sitter-weaveback/"
+gen = "tree-sitter-weaveback/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+// @
+----
+
+== Containerfile
+
+Multi-stage container build for producing release artifacts across four
+target platforms: glibc (Debian), musl (Alpine), Windows (MinGW), Fedora.
+
+[source,dockerfile]
+----
+// <<@file Containerfile>>=
+# Containerfile — multi-stage packaging builds for weaveback
+#
+# Stages:
+#   glibc   — Debian binary + .deb  (cargo-deb)  — includes python feature
+#   musl    — Alpine static binary               — includes python feature (Alpine musl-native Python)
+#   windows — MinGW cross-compiled .exe          — includes python feature (Fedora mingw64-python3-devel)
+#   fedora  — Fedora binary + .rpm               — includes python feature
+#
+# Usage:
+#   podman build --target glibc  -t weaveback-glibc  .
+#   podman build --target fedora -t weaveback-fedora .
+
+# ── Rust base (Debian bookworm) ───────────────────────────────────────────────
+FROM debian:bookworm-slim AS rust-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates build-essential pkg-config git \
+        python3 python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl https://sh.rustup.rs -sSf \
+    | sh -s -- -y --default-toolchain stable --no-modify-path
+
+# ── cargo-chef planner ────────────────────────────────────────────────────────
+FROM rust-base AS planner
+WORKDIR /src
+RUN cargo install cargo-chef
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ── dependency cacher (glibc / deb) ──────────────────────────────────────────
+FROM rust-base AS cacher
+WORKDIR /src
+RUN cargo install cargo-chef cargo-deb cargo-generate-rpm
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+# ── glibc: Debian binary + .deb ──────────────────────────────────────────────
+FROM cacher AS glibc
+COPY . .
+RUN cargo build --release --workspace
+RUN cargo deb -p weaveback --no-build
+RUN mkdir -p /out \
+    && cp target/release/weaveback           /out/weaveback-glibc \
+    && cp target/release/weaveback-macro    /out/weaveback-macro-glibc \
+    && cp target/release/weaveback-tangle   /out/weaveback-tangle-glibc \
+    && cp target/release/weaveback-docgen   /out/weaveback-docgen-glibc \
+    && cp target/debian/*.deb               /out/ \
+    && tar -czf /out/weaveback-x86_64-linux.tar.gz \
+         -C target/release weaveback weaveback-macro weaveback-tangle weaveback-docgen
+
+# ── musl: static binary (Alpine — musl-native Python for PyO3) ───────────────
+FROM alpine:latest AS musl
+RUN apk add --no-cache curl build-base python3 python3-dev
+ENV RUSTUP_HOME=/root/.rustup \
+    CARGO_HOME=/root/.cargo \
+    PATH=/root/.cargo/bin:$PATH
+RUN curl https://sh.rustup.rs -sSf \
+    | sh -s -- -y --default-toolchain stable --no-modify-path
+WORKDIR /src
+COPY . .
+RUN cargo build --release --target x86_64-unknown-linux-musl --workspace
+RUN mkdir -p /out \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback          /out/weaveback-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-macro   /out/weaveback-macro-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-tangle  /out/weaveback-tangle-musl \
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-docgen  /out/weaveback-docgen-musl
+
+# ── windows: MinGW cross-compilation (Fedora — has mingw64-python3-devel) ────
+FROM fedora:latest AS windows
+RUN dnf install -y \
+        curl git gcc \
+        mingw64-gcc \
+        mingw64-python3 \
+    && dnf clean all
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
+    PYO3_CROSS=1 \
+    PYO3_CROSS_LIB_DIR=/usr/x86_64-w64-mingw32/sys-root/mingw/lib
+RUN curl https://sh.rustup.rs -sSf \
+    | sh -s -- -y --default-toolchain stable --no-modify-path
+WORKDIR /src
+COPY . .
+RUN PYO3_CROSS_PYTHON_VERSION=$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/include/ \
+        | grep -oP '(?<=python)\d+\.\d+' | head -1) \
+    && export PYO3_CROSS_PYTHON_VERSION \
+    && rustup target add x86_64-pc-windows-gnu \
+    && cargo build --release --target x86_64-pc-windows-gnu --workspace
+RUN mkdir -p /out \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback.exe           /out/weaveback-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-macro.exe    /out/weaveback-macro-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-tangle.exe   /out/weaveback-tangle-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-docgen.exe   /out/weaveback-docgen-mingw64.exe
+
+# ── fedora: RPM ───────────────────────────────────────────────────────────────
+FROM fedora:latest AS fedora
+RUN dnf install -y curl gcc pkg-config git python3 python3-devel && dnf clean all
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl https://sh.rustup.rs -sSf \
+    | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN cargo install cargo-generate-rpm
+WORKDIR /src
+COPY . .
+RUN cargo build --release --workspace
+RUN cargo generate-rpm -p crates/weaveback
+RUN mkdir -p /out \
+    && cp target/release/weaveback          /out/weaveback-fedora \
+    && cp target/release/weaveback-macro   /out/weaveback-macro-fedora \
+    && cp target/release/weaveback-tangle  /out/weaveback-tangle-fedora \
+    && cp target/release/weaveback-docgen  /out/weaveback-docgen-fedora \
+    && cp target/generate-rpm/*.rpm        /out/
+// @
+----
+
+== flake.nix
+
+Nix flake providing pre-built musl binaries for x86_64-linux and a development
+shell with all required tools.
+
+NOTE: This file is regenerated by `packaging/update_release.py` on each release
+(new SHA-256 hashes for the release artifacts).  The chunk below captures the
+current state; after each release `just tangle` will report it as "modified
+externally", which is expected — update this chunk to re-sync if needed.
+
+[source,nix]
+----
+// <<@file flake.nix>>=
+{
+  description = "Bidirectional literate programming toolchain (noweb, macros, source tracing)";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  outputs = { self, nixpkgs }:
+    let
+      lib     = nixpkgs.lib;
+      version = "0.9.0";
+      base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
+
+      # Pre-built musl binaries are x86_64-linux only.
+      # The devShell works on all common systems.
+      devSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forEachDevSystem = f: lib.genAttrs devSystems (s: f nixpkgs.legacyPackages.${s});
+
+      linuxPkgs = nixpkgs.legacyPackages.x86_64-linux;
+
+      releaseBin = { pname, sha256 }: linuxPkgs.stdenv.mkDerivation {
+        inherit pname version;
+        src        = linuxPkgs.fetchurl { url = "${base}/${pname}-musl"; inherit sha256; };
+        dontUnpack = true;
+        installPhase = "install -Dm755 $src $out/bin/${pname}";
+      };
+
+    in {
+
+      packages.x86_64-linux = {
+        default          = releaseBin { pname = "weaveback";         sha256 = "sha256-7Xzi0E4k7YSsXv1npNZM3NJ025sql8CrcYibZ6MtS00="; };
+        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-nuZsJn7d4lHj1syUs1kJ1a3cCapDqMQ2kEns0TVBNUg="; };
+        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-lETexegXBPU9rQAwxCOjm52YkOR28OST+kWKid/U6Q4="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-/QfiTpvL6qNIWANm56Q6P3PXuzkVTDBvlToZSGn4V0s="; };
+      };
+
+      # Full documentation + development toolchain.
+      # Usage: nix develop
+      devShells = forEachDevSystem (pkgs: {
+        default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            just         # task runner
+            plantuml     # UML diagrams via --plantuml-jar (brings JDK)
+            nodejs       # TypeScript bundle for the serve UI
+            python3      # scripts/install.py, packaging scripts
+            git
+          ];
+          shellHook = ''
+            echo ""
+            echo "weaveback dev shell — available recipes:"
+            echo "  just tangle     regenerate source files from .adoc"
+            echo "  just docs       render HTML documentation"
+            echo "  just serve      live-reload server with inline editor"
+            echo "  just test       run all tests"
+            echo ""
+          '';
+        };
+      });
+    };
+}
+// @
+----

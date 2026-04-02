@@ -1,0 +1,22 @@
+= graph-prototype example — configuration
+:toc: left
+
+[source,toml]
+----
+// <<@file examples/graph-prototype/Cargo.toml>>=
+[package]
+name = "graph-prototype"
+version = "0.1.0"
+edition = "2024"
+authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
+publish = false
+
+[dependencies]
+lbug = "0.15.2"
+weaveback-tangle = { path = "../../crates/weaveback-tangle" }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+// @
+----

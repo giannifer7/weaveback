@@ -1,0 +1,927 @@
+= Serve UI — Browser-side TypeScript
+:toc: left
+:source-highlighter: syntect
+
+The serve UI is a small TypeScript bundle compiled by `build.mjs` (esbuild)
+into `scripts/asciidoc-theme/wb-theme.js` and `wb-theme.css`.  It is injected
+into every rendered HTML page via `docinfo.html` / `docinfo-footer.html`.
+
+Features:
+
+* Live reload over Server-Sent Events (`/__events`)
+* Table-of-contents collapse / expand
+* Inline CodeMirror 6 chunk editor (local mode only)
+* AI assistant panel (local mode only)
+* Cross-reference panel (`window.__xref`)
+
+== Build script
+
+`build.mjs` bundles `src/index.ts` + `src/theme.css` via esbuild and writes
+the minified outputs to `scripts/asciidoc-theme/`.
+
+[source,javascript]
+----
+// <[@file build.mjs]>=
+import * as esbuild from 'esbuild';
+import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const dir = dirname(fileURLToPath(import.meta.url));
+
+const [jsResult, cssResult] = await Promise.all([
+  esbuild.build({
+    entryPoints: [`${dir}/src/index.ts`],
+    bundle: true,
+    minify: true,
+    write: false,
+    format: 'iife',
+    target: ['chrome120', 'firefox121', 'safari17'],
+    treeShaking: true,
+  }),
+  esbuild.build({
+    entryPoints: [`${dir}/src/theme.css`],
+    bundle: true,
+    minify: true,
+    write: false,
+  }),
+]);
+
+const decode = (r) => new TextDecoder().decode(r.outputFiles[0].contents);
+writeFileSync(join(dir, '../asciidoc-theme/wb-theme.js'),  decode(jsResult));
+writeFileSync(join(dir, '../asciidoc-theme/wb-theme.css'), decode(cssResult));
+console.log('serve-ui: built \u2192 wb-theme.js, wb-theme.css');
+// @@
+----
+
+== Entry point (`index.ts`)
+
+Bootstraps all modules.  On `DOMContentLoaded`, initialises the TOC toggle,
+xref panel, edit button, and (for localhost) the inline editor and AI panel.
+Static hosts (non-localhost) receive a link to the serve docs instead.
+
+[source,typescript]
+----
+// <[@file src/index.ts]>=
+import { initLiveReload, initEditButton } from './live.js';
+import { initToc } from './toc.js';
+import { initXref } from './xref.js';
+import { initEditor } from './editor.js';
+import { initAi } from './ai.js';
+import { attachChunkButtons } from './chunks.js';
+
+// Start SSE live reload immediately — no DOM needed
+initLiveReload();
+
+document.addEventListener('DOMContentLoaded', () => {
+  initToc();
+  initXref();
+  initEditButton();
+
+  if (window.location.protocol === 'file:') return;
+
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+
+  if (!isLocal) {
+    const hint = document.createElement('div');
+    hint.id = 'wb-serve-hint';
+    hint.innerHTML =
+      '\u2736 <a href="https://github.com/giannifer7/weaveback#live-documentation-server"'
+      + ' target="_blank" rel="noopener">Run <code>weaveback serve</code> locally</a>'
+      + ' for the inline editor and AI assistant.';
+    document.body.appendChild(hint);
+    return;
+  }
+
+  document.body.classList.add('wb-local');
+
+  const { open: openEditor } = initEditor();
+  const { open: openAi }     = initAi();
+  attachChunkButtons(openEditor, openAi);
+});
+// @@
+----
+
+== Live reload (`live.ts`)
+
+`initLiveReload` connects to `/__events` (SSE) and reloads on `reload` events,
+reconnecting after 2 s on error.  `initEditButton` adds a pencil link that
+calls `/__open` to jump to the `.adoc` source in the user's editor.
+
+[source,typescript]
+----
+// <[@file src/live.ts]>=
+export function initLiveReload(): void {
+  if (typeof EventSource === 'undefined' || window.location.protocol === 'file:') return;
+
+  function connect() {
+    const es = new EventSource('/__events');
+    es.addEventListener('reload', () => location.reload());
+    es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+  }
+  connect();
+}
+
+export function initEditButton(): void {
+  if (window.location.protocol === 'file:') return;
+  const path = window.location.pathname.replace(/\.html$/, '.adoc').replace(/^\//, '');
+  if (!path) return;
+
+  const btn = document.createElement('a');
+  btn.id = 'wb-edit-btn';
+  btn.href = '#';
+  btn.textContent = '\u270f Edit source';
+  btn.title = path;
+  btn.addEventListener('click', e => {
+    e.preventDefault();
+    void fetch(`/__open?file=${encodeURIComponent(path)}&line=1`);
+  });
+  document.body.appendChild(btn);
+}
+// @@
+----
+
+== TOC toggle (`toc.ts`)
+
+Adds a collapse/expand button to the `#toc.toc2` sidebar, persisting state in
+`localStorage`.
+
+[source,typescript]
+----
+// <[@file src/toc.ts]>=
+export function initToc(): void {
+  const toc = document.querySelector<HTMLElement>('#toc.toc2');
+  if (!toc) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'toc-toggle';
+  btn.setAttribute('aria-label', 'Toggle table of contents');
+  toc.appendChild(btn);
+
+  let collapsed = localStorage.getItem('weaveback-toc-collapsed') === '1';
+
+  function apply() {
+    document.body.classList.toggle('toc-collapsed', collapsed);
+    btn.textContent = collapsed ? '\u25b6' : '\u25c0';
+  }
+
+  apply();
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    localStorage.setItem('weaveback-toc-collapsed', collapsed ? '1' : '0');
+    apply();
+  });
+}
+// @@
+----
+
+== Chunk buttons (`chunks.ts`)
+
+Attaches Edit and Ask-AI buttons to every `listingblock[data-chunk-id]` element
+injected by the docgen post-processor.
+
+[source,typescript]
+----
+// <[@file src/chunks.ts]>=
+type OpenEditor = (file: string, name: string, nth: number, lang: string) => void;
+type OpenAi     = (file?: string, name?: string, nth?: number) => void;
+
+export function attachChunkButtons(openEditor: OpenEditor, openAi: OpenAi): void {
+  document.querySelectorAll<HTMLElement>('.listingblock[data-chunk-id]').forEach(block => {
+    const parts = (block.dataset.chunkId ?? '').split('|');
+    if (parts.length < 3) return;
+    const [file, name, nthStr] = parts;
+    const nth = parseInt(nthStr, 10);
+    // acdc sets data-lang="rust" (etc.) on the <code> element
+    const lang = block.querySelector<HTMLElement>('code[data-lang]')?.dataset.lang ?? '';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'wb-chunk-btn';
+    editBtn.textContent = '\u270e Edit';
+    editBtn.title = `Edit chunk \u201c${name}\u201d`;
+    editBtn.addEventListener('click', e => { e.stopPropagation(); openEditor(file, name, nth, lang); });
+    block.appendChild(editBtn);
+
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'wb-ai-btn';
+    aiBtn.textContent = '\u2736 Ask';
+    aiBtn.title = `Ask AI about chunk \u201c${name}\u201d`;
+    aiBtn.addEventListener('click', e => { e.stopPropagation(); openAi(file, name, nth); });
+    block.appendChild(aiBtn);
+  });
+}
+// @@
+----
+
+== Cross-reference panel (`xref.ts`)
+
+Reads `window.__xref` (injected by the docgen xref pass) and renders import /
+imported-by link lists and a public-symbol list into `#content`.
+
+[source,typescript]
+----
+// <[@file src/xref.ts]>=
+interface XrefLink { html: string; label: string; key: string; }
+
+interface XrefData {
+  self?: string;
+  imports?: XrefLink[];
+  importedBy?: XrefLink[];
+  symbols?: string[];
+}
+
+declare global {
+  interface Window { __xref?: XrefData; }
+}
+
+function relPathTo(selfHtml: string, targetHtml: string): string {
+  const selfParts = selfHtml.split('/');
+  selfParts.pop();
+  const toParts = targetHtml.split('/');
+  let i = 0;
+  while (i < selfParts.length && i < toParts.length && selfParts[i] === toParts[i]) i++;
+  return [...selfParts.slice(i).map(() => '..'), ...toParts.slice(i)].join('/');
+}
+
+function linkList(links: XrefLink[], selfHtml: string): HTMLElement {
+  const ul = document.createElement('ul');
+  for (const l of links) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = relPathTo(selfHtml, l.html);
+    a.textContent = l.label;
+    a.title = l.key;
+    li.appendChild(a);
+    ul.appendChild(li);
+  }
+  return ul;
+}
+
+function section(title: string, content: HTMLElement): HTMLElement {
+  const div = document.createElement('div');
+  div.className = 'xref-section';
+  const h3 = document.createElement('h3');
+  h3.textContent = title;
+  div.append(h3, content);
+  return div;
+}
+
+export function initXref(): void {
+  const xref = window.__xref;
+  if (!xref) return;
+  const { imports, importedBy, symbols, self: selfHtml = '' } = xref;
+  if (!imports?.length && !importedBy?.length && !symbols?.length) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'xref-panel';
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Module cross-references';
+  panel.appendChild(h2);
+
+  if (imports?.length)    panel.appendChild(section('Imports', linkList(imports, selfHtml)));
+  if (importedBy?.length) panel.appendChild(section('Imported by', linkList(importedBy, selfHtml)));
+  if (symbols?.length) {
+    const sym = document.createElement('div');
+    sym.className = 'xref-symbols';
+    sym.textContent = symbols.join('  \u00b7  ');
+    panel.appendChild(section('Public symbols', sym));
+  }
+
+  document.getElementById('content')?.appendChild(panel);
+}
+// @@
+----
+
+== Resize handles (`resize.ts`)
+
+Reusable drag-to-resize utility for floating panels.  Attaches a top (vertical)
+and side (horizontal) drag handle.  Sizes are persisted in `localStorage`.
+`addMaximizeToggle` adds a ⊞/⊟ button to fill/restore the viewport.
+
+[source,typescript]
+----
+// <[@file src/resize.ts]>=
+export interface ResizeOpts {
+  el: HTMLElement;
+  storageKey: string;
+  anchor: 'bottom-right' | 'bottom-left';
+  minW?: number;
+  minH?: number;
+  defaultW: number;
+  defaultH: number;
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+export function applyStoredSize(el: HTMLElement, storageKey: string, defaultW: number, defaultH: number): void {
+  const w = parseInt(localStorage.getItem(`${storageKey}-w`) ?? '', 10);
+  const h = parseInt(localStorage.getItem(`${storageKey}-h`) ?? '', 10);
+  el.style.width  = `${w > 0 ? w : defaultW}px`;
+  el.style.height = `${h > 0 ? h : defaultH}px`;
+}
+
+function makeDrag(
+  handle: HTMLElement,
+  el: HTMLElement,
+  storageKey: string,
+  axis: 'v' | 'h',
+  invertH: boolean,
+  minW: number,
+  minH: number,
+): void {
+  handle.addEventListener('pointerdown', startEv => {
+    startEv.preventDefault();
+    handle.setPointerCapture(startEv.pointerId);
+    handle.classList.add('dragging');
+
+    const startX = startEv.clientX, startY = startEv.clientY;
+    const startW = el.offsetWidth,  startH = el.offsetHeight;
+
+    const onMove = (ev: PointerEvent) => {
+      if (axis === 'v') {
+        const h = clamp(startH + (startY - ev.clientY), minH, window.innerHeight - 40);
+        el.style.height = `${h}px`;
+        localStorage.setItem(`${storageKey}-h`, String(h));
+      } else {
+        const dx = invertH ? startX - ev.clientX : ev.clientX - startX;
+        const w  = clamp(startW + dx, minW, window.innerWidth - 20);
+        el.style.width = `${w}px`;
+        localStorage.setItem(`${storageKey}-w`, String(w));
+      }
+    };
+
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      handle.releasePointerCapture(startEv.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  });
+}
+
+export function attachResizeHandles(opts: ResizeOpts): void {
+  const { el, storageKey, anchor, minW = 280, minH = 120, defaultW, defaultH: _defaultH } = opts;
+
+  // Top handle — vertical resize
+  const top = document.createElement('div');
+  top.className = 'wb-resize-n';
+  el.prepend(top);
+  makeDrag(top, el, storageKey, 'v', false, minW, minH);
+
+  // Side handle — horizontal resize
+  const side = document.createElement('div');
+  side.className = anchor === 'bottom-right' ? 'wb-resize-w' : 'wb-resize-e';
+  el.appendChild(side);
+  makeDrag(side, el, storageKey, 'h', anchor === 'bottom-right', defaultW, minH);
+}
+
+export function addMaximizeToggle(
+  btn: HTMLButtonElement,
+  el: HTMLElement,
+  storageKey: string,
+  defaultW: number,
+  defaultH: number,
+): void {
+  btn.textContent = '\u229e'; // ⊞
+  btn.addEventListener('click', () => {
+    const maxed = el.classList.toggle('maximized');
+    btn.title     = maxed ? 'Restore panel' : 'Maximize panel';
+    btn.textContent = maxed ? '\u229f' : '\u229e'; // ⊟ / ⊞
+    if (!maxed) applyStoredSize(el, storageKey, defaultW, defaultH);
+  });
+}
+// @@
+----
+
+== CodeMirror editor (`cm.ts`)
+
+`ChunkEditor` wraps CodeMirror 6 with a Gruvbox Dark theme, Rust/TS/JS/Python
+language support, and keyboard shortcuts (Ctrl+S to save, Escape to close).
+
+[source,typescript]
+----
+// <[@file src/cm.ts]>=
+import { Compartment, EditorState } from '@codemirror/state';
+import {
+  EditorView, keymap, lineNumbers,
+  highlightActiveLine, highlightActiveLineGutter,
+  drawSelection,
+} from '@codemirror/view';
+import { defaultKeymap, historyKeymap, history, indentWithTab } from '@codemirror/commands';
+import {
+  bracketMatching, indentOnInput,
+  HighlightStyle, syntaxHighlighting, foldGutter,
+} from '@codemirror/language';
+import { rust } from '@codemirror/lang-rust';
+import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { tags as t } from '@lezer/highlight';
+
+// ── Gruvbox Dark theme ────────────────────────────────────────────
+const theme = EditorView.theme({
+  '&': {
+    height: '100%',
+    backgroundColor: '#1d2021',
+    color: '#ebdbb2',
+  },
+  '.cm-scroller': { overflow: 'auto', fontFamily: '"SFMono-Regular", Consolas, monospace', fontSize: '.82rem' },
+  '.cm-content': { caretColor: '#ebdbb2', padding: '.4em 0' },
+  '.cm-cursor': { borderLeftColor: '#ebdbb2' },
+  '.cm-activeLine': { backgroundColor: '#282828' },
+  '.cm-gutters': {
+    backgroundColor: '#1d2021',
+    color: '#928374',
+    border: 'none',
+    borderRight: '1px solid #3c3836',
+  },
+  '.cm-activeLineGutter': { backgroundColor: '#282828' },
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+    backgroundColor: '#504945 !important',
+  },
+  '.cm-matchingBracket': { color: '#b8bb26 !important', fontWeight: 'bold' },
+  '.cm-foldPlaceholder': { backgroundColor: '#3c3836', border: 'none', color: '#928374' },
+  '.cm-foldGutter span': { color: '#504945' },
+  '.cm-foldGutter span:hover': { color: '#fabd2f' },
+}, { dark: true });
+
+const highlighting = HighlightStyle.define([
+  { tag: t.keyword,                        color: '#fb4934' },
+  { tag: t.controlKeyword,                 color: '#fb4934' },
+  { tag: t.operator,                       color: '#fe8019' },
+  { tag: t.operatorKeyword,                color: '#fe8019' },
+  { tag: t.string,                         color: '#b8bb26' },
+  { tag: t.special(t.string),              color: '#b8bb26' },
+  { tag: t.number,                         color: '#d3869b' },
+  { tag: t.integer,                        color: '#d3869b' },
+  { tag: t.float,                          color: '#d3869b' },
+  { tag: t.bool,                           color: '#d3869b' },
+  { tag: t.null,                           color: '#d3869b' },
+  // Line comments green — weaveback chunk refs live here
+  { tag: t.lineComment,                    color: '#b8bb26' },
+  { tag: t.blockComment,                   color: '#928374', fontStyle: 'italic' },
+  { tag: t.docComment,                     color: '#928374', fontStyle: 'italic' },
+  { tag: t.function(t.variableName),       color: '#fabd2f' },
+  { tag: t.function(t.propertyName),       color: '#fabd2f' },
+  { tag: t.definition(t.variableName),     color: '#83a598' },
+  { tag: t.definition(t.function(t.variableName)), color: '#fabd2f' },
+  { tag: t.typeName,                       color: '#fabd2f' },
+  { tag: t.className,                      color: '#fabd2f' },
+  { tag: t.namespace,                      color: '#83a598' },
+  { tag: t.macroName,                      color: '#fe8019' },
+  { tag: t.propertyName,                   color: '#8ec07c' },
+  { tag: t.attributeName,                  color: '#8ec07c' },
+  { tag: t.self,                           color: '#fb4934', fontStyle: 'italic' },
+  { tag: t.variableName,                   color: '#ebdbb2' },
+  { tag: t.punctuation,                    color: '#ebdbb2' },
+  { tag: t.angleBracket,                   color: '#ebdbb2' },
+  { tag: t.bracket,                        color: '#ebdbb2' },
+  { tag: t.escape,                         color: '#fe8019' },
+]);
+
+// ── Language detection ────────────────────────────────────────────
+// lang is the value of data-lang on the <code> element set by acdc,
+// e.g. "rust", "typescript", "javascript", "python".
+function detectLang(lang: string) {
+  switch (lang.toLowerCase()) {
+    case 'rust':        return rust();
+    case 'typescript':
+    case 'ts':          return javascript({ typescript: true });
+    case 'tsx':         return javascript({ typescript: true, jsx: true });
+    case 'javascript':
+    case 'js':
+    case 'mjs':         return javascript();
+    case 'jsx':         return javascript({ jsx: true });
+    case 'python':
+    case 'py':          return python();
+    default:            return null;
+  }
+}
+
+// ── ChunkEditor ───────────────────────────────────────────────────
+export class ChunkEditor {
+  private view: EditorView;
+  private lang = new Compartment();
+
+  constructor(parent: HTMLElement, onSave: () => void, onClose: () => void) {
+    this.view = new EditorView({
+      state: EditorState.create({
+        extensions: [
+          lineNumbers(),
+          foldGutter(),
+          history(),
+          highlightActiveLine(),
+          highlightActiveLineGutter(),
+          drawSelection(),
+          bracketMatching(),
+          indentOnInput(),
+          keymap.of([
+            { key: 'Ctrl-s', mac: 'Cmd-s', run: () => { onSave(); return true; } },
+            { key: 'Escape', run: () => { onClose(); return true; } },
+            indentWithTab,
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
+          theme,
+          syntaxHighlighting(highlighting),
+          this.lang.of([]),
+        ],
+      }),
+      parent,
+    });
+  }
+
+  load(content: string, lang: string): void {
+    const langExt = detectLang(lang);
+    this.view.dispatch({
+      changes: { from: 0, to: this.view.state.doc.length, insert: content },
+      effects: this.lang.reconfigure(langExt ?? []),
+      selection: { anchor: 0 },
+      scrollIntoView: true,
+    });
+    this.view.focus();
+  }
+
+  getValue(): string {
+    return this.view.state.doc.toString();
+  }
+}
+// @@
+----
+
+== Editor panel (`editor.ts`)
+
+The inline editor panel: fetches chunk content via `/__chunk`, renders it in
+the CodeMirror editor, and saves via `/__apply`.  Drag-to-resize with
+localStorage persistence.
+
+[source,typescript]
+----
+// <[@file src/editor.ts]>=
+import { attachResizeHandles, applyStoredSize, addMaximizeToggle } from './resize.js';
+import { ChunkEditor } from './cm.js';
+
+const STORAGE_KEY = 'wb-editor';
+const DEFAULT_W   = 640;
+
+let panel!: HTMLElement;
+let titleEl!: HTMLElement;
+let statusEl!: HTMLElement;
+let cm!: ChunkEditor;
+let eFile = '', eName = '', eNth = 0, originalBody = '';
+
+function setStatus(msg: string, kind: '' | 'ok' | 'error' = ''): void {
+  statusEl.textContent = msg;
+  statusEl.className   = kind;
+}
+
+async function loadChunk(file: string, name: string, nth: number, lang: string): Promise<void> {
+  setStatus('Loading\u2026');
+  try {
+    const r = await fetch(`/__chunk?file=${encodeURIComponent(file)}&name=${encodeURIComponent(name)}&nth=${nth}`);
+    const d = await r.json() as { ok: boolean; body?: string; error?: string };
+    if (!d.ok) { setStatus(d.error ?? 'error', 'error'); return; }
+    originalBody = d.body ?? '';
+    cm.load(originalBody, lang);
+    setStatus('');
+  } catch (e) { setStatus(String(e), 'error'); }
+}
+
+async function saveChunk(): Promise<void> {
+  setStatus('Saving\u2026');
+  try {
+    const newBody = cm.getValue();
+    const r = await fetch('/__apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: eFile, name: eName, nth: eNth,
+                             old_body: originalBody, new_body: newBody }),
+    });
+    const d = await r.json() as { ok: boolean; error?: string };
+    if (!d.ok) { setStatus(d.error ?? 'error', 'error'); return; }
+    setStatus('Saved \u2014 waiting for rebuild\u2026', 'ok');
+    originalBody = newBody;
+  } catch (e) { setStatus(String(e), 'error'); }
+}
+
+function openPanel(file: string, name: string, nth: number, lang: string): void {
+  eFile = file; eName = name; eNth = nth;
+  titleEl.textContent = `${name}  \u2014  ${file}`;
+  titleEl.title       = `${file} | ${name} | nth=${nth}`;
+  panel.classList.remove('hidden');
+  void loadChunk(file, name, nth, lang);
+}
+
+function closePanel(): void {
+  panel.classList.add('hidden');
+  setStatus('');
+  originalBody = '';
+}
+
+export function initEditor(): { open: (file: string, name: string, nth: number, lang: string) => void } {
+  const defaultH = Math.round(window.innerHeight * 0.5);
+
+  panel = document.createElement('div');
+  panel.id = 'wb-editor-panel';
+  panel.className = 'hidden';
+  panel.innerHTML = `
+    <div id="wb-editor-header">
+      <span id="wb-editor-title"></span>
+      <button class="wb-panel-btn" id="wb-editor-maximize" title="Maximize panel"></button>
+      <button id="wb-editor-close" title="Close">\u00d7</button>
+    </div>
+    <div id="wb-editor-cm"></div>
+    <div id="wb-editor-footer">
+      <button class="wb-editor-btn primary" id="wb-editor-save">Save</button>
+      <button class="wb-editor-btn" id="wb-editor-cancel">Cancel</button>
+      <span id="wb-editor-status"></span>
+      <span class="wb-kbd-hint">Ctrl+S\u00a0save\u2003Esc\u00a0close\u2003Tab\u00a0indent\u2003drag\u00a0edges\u00a0to\u00a0resize</span>
+    </div>`;
+  document.body.appendChild(panel);
+
+  titleEl  = document.getElementById('wb-editor-title')!;
+  statusEl = document.getElementById('wb-editor-status')!;
+
+  cm = new ChunkEditor(
+    document.getElementById('wb-editor-cm')!,
+    () => { void saveChunk(); },
+    closePanel,
+  );
+
+  applyStoredSize(panel, STORAGE_KEY, DEFAULT_W, defaultH);
+  attachResizeHandles({ el: panel, storageKey: STORAGE_KEY, anchor: 'bottom-right', defaultW: DEFAULT_W, defaultH });
+  addMaximizeToggle(
+    document.getElementById('wb-editor-maximize') as HTMLButtonElement,
+    panel, STORAGE_KEY, DEFAULT_W, defaultH,
+  );
+
+  document.getElementById('wb-editor-close')!.addEventListener('click', closePanel);
+  document.getElementById('wb-editor-cancel')!.addEventListener('click', closePanel);
+  document.getElementById('wb-editor-save')!.addEventListener('click', () => { void saveChunk(); });
+
+  return { open: openPanel };
+}
+// @@
+----
+
+== AI assistant panel (`ai.ts`)
+
+Floating panel with SSE streaming, save-as-note, and context-aware chunk
+prompts.  Communicates with `/__ai` (POST JSON) and `/__save_note`.
+
+[source,typescript]
+----
+// <[@file src/ai.ts]>=
+import { attachResizeHandles, applyStoredSize, addMaximizeToggle } from './resize.js';
+
+const STORAGE_KEY = 'wb-ai';
+const DEFAULT_W   = 600;
+
+interface SseEvent { type: string; data: string; }
+
+function parseSse(buf: string): { events: SseEvent[]; remaining: string } {
+  const events: SseEvent[] = [];
+  let remaining = buf;
+  while (true) {
+    const idx = remaining.indexOf('\n\n');
+    if (idx === -1) break;
+    const block = remaining.slice(0, idx);
+    remaining = remaining.slice(idx + 2);
+    let type = 'message', data = '';
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event: ')) type = line.slice(7).trim();
+      else if (line.startsWith('data: ')) data = line.slice(6);
+    }
+    events.push({ type, data });
+  }
+  return { events, remaining };
+}
+
+let panel!: HTMLElement;
+let aiTitleEl!: HTMLElement;
+let messagesEl!: HTMLElement;
+let inputEl!: HTMLTextAreaElement;
+let sendBtn!: HTMLButtonElement;
+let aFile = '', aName = '', aNth = 0;
+
+function appendMsg(role: string, text: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = `wb-ai-msg ${role}`;
+  el.textContent = text;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return el;
+}
+
+function attachSaveBtn(el: HTMLElement, text: string, file: string, name: string, nth: number): void {
+  const btn = document.createElement('button');
+  btn.className = 'wb-ai-save-btn';
+  btn.textContent = '\u2193 Save as [NOTE]';
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Saving\u2026';
+    try {
+      const r = await fetch('/__save_note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file, name, nth, note: text }),
+      });
+      const d = await r.json() as { ok: boolean; error?: string };
+      btn.textContent = d.ok ? '\u2713 Saved' : `\u2717 ${d.error ?? 'failed'}`;
+    } catch (e) { btn.textContent = `\u2717 ${String(e)}`; }
+  });
+  el.append(document.createElement('br'), btn);
+}
+
+async function sendQuestion(): Promise<void> {
+  const question = inputEl.value.trim();
+  if (!question) return;
+  inputEl.value = '';
+  sendBtn.disabled = true;
+  appendMsg('user', question);
+  const assistantEl = appendMsg('assistant', '\u2026');
+  let fullText = '';
+
+  const body: Record<string, unknown> = { question };
+  if (aFile) { body.file = aFile; body.name = aName; body.nth = aNth; }
+
+  try {
+    const resp = await fetch('/__ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if ((resp.headers.get('content-type') ?? '').includes('application/json')) {
+      const d = await resp.json() as { error?: string };
+      assistantEl.textContent = d.error ?? 'Error';
+      assistantEl.classList.add('system');
+    } else {
+      const reader  = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = '', done = false;
+
+      while (!done) {
+        const { value, done: rdDone } = await reader.read();
+        if (rdDone) break;
+        buf += decoder.decode(value, { stream: true });
+        const parsed = parseSse(buf);
+        buf = parsed.remaining;
+        for (const ev of parsed.events) {
+          switch (ev.type) {
+            case 'token':
+              try { fullText += (JSON.parse(ev.data) as { t?: string }).t ?? ''; } catch { /* skip */ }
+              assistantEl.textContent = fullText;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+              break;
+            case 'error':
+              try { assistantEl.textContent = (JSON.parse(ev.data) as { error?: string }).error ?? 'Error'; }
+              catch { assistantEl.textContent = 'Error'; }
+              assistantEl.classList.add('system');
+              done = true; break;
+            case 'done':
+              if (!fullText) assistantEl.textContent = '(no response)';
+              if (fullText && aFile) attachSaveBtn(assistantEl, fullText, aFile, aName, aNth);
+              done = true; break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    assistantEl.textContent = String(e);
+    assistantEl.classList.add('system');
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+export function openAiPanel(file?: string, name?: string, nth?: number): void {
+  aFile = file ?? ''; aName = name ?? ''; aNth = nth ?? 0;
+  aiTitleEl.textContent = name ? `${name}  \u2014  ${file}` : 'AI Assistant';
+  panel.classList.remove('hidden');
+  inputEl.focus();
+  if (name) appendMsg('system', `Context: chunk \u201c${name}\u201d from ${file}`);
+}
+
+function closeAiPanel(): void { panel.classList.add('hidden'); }
+
+export function initAi(): { open: typeof openAiPanel } {
+  const defaultH = Math.round(window.innerHeight * 0.5);
+
+  panel = document.createElement('div');
+  panel.id = 'wb-ai-panel';
+  panel.className = 'hidden';
+  panel.innerHTML = `
+    <div id="wb-ai-header">
+      <span id="wb-ai-title">AI Assistant</span>
+      <button class="wb-panel-btn" id="wb-ai-maximize" title="Maximize panel"></button>
+      <button id="wb-ai-close" title="Close">\u00d7</button>
+    </div>
+    <div id="wb-ai-messages"></div>
+    <div id="wb-ai-actions">
+      <button class="wb-ai-action" data-prompt="Explain what this chunk does and why it\u2019s designed this way.">Explain</button>
+      <button class="wb-ai-action" data-prompt="Explain the direct dependencies of this chunk and how they are used.">Deps</button>
+      <button class="wb-ai-action" data-prompt="Where is this chunk referenced, and what does it contribute to the output?">Where used?</button>
+      <button class="wb-ai-action" data-prompt="What could be improved in this chunk? Consider correctness, clarity, and edge cases.">Improve</button>
+    </div>
+    <div id="wb-ai-input-row">
+      <textarea id="wb-ai-input" rows="2" placeholder="Ask about this chunk\u2026" spellcheck="false"></textarea>
+      <button id="wb-ai-send">Send</button>
+    </div>
+    <div class="wb-kbd-hint" style="padding:2px 8px 4px">Enter\u00a0send\u2003Shift+Enter\u00a0newline\u2003Esc\u00a0close\u2003drag\u00a0edges\u00a0to\u00a0resize</div>`;
+  document.body.appendChild(panel);
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.id = 'wb-ai-toggle';
+  toggleBtn.textContent = '\u2736 AI';
+  toggleBtn.title = 'Open AI assistant';
+  document.body.appendChild(toggleBtn);
+
+  aiTitleEl  = document.getElementById('wb-ai-title')!;
+  messagesEl = document.getElementById('wb-ai-messages')!;
+  inputEl    = document.getElementById('wb-ai-input') as HTMLTextAreaElement;
+  sendBtn    = document.getElementById('wb-ai-send') as HTMLButtonElement;
+
+  applyStoredSize(panel, STORAGE_KEY, DEFAULT_W, defaultH);
+  attachResizeHandles({ el: panel, storageKey: STORAGE_KEY, anchor: 'bottom-left', defaultW: DEFAULT_W, defaultH });
+  addMaximizeToggle(
+    document.getElementById('wb-ai-maximize') as HTMLButtonElement,
+    panel, STORAGE_KEY, DEFAULT_W, defaultH,
+  );
+
+  document.getElementById('wb-ai-close')!.addEventListener('click', closeAiPanel);
+  toggleBtn.addEventListener('click', () => {
+    panel.classList.contains('hidden') ? openAiPanel() : closeAiPanel();
+  });
+  sendBtn.addEventListener('click', () => { void sendQuestion(); });
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendQuestion(); }
+    if (e.key === 'Escape') closeAiPanel();
+  });
+  panel.querySelectorAll<HTMLButtonElement>('.wb-ai-action').forEach(btn => {
+    btn.addEventListener('click', () => { inputEl.value = btn.dataset.prompt ?? ''; void sendQuestion(); });
+  });
+
+  return { open: openAiPanel };
+}
+// @@
+----
+
+== TypeScript configuration
+
+`tsconfig.json` sets compiler options for the serve-ui bundle:
+ES2020 target, bundler module resolution, strict mode, DOM lib.
+
+[source,json]
+----
+// <[@file tsconfig.json]>=
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}
+// @@
+----
+
+== package.json
+
+npm package manifest declaring esbuild and TypeScript as dev dependencies,
+and the CodeMirror 6 packages as runtime dependencies (bundled by esbuild).
+
+[source,json]
+----
+// <[@file package.json]>=
+{
+  "name": "weaveback-serve-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.40.0",
+    "@lezer/highlight": "^1.2.3"
+  }
+}
+// @@
+----

@@ -28,10 +28,10 @@ def main():
 
     # Process in smaller chunks (paragraphs) for higher precision
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    
+
     found = {}
     print(f"Extracting semantic links from {len(paragraphs)} paragraphs...", file=sys.stderr)
-    
+
     for p in paragraphs:
         # Lower threshold for exploration, but we'll print confidence
         entities = model.predict_entities(p, labels, threshold=0.3)
@@ -39,10 +39,10 @@ def main():
             label = entity["label"]
             text = entity["text"].strip()
             score = entity["score"]
-            
+
             if label not in found:
                 found[label] = {}
-            
+
             # Keep highest score for each unique text
             if text not in found[label] or score > found[label][text]:
                 found[label][text] = score

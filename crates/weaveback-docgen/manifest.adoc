@@ -1,0 +1,36 @@
+= weaveback-docgen crate manifest
+:toc: left
+
+[source,toml]
+----
+// <[@file weaveback-docgen/Cargo.toml]>=
+[package]
+name = "weaveback-docgen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Documentation generator: acdc AsciiDoc renderer, xref analysis, HTML post-processing"
+license.workspace = true
+repository = "https://github.com/giannifer7/weaveback"
+
+[dependencies]
+thiserror.workspace = true
+syn.workspace = true
+walkdir.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+weaveback-lsp.workspace = true
+asciidoc-parser.workspace = true
+blake3.workspace = true
+rayon.workspace = true
+tempfile.workspace = true
+acdc-parser.workspace = true
+acdc-converters-core.workspace = true
+acdc-converters-html.workspace = true
+
+[[bin]]
+name = "weaveback-docgen"
+path = "src/main.rs"
+// @@
+----

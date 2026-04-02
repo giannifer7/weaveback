@@ -1,3 +1,43 @@
+= Windows verification
+:toc: left
+
+Windows Sandbox configuration and PowerShell verification script for testing
+weaveback in a clean Windows environment.
+Tangle pass: `dir = "windows/"`, `gen = "windows/"`, `<<` `>>` delimiters.
+
+== verification.wsb
+
+Windows Sandbox configuration: mounts the project read-only into the sandbox
+and auto-runs `verify.ps1` at logon.
+
+[source,xml]
+----
+// <<@file verification.wsb>>=
+<Configuration>
+  <VGpu>Default</VGpu>
+  <Networking>Default</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\prj\weaveback</HostFolder>
+      <SandboxFolder>C:\weaveback</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -ExecutionPolicy Bypass -NoExit -Command "& C:\weaveback\windows\verify.ps1"</Command>
+  </LogonCommand>
+</Configuration>
+// @
+----
+
+== verify.ps1
+
+Locates (or downloads) the weaveback binary, runs `--version`, and runs a
+smoke test (tangle a tiny literate file, verify the output).
+
+[source,powershell]
+----
+// <<@file verify.ps1>>=
 <#
 .SYNOPSIS
 Verify weaveback works correctly in a clean Windows environment.
@@ -51,3 +91,23 @@ $src = Join-Path $tmp "test.md"
 @"
 # <[@file out.txt]>=
 hello from weaveback
+# @
+"@ | Set-Content $src
+
+& $weaveback $src --gen $tmp
+if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: expansion returned $LASTEXITCODE" -ForegroundColor Red; exit 1 }
+
+$out = Join-Path $tmp "out.txt"
+if (-not (Test-Path $out)) { Write-Host "FAIL: out.txt not created" -ForegroundColor Red; exit 1 }
+
+$content = Get-Content $out -Raw
+if ($content.Trim() -ne "hello from weaveback") {
+    Write-Host "FAIL: unexpected output: $content" -ForegroundColor Red; exit 1
+}
+Write-Host "OK" -ForegroundColor Green
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+
+Write-Host "`nAll checks passed." -ForegroundColor Green
+// @
+----

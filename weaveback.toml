@@ -61,6 +61,104 @@ comment_markers = "//"
 chunk_end = "@@"
 
 [[pass]]
+dir = "scripts/serve-ui/"
+gen = "scripts/serve-ui/"
+ext = "adoc"
+no_macros = true
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "project/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = ".github/workflows/"
+gen = ".github/workflows/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "packaging/"
+gen = "packaging/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "scripts/"
+gen = "scripts/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "windows/"
+gen = "windows/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "test-data/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/events/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/hello-world/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/c_enum/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/nim-adoc/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "examples/graph-prototype/"
+gen = "."
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "tree-sitter-weaveback/"
 gen = "tree-sitter-weaveback/"
 ext = "adoc"

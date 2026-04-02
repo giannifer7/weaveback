@@ -1,0 +1,52 @@
+= Test data
+:toc: left
+
+Configuration files for the `test-data/test-c-project/` fixture used by
+weaveback integration tests.
+Tangle pass: `dir = "test-data/"`, `gen = "test-data/"`, `<<` `>>` delimiters.
+
+== test-c-project/Taskfile
+
+Bash taskfile (runs like a Makefile) for running the weaveback pipeline on
+the test C project.  Kept as a Taskfile (not `just`) so it doesn't require
+an external tool in test environments.
+
+[source,bash]
+----
+// <<@file test-data/test-c-project/Taskfile>>=
+#/bin/bash
+
+wb_root=../../target/debug
+prep=$wb_root/weaveback-macro
+tangle=$wb_root/weaveback-tangle
+
+
+function run_macros {
+  source=$1
+  $prep --out-dir chunk.txt $source
+}
+
+function run_tangle {
+  $tangle --open-delim='<[' --close-delim=']>' chunk.txt
+}
+
+function run_compile {
+  gcc -W -Wall -o toyforth -I gen gen/toyforth.c
+}
+
+function default {
+    run_macros project.txt
+    run_tangle
+}
+
+function help {
+    echo "$0 <task> <args>"
+    echo "Tasks:"
+    compgen -A function | cat -n
+}
+
+
+TIMEFORMAT="Task completed in %3lR"
+time ${@:-default}
+// @
+----

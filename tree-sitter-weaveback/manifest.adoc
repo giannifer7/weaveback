@@ -1,0 +1,73 @@
+= tree-sitter-weaveback manifest
+:toc: left
+
+Package manifests and tree-sitter configuration for the tree-sitter-weaveback grammar.
+
+== package.json
+
+npm package manifest declaring tree-sitter-cli as the only dev dependency.
+
+[source,json]
+----
+// <<@file package.json>>=
+{
+  "name": "tree-sitter-weaveback",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Weaveback macro language",
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "weaveback", "macros"],
+  "license": "MIT OR Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.6"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.weaveback",
+      "file-types": ["weaveback"],
+      "injection-regex": "weaveback"
+    }
+  ]
+}
+// @
+----
+
+== tree-sitter.json
+
+Tree-sitter v0.24+ grammar metadata used by `tree-sitter generate`.
+
+[source,json]
+----
+// <<@file tree-sitter.json>>=
+{
+  "grammars": [
+    {
+      "name": "weaveback",
+      "camelcase": "Weaveback",
+      "scope": "source.weaveback",
+      "file-types": ["weaveback"],
+      "injection-regex": "weaveback",
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT OR Apache-2.0",
+    "description": "Tree-sitter grammar for the Weaveback macro language",
+    "authors": [
+      {
+        "name": "Gianni Ferrarotti",
+        "email": "gianni.ferrarotti@gmail.com"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/giannifer7/weaveback"
+    }
+  }
+}
+// @
+----

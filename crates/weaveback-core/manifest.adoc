@@ -1,0 +1,18 @@
+= weaveback-core crate manifest
+:toc: left
+
+[source,toml]
+----
+// <<@file weaveback-core/Cargo.toml>>=
+[package]
+name = "weaveback-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Common constants and basic types for Weaveback"
+
+[dependencies]
+# Minimal dependencies
+// @
+----

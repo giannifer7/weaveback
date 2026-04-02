@@ -1,0 +1,266 @@
+= GitHub Actions workflows
+:toc: left
+
+Literate source for all GitHub Actions CI/CD workflow files.
+Tangle pass: `dir = ".github/workflows/"`, `gen = ".github/workflows/"`, `<<` `>>` delimiters.
+
+== CI workflow
+
+Builds all container targets in parallel, builds on native Windows, and runs
+tests + clippy on each push or pull request.
+
+[source,yaml]
+----
+// <<@file ci.yml>>=
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-containers:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ glibc, musl, windows, fedora ]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Build container
+        run: podman build --target ${{ matrix.target }} -t weaveback-${{ matrix.target }} .
+
+      - name: Export artifacts
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          podman create --name weaveback-export weaveback-${{ matrix.target }}
+          podman cp weaveback-export:/out/. dist/${{ matrix.target }}/
+          podman rm weaveback-export
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: weaveback-${{ matrix.target }}
+          path: dist/${{ matrix.target }}
+
+  build-windows-native:
+    name: Build (windows-native)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --workspace
+
+      - name: Collect artifacts
+        run: |
+          mkdir dist\windows-native
+          copy target\release\weaveback.exe        dist\windows-native\
+          copy target\release\weaveback-macro.exe dist\windows-native\
+          copy target\release\weaveback-tangle.exe  dist\windows-native\
+          copy target\release\weaveback-docgen.exe dist\windows-native\
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: weaveback-windows-native
+          path: dist/windows-native
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace -- -D warnings
+// @
+----
+
+== Pages workflow
+
+Builds and deploys the weaveback documentation site to GitHub Pages on every
+push to `main`.  Uses `weaveback-docgen` to render all `.adoc` files to HTML
+with PlantUML diagram support.
+
+[source,yaml]
+----
+// <<@file pages.yml>>=
+name: Docs → GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    name: Build & deploy docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Rust build cache — cuts rebuild time on subsequent runs
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docgen
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build serve-ui assets
+        run: node scripts/serve-ui/build.mjs
+
+      - name: Install PlantUML
+        run: |
+          sudo apt-get install -y default-jre-headless graphviz
+          mkdir -p /opt/plantuml
+          curl -L https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
+               -o /opt/plantuml/plantuml.jar
+          java -jar /opt/plantuml/plantuml.jar -version
+
+      - name: Build weaveback-docgen
+        run: cargo build --release --package weaveback-docgen
+
+      - name: Generate docs
+        run: |
+          cargo run --release --package weaveback-docgen -- \
+            --special % --special ^ \
+            --plantuml-jar /opt/plantuml/plantuml.jar
+
+      - name: Copy static assets
+        run: |
+          mkdir -p docs/html/docs
+          cp docs/ai-panel.png docs/html/docs/ai-panel.png
+
+      - name: Create root index
+        run: cp docs/html/README.html docs/html/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/html
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+// @
+----
+
+== Release workflow
+
+Triggered by version tags (`v*`).  Creates a GitHub release and uploads
+cross-compiled artifacts from the container build matrix plus native Windows.
+
+[source,yaml]
+----
+// <<@file release.yml>>=
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create GitHub release
+        run: gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-containers:
+    name: Release (${{ matrix.target }})
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ glibc, musl, windows, fedora ]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Build container
+        run: podman build --target ${{ matrix.target }} -t weaveback-${{ matrix.target }} .
+
+      - name: Export artifacts
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          podman create --name weaveback-export weaveback-${{ matrix.target }}
+          podman cp weaveback-export:/out/. dist/${{ matrix.target }}/
+          podman rm weaveback-export
+
+      - name: Upload release assets
+        run: gh release upload "${{ github.ref_name }}" dist/${{ matrix.target }}/* --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-windows-native:
+    name: Release (windows-native)
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --workspace
+
+      - name: Collect artifacts
+        run: |
+          mkdir dist\windows-native
+          copy target\release\weaveback.exe         dist\windows-native\
+          copy target\release\weaveback-macro.exe  dist\windows-native\
+          copy target\release\weaveback-tangle.exe dist\windows-native\
+          copy target\release\weaveback-docgen.exe dist\windows-native\
+
+      - name: Upload release assets
+        run: gh release upload "${{ github.ref_name }}" dist/windows-native/* --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+// @
+----

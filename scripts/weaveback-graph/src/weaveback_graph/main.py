@@ -64,7 +64,7 @@ def run_queries(conn: lbug.Connection) -> None:
 
 def main() -> None:
     db_path = "weaveback_memory.lbdb"
-    
+
     # Robust cleanup
     if os.path.exists(db_path):
         if os.path.isdir(db_path):
@@ -76,12 +76,12 @@ def main() -> None:
     conn = lbug.Connection(db)
 
     setup_schema(conn)
-    
+
     # Find project root reliably
     curr = Path(__file__).resolve()
     while curr.name != "weaveback" and curr.parent != curr:
         curr = curr.parent
-    
+
     project_root = curr
     print(f"Populating graph from workspace: {project_root}...")
     populate_graph(conn, project_root)

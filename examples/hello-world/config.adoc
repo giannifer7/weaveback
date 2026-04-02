@@ -1,0 +1,45 @@
+= hello-world example — configuration files
+:toc: left
+
+[source,makefile]
+----
+// <<@file examples/hello-world/justfile>>=
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f hello.c hello weaveback.db
+
+# Generate hello.c from hello.adoc
+tangle:
+    ../../target/debug/weaveback hello.adoc --gen .
+
+# Compile the generated C program
+build: tangle
+    gcc hello.c -o hello
+
+# Build and run
+run: build
+    ./hello
+
+# Propagate edits in hello.c back to hello.adoc
+apply-back:
+    ../../target/debug/weaveback apply-back
+
+# Render this document to dark-themed HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . hello.adoc
+// @
+----
+
+[source]
+----
+// <<@file examples/hello-world/.gitignore>>=
+hello
+hello.c
+hello.html
+weaveback.db
+// @
+----

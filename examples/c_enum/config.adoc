@@ -1,0 +1,9 @@
+= c_enum example — configuration files
+:toc: left
+
+[source]
+----
+// <<@file examples/c_enum/.gitignore>>=
+azadi.db
+// @
+----

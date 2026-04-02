@@ -341,8 +341,14 @@ def main() -> None:
     ).stdout
     (aur_dir / ".SRCINFO").write_text(srcinfo)
     run(["git", "add", "PKGBUILD", ".SRCINFO"], cwd=aur_dir)
-    run(["git", "commit", "-m", f"Release {version}"], cwd=aur_dir)
-    run(["git", "push"], cwd=aur_dir)
+    has_aur_changes = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"], cwd=aur_dir
+    ).returncode != 0
+    if has_aur_changes:
+        run(["git", "commit", "-m", f"Release {version}"], cwd=aur_dir)
+        run(["git", "push"], cwd=aur_dir)
+    else:
+        print("  AUR unchanged — skipping commit and push.")
 
     print(f"\nDone. Released v{version}.")
 

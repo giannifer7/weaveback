@@ -40,6 +40,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install serve-ui dependencies
+        run: npm install --prefix scripts/serve-ui
+
       - name: Build serve-ui assets
         run: node scripts/serve-ui/build.mjs
 

@@ -222,11 +222,24 @@ pub fn render_docs(
             };
 
             // 6. Inject head fragment (link tag) and footer script tag.
+            // Rewrite absolute asset paths (href="/…", src="/…") to relative
+            // so the page works when served from a subdirectory (e.g. GitHub Pages).
+            let depth = out_file
+                .strip_prefix(out_dir)
+                .map(|rel| rel.components().count().saturating_sub(1))
+                .unwrap_or(0);
+            let prefix = "../".repeat(depth);
             if let Some(ref di) = docinfo {
-                html = inject_docinfo(html, di);
+                let patched = di
+                    .replace("href=\"/", &format!("href=\"{prefix}"))
+                    .replace("src=\"/", &format!("src=\"{prefix}"));
+                html = inject_docinfo(html, &patched);
             }
             if let Some(ref f) = footer {
-                html = inject_footer(html, f);
+                let patched = f
+                    .replace("href=\"/", &format!("href=\"{prefix}"))
+                    .replace("src=\"/", &format!("src=\"{prefix}"));
+                html = inject_footer(html, &patched);
             }
 
             if let Err(e) = std::fs::write(&out_file, &html) {

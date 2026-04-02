@@ -202,11 +202,10 @@ pub fn render_docs(
             }
         }
 
-        if !to_render.is_empty() {
-            if let Err(e) = crate::plantuml::batch_render_plantuml(&to_render, jar) {
+        if !to_render.is_empty()
+            && let Err(e) = crate::plantuml::batch_render_plantuml(&to_render, jar) {
                 eprintln!("plantuml batch: {e}");
                 std::process::exit(1);
-            }
         }
     }
 

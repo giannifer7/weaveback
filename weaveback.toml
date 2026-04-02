@@ -45,11 +45,20 @@ comment_markers = "//"
 chunk_end = "@@"
 
 [[pass]]
-dir = "crates/weaveback/"
+dir = "crates/weaveback/src/"
 ext = "adoc"
 no_macros = true
 open_delim = "<<"
 close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback/tests/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<<"
+close_delim = ">>>"
+comment_markers = "//"
+chunk_end = "@@"
 
 [[pass]]
 dir = "tree-sitter-weaveback/"

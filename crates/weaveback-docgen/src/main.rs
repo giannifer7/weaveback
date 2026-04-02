@@ -46,8 +46,8 @@ Options:
                        to stdout.  Replaces the built-in Rust scanner.
   --no-xref            Skip cross-reference analysis entirely.
   --ai-xref            Use LSP (rust-analyzer) to build precise cross-references.
-  --plantuml-jar <path>  Path to plantuml.jar; renders [plantuml] blocks via JAR
-                         renders [plantuml] blocks directly (SVGs cached by BLAKE3).
+  --plantuml-jar <path>  Path to plantuml.jar; renders [plantuml] blocks directly
+                         (SVGs cached by BLAKE3).
   --help               Print this message and exit.
 
 Cross-reference notes:

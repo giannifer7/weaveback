@@ -302,8 +302,14 @@ def main() -> None:
 
     print("\nCommitting weaveback repo...")
     run(["git", "add", "flake.nix"], cwd=REPO_ROOT)
-    run(["git", "commit", "-m", f"chore: release v{version}"], cwd=REPO_ROOT)
-    run(["git", "push", "origin", "main"], cwd=REPO_ROOT)
+    has_changes = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"], cwd=REPO_ROOT
+    ).returncode != 0
+    if has_changes:
+        run(["git", "commit", "-m", f"chore: release v{version}"], cwd=REPO_ROOT)
+        run(["git", "push", "origin", "main"], cwd=REPO_ROOT)
+    else:
+        print("  Nothing changed — skipping commit and push.")
 
     print("\nUpdating AUR package...")
     srcinfo = subprocess.run(

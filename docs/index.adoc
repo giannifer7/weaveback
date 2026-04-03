@@ -121,6 +121,9 @@ integration features (MCP, LSP, Documentation Server).
 
 | link:../crates/weaveback/src/lookup.adoc[source lookup and tracing]
 | `crates/weaveback/src/lookup.rs`
+
+| link:../crates/weaveback/src/manifest.adoc[Cargo manifest]
+| `crates/weaveback/Cargo.toml`
 |===
 
 == weaveback-tangle literate sources
@@ -151,6 +154,9 @@ for the module map and error hierarchy, then follow the dependency order:
 
 | link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
 | `crates/weaveback-tangle/src/tests/` (4 files)
+
+| link:../crates/weaveback-tangle/manifest.adoc[Cargo manifest]
+| `crates/weaveback-tangle/Cargo.toml`
 |===
 
 == weaveback-macro literate sources
@@ -215,6 +221,9 @@ for the module map and error hierarchy, then follow the dependency order:
 
 | link:../crates/weaveback-macro/src/bin/cli.adoc[CLI binary]
 | `crates/weaveback-macro/src/bin/weaveback-macro.rs`
+
+| link:../crates/weaveback-macro/manifest.adoc[Cargo manifest]
+| `crates/weaveback-macro/Cargo.toml`
 |===
 
 == weaveback-core literate sources
@@ -226,6 +235,9 @@ for the module map and error hierarchy, then follow the dependency order:
 
 | link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core index]
 | `crates/weaveback-core/src/lib.rs`
+
+| link:../crates/weaveback-core/manifest.adoc[Cargo manifest]
+| `crates/weaveback-core/Cargo.toml`
 |===
 
 == weaveback-lsp literate sources
@@ -237,6 +249,128 @@ for the module map and error hierarchy, then follow the dependency order:
 
 | link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp index]
 | `crates/weaveback-lsp/src/lib.rs`
+
+| link:../crates/weaveback-lsp/manifest.adoc[Cargo manifest]
+| `crates/weaveback-lsp/Cargo.toml`
+|===
+
+== weaveback-docgen literate sources
+
+Renders `.adoc` files to dark-themed HTML with PlantUML diagrams, literate chunk IDs,
+and cross-reference panels.
+
+.weaveback-docgen adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen index]
+| `crates/weaveback-docgen/src/main.rs` + `lib.rs`
+
+| link:../crates/weaveback-docgen/src/render.adoc[asciidoctor runner]
+| `crates/weaveback-docgen/src/render.rs`
+
+| link:../crates/weaveback-docgen/src/inject.adoc[HTML post-processor]
+| `crates/weaveback-docgen/src/inject.rs`
+
+| link:../crates/weaveback-docgen/src/xref.adoc[cross-reference engine]
+| `crates/weaveback-docgen/src/xref.rs`
+
+| link:../crates/weaveback-docgen/src/literate_index.adoc[literate index builder]
+| `crates/weaveback-docgen/src/literate_index.rs`
+
+| link:../crates/weaveback-docgen/src/plantuml.adoc[PlantUML integration]
+| `crates/weaveback-docgen/src/plantuml.rs`
+
+| link:../crates/weaveback-docgen/manifest.adoc[Cargo manifest]
+| `crates/weaveback-docgen/Cargo.toml`
+|===
+
+== Project configuration
+
+Root-level project files — workspace manifest, justfile, tangle config, toolchain pin,
+and editor/IDE settings — all generated from a single literate source.
+
+.Project configuration adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../project/project.adoc[project.adoc]
+| `Cargo.toml`, `justfile`, `weaveback.toml`, `.gitignore`, `rust-toolchain.toml`,
+  `.mcp.json`, `.vscode/settings.json`, `Containerfile`, `flake.nix` (snapshot)
+
+| link:../.github/workflows/workflows.adoc[workflows.adoc]
+| `.github/workflows/ci.yml`, `pages.yml`, `release.yml`
+|===
+
+== Packaging and distribution
+
+.Packaging adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../packaging/packaging.adoc[packaging.adoc]
+| `packaging/update_release.py` — downloads release assets, writes AUR PKGBUILD and `flake.nix`
+|===
+
+== Scripts and UI
+
+.Scripts adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../scripts/scripts.adoc[scripts.adoc]
+| `scripts/install.py`, `scripts/gliner_experiment.py`,
+  `scripts/weaveback-graph/` Python package
+
+| link:../scripts/serve-ui/serve-ui.adoc[serve-ui.adoc]
+| TypeScript/CSS browser UI for the `weaveback serve` documentation server
+  (`src/`, `package.json`, `tsconfig.json`)
+|===
+
+== Examples
+
+Each example sub-project has a `config.adoc` capturing its build and tooling files.
+
+.Example adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../examples/events/config.adoc[events/config.adoc]
+| `examples/events/justfile`, `meson.build`, `.gitignore`
+
+| link:../examples/hello-world/config.adoc[hello-world/config.adoc]
+| `examples/hello-world/justfile`, `.gitignore`
+
+| link:../examples/c_enum/config.adoc[c_enum/config.adoc]
+| `examples/c_enum/.gitignore`
+
+| link:../examples/nim-adoc/config.adoc[nim-adoc/config.adoc]
+| `examples/nim-adoc/meson.build`, `.gitignore`
+
+| link:../examples/nim-adoc/scripts/gen_docs.adoc[nim-adoc/scripts/gen_docs.adoc]
+| `examples/nim-adoc/scripts/gen_docs.py`
+
+| link:../examples/graph-prototype/config.adoc[graph-prototype/config.adoc]
+| `examples/graph-prototype/Cargo.toml`
+|===
+
+== Platform tooling and test fixtures
+
+.Platform tooling adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../windows/windows.adoc[windows.adoc]
+| `windows/verify.ps1`, `windows/verification.wsb` — Windows sandbox verification scripts
+
+| link:../test-data/test-data.adoc[test-data.adoc]
+| `test-data/test-c-project/Taskfile` — test fixture for the C project integration tests
 |===
 
 == Architecture and design

@@ -605,6 +605,9 @@ tangled by `just tangle`.
   `tree-sitter-weaveback/editors/neovim/weaveback.lua` +
   `tree-sitter-weaveback/editors/neovim/asciidoc.lua` +
   `tree-sitter-weaveback/editors/neovim/install.py`
+
+| link:../tree-sitter-weaveback/manifest.adoc[manifest.adoc]
+| `tree-sitter-weaveback/package.json`, `tree-sitter.json`
 |===
 
 == Build-system integration

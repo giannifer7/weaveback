@@ -13,6 +13,7 @@ syn.workspace = true
 walkdir.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 regex.workspace = true
 weaveback-lsp.workspace = true
 asciidoc-parser.workspace = true

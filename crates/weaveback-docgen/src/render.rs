@@ -68,6 +68,8 @@ pub fn render_docs(
     out_dir: &Path,
     specials: &[char],
     plantuml_jar: Option<&Path>,
+    d2_theme: u32,
+    d2_layout: &str,
 ) -> Vec<PathBuf> {
     use acdc_converters_core::Converter as _;
     use rayon::prelude::*;
@@ -82,9 +84,7 @@ pub fn render_docs(
 
     // SVG cache lives outside out_dir so `rm -rf <out_dir>` doesn't blow it away.
     let svg_cache_dir = out_dir.parent().unwrap_or(out_dir).join(".plantuml-cache");
-    if plantuml_jar.is_some() {
-        std::fs::create_dir_all(&svg_cache_dir).ok();
-    }
+    std::fs::create_dir_all(&svg_cache_dir).ok();
 
     // Phase 1: collect uncached PlantUML diagrams from all stale files, then
     // batch-render them in a single JVM invocation.
@@ -153,11 +153,26 @@ pub fn render_docs(
                 None
             };
 
+            // 1.5. D2 pre-processing.
+            let base_before_d2 = after_plantuml.as_deref().unwrap_or(&source);
+            let after_d2: Option<String> = {
+                let images_dir = out_file.parent().unwrap_or(out_dir);
+                let label = adoc.strip_prefix(project_root).unwrap_or(adoc).to_string_lossy();
+                match crate::d2::preprocess_d2(
+                    base_before_d2, images_dir, &svg_cache_dir, &label, d2_theme, d2_layout,
+                ) {
+                    Ok(opt) => opt,
+                    Err(e) => {
+                        eprintln!("d2: {}: {}", adoc.display(), e);
+                        std::process::exit(1);
+                    }
+                }
+            };
+
             // 2. Special-char deduplication.
-            let base = after_plantuml.as_deref().unwrap_or(&source);
+            let base = after_d2.as_deref().or(after_plantuml.as_deref()).unwrap_or(&source);
             let processed: String = dedup_specials(base, specials)
-                .or(after_plantuml)
-                .unwrap_or_else(|| source.clone());
+                .unwrap_or_else(|| base.to_owned());
 
             // 3. Build per-file acdc options.
             let source_dir = adoc.parent().unwrap_or(project_root);

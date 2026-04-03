@@ -1,3 +1,4 @@
+mod d2;
 mod inject;
 mod literate_index;
 mod plantuml;
@@ -65,6 +66,28 @@ struct Args {
     out_dir: Option<PathBuf>,
     theme_dir: Option<PathBuf>,
     plantuml_jar: Option<PathBuf>,
+    d2_theme: u32,
+    d2_layout: String,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct DocsConfig {
+    d2_theme: Option<u32>,
+    d2_layout: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct WeavebackConfig {
+    docs: Option<DocsConfig>,
+}
+
+fn read_config(root: &Path) -> WeavebackConfig {
+    let path = root.join("weaveback.toml");
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        toml::from_str(&content).unwrap_or_default()
+    } else {
+        WeavebackConfig::default()
+    }
 }
 
 fn parse_args() -> Args {
@@ -131,7 +154,17 @@ fn parse_args() -> Args {
         }
         i += 1;
     }
-    Args { specials, xref_cmd, no_xref, ai_xref, out_dir, theme_dir, plantuml_jar }
+    Args {
+        specials,
+        xref_cmd,
+        no_xref,
+        ai_xref,
+        out_dir,
+        theme_dir,
+        plantuml_jar,
+        d2_theme: 200,
+        d2_layout: "tala".to_string(),
+    }
 }
 fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
     let output = Command::new(cmd)
@@ -152,8 +185,18 @@ fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
     })
 }
 fn main() {
-    let args = parse_args();
     let root = find_project_root();
+    let config = read_config(&root);
+    let docs_cfg = config.docs.unwrap_or_default();
+
+    let mut args = parse_args();
+    if let Some(theme) = docs_cfg.d2_theme {
+        args.d2_theme = theme;
+    }
+    if let Some(layout) = docs_cfg.d2_layout {
+        args.d2_layout = layout;
+    }
+
     let out_dir = args.out_dir.clone().unwrap_or_else(|| root.join("docs").join("html"));
     let theme_dir = args.theme_dir.clone().unwrap_or_else(|| root.join("scripts").join("asciidoc-theme"));
 
@@ -163,6 +206,8 @@ fn main() {
         &out_dir,
         &args.specials,
         args.plantuml_jar.as_deref(),
+        args.d2_theme,
+        &args.d2_layout,
     );
     let existing_html: std::collections::HashSet<String> = all_html
         .iter()

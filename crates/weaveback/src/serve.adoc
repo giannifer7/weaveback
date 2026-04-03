@@ -248,12 +248,40 @@ fn serve_static(request: Request, url: &str, html_dir: &Path) {
         }
         Some(path) => {
             let ct = content_type(&path);
+            // ETag = "<mtime_secs>-<file_size>" — cheap, correct for a local dev server.
+            let etag: Option<String> = std::fs::metadata(&path).ok().and_then(|m| {
+                let secs = m.modified().ok()?
+                    .duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+                Some(format!("\"{}-{}\"", secs, m.len()))
+            });
+            // Respond 304 if the client already has this version.
+            if let Some(ref tag) = etag {
+                let matched = request.headers().iter()
+                    .find(|h| h.field.equiv("If-None-Match"))
+                    .map(|h| h.value.as_str() == tag.as_str())
+                    .unwrap_or(false);
+                if matched {
+                    let _ = request.respond(
+                        Response::from_string("").with_status_code(304)
+                    );
+                    return;
+                }
+            }
+            // JS/CSS/images: allow the browser to cache for 5 minutes.
+            // HTML: always revalidate (but ETag avoids re-transfer when unchanged).
+            let cache_ctrl = match path.extension().and_then(|e| e.to_str()) {
+                Some("js") | Some("css") | Some("png") | Some("svg") | Some("ico") => "max-age=300",
+                _ => "no-cache",
+            };
             match std::fs::read(&path) {
                 Ok(bytes) => {
-                    let response = Response::from_data(bytes)
-                        .with_header(
-                            Header::from_bytes("Content-Type", ct).unwrap()
-                        );
+                    let mut response = Response::from_data(bytes)
+                        .with_header(Header::from_bytes("Content-Type", ct).unwrap())
+                        .with_header(Header::from_bytes("Cache-Control", cache_ctrl).unwrap());
+                    if let Some(tag) = etag {
+                        response = response
+                            .with_header(Header::from_bytes("ETag", tag).unwrap());
+                    }
                     let _ = request.respond(response);
                 }
                 Err(_) => {

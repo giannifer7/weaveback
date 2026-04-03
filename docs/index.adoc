@@ -213,7 +213,12 @@ for the module map and error hierarchy, then follow the dependency order:
 | link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[public eval API]
 | `crates/weaveback-macro/src/evaluator/eval_api.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests]
+| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests index] +
+  link:../crates/weaveback-macro/src/evaluator/tests-macros.adoc[tests-macros] +
+  link:../crates/weaveback-macro/src/evaluator/tests-control.adoc[tests-control] +
+  link:../crates/weaveback-macro/src/evaluator/tests-case.adoc[tests-case] +
+  link:../crates/weaveback-macro/src/evaluator/tests-scripting.adoc[tests-scripting] +
+  link:../crates/weaveback-macro/src/evaluator/tests-output.adoc[tests-output]
 | `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 
 | link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]

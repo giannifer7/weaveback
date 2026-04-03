@@ -1,0 +1,717 @@
+= Evaluator tests — control flow and file operations
+:toc: left
+
+link:tests.adoc[← back to test index]
+
+Test coverage for `%if`, `%equal`, `%include`, `%import`, `%export`, `%eval`,
+and `%here`.
+
+== `%if` conditionals (`test_if.rs`)
+
+[source,rust]
+----
+// <<test if>>=
+use crate::macro_api::process_string_defaults;
+
+#[test]
+fn test_if_condition_true() {
+    let result = process_string_defaults(
+        r#"
+        %if(true, %{
+            This should be printed.
+        %})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "This should be printed."
+    );
+}
+
+#[test]
+fn test_if_condition_false() {
+    let result = process_string_defaults(
+        r#"
+        %if(  , %{
+            This should NOT be printed.
+        %})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "");
+}
+
+#[test]
+fn test_if_else_condition_true() {
+    let result = process_string_defaults(
+        r#"
+        %if(true, %{
+            This should be printed.
+        %}, %{
+            This should NOT be printed.
+        %})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "This should be printed."
+    );
+}
+
+#[test]
+fn test_if_else_condition_false() {
+    let result = process_string_defaults(
+        r#"
+        %if(, %{
+            This should NOT be printed.
+        %}, %{
+            This should be printed.
+        %})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "This should be printed."
+    );
+}
+
+#[test]
+fn test_nested_if_conditions() {
+    let result = process_string_defaults(
+        r#"
+        %if(true, %{
+            %if(true, %{
+                Nested condition is true.
+            %})
+        %})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "Nested condition is true."
+    );
+}
+
+#[test]
+fn test_if_with_macro_condition() {
+    let result = process_string_defaults(
+        r#"
+        %def(empty,)
+        %if(%empty(), , %{condition is false.%})
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "condition is false."
+    );
+}
+// @
+----
+
+== `%equal` (`test_equal.rs`)
+
+[source,rust]
+----
+// <<test equal>>=
+use crate::macro_api::process_string_defaults;
+use std::str;
+
+#[test]
+fn test_equal_basic() {
+    let result = process_string_defaults("%equal(abc, abc)").unwrap();
+    assert_eq!(result, b"abc");
+
+    let result = process_string_defaults("%equal(abc, def)").unwrap();
+    assert_eq!(result, b"");
+}
+
+#[test]
+fn test_equal_whitespace() {
+    let result = process_string_defaults("%equal( abc , abc)").unwrap();
+    assert_eq!(result, b"");
+
+    let result = process_string_defaults("%equal( abc ,  abc )").unwrap();
+    assert_eq!(str::from_utf8(&result).unwrap().trim(), "abc");
+
+    let result = process_string_defaults("%equal(abc  , abc  )").unwrap();
+    assert_eq!(str::from_utf8(&result).unwrap().trim(), "abc");
+}
+
+#[test]
+fn test_equal_with_vars() {
+    let result = process_string_defaults(
+        r#"
+        %def(set_x, val, %(val))
+        %equal(%set_x(value), value)
+    "#,
+    )
+    .unwrap();
+    assert_eq!(str::from_utf8(&result).unwrap().trim(), "value");
+}
+
+#[test]
+fn test_equal_errors() {
+    assert!(process_string_defaults("%equal()").is_err());
+    assert!(process_string_defaults("%equal(single)").is_err());
+    assert!(process_string_defaults("%equal(a,b,c)").is_err());
+}
+// @
+----
+
+== `%include` (`test_include.rs`)
+
+[source,rust]
+----
+// <<test include>>=
+// crates/weaveback-macro/src/evaluator/tests/test_include.rs
+use crate::evaluator::EvalError;
+use crate::evaluator::Evaluator;
+use crate::evaluator::tests::test_utils::evaluator_in_temp_dir;
+use crate::macro_api::process_string;
+use crate::macro_api::process_string_defaults;
+use std::fs;
+use std::io::Write;
+use std::os::unix::fs::symlink;
+use std::path::Path;
+use tempfile::NamedTempFile;
+use tempfile::TempDir;
+
+fn create_evaluator_with_temp_dir(temp_dir: &Path) -> Evaluator {
+    evaluator_in_temp_dir(temp_dir)
+}
+
+#[test]
+fn test_include_basic() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let header_path = temp_dir_path.join("header.txt");
+    fs::write(&header_path, "Hello from header.txt").expect("Failed to write header.txt");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string("%include(header.txt)", None, &mut evaluator).unwrap();
+    assert_eq!(String::from_utf8(result).unwrap(), "Hello from header.txt");
+}
+
+#[test]
+fn test_include_with_macros() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let macros_path = temp_dir_path.join("macros.txt");
+    fs::write(
+        &macros_path,
+        r#"
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %def(farewell, name, %{
+            Goodbye, %(name)!
+        %})
+    "#,
+    )
+    .expect("Failed to write macros.txt");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string(
+        r#"
+        %include(macros.txt)
+        %greet(World)
+        %farewell(Friend)
+        "#,
+        None,
+        &mut evaluator,
+    )
+    .unwrap();
+
+    let trimmed_result = String::from_utf8(result).unwrap().trim().to_string();
+
+    assert_eq!(
+        trimmed_result,
+        "Hello, World!\n        \n        \n            Goodbye, Friend!"
+    );
+}
+
+#[test]
+fn test_include_missing_file() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string("%include(missing.txt)", None, &mut evaluator);
+    assert!(matches!(result, Err(EvalError::IncludeNotFound(_))));
+}
+
+#[test]
+fn test_include_self_inclusion() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let self_include_path = temp_dir_path.join("self_include.txt");
+    fs::write(&self_include_path, "%include(self_include.txt)")
+        .expect("Failed to write self_include.txt");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string("%include(self_include.txt)", None, &mut evaluator);
+    assert!(matches!(result, Err(EvalError::CircularInclude(_))));
+}
+
+#[test]
+fn test_include_mutual_inclusion() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let file_a_path = temp_dir_path.join("file_a.txt");
+    fs::write(&file_a_path, "%include(file_b.txt)").expect("Failed to write file_a.txt");
+
+    let file_b_path = temp_dir_path.join("file_b.txt");
+    fs::write(&file_b_path, "%include(file_a.txt)").expect("Failed to write file_b.txt");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string("%include(file_a.txt)", None, &mut evaluator);
+    assert!(matches!(result, Err(EvalError::CircularInclude(_))));
+}
+
+#[test]
+fn test_include_with_symlink() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let target_path = temp_dir_path.join("target.txt");
+    fs::write(&target_path, "Hello from target.txt").expect("Failed to write target.txt");
+
+    let symlink_path = temp_dir_path.join("symlink.txt");
+    symlink(&target_path, &symlink_path).expect("Failed to create symlink");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string("%include(symlink.txt)", None, &mut evaluator).unwrap();
+    assert_eq!(String::from_utf8(result).unwrap(), "Hello from target.txt");
+}
+
+/// Regression test for Bug 6: open_includes was not cleaned up when an include failed,
+/// causing a spurious CircularInclude error on any subsequent include of the same file.
+#[test]
+fn test_include_path_cleaned_up_on_error() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let bad_file_path = temp_dir_path.join("bad.txt");
+    fs::write(&bad_file_path, "%undefined_macro()").expect("Failed to write bad.txt");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result1 = process_string("%include(bad.txt)", None, &mut evaluator);
+    assert!(
+        matches!(result1, Err(EvalError::UndefinedMacro(_))),
+        "Expected UndefinedMacro on first include, got: {:?}",
+        result1
+    );
+
+    let result2 = process_string("%include(bad.txt)", None, &mut evaluator);
+    assert!(
+        matches!(result2, Err(EvalError::UndefinedMacro(_))),
+        "Expected UndefinedMacro on second include (not CircularInclude), got: {:?}",
+        result2
+    );
+}
+
+#[test]
+fn test_include_scope() {
+    let mut tmp = NamedTempFile::new().expect("Failed to create temp file");
+    writeln!(tmp, "%def(included_macro, x, Included says: %(x)!)")
+        .expect("Failed to write to temp file");
+    let tmp_path = tmp.path().to_str().expect("Invalid temp file path");
+
+    let source = format!(
+        r#"
+%def(macro_with_include, param, %{{
+    %include({tmp_path})
+    %included_macro(%(param))
+%}})
+%macro_with_include(test)
+%included_macro(outside)
+"#
+    );
+    let result = process_string_defaults(&source);
+    match result {
+        Err(EvalError::UndefinedMacro(m)) => {
+            assert_eq!(
+                m, "included_macro",
+                "Expected UndefinedMacro error for 'included_macro'"
+            );
+        }
+        Err(e) => {
+            panic!(
+                "Expected UndefinedMacro error, but got a different error: {:?}",
+                e
+            );
+        }
+        Ok(output) => {
+            panic!(
+                "Expected an error due to undefined macro, but processing succeeded with output: {:?}",
+                String::from_utf8_lossy(&output)
+            );
+        }
+    }
+}
+// @
+----
+
+== `%import` (`test_import.rs`)
+
+[source,rust]
+----
+// <<test import>>=
+#[cfg(test)]
+mod tests {
+    use crate::macro_api::process_string_defaults;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_import_includes_definitions_only() {
+        let mut tmp = NamedTempFile::new().expect("Failed to create temporary file");
+        writeln!(tmp, "This text should be discarded.").expect("Failed to write to temp file");
+        writeln!(tmp, "%def(included_macro, x, included: %(x)!)")
+            .expect("Failed to write macro definition to temp file");
+        writeln!(tmp, "More text that should be discarded.").expect("Failed to write to temp file");
+        let tmp_path = tmp
+            .path()
+            .to_str()
+            .expect("Temporary file path is not valid UTF-8");
+
+        let source = format!(
+            r#"
+%def(macro_using_includes, param, %{{
+    %import({tmp_path})
+    %included_macro(%(param))
+%}})
+%macro_using_includes(test)
+"#
+        );
+
+        let result = process_string_defaults(&source);
+        match result {
+            Ok(output) => {
+                let output_str = String::from_utf8(output).expect("Output was not valid UTF-8");
+                let expected = "included: test!";
+                assert_eq!(
+                    output_str.trim(),
+                    expected,
+                    "Output did not match expected result. Got: {:?}",
+                    output_str
+                );
+            }
+            Err(e) => {
+                panic!("Processing failed with error: {:?}", e);
+            }
+        }
+    }
+}
+// @
+----
+
+== `%export` (`test_export.rs`)
+
+[source,rust]
+----
+// <<test export>>=
+// crates/weaveback-macro/src/evaluator/tests/test_export.rs
+
+#[cfg(test)]
+mod tests {
+    use crate::evaluator::EvalError;
+    use crate::macro_api::process_string_defaults;
+
+    #[test]
+    fn test_export_macro_with_frozen_args() {
+        let source = r#"
+%def(macro_exporting_stuff, base, name, %{
+    %def(AFILE, param, %(base)/%(name)%(param).txt)
+    %export(AFILE)
+
+    %set(my_var, %{from %(base) import %(name)%})
+    %export(my_var)
+%})
+%macro_exporting_stuff(one, two)
+%AFILE(three)
+%(my_var)
+        "#;
+        let result = process_string_defaults(source)
+            .expect("Processing failed for export with macro parameters");
+        let output = String::from_utf8(result).expect("Output was not valid UTF-8");
+        let expected = "one/twothree.txt\nfrom one import two";
+        assert_eq!(
+            output.trim(),
+            expected,
+            "Exported macro did not freeze outer variables as expected"
+        );
+    }
+
+    #[test]
+    fn test_export_wrong_number_of_args() {
+        let source = "%export(foo, bar)";
+        let result = process_string_defaults(source);
+        match result {
+            Err(EvalError::InvalidUsage(msg)) => {
+                assert!(
+                    msg.contains("export: exactly 1 arg"),
+                    "Unexpected error message: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected an InvalidUsage error when %export is called with two arguments"),
+        }
+    }
+}
+// @
+----
+
+== `%eval` (`test_eval.rs`)
+
+[source,rust]
+----
+// <<test eval>>=
+use crate::macro_api::process_string_defaults;
+
+#[test]
+fn test_eval_simple_macro_call() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %eval(greet, World)
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
+}
+
+#[test]
+fn test_eval_macro_call_with_multiple_arguments() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, greeting, %{
+            %(greeting), %(name)!
+        %})
+        %eval(greet, World, Hello)
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
+}
+
+#[test]
+fn test_eval_macro_call_with_nested_macros() {
+    let result = process_string_defaults(
+        r#"
+        %def(get_name, %{
+            World
+        %})
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %eval(greet, %get_name())
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(result).unwrap().trim(),
+        "Hello, \n            World\n        !"
+    );
+}
+
+#[test]
+fn test_eval_macro_call_with_conditional_logic() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, %{
+            %if(%(name), %{
+                Hello, %(name)!
+            %}, %{
+                Hello, stranger!
+            %})
+        %})
+        %eval(greet, World)
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
+}
+
+#[test]
+fn test_eval_macro_call_with_empty_arguments() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %eval(greet, )
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, !");
+}
+
+#[test]
+fn test_eval_macro_call_with_whitespace_in_arguments() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %eval(greet,   World  )
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World  !");
+}
+
+#[test]
+fn test_eval_macro_call_with_dynamic_macro_name() {
+    let result = process_string_defaults(
+        r#"
+        %def(greet, name, %{
+            Hello, %(name)!
+        %})
+        %def(get_macro_name, %{
+            greet
+        %})
+        %eval(%get_macro_name(), World)
+        "#,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
+}
+// @
+----
+
+== `%here` (`test_here.rs`)
+
+[source,rust]
+----
+// <<test here>>=
+// crates/weaveback-macro/src/evaluator/tests/test_here.rs
+
+use crate::evaluator::Evaluator;
+use crate::evaluator::tests::test_utils::evaluator_in_temp_dir;
+use crate::macro_api::process_string;
+use std::fs;
+use tempfile::TempDir;
+
+fn create_evaluator_with_temp_dir(temp_dir: &std::path::Path) -> Evaluator {
+    evaluator_in_temp_dir(temp_dir)
+}
+
+#[test]
+fn test_here_with_macros() {
+    let temp_dir = TempDir::new().expect("Failed to create temporary directory");
+    let temp_dir_path = temp_dir.path();
+
+    let test_file_path = temp_dir_path.join("test.txt");
+    fs::write(
+        &test_file_path,
+        r#"
+        %def(insert_content, greeting, %{
+            Inserted content, %(greeting)!
+        %})
+        Before %here(insert_content, Hello)
+        After
+        "#,
+    )
+    .expect("Failed to write test file");
+
+    let mut evaluator = create_evaluator_with_temp_dir(temp_dir_path);
+
+    let result = process_string(
+        &fs::read_to_string(&test_file_path).unwrap(),
+        Some(&test_file_path),
+        &mut evaluator,
+    );
+
+    let modified_content = fs::read_to_string(&test_file_path).unwrap();
+    assert_eq!(
+        modified_content.trim(),
+        "%def(insert_content, greeting, %{\n            Inserted content, %(greeting)!\n        %})\n        Before %%here(insert_content, Hello)\n            Inserted content, Hello!\n                After"
+    );
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_here_idempotency_already_patched_file() {
+    // Running on a file that already has %%here (the neutralised form) must
+    // be a no-op: the file must not be modified a second time.
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("patched.txt");
+
+    // Write a file that already has %%here (neutralised) — simulating the state
+    // after a previous successful run.
+    let already_patched =
+        "%def(msg, hello world)\n%%here(msg)\nhello world\nrest of file";
+    fs::write(&test_file, already_patched).unwrap();
+
+    let content = fs::read_to_string(&test_file).unwrap();
+    let mut ev = create_evaluator_with_temp_dir(temp_dir.path());
+    let result = process_string(&content, Some(&test_file), &mut ev);
+
+    // Must succeed (%%here is literal text, not a macro call).
+    assert!(result.is_ok(), "already-patched file should expand without error: {:?}", result);
+
+    // File must be unchanged — no second patch.
+    let after = fs::read_to_string(&test_file).unwrap();
+    assert_eq!(after, already_patched, "idempotency violated: file was modified again");
+}
+
+#[test]
+fn test_here_only_first_fires_in_file() {
+    // A file with two %here calls: only the first should fire.
+    // After the first %here sets early_exit, the second is never reached.
+    let temp_dir = TempDir::new().unwrap();
+    let test_file = temp_dir.path().join("two_here.txt");
+
+    let content =
+        "%def(a, first)\n%def(b, second)\n%here(a)\n%here(b)";
+    fs::write(&test_file, content).unwrap();
+
+    let src = fs::read_to_string(&test_file).unwrap();
+    let mut ev = create_evaluator_with_temp_dir(temp_dir.path());
+    process_string(&src, Some(&test_file), &mut ev).unwrap();
+
+    let modified = fs::read_to_string(&test_file).unwrap();
+    // Only the first %here should have been neutralised (%%here) and expanded.
+    assert!(modified.contains("%%here(a)"), "first %here should be neutralised");
+    // Second %here must still be a live call (not neutralised) because early_exit
+    // stopped evaluation before reaching it.
+    assert!(
+        modified.contains("%here(b)") && !modified.contains("%%here(b)"),
+        "second %here should be untouched (early_exit prevented it from firing)"
+    );
+}
+// @
+----

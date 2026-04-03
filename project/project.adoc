@@ -13,7 +13,7 @@ workspace-level dependency versions.
 
 [source,toml]
 ----
-// <<@file Cargo.toml>>=
+# <<@file Cargo.toml>>=
 # Cargo.toml
 
 [workspace]
@@ -97,7 +97,7 @@ asciidoc-parser = { git = "https://github.com/giannifer7/asciidoc-parser", rev =
 acdc-parser = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-core = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-html = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978", features = ["highlighting"] }
-// @
+# @
 ----
 
 == justfile
@@ -108,7 +108,7 @@ The `_wb` variable prefers a locally-built release binary.
 
 [source,makefile]
 ----
-// <<@file justfile>>=
+# <<@file justfile>>=
 # justfile — weaveback workspace
 
 # Prefer locally-built release binary; fall back to debug, then PATH.
@@ -288,14 +288,14 @@ lsp *ARGS:
 clean:
     cargo clean
     rm -rf dist/
-// @
+# @
 ----
 
 == .gitignore
 
 [source]
 ----
-// <<@file .gitignore>>=
+# <<@file .gitignore>>=
 /target
 /docs/html/
 
@@ -327,7 +327,7 @@ python/
 resume.txt
 
 scripts/serve-ui/node_modules/
-// @
+# @
 ----
 
 == rust-toolchain.toml
@@ -336,11 +336,11 @@ Pins the Rust toolchain to nightly (required for let-chain syntax in edition 202
 
 [source,toml]
 ----
-// <<@file rust-toolchain.toml>>=
+# <<@file rust-toolchain.toml>>=
 [toolchain]
 channel    = "nightly"
 components = ["clippy", "rustfmt"]
-// @
+# @
 ----
 
 == .mcp.json
@@ -386,7 +386,7 @@ it means the file was edited directly without updating this adoc source.
 
 [source,toml]
 ----
-// <<@file weaveback.toml>>=
+# <<@file weaveback.toml>>=
 # weaveback.toml — multi-pass tangle configuration for `weaveback tangle`
 # Each [[pass]] maps to one `weaveback` invocation.  Fields not present use
 # the weaveback CLI defaults: open_delim = "<[", close_delim = "]>",
@@ -554,7 +554,7 @@ ext = "adoc"
 no_macros = true
 open_delim = "<<"
 close_delim = ">>"
-// @
+# @
 ----
 
 == Containerfile
@@ -564,7 +564,7 @@ target platforms: glibc (Debian), musl (Alpine), Windows (MinGW), Fedora.
 
 [source,dockerfile]
 ----
-// <<@file Containerfile>>=
+# <<@file Containerfile>>=
 # Containerfile — multi-stage packaging builds for weaveback
 #
 # Stages:
@@ -684,7 +684,7 @@ RUN mkdir -p /out \
     && cp target/release/weaveback-tangle  /out/weaveback-tangle-fedora \
     && cp target/release/weaveback-docgen  /out/weaveback-docgen-fedora \
     && cp target/generate-rpm/*.rpm        /out/
-// @
+# @
 ----
 
 == flake.nix

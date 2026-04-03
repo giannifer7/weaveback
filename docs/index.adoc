@@ -380,6 +380,10 @@ Each example sub-project has a `config.adoc` capturing its build and tooling fil
 
 == Architecture and design
 
+*New here?* Start with link:why.adoc[why.adoc] — the intent, tradeoffs, and
+design rationale behind every major decision.  Then read
+link:architecture.adoc[architecture.adoc] for the structural detail.
+
 See link:architecture.adoc[architecture.adoc] for a detailed discussion of:
 
 * The literate-programming model and toolchain pipeline

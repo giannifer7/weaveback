@@ -16,7 +16,7 @@ Literate source (.md / .adoc / …)
         ▼
   weaveback-tangle           extracts <[chunk]> references, assembles them,
         │               optionally runs a formatter (e.g. rustfmt)
-        ▼                 → link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map]
+        ▼
   gen/ (output files)   written only when content changes
         │
         ▲
@@ -25,6 +25,9 @@ Literate source (.md / .adoc / …)
         ▼
   Semantic Insights        mapped back to literate sources (Hover, Definition)
 ....
+
+See link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map] for the
+weaveback-tangle internals.
 
 The two passes run in-process when you invoke the combined `weaveback` binary.
 The separate `weaveback-macro` and `weaveback-tangle` binaries exist for pipeline

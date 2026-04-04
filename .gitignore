@@ -8,6 +8,7 @@ dist/
 wheels/
 *.egg-info
 
+.env
 .venv
 
 .mypy_cache

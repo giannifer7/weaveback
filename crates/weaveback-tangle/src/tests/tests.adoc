@@ -1280,5 +1280,162 @@ fn test_fts_deduplicates_same_path_stored_twice() {
     let r = db.search_prose("once", 10).unwrap();
     assert_eq!(r.len(), 1, "same file stored twice must not produce duplicate FTS rows");
 }
+
+// ── block_tags / list_block_tags / get_blocks_needing_tags ───────────────────
+
+#[test]
+fn test_list_block_tags_empty_when_none_stored() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let r = db.list_block_tags(None).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_set_and_list_block_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse here.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[1u8; 32], "design,architecture").unwrap();
+    db.set_block_tags("a.adoc", 1, &[2u8; 32], "prose,overview").unwrap();
+
+    let r = db.list_block_tags(None).unwrap();
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0].block_index, 0);
+    assert_eq!(r[0].tags, "design,architecture");
+    assert_eq!(r[1].block_index, 1);
+    assert_eq!(r[1].tags, "prose,overview");
+}
+
+#[test]
+fn test_list_block_tags_file_filter() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    for (file, tag) in [("a.adoc", "alpha"), ("b.adoc", "beta")] {
+        let src = format!("= {tag}\n\nContent.\n");
+        db.set_src_snapshot(file, src.as_bytes()).unwrap();
+        db.set_source_blocks(file, &[block(0, "section", 1, 1)]).unwrap();
+        db.set_block_tags(file, 0, &[0u8; 32], tag).unwrap();
+    }
+
+    let r = db.list_block_tags(Some("a.adoc")).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].tags, "alpha");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_all_when_no_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_skips_up_to_date() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    // Tag both with the same hash as stored in source_blocks ([0u8; 32]).
+    db.set_block_tags("a.adoc", 0, &[0u8; 32], "design").unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "prose").unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert!(need.is_empty(), "no blocks should need re-tagging");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_stale_hash() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[9u8; 32], "stale").unwrap(); // hash mismatch
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "fresh").unwrap(); // matches
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 1);
+    assert_eq!(need[0].block_index, 0);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_excludes_code_blocks() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse.\n\n----\ncode\n----\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+    assert!(need.iter().all(|b| b.block_type != "code"));
+}
+
+#[test]
+fn test_search_result_includes_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Tagging\n\nThis block has tags.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "testing,fts").unwrap();
+
+    db.rebuild_prose_fts().unwrap();
+
+    let r = db.search_prose("tags", 10).unwrap();
+    assert!(!r.is_empty());
+    let para = r.iter().find(|x| x.block_type == "para").unwrap();
+    assert_eq!(para.tags, "testing,fts");
+}
+
+#[test]
+fn test_search_finds_block_by_tag_word() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    // Prose does NOT contain the word "incremental" — it's only in the tag.
+    let source = "= Build System\n\nThis section describes how building works.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "incremental,build").unwrap();
+
+    db.rebuild_prose_fts().unwrap();
+
+    let r = db.search_prose("incremental", 10).unwrap();
+    assert!(!r.is_empty(), "tag-only word should be findable via FTS");
+    assert_eq!(r[0].src_file, "a.adoc");
+}
 // @@
 ----

@@ -190,6 +190,17 @@ pub struct ChunkDefEntry {
     pub def_start:  u32,
     pub def_end:    u32,
 }
+
+/// A block that needs LLM tagging (either never tagged or content changed).
+#[derive(Debug, Clone)]
+pub struct BlockForTagging {
+    pub src_file:    String,
+    pub block_index: u32,
+    pub block_type:  String,
+    pub line_start:  u32,
+    pub line_end:    u32,
+    pub content_hash: Vec<u8>,
+}
 pub struct WeavebackDb {
     conn: Connection,
 }
@@ -1081,17 +1092,6 @@ impl WeavebackDb {
         )
     }
 }
-/// A block that needs LLM tagging (either never tagged or content changed).
-#[derive(Debug, Clone)]
-pub struct BlockForTagging {
-    pub src_file:    String,
-    pub block_index: u32,
-    pub block_type:  String,
-    pub line_start:  u32,
-    pub line_end:    u32,
-    pub content_hash: Vec<u8>,
-}
-
 /// A single result from `search_prose`.
 #[derive(Debug, Clone)]
 pub struct FtsResult {

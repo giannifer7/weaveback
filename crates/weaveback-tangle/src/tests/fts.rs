@@ -246,7 +246,6 @@ fn test_get_blocks_needing_tags_returns_stale_hash() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    // Tag block 0 with wrong hash, block 1 correctly.
     db.set_block_tags("a.adoc", 0, &[9u8; 32], "stale").unwrap(); // hash mismatch
     db.set_block_tags("a.adoc", 1, &[0u8; 32], "fresh").unwrap(); // matches
 
@@ -268,7 +267,6 @@ fn test_get_blocks_needing_tags_excludes_code_blocks() {
     ]).unwrap();
 
     let need = db.get_blocks_needing_tags().unwrap();
-    // Only section and para — code is excluded.
     assert_eq!(need.len(), 2);
     assert!(need.iter().all(|b| b.block_type != "code"));
 }

@@ -34,6 +34,8 @@ weaveback [OPTIONS] --dir <DIR>      # auto-discover driver files
 | `--allow-env` | off | Enable `%env(NAME)` (disabled by default to protect secrets)
 | `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox
 | `--dry-run` | off | Print output paths without writing anything
+| `--strict` | off | Treat references to undefined chunks as fatal errors (default: silently expand to nothing)
+| `--warn-unused` | off | Warn about named chunks that are defined but never referenced by any `@file` chunk; suppressed by default
 |===
 
 === Directory mode
@@ -266,6 +268,7 @@ weaveback-tangle [OPTIONS] -              # read from stdin
 | `--formatter <EXT=CMD>` | | Run a formatter after writing each file
 | `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox
 | `--dry-run` | off | Print output paths without writing anything
+| `--warn-unused` | off | Warn about named chunks defined but never referenced by any `@file` chunk
 |===
 
 '''

@@ -138,6 +138,10 @@ pub struct ChunkStore {
     /// and `@file` redefinition without `@replace` is also a fatal error.
     /// Default `false`: undefined chunks expand to nothing; redefinitions warn.
     pub strict_undefined: bool,
+    /// When `true`, emit warnings about chunks that are defined but never
+    /// referenced by any `@file` chunk (directly or transitively).
+    /// Default `false`: unused-chunk warnings are suppressed.
+    pub warn_unused: bool,
     /// Errors accumulated during `read()` that are promoted to hard errors
     /// when `strict_undefined` is `true`.  Checked by `Clip::write_files`.
     pub parse_errors: Vec<ChunkError>,
@@ -182,6 +186,7 @@ impl ChunkStore {
             close_bytes: chunk_end.as_bytes().into(),
             file_names: Vec::new(),
             strict_undefined: false,
+            warn_unused: false,
             parse_errors: Vec::new(),
         }
     }
@@ -822,6 +827,12 @@ impl Clip {
         self.store.strict_undefined = strict;
     }
 
+    /// Control whether unused-chunk warnings are emitted (`true`) or
+    /// suppressed (`false`, the default).  Opt in with `--warn-unused`.
+    pub fn set_warn_unused(&mut self, warn: bool) {
+        self.store.warn_unused = warn;
+    }
+
     pub fn has_chunk(&self, name: &str) -> bool {
         self.store.has_chunk(name)
     }
@@ -968,9 +979,10 @@ impl Clip {
             .set_chunk_defs(&chunk_def_entries)
             .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
 
-        let warns = self.store.check_unused_chunks(&all_referenced);
-        for w in warns {
-            eprintln!("{}", w);
+        if self.store.warn_unused {
+            for w in self.store.check_unused_chunks(&all_referenced) {
+                eprintln!("{}", w);
+            }
         }
         Ok(())
     }
@@ -1027,9 +1039,10 @@ impl Clip {
             .set_chunk_defs(&chunk_def_entries)
             .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
 
-        let warns = self.store.check_unused_chunks(&all_referenced);
-        for w in warns {
-            eprintln!("{}", w);
+        if self.store.warn_unused {
+            for w in self.store.check_unused_chunks(&all_referenced) {
+                eprintln!("{}", w);
+            }
         }
         Ok(())
     }

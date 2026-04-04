@@ -1,9 +1,9 @@
-/// Automatic LLM-based tagging of literate source blocks.
-///
-/// Runs as an optional post-step after `weaveback tangle`.  Only blocks
-/// whose BLAKE3 content hash has changed since the last run are sent to
-/// the LLM; results are cached in `block_tags` and included in the FTS
-/// index by `rebuild_prose_fts`.
+//! Automatic LLM-based tagging of literate source blocks.
+//!
+//! Runs as an optional post-step after `weaveback tangle`.  Only blocks
+//! whose BLAKE3 content hash has changed since the last run are sent to
+//! the LLM; results are cached in `block_tags` and included in the FTS
+//! index by `rebuild_prose_fts`.
 
 use weaveback_tangle::db::WeavebackDb;
 

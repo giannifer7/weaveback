@@ -355,6 +355,12 @@ struct Args {
     /// Print output paths without writing anything.
     #[arg(long)]
     dry_run: bool,
+
+    /// Warn about chunks that are defined but never referenced by any @file chunk.
+    /// Suppressed by default to keep output clean when large libraries of helper
+    /// chunks are defined speculatively.
+    #[arg(long)]
+    warn_unused: bool,
 }
 // @
 ----
@@ -638,6 +644,7 @@ fn run(args: Args) -> Result<(), Error> {
         &comment_markers,
     );
     clip.set_strict_undefined(args.strict);
+    clip.set_warn_unused(args.warn_unused);
 
     // Determine the set of driver files to process and all source files for the depfile.
     let (drivers, all_adoc): (Vec<PathBuf>, Vec<PathBuf>) = if let Some(ref dir) = args.directory {

@@ -165,6 +165,15 @@ CREATE TABLE IF NOT EXISTS source_blocks (
 
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
+    content,
+    src_file  UNINDEXED,
+    block_type UNINDEXED,
+    line_start UNINDEXED,
+    line_end   UNINDEXED,
+    tokenize  = 'porter unicode61'
+);
 ";
 // @@
 ----
@@ -1300,6 +1309,144 @@ impl WeavebackDb {
 // @@
 ----
 
+== Full-text search
+
+`rebuild_prose_fts` repopulates the `prose_fts` FTS5 table from the content
+stored in `src_snapshots` and the block boundaries in `source_blocks`.  It is
+called at the end of each tangle run so that `weaveback search` and the
+`weaveback_search` MCP tool always reflect the latest source.
+
+Only `"section"` and `"para"` blocks are indexed — code blocks contain Rust
+syntax that would pollute keyword matches with noise.
+
+`search_prose` runs a BM25-ranked FTS5 query and returns up to `limit` results
+with a `snippet()` excerpt showing the matching context.
+
+[source,rust]
+----
+// <[db-fts]>=
+/// A single result from `search_prose`.
+#[derive(Debug, Clone)]
+pub struct FtsResult {
+    pub src_file:   String,
+    pub block_type: String,
+    pub line_start: u32,
+    pub line_end:   u32,
+    /// Short excerpt with matched terms wrapped in `**...**`.
+    pub snippet:    String,
+}
+
+impl WeavebackDb {
+    /// Rebuild the `prose_fts` index from `src_snapshots` + `source_blocks`.
+    /// Drops and re-inserts all rows so the index is always consistent.
+    pub fn rebuild_prose_fts(&mut self) -> Result<(), DbError> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM prose_fts", [])?;
+
+        // Snapshot paths may be stored as "./rel", "rel", or absolute.
+        // The files table uses plain relative paths.  Normalise here.
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let normalise_path = move |raw: String| -> String {
+            let p = std::path::Path::new(&raw);
+            // Absolute path → try to make relative to cwd.
+            if p.is_absolute() {
+                if let Ok(rel) = p.strip_prefix(&cwd) {
+                    return rel.to_string_lossy().into_owned();
+                }
+                return raw;
+            }
+            // Strip leading "./" component.
+            raw.strip_prefix("./").map(str::to_owned).unwrap_or(raw)
+        };
+
+        // Load all snapshots; query block metadata per file.
+        // Deduplicate after path normalisation: the same source file may be
+        // stored under both `./rel/path` and `rel/path` from different passes.
+        let snapshots: Vec<(String, String)> = {
+            let mut stmt = tx.prepare(
+                "SELECT path, content FROM src_snapshots",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?;
+            let mut seen = std::collections::HashSet::new();
+            rows.filter_map(|r| r.ok())
+                .filter_map(|(path, bytes)| {
+                    let path = normalise_path(path);
+                    String::from_utf8(bytes).ok().map(|s| (path, s))
+                })
+                .filter(|(path, _)| seen.insert(path.clone()))
+                .collect()
+        };
+
+        for (path, source) in &snapshots {
+            let lines: Vec<&str> = source.lines().collect();
+            let mut stmt = tx.prepare_cached(
+                "SELECT DISTINCT sb.block_type, sb.line_start, sb.line_end
+                 FROM source_blocks sb JOIN files f ON f.id = sb.src_file
+                 WHERE f.path = ?1
+                   AND sb.block_type IN ('section', 'para')
+                 ORDER BY sb.line_start",
+            )?;
+            let blocks: Vec<(String, u32, u32)> = stmt
+                .query_map(params![path], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO prose_fts (content, src_file, block_type, line_start, line_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for (btype, start, end) in blocks {
+                let lo = (start as usize).saturating_sub(1);
+                let hi = (end as usize).min(lines.len());
+                if lo >= hi { continue; }
+                let content = lines[lo..hi].join("\n");
+                if !content.trim().is_empty() {
+                    ins.execute(params![content, path, btype, start, end])?;
+                }
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// BM25-ranked full-text search over literate source prose.
+    pub fn search_prose(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<FtsResult>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT src_file, block_type, line_start, line_end,
+                    snippet(prose_fts, 0, '**', '**', '…', 16)
+             FROM prose_fts
+             WHERE prose_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![query, limit as i64], |row| {
+            Ok(FtsResult {
+                src_file:   row.get(0)?,
+                block_type: row.get(1)?,
+                line_start: row.get(2)?,
+                line_end:   row.get(3)?,
+                snippet:    row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+}
+// @@
+----
+
 == Assembly
 
 [source,rust]
@@ -1320,5 +1467,6 @@ use std::path::Path;
 // <[db-source-blocks]>
 // <[db-merge]>
 // <[db-rest]>
+// <[db-fts]>
 // @@
 ----

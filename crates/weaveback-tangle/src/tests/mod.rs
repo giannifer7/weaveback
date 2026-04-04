@@ -1,6 +1,7 @@
 mod advanced;
 mod basic;
 mod common;
+mod fts;
 mod safe_writer;
 mod utils;
 

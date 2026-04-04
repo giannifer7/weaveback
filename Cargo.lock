@@ -2624,6 +2624,7 @@ dependencies = [
  "syn",
  "tempfile",
  "thiserror",
+ "toml",
  "walkdir",
  "weaveback-lsp",
 ]
@@ -2668,6 +2669,7 @@ dependencies = [
 name = "weaveback-tangle"
 version = "0.9.0"
 dependencies = [
+ "asciidoc-parser",
  "assert_cmd",
  "blake3",
  "chrono",

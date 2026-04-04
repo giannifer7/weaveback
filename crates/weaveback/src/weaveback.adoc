@@ -151,6 +151,14 @@ enum Commands {
         #[arg(long)]
         chunk: Option<String>,
     },
+    /// Full-text search over literate source prose (BM25, FTS5)
+    Search {
+        /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)
+        query: String,
+        /// Maximum number of results to show
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
     /// Semantic language server operations (requires rust-analyzer)
     Lsp {
         /// Manual override for the LSP command (e.g. "nimlsp")
@@ -296,6 +304,13 @@ struct Args {
     #[arg(long)]
     stamp: Option<PathBuf>,
 
+    // ── FTS ───────────────────────────────────────────────────────────────────
+    /// Skip rebuilding the prose full-text search index after this run.
+    /// Used internally by `weaveback tangle` to avoid concurrent FTS rebuilds;
+    /// the tangle command rebuilds the index once after all passes complete.
+    #[arg(long, hide = true)]
+    no_fts: bool,
+
     // ── security ──────────────────────────────────────────────────────────────
     /// Allow %env(NAME) to read environment variables.
     /// Disabled by default to prevent templates from silently reading secrets.
@@ -411,11 +426,14 @@ fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Resul
 /// 4. BFS backward through `chunk_deps` (reverse deps) to transitively mark
 ///    any `@file` chunk that depends on a dirty chunk as dirty too.
 /// 5. Return the complement: all `@file` chunks not in the dirty set that also
-///    have a gen_baseline.
+///    have a gen_baseline *and whose output file exists on disk*.  The existence
+///    check prevents a deleted (or never-written) output file from being silently
+///    skipped just because the database has a stale baseline for it.
 fn compute_skip_set(
     source_contents: &HashMap<String, String>,
     prev_db: &Option<weaveback_tangle::db::WeavebackDb>,
     current_db: &mut weaveback_tangle::db::WeavebackDb,
+    gen_dir: &std::path::Path,
 ) -> HashSet<String> {
     use weaveback_tangle::parse_source_blocks;
 
@@ -506,9 +524,14 @@ fn compute_skip_set(
         if dirty_chunks.contains(&name) {
             continue;
         }
-        // Only skip if the file was written before (has a baseline).
+        // Only skip if the file was written before (has a baseline) AND still
+        // exists on disk.  Without the existence check, a deleted output file
+        // would never be regenerated because the stale db baseline makes it
+        // look up-to-date.
         let out_file = name.strip_prefix("@file ").unwrap_or(&name).trim();
-        if prev.get_baseline(out_file).ok().flatten().is_some() {
+        if prev.get_baseline(out_file).ok().flatten().is_some()
+            && gen_dir.join(out_file).exists()
+        {
             skip.insert(name);
         }
     }
@@ -705,7 +728,7 @@ fn run(args: Args) -> Result<(), Error> {
     // Compute which @file chunks can be skipped because none of their source
     // blocks changed since the last run.  Store the new block hashes first so
     // the next run can compare against this run's content.
-    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut());
+    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut(), &args.gen_dir);
     clip.write_files_incremental(&skip_set)?;
 
     // Phase 3: snapshot all source files read this run.
@@ -727,9 +750,12 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 4: merge temp db into the db file.
     clip.finish(&args.db)?;
 
-    // Persist gen_dir so that apply-back can find generated files without --gen.
-    if let Ok(db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
+    // Persist gen_dir and (unless suppressed) rebuild FTS on the final merged db.
+    if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
         let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
+        if !args.no_fts && let Err(e) = db.rebuild_prose_fts() {
+            eprintln!("warning: FTS index rebuild failed: {e}");
+        }
     }
 
     // Write depfile if requested.
@@ -811,6 +837,9 @@ fn main() {
         }
         Some(Commands::Graph { chunk }) => {
             run_graph(chunk, cli.args.db)
+        }
+        Some(Commands::Search { query, limit }) => {
+            run_search(query, limit, cli.args.db)
         }
         Some(Commands::Lsp { lsp_cmd, lsp_lang, cmd }) => {
             let eval_config = build_eval_config(&cli.args);
@@ -923,6 +952,7 @@ fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str
     for s in &pass.special {
         cmd.arg("--special").arg(s);
     }
+    cmd.arg("--no-fts");
     cmd
 }
 
@@ -952,6 +982,20 @@ fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
 
     if let Some(msg) = errors.into_iter().next() {
         return Err(Error::Io(std::io::Error::other(msg)));
+    }
+
+    // Rebuild the prose FTS index once after all passes have written their
+    // snapshots, so the index reflects the complete current state.
+    let db_path = std::path::Path::new("weaveback.db");
+    if db_path.exists() {
+        match weaveback_tangle::db::WeavebackDb::open(db_path) {
+            Ok(mut db) => {
+                if let Err(e) = db.rebuild_prose_fts() {
+                    eprintln!("warning: FTS index rebuild failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("warning: could not open db for FTS rebuild: {e}"),
+        }
     }
     Ok(())
 }
@@ -1075,6 +1119,51 @@ fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
         println!("  {} -> {};", dot_id(from), dot_id(to));
     }
     println!("}}");
+    Ok(())
+}
+
+/// Prepare a user-typed string as a safe FTS5 query.
+///
+/// If the query already contains FTS5 syntax markers (quotes, AND, OR, NOT)
+/// it is passed through unchanged.  Otherwise each whitespace-delimited token
+/// that contains punctuation (e.g. "apply-back") is wrapped in double-quotes
+/// so that the FTS5 parser treats it as a phrase rather than a boolean
+/// expression.
+fn prepare_fts_query(q: &str) -> String {
+    if q.contains('"') || q.contains(" AND ") || q.contains(" OR ") || q.contains(" NOT ") {
+        return q.to_owned();
+    }
+    q.split_whitespace()
+        .map(|tok| {
+            let safe = tok.chars().all(|c| c.is_alphanumeric() || c == '*' || c == '^');
+            if safe { tok.to_owned() } else { format!("\"{}\"", tok.replace('"', "\"\"")) }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error> {
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    // open read-write so apply_schema creates prose_fts if it doesn't exist yet
+    let db = weaveback_tangle::db::WeavebackDb::open(&db_path)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    let fts_query = prepare_fts_query(&query);
+    let results = db.search_prose(&fts_query, limit)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    if results.is_empty() {
+        println!("No results for {:?}", query);
+        return Ok(());
+    }
+    for r in &results {
+        println!("{}:{}-{} [{}]", r.src_file, r.line_start, r.line_end, r.block_type);
+        println!("  {}", r.snippet);
+        println!();
+    }
     Ok(())
 }
 

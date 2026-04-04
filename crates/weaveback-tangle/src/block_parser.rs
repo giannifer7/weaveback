@@ -4,7 +4,6 @@
 /// prose paragraphs) and computes a BLAKE3 hash for each block.  The hashes
 /// are stored in the database so that unchanged blocks can be skipped on the
 /// next run.
-///
 /// A parsed logical block with its line range and content hash.
 #[derive(Debug, Clone)]
 pub struct SourceBlockEntry {
@@ -14,7 +13,6 @@ pub struct SourceBlockEntry {
     pub line_end: u32,   // 1-based, inclusive
     pub content_hash: [u8; 32],
 }
-
 /// Parse `source` into logical blocks based on its file `extension`.
 ///
 /// Recognised extensions: `adoc`, `asciidoc` (AsciiDoc line scanner);
@@ -44,17 +42,78 @@ pub fn parse_source_blocks(source: &str, extension: &str) -> Vec<SourceBlockEntr
         })
         .collect()
 }
-
-// ── AsciiDoc ──────────────────────────────────────────────────────────────────
-
-/// Scan an AsciiDoc document line by line, splitting it into:
-/// * `"section"` — a single `== …` header line
-/// * `"code"`    — the content of a `----` delimited block (inclusive of delimiters)
-/// * `"para"`    — a run of consecutive non-empty lines that are neither a
-///   section header nor a delimiter
-///
-/// Each tuple is `(line_start, line_end, block_type, content)` (1-based lines).
+/// Parse an AsciiDoc document using `asciidoc-parser`, falling back to the
+/// simple line scanner if the parser panics.
 fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
+    let source_owned = source.to_owned();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        parse_adoc_with_parser(&source_owned)
+    }));
+    match result {
+        Ok(blocks) if !blocks.is_empty() => blocks,
+        _ => parse_adoc_raw_simple(source),
+    }
+}
+
+fn parse_adoc_with_parser(source: &str) -> Vec<(u32, u32, &'static str, String)> {
+    use asciidoc_parser::{Parser, blocks::IsBlock as _};
+
+    let line_of_byte = build_line_table(source);
+    let doc = Parser::default().parse(source);
+    let mut blocks = Vec::new();
+    collect_adoc_blocks(doc.nested_blocks(), &line_of_byte, &mut blocks);
+    if blocks.is_empty() {
+        let n = source.lines().count().max(1) as u32;
+        blocks.push((1, n, "text", source.to_string()));
+    }
+    blocks
+}
+
+fn collect_adoc_blocks<'src>(
+    iter: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
+    line_of_byte: &[usize],
+    out: &mut Vec<(u32, u32, &'static str, String)>,
+) {
+    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock as _}};
+
+    for block in iter {
+        match block {
+            Block::Section(s) => {
+                // Emit the title line as "section", then recurse into children.
+                let title = s.section_title_source();
+                let tstart = byte_to_line(line_of_byte, title.byte_offset());
+                let tend = byte_to_line(
+                    line_of_byte,
+                    title.byte_offset() + title.data().len().saturating_sub(1),
+                );
+                out.push((tstart, tend, "section", title.data().to_string()));
+                collect_adoc_blocks(s.nested_blocks(), line_of_byte, out);
+            }
+            Block::RawDelimited(rdb) => {
+                let span = rdb.span();
+                let start = byte_to_line(line_of_byte, span.byte_offset());
+                let end = byte_to_line(
+                    line_of_byte,
+                    span.byte_offset() + span.data().len().saturating_sub(1),
+                );
+                out.push((start, end, "code", span.data().to_string()));
+            }
+            other => {
+                let span = other.span();
+                let start = byte_to_line(line_of_byte, span.byte_offset());
+                let end = byte_to_line(
+                    line_of_byte,
+                    span.byte_offset() + span.data().len().saturating_sub(1),
+                );
+                out.push((start, end, "para", span.data().to_string()));
+            }
+        }
+    }
+}
+
+/// Fallback: simple line-by-line AsciiDoc scanner used when `asciidoc-parser`
+/// panics.  Splits on `----`/`....`/`++++` fences and `== …` section headers.
+fn parse_adoc_raw_simple(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     let mut blocks: Vec<(u32, u32, &'static str, String)> = Vec::new();
 
     let mut in_delim = false;
@@ -82,7 +141,6 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
             delim_buf.push_str(line);
             delim_buf.push('\n');
             if is_adoc_fence(line) {
-                // Closing delimiter — emit code block.
                 let content = std::mem::take(&mut delim_buf);
                 blocks.push((delim_start, lineno, "code", content));
                 in_delim = false;
@@ -90,9 +148,7 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
             continue;
         }
 
-        // Not in a delimited block.
         if is_adoc_fence(line) {
-            // Flush any pending paragraph before starting a code block.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             in_delim = true;
             delim_start = lineno;
@@ -102,19 +158,16 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
         }
 
         if is_adoc_section_header(line) {
-            // Flush paragraph, emit section block.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             blocks.push((lineno, lineno, "section", line.to_string()));
             continue;
         }
 
         if line.trim().is_empty() {
-            // Blank line: flush paragraph.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             continue;
         }
 
-        // Accumulate into a prose paragraph.
         if para_buf.is_empty() {
             para_start = lineno;
         }
@@ -122,7 +175,6 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
         para_buf.push('\n');
     }
 
-    // Flush any trailing paragraph or unclosed delimiter.
     let total_lines = source.lines().count() as u32;
     if in_delim && !delim_buf.is_empty() {
         blocks.push((delim_start, total_lines, "code", delim_buf));
@@ -145,14 +197,10 @@ fn is_adoc_section_header(line: &str) -> bool {
     if chars.next() != Some('=') {
         return false;
     }
-    // At least one more `=` then a space, OR a bare `=` title
     let rest: String = chars.collect();
     let trimmed = rest.trim_start_matches('=');
     trimmed.starts_with(' ') || trimmed.is_empty()
 }
-
-// ── Markdown ──────────────────────────────────────────────────────────────────
-
 /// Parse Markdown using pulldown-cmark's offset iterator.
 ///
 /// Produces blocks of type:
@@ -212,7 +260,6 @@ fn parse_markdown_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     }
     blocks
 }
-
 /// Map of byte offset → 1-based line number.
 fn build_line_table(source: &str) -> Vec<usize> {
     let mut table = Vec::with_capacity(source.len() + 1);
@@ -230,7 +277,6 @@ fn build_line_table(source: &str) -> Vec<usize> {
 fn byte_to_line(table: &[usize], byte: usize) -> u32 {
     table.get(byte).copied().unwrap_or(1) as u32
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

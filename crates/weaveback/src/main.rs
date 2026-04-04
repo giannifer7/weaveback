@@ -80,6 +80,14 @@ enum Commands {
         #[arg(long)]
         chunk: Option<String>,
     },
+    /// Full-text search over literate source prose (BM25, FTS5)
+    Search {
+        /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)
+        query: String,
+        /// Maximum number of results to show
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
     /// Semantic language server operations (requires rust-analyzer)
     Lsp {
         /// Manual override for the LSP command (e.g. "nimlsp")
@@ -225,6 +233,13 @@ struct Args {
     #[arg(long)]
     stamp: Option<PathBuf>,
 
+    // ── FTS ───────────────────────────────────────────────────────────────────
+    /// Skip rebuilding the prose full-text search index after this run.
+    /// Used internally by `weaveback tangle` to avoid concurrent FTS rebuilds;
+    /// the tangle command rebuilds the index once after all passes complete.
+    #[arg(long, hide = true)]
+    no_fts: bool,
+
     // ── security ──────────────────────────────────────────────────────────────
     /// Allow %env(NAME) to read environment variables.
     /// Disabled by default to prevent templates from silently reading secrets.
@@ -314,11 +329,14 @@ fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Resul
 /// 4. BFS backward through `chunk_deps` (reverse deps) to transitively mark
 ///    any `@file` chunk that depends on a dirty chunk as dirty too.
 /// 5. Return the complement: all `@file` chunks not in the dirty set that also
-///    have a gen_baseline.
+///    have a gen_baseline *and whose output file exists on disk*.  The existence
+///    check prevents a deleted (or never-written) output file from being silently
+///    skipped just because the database has a stale baseline for it.
 fn compute_skip_set(
     source_contents: &HashMap<String, String>,
     prev_db: &Option<weaveback_tangle::db::WeavebackDb>,
     current_db: &mut weaveback_tangle::db::WeavebackDb,
+    gen_dir: &std::path::Path,
 ) -> HashSet<String> {
     use weaveback_tangle::parse_source_blocks;
 
@@ -409,9 +427,14 @@ fn compute_skip_set(
         if dirty_chunks.contains(&name) {
             continue;
         }
-        // Only skip if the file was written before (has a baseline).
+        // Only skip if the file was written before (has a baseline) AND still
+        // exists on disk.  Without the existence check, a deleted output file
+        // would never be regenerated because the stale db baseline makes it
+        // look up-to-date.
         let out_file = name.strip_prefix("@file ").unwrap_or(&name).trim();
-        if prev.get_baseline(out_file).ok().flatten().is_some() {
+        if prev.get_baseline(out_file).ok().flatten().is_some()
+            && gen_dir.join(out_file).exists()
+        {
             skip.insert(name);
         }
     }
@@ -586,7 +609,7 @@ fn run(args: Args) -> Result<(), Error> {
     // Compute which @file chunks can be skipped because none of their source
     // blocks changed since the last run.  Store the new block hashes first so
     // the next run can compare against this run's content.
-    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut());
+    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut(), &args.gen_dir);
     clip.write_files_incremental(&skip_set)?;
 
     // Phase 3: snapshot all source files read this run.
@@ -608,9 +631,12 @@ fn run(args: Args) -> Result<(), Error> {
     // Phase 4: merge temp db into the db file.
     clip.finish(&args.db)?;
 
-    // Persist gen_dir so that apply-back can find generated files without --gen.
-    if let Ok(db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
+    // Persist gen_dir and (unless suppressed) rebuild FTS on the final merged db.
+    if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
         let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
+        if !args.no_fts && let Err(e) = db.rebuild_prose_fts() {
+            eprintln!("warning: FTS index rebuild failed: {e}");
+        }
     }
 
     // Write depfile if requested.
@@ -679,6 +705,9 @@ fn main() {
         }
         Some(Commands::Graph { chunk }) => {
             run_graph(chunk, cli.args.db)
+        }
+        Some(Commands::Search { query, limit }) => {
+            run_search(query, limit, cli.args.db)
         }
         Some(Commands::Lsp { lsp_cmd, lsp_lang, cmd }) => {
             let eval_config = build_eval_config(&cli.args);
@@ -819,6 +848,51 @@ fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
     Ok(())
 }
 
+/// Prepare a user-typed string as a safe FTS5 query.
+///
+/// If the query already contains FTS5 syntax markers (quotes, AND, OR, NOT)
+/// it is passed through unchanged.  Otherwise each whitespace-delimited token
+/// that contains punctuation (e.g. "apply-back") is wrapped in double-quotes
+/// so that the FTS5 parser treats it as a phrase rather than a boolean
+/// expression.
+fn prepare_fts_query(q: &str) -> String {
+    if q.contains('"') || q.contains(" AND ") || q.contains(" OR ") || q.contains(" NOT ") {
+        return q.to_owned();
+    }
+    q.split_whitespace()
+        .map(|tok| {
+            let safe = tok.chars().all(|c| c.is_alphanumeric() || c == '*' || c == '^');
+            if safe { tok.to_owned() } else { format!("\"{}\"", tok.replace('"', "\"\"")) }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error> {
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    // open read-write so apply_schema creates prose_fts if it doesn't exist yet
+    let db = weaveback_tangle::db::WeavebackDb::open(&db_path)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    let fts_query = prepare_fts_query(&query);
+    let results = db.search_prose(&fts_query, limit)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    if results.is_empty() {
+        println!("No results for {:?}", query);
+        return Ok(());
+    }
+    for r in &results {
+        println!("{}:{}-{} [{}]", r.src_file, r.line_start, r.line_end, r.block_type);
+        println!("  {}", r.snippet);
+        println!();
+    }
+    Ok(())
+}
+
 fn run_trace(
     out_file: String,
     line: u32,
@@ -846,6 +920,103 @@ fn run_trace(
         Err(lookup::LookupError::Db(e)) => Err(Error::Noweb(WeavebackError::Db(e))),
         Err(lookup::LookupError::Io(e)) => Err(Error::Io(e)),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct TanglePassCfg {
+    dir:              String,
+    #[serde(rename = "gen")]
+    output_dir:       Option<String>,
+    ext:              Option<String>,
+    #[serde(default)]
+    no_macros:        bool,
+    open_delim:       Option<String>,
+    close_delim:      Option<String>,
+    chunk_end:        Option<String>,
+    comment_markers:  Option<String>,
+    #[serde(default)]
+    special:          Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TangleCfg {
+    #[serde(rename = "gen")]
+    default_gen:      Option<String>,
+    #[serde(rename = "pass")]
+    passes:           Vec<TanglePassCfg>,
+}
+
+fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--dir").arg(&pass.dir);
+    cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
+    if let Some(ext) = &pass.ext {
+        cmd.arg("--ext").arg(ext);
+    }
+    if pass.no_macros {
+        cmd.arg("--no-macros");
+    }
+    if let Some(od) = &pass.open_delim {
+        cmd.arg("--open-delim").arg(od);
+    }
+    if let Some(cd) = &pass.close_delim {
+        cmd.arg("--close-delim").arg(cd);
+    }
+    if let Some(ce) = &pass.chunk_end {
+        cmd.arg("--chunk-end").arg(ce);
+    }
+    if let Some(cm) = &pass.comment_markers {
+        cmd.arg("--comment-markers").arg(cm);
+    }
+    for s in &pass.special {
+        cmd.arg("--special").arg(s);
+    }
+    cmd.arg("--no-fts");
+    cmd
+}
+
+fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
+    let src = std::fs::read_to_string(config_path)
+        .map_err(|e| Error::Io(std::io::Error::new(e.kind(),
+            format!("{}: {e}", config_path.display()))))?;
+    let cfg: TangleCfg = toml::from_str(&src)
+        .map_err(|e| Error::Io(std::io::Error::other(
+            format!("{}: {e}", config_path.display()))))?;
+
+    let exe = std::env::current_exe()
+        .map_err(Error::Io)?;
+    let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
+
+    let errors: Vec<String> = cfg.passes
+        .par_iter()
+        .filter_map(|pass| {
+            let mut cmd = build_pass_cmd(&exe, pass, default_gen);
+            match cmd.status() {
+                Err(e)                => Some(format!("{}: {e}", pass.dir)),
+                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
+                _                     => None,
+            }
+        })
+        .collect();
+
+    if let Some(msg) = errors.into_iter().next() {
+        return Err(Error::Io(std::io::Error::other(msg)));
+    }
+
+    // Rebuild the prose FTS index once after all passes have written their
+    // snapshots, so the index reflects the complete current state.
+    let db_path = std::path::Path::new("weaveback.db");
+    if db_path.exists() {
+        match weaveback_tangle::db::WeavebackDb::open(db_path) {
+            Ok(mut db) => {
+                if let Err(e) = db.rebuild_prose_fts() {
+                    eprintln!("warning: FTS index rebuild failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("warning: could not open db for FTS rebuild: {e}"),
+        }
+    }
+    Ok(())
 }
 
 use weaveback_lsp::LspClient;
@@ -964,88 +1135,6 @@ fn run_lsp(
             }
             println!("{}", serde_json::to_string_pretty(&results).unwrap());
         }
-    }
-    Ok(())
-}
-
-#[derive(serde::Deserialize)]
-struct TanglePassCfg {
-    dir:              String,
-    #[serde(rename = "gen")]
-    output_dir:       Option<String>,
-    ext:              Option<String>,
-    #[serde(default)]
-    no_macros:        bool,
-    open_delim:       Option<String>,
-    close_delim:      Option<String>,
-    chunk_end:        Option<String>,
-    comment_markers:  Option<String>,
-    #[serde(default)]
-    special:          Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct TangleCfg {
-    #[serde(rename = "gen")]
-    default_gen:      Option<String>,
-    #[serde(rename = "pass")]
-    passes:           Vec<TanglePassCfg>,
-}
-
-fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("--dir").arg(&pass.dir);
-    cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
-    if let Some(ext) = &pass.ext {
-        cmd.arg("--ext").arg(ext);
-    }
-    if pass.no_macros {
-        cmd.arg("--no-macros");
-    }
-    if let Some(od) = &pass.open_delim {
-        cmd.arg("--open-delim").arg(od);
-    }
-    if let Some(cd) = &pass.close_delim {
-        cmd.arg("--close-delim").arg(cd);
-    }
-    if let Some(ce) = &pass.chunk_end {
-        cmd.arg("--chunk-end").arg(ce);
-    }
-    if let Some(cm) = &pass.comment_markers {
-        cmd.arg("--comment-markers").arg(cm);
-    }
-    for s in &pass.special {
-        cmd.arg("--special").arg(s);
-    }
-    cmd
-}
-
-fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
-    let src = std::fs::read_to_string(config_path)
-        .map_err(|e| Error::Io(std::io::Error::new(e.kind(),
-            format!("{}: {e}", config_path.display()))))?;
-    let cfg: TangleCfg = toml::from_str(&src)
-        .map_err(|e| Error::Io(std::io::Error::other(
-            format!("{}: {e}", config_path.display()))))?;
-
-    let exe = std::env::current_exe()
-        .map_err(Error::Io)?;
-    let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
-
-    let errors: Vec<String> = cfg.passes
-        .par_iter()
-        .filter_map(|pass| {
-            let mut cmd = build_pass_cmd(&exe, pass, default_gen);
-            match cmd.status() {
-                Err(e)                => Some(format!("{}: {e}", pass.dir)),
-                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
-                _                     => None,
-            }
-        })
-        .collect();
-
-    if let Some(msg) = errors.into_iter().next() {
-        return Err(Error::Io(std::io::Error::other(msg)));
     }
     Ok(())
 }

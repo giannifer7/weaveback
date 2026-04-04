@@ -11,8 +11,8 @@ glues them together and exposes the public API.
 Source-map and baseline data produced here is persisted by
 link:db.adoc[`WeavebackDb`].  The CLI entry point that drives `Clip` is in
 link:cli.adoc[main.rs].  See link:weaveback_tangle.adoc[weaveback_tangle.adoc]
-for the module map and link:../../../docs/architecture.adoc[architecture.adoc]
-for the pipeline overview.
+for the module map and link:MAP.adoc[**Conceptual Map (Architectural Whys)**]
+for the high-level pipeline overview.
 
 == Chunk syntax
 

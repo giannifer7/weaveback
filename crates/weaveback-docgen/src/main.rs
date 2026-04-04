@@ -163,7 +163,7 @@ fn parse_args() -> Args {
         theme_dir,
         plantuml_jar,
         d2_theme: 200,
-        d2_layout: "tala".to_string(),
+        d2_layout: "elk".to_string(),
     }
 }
 fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {

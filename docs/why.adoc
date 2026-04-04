@@ -17,7 +17,7 @@ The practice almost always fails in the same way.
 Every traditional literate tool — noweb, CWEB, Org-mode's `org-babel` — works
 like this:
 
-[source,d2]
+[d2]
 ----
 direction: right
 
@@ -52,7 +52,7 @@ trace back to the literate source.  When you edit a generated file, `apply-back`
 propagates those edits back.  When an AI agent edits a chunk, the oracle
 verifies the output before writing.
 
-[source,d2]
+[d2]
 ----
 direction: right
 
@@ -135,7 +135,7 @@ Consider:
 ----
 The `greet` macro takes a name and produces a greeting.
 
-%def(greet, name, Hello, %(name)!)
+%def(greet, name, %{Hello, %(name)!%})
 
 Calling %greet(World) produces: "Hello, World!".
 ----
@@ -180,18 +180,22 @@ offset, a formatted hex constant, a running counter — you need a scripting
 escape hatch.
 
 Two escape hatches exist because the user populations are different.  Systems
-programmers reach for Rhai (Rust-like syntax, no external dependency).  Data
-scientists and Python-first teams reach for `%pydef`.  Both implementations
-are compiled into the weaveback binary; neither requires an external runtime.
+programmers reach for Rhai (Rust-like syntax, pure Rust, no external dependency).
+Python-familiar teams reach for `%pydef`, backed by
+https://github.com/pydantic/monty[monty] — a pure-Rust Python interpreter that
+is compiled into the weaveback binary.  There is no CPython dependency, no
+virtualenv, no installed Python packages required.
 
 Both are sandboxed: no filesystem I/O, no network, no subprocess spawning.
 A script macro can only transform strings.  This is a deliberate constraint.
 
-The constraint has a deliberate cost: **code produced inside a scripted macro
-cannot be mapped back by `weaveback trace`**.  The source map can point to the
-`%rhaidef` call site, but not to the line within the Rhai body that produced
-a particular output character.  This makes scripted macros unsuitable as a
-primary structuring mechanism.  They are for isolated calculations.
+Separately, **code produced inside a scripted macro cannot be mapped back by
+`weaveback trace`**.  This is not a consequence of sandboxing — it is an
+inherent property of dynamic code generation: the source map can point to the
+`%rhaidef` call site, but there is no static source line inside the Rhai body
+that corresponds to a particular output character.  This makes scripted macros
+unsuitable as a primary structuring mechanism.  They are for isolated
+calculations.
 
 The inability to trace scripted macro output is not a bug to be fixed later.
 It is pressure toward the better design: express structure with chunks, use
@@ -211,7 +215,7 @@ generated file and the baseline stored in `weaveback.db`, locates the
 corresponding chunk lines in the literate source via the source map, and
 rewrites them.
 
-[source,d2]
+[d2]
 ----
 direction: down
 
@@ -283,7 +287,7 @@ no path to propagate that rename back to the source.
 
 === What the MCP tools provide
 
-[source,d2]
+[d2]
 ----
 direction: right
 

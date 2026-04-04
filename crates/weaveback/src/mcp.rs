@@ -205,6 +205,18 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     },
                                     "required": ["out_file"]
                                     }
+                                    },
+                                    {
+                                        "name": "weaveback_search",
+                                        "description": "BM25 full-text search over the prose in all literate source files. Returns ranked excerpts with file path and line range. Use this to discover which chunks or sections are relevant to a concept before calling weaveback_chunk_context. Supports FTS5 query syntax: AND, OR, NOT, phrase \"...\", prefix foo*.",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "query": { "type": "string", "description": "Search terms (FTS5 syntax)" },
+                                                "limit": { "type": "integer", "description": "Maximum results to return (default 10)" }
+                                            },
+                                            "required": ["query"]
+                                        }
                                     }
                                     ]
                                     }));
@@ -575,6 +587,41 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 send_text(id, &serde_json::to_string_pretty(&symbols).unwrap());
                             }
                             Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                        }
+                    }
+
+                    Some("weaveback_search") => {
+                        let query = input.as_ref()
+                            .and_then(|v| v.get("query"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if query.is_empty() {
+                            send_error(id, "query is required");
+                            continue;
+                        }
+                        let limit = input.as_ref()
+                            .and_then(|v| v.get("limit"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(10) as usize;
+                        if !db_path.exists() {
+                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match WeavebackDb::open_read_only(&db_path) {
+                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Ok(db) => match db.search_prose(query, limit) {
+                                Err(e) => send_error(id, &format!("Search error: {e:?}")),
+                                Ok(results) => {
+                                    let arr: Vec<Value> = results.iter().map(|r| json!({
+                                        "src_file":   r.src_file,
+                                        "block_type": r.block_type,
+                                        "line_start": r.line_start,
+                                        "line_end":   r.line_end,
+                                        "snippet":    r.snippet,
+                                    })).collect();
+                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                }
+                            },
                         }
                     }
 

@@ -9,9 +9,9 @@ incremental-build layer of weaveback-tangle.
 
 Two formats are recognised natively:
 
-* **AsciiDoc** (`.adoc`, `.asciidoc`) — a hand-written line scanner that
-  splits on `----`/`....`/`++++` delimited blocks, `== …` section headers,
-  and prose paragraphs.
+* **AsciiDoc** (`.adoc`, `.asciidoc`) — uses `asciidoc-parser` for accurate
+  block detection, with a `catch_unwind` fallback to a simple line scanner if
+  the parser panics.
 * **Markdown** (`.md`, `.markdown`) — uses `pulldown-cmark`'s offset iterator
   to identify headings, fenced code blocks, and paragraphs.
 
@@ -30,63 +30,9 @@ The hash is what makes incremental builds work: two runs on the same unchanged
 file produce identical hashes, so the database comparison can skip all
 downstream processing for that block's chunks.
 
-== `parse_source_blocks` entry point
-
-The public entry point dispatches on `extension` and maps the raw
-`(start, end, type, content)` tuples into `SourceBlockEntry` values,
-hashing each block's content with BLAKE3 before storing it.
-
-== AsciiDoc scanner
-
-The AsciiDoc scanner is intentionally simple — it does not parse the full
-AsciiDoc grammar.  It only needs to identify code blocks (for which a single
-character change matters) and section boundaries (which mark natural
-re-tangling points).  The three fence patterns (`----`, `....`, `++++`) cover
-all common listing and literal block delimiters.
-
-Prose paragraphs are accumulated line-by-line; a blank line or section header
-flushes the current paragraph.  An unclosed delimiter at end-of-file is emitted
-as a `"code"` block (defensive: the tangle will catch the parse error).
-
-== Markdown parser
-
-The Markdown parser delegates to `pulldown-cmark`'s offset iterator so that
-we get byte-accurate event ranges without reimplementing a Markdown parser.
-
-Only top-level blocks (depth == 1) are emitted; inner events of nested
-structures are skipped.  The byte-offset iterator returns `range.start` at the
-opening tag and `range.end` at the closing tag, which are mapped to 1-based
-line numbers via a pre-built byte→line table.
-
-If `pulldown-cmark` finds no blocks (e.g. the file is empty or consists only
-of inline content) we fall back to a single full-file block, matching the
-behaviour of the unknown-extension path.
-
-== Tests
-
-Five unit tests exercise the public `parse_source_blocks` interface:
-
-* `adoc_single_code_block` — a minimal AsciiDoc file with one `----` block
-* `adoc_two_code_blocks_have_different_hashes` — two different blocks must hash
-  differently
-* `adoc_unchanged_block_same_hash` — the same content must hash identically
-  across two calls (BLAKE3 determinism)
-* `markdown_heading_and_code` — a Markdown file yields both `"section"` and
-  `"code"` blocks
-* `fallback_single_block` — an unknown extension yields exactly one block
-
-== Generated file
-
 [source,rust]
 ----
-// <[@file weaveback-tangle/src/block_parser.rs]>=
-/// Sub-file block parsing for incremental build support.
-///
-/// Splits a source file into logical blocks (code blocks, section headers,
-/// prose paragraphs) and computes a BLAKE3 hash for each block.  The hashes
-/// are stored in the database so that unchanged blocks can be skipped on the
-/// next run.
-///
+// <[block-parser-types]>=
 /// A parsed logical block with its line range and content hash.
 #[derive(Debug, Clone)]
 pub struct SourceBlockEntry {
@@ -96,7 +42,18 @@ pub struct SourceBlockEntry {
     pub line_end: u32,   // 1-based, inclusive
     pub content_hash: [u8; 32],
 }
+// @@
+----
 
+== `parse_source_blocks` entry point
+
+The public entry point dispatches on `extension` and maps the raw
+`(start, end, type, content)` tuples into `SourceBlockEntry` values,
+hashing each block's content with BLAKE3 before storing it.
+
+[source,rust]
+----
+// <[block-parser-entry]>=
 /// Parse `source` into logical blocks based on its file `extension`.
 ///
 /// Recognised extensions: `adoc`, `asciidoc` (AsciiDoc line scanner);
@@ -126,17 +83,99 @@ pub fn parse_source_blocks(source: &str, extension: &str) -> Vec<SourceBlockEntr
         })
         .collect()
 }
+// @@
+----
 
-// ── AsciiDoc ──────────────────────────────────────────────────────────────────
+== AsciiDoc scanner
 
-/// Scan an AsciiDoc document line by line, splitting it into:
-/// * `"section"` — a single `== …` header line
-/// * `"code"`    — the content of a `----` delimited block (inclusive of delimiters)
-/// * `"para"`    — a run of consecutive non-empty lines that are neither a
-///   section header nor a delimiter
-///
-/// Each tuple is `(line_start, line_end, block_type, content)` (1-based lines).
+The AsciiDoc scanner uses `asciidoc-parser` to walk the block tree:
+
+* `Block::Section` → emit `"section"` for the title line, then recurse into
+  the section's children so inner code blocks are detected at their true spans.
+* `Block::RawDelimited` → `"code"` with the full span (including delimiters).
+* Everything else → `"para"` with the full span.
+
+Because `asciidoc-parser` is an experimental pre-release crate, the call is
+wrapped in `catch_unwind`.  If the parser panics the function falls back to
+`parse_adoc_raw_simple` — a conservative line scanner that splits on
+`----`/`....`/`++++` fences and `== …` section headers.  The fallback is kept
+as dead code unless a panic is encountered; it does not affect normal operation.
+
+[source,rust]
+----
+// <[block-parser-adoc]>=
+/// Parse an AsciiDoc document using `asciidoc-parser`, falling back to the
+/// simple line scanner if the parser panics.
 fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
+    let source_owned = source.to_owned();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        parse_adoc_with_parser(&source_owned)
+    }));
+    match result {
+        Ok(blocks) if !blocks.is_empty() => blocks,
+        _ => parse_adoc_raw_simple(source),
+    }
+}
+
+fn parse_adoc_with_parser(source: &str) -> Vec<(u32, u32, &'static str, String)> {
+    use asciidoc_parser::{Parser, blocks::IsBlock as _};
+
+    let line_of_byte = build_line_table(source);
+    let doc = Parser::default().parse(source);
+    let mut blocks = Vec::new();
+    collect_adoc_blocks(doc.nested_blocks(), &line_of_byte, &mut blocks);
+    if blocks.is_empty() {
+        let n = source.lines().count().max(1) as u32;
+        blocks.push((1, n, "text", source.to_string()));
+    }
+    blocks
+}
+
+fn collect_adoc_blocks<'src>(
+    iter: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
+    line_of_byte: &[usize],
+    out: &mut Vec<(u32, u32, &'static str, String)>,
+) {
+    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock as _}};
+
+    for block in iter {
+        match block {
+            Block::Section(s) => {
+                // Emit the title line as "section", then recurse into children.
+                let title = s.section_title_source();
+                let tstart = byte_to_line(line_of_byte, title.byte_offset());
+                let tend = byte_to_line(
+                    line_of_byte,
+                    title.byte_offset() + title.data().len().saturating_sub(1),
+                );
+                out.push((tstart, tend, "section", title.data().to_string()));
+                collect_adoc_blocks(s.nested_blocks(), line_of_byte, out);
+            }
+            Block::RawDelimited(rdb) => {
+                let span = rdb.span();
+                let start = byte_to_line(line_of_byte, span.byte_offset());
+                let end = byte_to_line(
+                    line_of_byte,
+                    span.byte_offset() + span.data().len().saturating_sub(1),
+                );
+                out.push((start, end, "code", span.data().to_string()));
+            }
+            other => {
+                let span = other.span();
+                let start = byte_to_line(line_of_byte, span.byte_offset());
+                let end = byte_to_line(
+                    line_of_byte,
+                    span.byte_offset() + span.data().len().saturating_sub(1),
+                );
+                out.push((start, end, "para", span.data().to_string()));
+            }
+        }
+    }
+}
+
+/// Fallback: simple line-by-line AsciiDoc scanner used when `asciidoc-parser`
+/// panics.  Splits on `----`/`....`/`++++` fences and `== …` section headers.
+fn parse_adoc_raw_simple(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     let mut blocks: Vec<(u32, u32, &'static str, String)> = Vec::new();
 
     let mut in_delim = false;
@@ -164,7 +203,6 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
             delim_buf.push_str(line);
             delim_buf.push('\n');
             if is_adoc_fence(line) {
-                // Closing delimiter — emit code block.
                 let content = std::mem::take(&mut delim_buf);
                 blocks.push((delim_start, lineno, "code", content));
                 in_delim = false;
@@ -172,9 +210,7 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
             continue;
         }
 
-        // Not in a delimited block.
         if is_adoc_fence(line) {
-            // Flush any pending paragraph before starting a code block.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             in_delim = true;
             delim_start = lineno;
@@ -184,19 +220,16 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
         }
 
         if is_adoc_section_header(line) {
-            // Flush paragraph, emit section block.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             blocks.push((lineno, lineno, "section", line.to_string()));
             continue;
         }
 
         if line.trim().is_empty() {
-            // Blank line: flush paragraph.
             flush_para(para_start, &mut para_buf, lineno, &mut blocks);
             continue;
         }
 
-        // Accumulate into a prose paragraph.
         if para_buf.is_empty() {
             para_start = lineno;
         }
@@ -204,7 +237,6 @@ fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
         para_buf.push('\n');
     }
 
-    // Flush any trailing paragraph or unclosed delimiter.
     let total_lines = source.lines().count() as u32;
     if in_delim && !delim_buf.is_empty() {
         blocks.push((delim_start, total_lines, "code", delim_buf));
@@ -227,14 +259,30 @@ fn is_adoc_section_header(line: &str) -> bool {
     if chars.next() != Some('=') {
         return false;
     }
-    // At least one more `=` then a space, OR a bare `=` title
     let rest: String = chars.collect();
     let trimmed = rest.trim_start_matches('=');
     trimmed.starts_with(' ') || trimmed.is_empty()
 }
+// @@
+----
 
-// ── Markdown ──────────────────────────────────────────────────────────────────
+== Markdown parser
 
+The Markdown parser delegates to `pulldown-cmark`'s offset iterator so that
+we get byte-accurate event ranges without reimplementing a Markdown parser.
+
+Only top-level blocks (depth == 1) are emitted; inner events of nested
+structures are skipped.  The byte-offset iterator returns `range.start` at the
+opening tag and `range.end` at the closing tag, which are mapped to 1-based
+line numbers via a pre-built byte→line table.
+
+If `pulldown-cmark` finds no blocks (e.g. the file is empty or consists only
+of inline content) we fall back to a single full-file block, matching the
+behaviour of the unknown-extension path.
+
+[source,rust]
+----
+// <[block-parser-markdown]>=
 /// Parse Markdown using pulldown-cmark's offset iterator.
 ///
 /// Produces blocks of type:
@@ -294,7 +342,18 @@ fn parse_markdown_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     }
     blocks
 }
+// @@
+----
 
+== Shared utilities
+
+`build_line_table` and `byte_to_line` are used by both the AsciiDoc and
+Markdown parsers to convert byte offsets (from parser spans) into 1-based
+line numbers.
+
+[source,rust]
+----
+// <[block-parser-utils]>=
 /// Map of byte offset → 1-based line number.
 fn build_line_table(source: &str) -> Vec<usize> {
     let mut table = Vec::with_capacity(source.len() + 1);
@@ -312,7 +371,25 @@ fn build_line_table(source: &str) -> Vec<usize> {
 fn byte_to_line(table: &[usize], byte: usize) -> u32 {
     table.get(byte).copied().unwrap_or(1) as u32
 }
+// @@
+----
 
+== Tests
+
+Five unit tests exercise the public `parse_source_blocks` interface:
+
+* `adoc_single_code_block` — a minimal AsciiDoc file with one `----` block
+* `adoc_two_code_blocks_have_different_hashes` — two different blocks must hash
+  differently
+* `adoc_unchanged_block_same_hash` — the same content must hash identically
+  across two calls (BLAKE3 determinism)
+* `markdown_heading_and_code` — a Markdown file yields both `"section"` and
+  `"code"` blocks
+* `fallback_single_block` — an unknown extension yields exactly one block
+
+[source,rust]
+----
+// <[block-parser-tests]>=
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,5 +440,25 @@ mod tests {
         assert_eq!(blocks[0].line_end, 2);
     }
 }
+// @@
+----
+
+== Assembly
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/block_parser.rs]>=
+/// Sub-file block parsing for incremental build support.
+///
+/// Splits a source file into logical blocks (code blocks, section headers,
+/// prose paragraphs) and computes a BLAKE3 hash for each block.  The hashes
+/// are stored in the database so that unchanged blocks can be skipped on the
+/// next run.
+// <[block-parser-types]>
+// <[block-parser-entry]>
+// <[block-parser-adoc]>
+// <[block-parser-markdown]>
+// <[block-parser-utils]>
+// <[block-parser-tests]>
 // @@
 ----

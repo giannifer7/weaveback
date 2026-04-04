@@ -271,10 +271,8 @@ impl SafeFileWriter {
                 );
                 result.push(b'\n');
             }
-            if !ends_with_newline {
-                if result.last() == Some(&b'\n') {
-                    result.pop();
-                }
+            if !ends_with_newline && result.last() == Some(&b'\n') {
+                result.pop();
             }
             if result.len() == 1 && result[0] == b'\n' && content.is_empty() {
                 result.clear();

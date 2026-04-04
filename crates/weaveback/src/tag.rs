@@ -120,7 +120,8 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
 
 // ── prompt helpers ────────────────────────────────────────────────────────────
 
-fn build_prompt(items: &[(usize, &str, &str)]) -> String {
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn build_prompt(items: &[(usize, &str, &str)]) -> String {
     // items: (local_index, block_type, first_line_of_content)
     let mut s = String::from(
         "Tag these blocks from a literate programming document.\n\
@@ -135,7 +136,7 @@ fn build_prompt(items: &[(usize, &str, &str)]) -> String {
     s
 }
 
-fn parse_response(response: &str) -> Vec<(usize, String)> {
+pub(crate) fn parse_response(response: &str) -> Vec<(usize, String)> {
     response
         .lines()
         .filter_map(|line| {
@@ -166,7 +167,7 @@ fn parse_response(response: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
-fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
+pub(crate) fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
     let lo = (line_start as usize).saturating_sub(1);
     let hi = (line_end as usize).min(
         source.lines().count()
@@ -261,5 +262,97 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 
     if tagged > 0 {
         eprintln!("auto-tag: tagged {tagged} block(s)");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_response ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_response_basic() {
+        let r = parse_response("0:fts,sqlite,search\n1:incremental,hash\n2:tangle");
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0], (0, "fts,sqlite,search".to_string()));
+        assert_eq!(r[1], (1, "incremental,hash".to_string()));
+        assert_eq!(r[2], (2, "tangle".to_string()));
+    }
+
+    #[test]
+    fn test_parse_response_sanitises_punctuation() {
+        // Hyphens kept; spaces, commas between tags work; special chars stripped.
+        let r = parse_response("0:apply-back, safe-write, I/O!");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].1, "apply-back,safe-write,io");
+    }
+
+    #[test]
+    fn test_parse_response_skips_malformed_lines() {
+        let r = parse_response("not a line\n0:good-tag\njunk:also-junk");
+        // "junk" does not parse as usize, so only index 0 survives.
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0], (0, "good-tag".to_string()));
+    }
+
+    #[test]
+    fn test_parse_response_empty_tags_skipped() {
+        let r = parse_response("0:  ,  ,  ");
+        assert!(r.is_empty(), "all-whitespace tags should produce no entry");
+    }
+
+    #[test]
+    fn test_parse_response_tolerates_extra_colons() {
+        // split_once(':') takes only the first colon, rest is tags string.
+        let r = parse_response("0:foo:bar,baz");
+        assert_eq!(r.len(), 1);
+        // "foo:bar" → sanitised → "foobar" (colon stripped), "baz" kept.
+        assert_eq!(r[0].1, "foobar,baz");
+    }
+
+    // ── build_prompt ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_prompt_contains_all_indices() {
+        let items = vec![
+            (0usize, "section", "= Introduction"),
+            (1,      "para",    "This is a paragraph."),
+        ];
+        let p = build_prompt(&items);
+        assert!(p.contains("[0] section | = Introduction"));
+        assert!(p.contains("[1] para | This is a paragraph."));
+    }
+
+    #[test]
+    fn test_build_prompt_truncates_long_first_line() {
+        let long = "x".repeat(200);
+        let items = vec![(0usize, "para", long.as_str())];
+        let p = build_prompt(&items);
+        // Preview capped at 120 chars.
+        let preview: String = "x".repeat(120);
+        assert!(p.contains(&preview));
+        assert!(!p.contains(&"x".repeat(121)));
+    }
+
+    // ── block_first_line ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_block_first_line_normal() {
+        let src = "line one\nline two\nline three\n";
+        assert_eq!(block_first_line(src, 1, 3), "line one");
+        assert_eq!(block_first_line(src, 2, 3), "line two");
+    }
+
+    #[test]
+    fn test_block_first_line_out_of_range() {
+        let src = "only line\n";
+        // line_start beyond file length → empty string, no panic.
+        assert_eq!(block_first_line(src, 99, 100), "");
+    }
+
+    #[test]
+    fn test_block_first_line_empty_source() {
+        assert_eq!(block_first_line("", 1, 1), "");
     }
 }

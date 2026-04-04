@@ -14,6 +14,8 @@ mod apply_back;
 mod lookup;
 mod mcp;
 mod serve;
+#[cfg(feature = "server")]
+mod tag;
 
 fn default_pathsep() -> String {
     if cfg!(windows) {
@@ -938,12 +940,37 @@ struct TanglePassCfg {
     special:          Vec<String>,
 }
 
+#[cfg(feature = "server")]
+#[derive(serde::Deserialize)]
+struct TagsCfg {
+    /// "anthropic" | "gemini" | "openai" | "ollama"
+    #[serde(default = "default_tags_backend")]
+    backend:    String,
+    /// Model name, e.g. "claude-haiku-4-5-20251001"
+    #[serde(default = "default_tags_model")]
+    model:      String,
+    /// Base URL for openai-compatible / ollama
+    endpoint:   Option<String>,
+    /// Blocks per LLM request (default: 15)
+    #[serde(default = "default_batch_size")]
+    batch_size: usize,
+}
+
+#[cfg(feature = "server")]
+fn default_tags_backend() -> String { "anthropic".to_string() }
+#[cfg(feature = "server")]
+fn default_tags_model()   -> String { "claude-haiku-4-5-20251001".to_string() }
+#[cfg(feature = "server")]
+fn default_batch_size()   -> usize  { 15 }
+
 #[derive(serde::Deserialize)]
 struct TangleCfg {
     #[serde(rename = "gen")]
-    default_gen:      Option<String>,
+    default_gen: Option<String>,
     #[serde(rename = "pass")]
-    passes:           Vec<TanglePassCfg>,
+    passes:      Vec<TanglePassCfg>,
+    #[cfg(feature = "server")]
+    tags:        Option<TagsCfg>,
 }
 
 fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
@@ -1009,6 +1036,15 @@ fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
     if db_path.exists() {
         match weaveback_tangle::db::WeavebackDb::open(db_path) {
             Ok(mut db) => {
+                #[cfg(feature = "server")]
+                if let Some(tags_cfg) = &cfg.tags {
+                    tag::run_auto_tag(&mut db, &tag::TagConfig {
+                        backend:    tags_cfg.backend.clone(),
+                        model:      tags_cfg.model.clone(),
+                        endpoint:   tags_cfg.endpoint.clone(),
+                        batch_size: tags_cfg.batch_size,
+                    });
+                }
                 if let Err(e) = db.rebuild_prose_fts() {
                     eprintln!("warning: FTS index rebuild failed: {e}");
                 }

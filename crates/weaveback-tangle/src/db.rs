@@ -92,12 +92,21 @@ CREATE TABLE IF NOT EXISTS source_blocks (
     PRIMARY KEY (src_file, block_index)
 ) STRICT, WITHOUT ROWID;
 
+CREATE TABLE IF NOT EXISTS block_tags (
+    src_file     INTEGER NOT NULL REFERENCES files(id),
+    block_index  INTEGER NOT NULL,
+    content_hash BLOB    NOT NULL,
+    tags         TEXT    NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
     content,
-    src_file  UNINDEXED,
+    tags,
+    src_file   UNINDEXED,
     block_type UNINDEXED,
     line_start UNINDEXED,
     line_end   UNINDEXED,
@@ -205,6 +214,16 @@ fn needs_file_id_migration(conn: &Connection) -> Result<bool, DbError> {
     Ok(col_type.as_deref() == Some("TEXT"))
 }
 
+/// Detect whether `prose_fts` is missing the `tags` column (pre-0.9.2 schema).
+fn needs_prose_fts_tags_migration(conn: &Connection) -> Result<bool, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('prose_fts') WHERE name='tags'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0);
+    Ok(count == 0)
+}
+
 fn apply_schema(conn: &Connection) -> Result<(), DbError> {
     // If the db was created with the old TEXT-based file columns, drop those
     // tables so CREATE_SCHEMA recreates them with integer IDs.  The db is a
@@ -221,6 +240,12 @@ fn apply_schema(conn: &Connection) -> Result<(), DbError> {
             DROP TABLE IF EXISTS literate_source_config;
             DROP TABLE IF EXISTS source_blocks;
         ")?;
+    }
+
+    // FTS5 virtual tables cannot be altered; drop and recreate when the schema
+    // gains a new column.  rebuild_prose_fts always repopulates from source.
+    if needs_prose_fts_tags_migration(conn)? {
+        conn.execute("DROP TABLE IF EXISTS prose_fts", [])?;
     }
 
     conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)?;
@@ -1057,6 +1082,17 @@ impl WeavebackDb {
     }
 }
 /// A single result from `search_prose`.
+/// A block that needs LLM tagging (either never tagged or content changed).
+#[derive(Debug, Clone)]
+pub struct BlockForTagging {
+    pub src_file:    String,
+    pub block_index: u32,
+    pub block_type:  String,
+    pub line_start:  u32,
+    pub line_end:    u32,
+    pub content_hash: Vec<u8>,
+}
+
 #[derive(Debug, Clone)]
 pub struct FtsResult {
     pub src_file:   String,
@@ -1113,35 +1149,43 @@ impl WeavebackDb {
         for (path, source) in &snapshots {
             let lines: Vec<&str> = source.lines().collect();
             let mut stmt = tx.prepare_cached(
-                "SELECT DISTINCT sb.block_type, sb.line_start, sb.line_end
+                "SELECT DISTINCT sb.block_type, sb.line_start, sb.line_end, sb.block_index
                  FROM source_blocks sb JOIN files f ON f.id = sb.src_file
                  WHERE f.path = ?1
                    AND sb.block_type IN ('section', 'para')
                  ORDER BY sb.line_start",
             )?;
-            let blocks: Vec<(String, u32, u32)> = stmt
+            let blocks: Vec<(String, u32, u32, u32)> = stmt
                 .query_map(params![path], |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, u32>(1)?,
                         row.get::<_, u32>(2)?,
+                        row.get::<_, u32>(3)?,
                     ))
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
 
             let mut ins = tx.prepare_cached(
-                "INSERT INTO prose_fts (content, src_file, block_type, line_start, line_end)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO prose_fts (content, tags, src_file, block_type, line_start, line_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
-            for (btype, start, end) in blocks {
+            let mut tag_stmt = tx.prepare_cached(
+                "SELECT bt.tags FROM block_tags bt
+                 JOIN files f ON f.id = bt.src_file
+                 WHERE f.path = ?1 AND bt.block_index = ?2",
+            )?;
+            for (btype, start, end, block_index) in blocks {
                 let lo = (start as usize).saturating_sub(1);
                 let hi = (end as usize).min(lines.len());
                 if lo >= hi { continue; }
                 let content = lines[lo..hi].join("\n");
-                if !content.trim().is_empty() {
-                    ins.execute(params![content, path, btype, start, end])?;
-                }
+                if content.trim().is_empty() { continue; }
+                let tags: String = tag_stmt
+                    .query_row(params![path, block_index], |row| row.get(0))
+                    .unwrap_or_default();
+                ins.execute(params![content, tags, path, btype, start, end])?;
             }
         }
 
@@ -1173,5 +1217,48 @@ impl WeavebackDb {
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Return all prose blocks that have no tag entry or whose content has
+    /// changed since the last tagging run (hash mismatch).
+    pub fn get_blocks_needing_tags(&self) -> Result<Vec<BlockForTagging>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+             FROM source_blocks sb
+             JOIN files f ON f.id = sb.src_file
+             LEFT JOIN block_tags bt
+               ON bt.src_file = sb.src_file AND bt.block_index = sb.block_index
+             WHERE sb.block_type IN ('section', 'para')
+               AND (bt.src_file IS NULL OR bt.content_hash != sb.content_hash)",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(BlockForTagging {
+                src_file:     row.get(0)?,
+                block_index:  row.get(1)?,
+                block_type:   row.get(2)?,
+                line_start:   row.get(3)?,
+                line_end:     row.get(4)?,
+                content_hash: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Store LLM-generated tags for a block. Overwrites any previous entry.
+    /// `tags` is a comma-separated string, e.g. `"fts,sqlite,search"`.
+    pub fn set_block_tags(
+        &mut self,
+        src_file: &str,
+        block_index: u32,
+        content_hash: &[u8],
+        tags: &str,
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO block_tags (src_file, block_index, content_hash, tags)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![file_id, block_index, content_hash, tags],
+        )?;
+        Ok(())
     }
 }

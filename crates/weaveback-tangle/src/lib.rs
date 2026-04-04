@@ -30,7 +30,7 @@ impl From<std::io::Error> for WeavebackError {
 }
 
 pub use crate::block_parser::{parse_source_blocks, SourceBlockEntry};
-pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry, FtsResult, BlockForTagging};
+pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry, FtsResult, BlockForTagging, TaggedBlock};
 pub use crate::noweb::{Clip, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;
 pub use crate::safe_writer::SafeWriterConfig;

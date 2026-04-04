@@ -90,6 +90,12 @@ enum Commands {
         #[arg(long, default_value = "10")]
         limit: usize,
     },
+    /// List LLM-generated tags for prose blocks
+    Tags {
+        /// Filter to a single source file (plain relative path)
+        #[arg(long)]
+        file: Option<String>,
+    },
     /// Semantic language server operations (requires rust-analyzer)
     Lsp {
         /// Manual override for the LSP command (e.g. "nimlsp")
@@ -711,6 +717,9 @@ fn main() {
         Some(Commands::Search { query, limit }) => {
             run_search(query, limit, cli.args.db)
         }
+        Some(Commands::Tags { file }) => {
+            run_tags(file, cli.args.db)
+        }
         Some(Commands::Lsp { lsp_cmd, lsp_lang, cmd }) => {
             let eval_config = build_eval_config(&cli.args);
             run_lsp(cmd, cli.args.db, cli.args.gen_dir, eval_config, lsp_cmd, lsp_lang)
@@ -888,10 +897,41 @@ fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error
         return Ok(());
     }
     for r in &results {
-        println!("{}:{}-{} [{}]", r.src_file, r.line_start, r.line_end, r.block_type);
+        if r.tags.is_empty() {
+            println!("{}:{}-{} [{}]", r.src_file, r.line_start, r.line_end, r.block_type);
+        } else {
+            println!("{}:{}-{} [{}]  #{}", r.src_file, r.line_start, r.line_end, r.block_type, r.tags);
+        }
         println!("  {}", r.snippet);
         println!();
     }
+    Ok(())
+}
+
+fn run_tags(file: Option<String>, db_path: PathBuf) -> Result<(), Error> {
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    let blocks = db.list_block_tags(file.as_deref())
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    if blocks.is_empty() {
+        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run weaveback tangle.");
+        return Ok(());
+    }
+    let mut current_file = String::new();
+    for b in &blocks {
+        if b.src_file != current_file {
+            println!("\n{}", b.src_file);
+            current_file = b.src_file.clone();
+        }
+        println!("  :{} [{}]  #{}", b.line_start, b.block_type, b.tags);
+    }
+    println!();
     Ok(())
 }
 

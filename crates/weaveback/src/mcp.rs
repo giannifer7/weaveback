@@ -217,6 +217,16 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                             },
                                             "required": ["query"]
                                         }
+                                    },
+                                    {
+                                        "name": "weaveback_list_tags",
+                                        "description": "List all LLM-generated tags for prose blocks in the project. Returns each block's source file, line, block type, and comma-separated tags. Optionally filter to a single source file. Use this to explore the semantic landscape of the project or to find all blocks tagged with a given concept.",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "file": { "type": "string", "description": "Optional: filter to this source file (plain relative path, e.g. crates/weaveback-tangle/src/db.adoc)" }
+                                            }
+                                        }
                                     }
                                     ]
                                     }));
@@ -612,12 +622,44 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             Ok(db) => match db.search_prose(query, limit) {
                                 Err(e) => send_error(id, &format!("Search error: {e:?}")),
                                 Ok(results) => {
-                                    let arr: Vec<Value> = results.iter().map(|r| json!({
-                                        "src_file":   r.src_file,
-                                        "block_type": r.block_type,
-                                        "line_start": r.line_start,
-                                        "line_end":   r.line_end,
-                                        "snippet":    r.snippet,
+                                    let arr: Vec<Value> = results.iter().map(|r| {
+                                        let mut obj = json!({
+                                            "src_file":   r.src_file,
+                                            "block_type": r.block_type,
+                                            "line_start": r.line_start,
+                                            "line_end":   r.line_end,
+                                            "snippet":    r.snippet,
+                                        });
+                                        if !r.tags.is_empty() {
+                                            obj["tags"] = json!(r.tags);
+                                        }
+                                        obj
+                                    }).collect();
+                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                }
+                            },
+                        }
+                    }
+
+                    Some("weaveback_list_tags") => {
+                        let file_filter = input.as_ref()
+                            .and_then(|v| v.get("file"))
+                            .and_then(|v| v.as_str());
+                        if !db_path.exists() {
+                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match WeavebackDb::open_read_only(&db_path) {
+                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Ok(db) => match db.list_block_tags(file_filter) {
+                                Err(e) => send_error(id, &format!("Tag list error: {e:?}")),
+                                Ok(blocks) => {
+                                    let arr: Vec<Value> = blocks.iter().map(|b| json!({
+                                        "src_file":    b.src_file,
+                                        "block_index": b.block_index,
+                                        "block_type":  b.block_type,
+                                        "line_start":  b.line_start,
+                                        "tags":        b.tags,
                                     })).collect();
                                     send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
                                 }

@@ -1081,7 +1081,6 @@ impl WeavebackDb {
         )
     }
 }
-/// A single result from `search_prose`.
 /// A block that needs LLM tagging (either never tagged or content changed).
 #[derive(Debug, Clone)]
 pub struct BlockForTagging {
@@ -1093,6 +1092,7 @@ pub struct BlockForTagging {
     pub content_hash: Vec<u8>,
 }
 
+/// A single result from `search_prose`.
 #[derive(Debug, Clone)]
 pub struct FtsResult {
     pub src_file:   String,
@@ -1101,6 +1101,18 @@ pub struct FtsResult {
     pub line_end:   u32,
     /// Short excerpt with matched terms wrapped in `**...**`.
     pub snippet:    String,
+    /// Comma-separated LLM-generated tags; empty if block has not been tagged.
+    pub tags:       String,
+}
+
+/// A tagged block returned by `list_block_tags`.
+#[derive(Debug, Clone)]
+pub struct TaggedBlock {
+    pub src_file:    String,
+    pub block_index: u32,
+    pub block_type:  String,
+    pub line_start:  u32,
+    pub tags:        String,
 }
 
 impl WeavebackDb {
@@ -1201,7 +1213,8 @@ impl WeavebackDb {
     ) -> Result<Vec<FtsResult>, DbError> {
         let mut stmt = self.conn.prepare(
             "SELECT src_file, block_type, line_start, line_end,
-                    snippet(prose_fts, 0, '**', '**', '…', 16)
+                    snippet(prose_fts, 0, '**', '**', '…', 16),
+                    tags
              FROM prose_fts
              WHERE prose_fts MATCH ?1
              ORDER BY rank
@@ -1214,6 +1227,34 @@ impl WeavebackDb {
                 line_start: row.get(2)?,
                 line_end:   row.get(3)?,
                 snippet:    row.get(4)?,
+                tags:       row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// List all tagged blocks, optionally filtered to a single source file.
+    /// `file_filter` should be a plain relative path (no leading `./`).
+    pub fn list_block_tags(
+        &self,
+        file_filter: Option<&str>,
+    ) -> Result<Vec<TaggedBlock>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, bt.block_index, sb.block_type, sb.line_start, bt.tags
+             FROM block_tags bt
+             JOIN files f ON f.id = bt.src_file
+             LEFT JOIN source_blocks sb
+               ON sb.src_file = bt.src_file AND sb.block_index = bt.block_index
+             WHERE (?1 IS NULL OR f.path = ?1)
+             ORDER BY f.path, sb.line_start",
+        )?;
+        let rows = stmt.query_map(params![file_filter], |row| {
+            Ok(TaggedBlock {
+                src_file:    row.get(0)?,
+                block_index: row.get(1)?,
+                block_type:  row.get(2)?,
+                line_start:  row.get(3)?,
+                tags:        row.get(4)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)

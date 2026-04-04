@@ -95,6 +95,26 @@ weaveback-tangle expanded.adoc --gen src/
 
 | link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp]
 | Language Server Protocol (LSP) client for Rust, Nim, and Python
+
+| link:../project/agent-python.adoc[weaveback Python agent bridge]
+| Literate design and scaffold for the PyO3 + Pydantic agent stack
+|===
+
+== Project-level literate sources
+
+These documents generate workspace files and cross-cutting scaffolding outside
+the main Rust crates.
+
+.project adoc files
+[cols="2,3",options="header"]
+|===
+| Document | Generates
+
+| link:../project/project.adoc[root project files]
+| `Cargo.toml`, `justfile`, `.gitignore`, `weaveback.toml`, and other root files
+
+| link:../project/agent-python.adoc[Python agent bridge]
+| `crates/weaveback-agent-core/`, `crates/weaveback-py/`, and `python/weaveback-agent/`
 |===
 
 == weaveback CLI literate sources

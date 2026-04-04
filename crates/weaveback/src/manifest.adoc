@@ -25,6 +25,7 @@ weaveback-core.workspace = true
 weaveback-macro.workspace = true
 weaveback-tangle.workspace = true
 weaveback-lsp.workspace = true
+weaveback-agent-core.workspace = true
 clap = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

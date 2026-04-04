@@ -1,3 +1,4 @@
+use weaveback_agent_core::{Workspace as AgentWorkspace, WorkspaceConfig as AgentWorkspaceConfig};
 use weaveback_macro::{
     evaluator::{EvalConfig, EvalError, Evaluator},
     macro_api::process_string,
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 mod apply_back;
 mod lookup;
 mod mcp;
+mod semantic;
 mod serve;
 #[cfg(feature = "server")]
 mod tag;
@@ -101,7 +103,7 @@ enum Commands {
         #[arg(long)]
         chunk: Option<String>,
     },
-    /// Full-text search over literate source prose (BM25, FTS5)
+    /// Search literate source prose (FTS5 + tags + optional embeddings)
     Search {
         /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)
         query: String,
@@ -889,26 +891,6 @@ fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
     Ok(())
 }
 
-/// Prepare a user-typed string as a safe FTS5 query.
-///
-/// If the query already contains FTS5 syntax markers (quotes, AND, OR, NOT)
-/// it is passed through unchanged.  Otherwise each whitespace-delimited token
-/// that contains punctuation (e.g. "apply-back") is wrapped in double-quotes
-/// so that the FTS5 parser treats it as a phrase rather than a boolean
-/// expression.
-fn prepare_fts_query(q: &str) -> String {
-    if q.contains('"') || q.contains(" AND ") || q.contains(" OR ") || q.contains(" NOT ") {
-        return q.to_owned();
-    }
-    q.split_whitespace()
-        .map(|tok| {
-            let safe = tok.chars().all(|c| c.is_alphanumeric() || c == '*' || c == '^');
-            if safe { tok.to_owned() } else { format!("\"{}\"", tok.replace('"', "\"\"")) }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error> {
     if !db_path.exists() {
         return Err(Error::Io(std::io::Error::new(
@@ -916,21 +898,40 @@ fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error
             format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
         )));
     }
-    // open read-write so apply_schema creates prose_fts if it doesn't exist yet
-    let db = weaveback_tangle::db::WeavebackDb::open(&db_path)
-        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
-    let fts_query = prepare_fts_query(&query);
-    let results = db.search_prose(&fts_query, limit)
-        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    let workspace = AgentWorkspace::open(AgentWorkspaceConfig {
+        project_root: std::env::current_dir()?,
+        db_path,
+        gen_dir: PathBuf::from("gen"),
+    });
+    let results = workspace.session().search(&query, limit)
+        .map_err(|e| Error::Io(std::io::Error::other(e)))?;
     if results.is_empty() {
         println!("No results for {:?}", query);
         return Ok(());
     }
     for r in &results {
-        if r.tags.is_empty() {
-            println!("{}:{}-{} [{}]", r.src_file, r.line_start, r.line_end, r.block_type);
+        let channels = if r.channels.is_empty() {
+            String::new()
         } else {
-            println!("{}:{}-{} [{}]  #{}", r.src_file, r.line_start, r.line_end, r.block_type, r.tags);
+            format!(" via {}", r.channels.join("+"))
+        };
+        if r.tags.is_empty() {
+            println!(
+                "{}:{}-{} [{}]{channels}",
+                r.src_file,
+                r.line_start,
+                r.line_end,
+                r.block_type,
+            );
+        } else {
+            println!(
+                "{}:{}-{} [{}]{channels}  #{}",
+                r.src_file,
+                r.line_start,
+                r.line_end,
+                r.block_type,
+                r.tags.join(","),
+            );
         }
         println!("  {}", r.snippet);
         println!();
@@ -1033,6 +1034,18 @@ fn default_tags_model()   -> String { "claude-haiku-4-5-20251001".to_string() }
 #[cfg(feature = "server")]
 fn default_batch_size()   -> usize  { 15 }
 
+#[cfg(feature = "server")]
+#[derive(serde::Deserialize)]
+struct EmbeddingsCfg {
+    #[serde(default = "semantic::default_embeddings_backend")]
+    backend: String,
+    #[serde(default = "semantic::default_embeddings_model")]
+    model: String,
+    endpoint: Option<String>,
+    #[serde(default = "semantic::default_embeddings_batch_size")]
+    batch_size: usize,
+}
+
 #[derive(serde::Deserialize)]
 struct TangleCfg {
     #[serde(rename = "gen")]
@@ -1041,6 +1054,8 @@ struct TangleCfg {
     passes:      Vec<TanglePassCfg>,
     #[cfg(feature = "server")]
     tags:        Option<TagsCfg>,
+    #[cfg(feature = "server")]
+    embeddings:  Option<EmbeddingsCfg>,
 }
 
 fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
@@ -1113,6 +1128,15 @@ fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
                         model:      tags_cfg.model.clone(),
                         endpoint:   tags_cfg.endpoint.clone(),
                         batch_size: tags_cfg.batch_size,
+                    });
+                }
+                #[cfg(feature = "server")]
+                if let Some(embed_cfg) = &cfg.embeddings {
+                    semantic::run_auto_embed(&mut db, &semantic::EmbeddingConfig {
+                        backend: embed_cfg.backend.clone(),
+                        model: embed_cfg.model.clone(),
+                        endpoint: embed_cfg.endpoint.clone(),
+                        batch_size: embed_cfg.batch_size,
                     });
                 }
                 if let Err(e) = db.rebuild_prose_fts() {

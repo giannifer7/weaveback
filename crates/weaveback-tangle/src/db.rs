@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS block_tags (
     PRIMARY KEY (src_file, block_index)
 ) STRICT, WITHOUT ROWID;
 
+CREATE TABLE IF NOT EXISTS block_embeddings (
+    src_file     INTEGER NOT NULL REFERENCES files(id),
+    block_index  INTEGER NOT NULL,
+    content_hash BLOB    NOT NULL,
+    model        TEXT    NOT NULL,
+    vector_json  TEXT    NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
 CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
 CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
 
@@ -119,6 +128,8 @@ use thiserror::Error;
 pub enum DbError {
     #[error("database error: {0}")]
     Sql(#[from] rusqlite::Error),
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 /// How reliably a post-formatter output line was traced back to its source.
@@ -1115,6 +1126,71 @@ pub struct TaggedBlock {
     pub tags:        String,
 }
 
+/// A block that needs embeddings (never embedded, content changed, or model changed).
+#[derive(Debug, Clone)]
+pub struct BlockForEmbedding {
+    pub src_file:     String,
+    pub block_index:  u32,
+    pub block_type:   String,
+    pub line_start:   u32,
+    pub line_end:     u32,
+    pub content_hash: Vec<u8>,
+}
+
+/// A semantic-search hit returned by `search_prose_by_embedding`.
+#[derive(Debug, Clone)]
+pub struct SemanticResult {
+    pub src_file:   String,
+    pub block_type: String,
+    pub line_start: u32,
+    pub line_end:   u32,
+    pub snippet:    String,
+    pub tags:       String,
+    pub score:      f32,
+}
+
+fn normalise_snapshot_path(raw: &str, cwd: &std::path::Path) -> String {
+    let p = std::path::Path::new(raw);
+    if p.is_absolute() {
+        if let Ok(rel) = p.strip_prefix(cwd) {
+            return rel.to_string_lossy().into_owned();
+        }
+        return raw.to_string();
+    }
+    raw.strip_prefix("./").map(str::to_owned).unwrap_or_else(|| raw.to_string())
+}
+
+fn prose_snippet(content: &str) -> String {
+    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = compact.chars();
+    let prefix: String = chars.by_ref().take(160).collect();
+    if chars.next().is_some() {
+        format!("{prefix}…")
+    } else {
+        prefix
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut norm_a = 0.0f32;
+    let mut norm_b = 0.0f32;
+    for (&lhs, &rhs) in a.iter().zip(b.iter()) {
+        dot += lhs * rhs;
+        norm_a += lhs * lhs;
+        norm_b += rhs * rhs;
+    }
+    let denom = norm_a.sqrt() * norm_b.sqrt();
+    if denom <= f32::EPSILON {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
 impl WeavebackDb {
     /// Rebuild the `prose_fts` index from `src_snapshots` + `source_blocks`.
     /// Drops and re-inserts all rows so the index is always consistent.
@@ -1125,18 +1201,6 @@ impl WeavebackDb {
         // Snapshot paths may be stored as "./rel", "rel", or absolute.
         // The files table uses plain relative paths.  Normalise here.
         let cwd = std::env::current_dir().unwrap_or_default();
-        let normalise_path = move |raw: String| -> String {
-            let p = std::path::Path::new(&raw);
-            // Absolute path → try to make relative to cwd.
-            if p.is_absolute() {
-                if let Ok(rel) = p.strip_prefix(&cwd) {
-                    return rel.to_string_lossy().into_owned();
-                }
-                return raw;
-            }
-            // Strip leading "./" component.
-            raw.strip_prefix("./").map(str::to_owned).unwrap_or(raw)
-        };
 
         // Load all snapshots; query block metadata per file.
         // Deduplicate after path normalisation: the same source file may be
@@ -1151,7 +1215,7 @@ impl WeavebackDb {
             let mut seen = std::collections::HashSet::new();
             rows.filter_map(|r| r.ok())
                 .filter_map(|(path, bytes)| {
-                    let path = normalise_path(path);
+                    let path = normalise_snapshot_path(&path, &cwd);
                     String::from_utf8(bytes).ok().map(|s| (path, s))
                 })
                 .filter(|(path, _)| seen.insert(path.clone()))
@@ -1285,6 +1349,33 @@ impl WeavebackDb {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Return all prose blocks that need embeddings for `model`.
+    pub fn get_blocks_needing_embeddings(
+        &self,
+        model: &str,
+    ) -> Result<Vec<BlockForEmbedding>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+             FROM source_blocks sb
+             JOIN files f ON f.id = sb.src_file
+             LEFT JOIN block_embeddings be
+               ON be.src_file = sb.src_file AND be.block_index = sb.block_index
+             WHERE sb.block_type IN ('section', 'para')
+               AND (be.src_file IS NULL OR be.content_hash != sb.content_hash OR be.model != ?1)",
+        )?;
+        let rows = stmt.query_map(params![model], |row| {
+            Ok(BlockForEmbedding {
+                src_file:     row.get(0)?,
+                block_index:  row.get(1)?,
+                block_type:   row.get(2)?,
+                line_start:   row.get(3)?,
+                line_end:     row.get(4)?,
+                content_hash: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     /// Store LLM-generated tags for a block. Overwrites any previous entry.
     /// `tags` is a comma-separated string, e.g. `"fts,sqlite,search"`.
     pub fn set_block_tags(
@@ -1301,5 +1392,105 @@ impl WeavebackDb {
             params![file_id, block_index, content_hash, tags],
         )?;
         Ok(())
+    }
+
+    /// Store an embedding vector for a prose block. Overwrites any previous entry.
+    pub fn set_block_embedding(
+        &mut self,
+        src_file: &str,
+        block_index: u32,
+        content_hash: &[u8],
+        model: &str,
+        vector: &[f32],
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        let vector_json = serde_json::to_string(vector)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO block_embeddings
+             (src_file, block_index, content_hash, model, vector_json)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![file_id, block_index, content_hash, model, vector_json],
+        )?;
+        Ok(())
+    }
+
+    /// Brute-force cosine search over stored prose-block embeddings.
+    pub fn search_prose_by_embedding(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SemanticResult>, DbError> {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let mut snapshot_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_type, sb.line_start, sb.line_end,
+                    COALESCE(bt.tags, ''), be.vector_json
+             FROM block_embeddings be
+             JOIN files f ON f.id = be.src_file
+             JOIN source_blocks sb
+               ON sb.src_file = be.src_file AND sb.block_index = be.block_index
+             LEFT JOIN block_tags bt
+               ON bt.src_file = be.src_file AND bt.block_index = be.block_index
+             WHERE sb.block_type IN ('section', 'para')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, u32>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let (src_file, block_type, line_start, line_end, tags, vector_json) = row?;
+            let block_embedding: Vec<f32> = serde_json::from_str(&vector_json)?;
+            let score = cosine_similarity(query_embedding, &block_embedding);
+            if !score.is_finite() || score <= 0.0 {
+                continue;
+            }
+
+            let snapshot = if let Some(cached) = snapshot_cache.get(&src_file) {
+                cached.clone()
+            } else {
+                let bytes = self.get_src_snapshot(&src_file)?
+                    .or_else(|| {
+                        let alt = normalise_snapshot_path(&src_file, &cwd);
+                        if alt == src_file {
+                            None
+                        } else {
+                            self.get_src_snapshot(&alt).ok().flatten()
+                        }
+                    });
+                let Some(bytes) = bytes else { continue; };
+                let Ok(source) = String::from_utf8(bytes) else { continue; };
+                snapshot_cache.insert(src_file.clone(), source.clone());
+                source
+            };
+
+            let lines: Vec<&str> = snapshot.lines().collect();
+            let lo = (line_start as usize).saturating_sub(1);
+            let hi = (line_end as usize).min(lines.len());
+            if lo >= hi {
+                continue;
+            }
+            let content = lines[lo..hi].join("\n");
+            results.push(SemanticResult {
+                src_file,
+                block_type,
+                line_start,
+                line_end,
+                snippet: prose_snippet(&content),
+                tags,
+                score,
+            });
+        }
+
+        results.sort_by(|lhs, rhs| rhs.score.partial_cmp(&lhs.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(limit);
+        Ok(results)
     }
 }

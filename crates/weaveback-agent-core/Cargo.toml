@@ -1,0 +1,18 @@
+[package]
+name = "weaveback-agent-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+
+weaveback-core.workspace = true
+weaveback-lsp.workspace = true
+weaveback-macro.workspace = true
+weaveback-tangle.workspace = true

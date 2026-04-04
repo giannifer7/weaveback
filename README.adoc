@@ -237,6 +237,9 @@ Not production-ready. The focus is on the design, not completeness.
 | link:docs/architecture.adoc[Architecture]
 | Pipeline, source maps, server design
 
+| link:project/agent-python.adoc[Python Agent Bridge]
+| PyO3 + Pydantic agent design and scaffold
+
 | link:docs/install.adoc[Installation]
 | Platforms and binaries
 |===

@@ -26,6 +26,8 @@ members = [
     "crates/weaveback-docgen",
     "crates/weaveback-core",
     "crates/weaveback-lsp",
+    "crates/weaveback-agent-core",
+    "crates/weaveback-py",
 ]
 
 [workspace.package]
@@ -87,12 +89,15 @@ syn = { version = "2", features = ["full"] }
 walkdir = "2"
 lsp-types = "0.95"
 url = "2.4"
+pyo3 = { version = "0.28", features = ["extension-module"] }
+pythonize = "0.28"
 
 # Internal crate dependencies (points to the sub-crate on disk)
 weaveback-core = { path = "crates/weaveback-core" }
 weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }
 weaveback-lsp = { path = "crates/weaveback-lsp" }
+weaveback-agent-core = { path = "crates/weaveback-agent-core" }
 asciidoc-parser = { git = "https://github.com/giannifer7/asciidoc-parser", rev = "d0411b9" } # PR#498 pending merge
 acdc-parser = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-core = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
@@ -306,6 +311,7 @@ dist/
 wheels/
 *.egg-info
 
+.env
 .venv
 
 .mypy_cache
@@ -323,7 +329,9 @@ tarpaulin-report.html
 hist-search.txt
 
 chats
-python/
+python/*
+!python/weaveback-agent/
+!python/weaveback-agent/**
 resume.txt
 
 scripts/serve-ui/node_modules/

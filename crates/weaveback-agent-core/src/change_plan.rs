@@ -1,0 +1,32 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangePlan {
+    pub plan_id: String,
+    pub goal: String,
+    pub constraints: Vec<String>,
+    pub edits: Vec<PlannedEdit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlannedEdit {
+    pub edit_id: String,
+    pub rationale: String,
+    pub target: ChangeTarget,
+    pub new_src_lines: Vec<String>,
+    pub anchor: OutputAnchor,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangeTarget {
+    pub src_file: String,
+    pub src_line: usize,
+    pub src_line_end: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputAnchor {
+    pub out_file: String,
+    pub out_line: u32,
+    pub expected_output: String,
+}

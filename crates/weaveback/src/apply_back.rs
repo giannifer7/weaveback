@@ -2,6 +2,7 @@ use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string;
 use weaveback_tangle::db::{WeavebackDb, DbError};
 use weaveback_core::PathResolver;
+use weaveback_lsp::LspClient;
 use regex::Regex;
 use similar::TextDiff;
 use std::collections::HashMap;
@@ -84,6 +85,28 @@ impl PatchSource {
     }
 }
 
+fn patch_source_rank(source: &PatchSource) -> i32 {
+    match source {
+        PatchSource::MacroArg { .. } => 50,
+        PatchSource::Literal { .. } => 40,
+        PatchSource::MacroBodyLiteral { .. } => 35,
+        PatchSource::MacroBodyWithVars { .. } => 30,
+        PatchSource::Noweb { .. } => 20,
+        PatchSource::Unpatchable { .. } => 0,
+    }
+}
+
+fn patch_source_location(source: &PatchSource) -> (&str, usize) {
+    match source {
+        PatchSource::Noweb { src_file, src_line, .. }
+        | PatchSource::Literal { src_file, src_line, .. }
+        | PatchSource::MacroBodyLiteral { src_file, src_line, .. }
+        | PatchSource::MacroBodyWithVars { src_file, src_line, .. }
+        | PatchSource::MacroArg { src_file, src_line, .. }
+        | PatchSource::Unpatchable { src_file, src_line, .. } => (src_file, *src_line),
+    }
+}
+
 struct Patch {
     source: PatchSource,
     /// Indent-stripped baseline gen/ text (may be multiple lines).
@@ -92,6 +115,18 @@ struct Patch {
     new_text: String,
     /// 0-indexed first line in the macro-expanded intermediate.
     expanded_line: u32,
+}
+
+struct CandidateResolution {
+    line_idx: usize,
+    new_line: String,
+    score: i32,
+}
+
+#[derive(Clone)]
+struct LspDefinitionHint {
+    src_file: String,
+    src_line: usize,
 }
 
 /// Search `lines` in a ±`window` range around `center` for a unique line that
@@ -148,6 +183,50 @@ fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newlin
     let mut s = out.join("\n");
     if had_trailing_newline { s.push('\n'); }
     s
+}
+
+fn token_overlap_score(text: &str, old_text: &str, new_text: &str) -> i32 {
+    fn tokens(s: &str) -> Vec<String> {
+        s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+            .filter(|t| !t.is_empty())
+            .map(|t| t.to_ascii_lowercase())
+            .collect()
+    }
+
+    let line_tokens = tokens(text);
+    let mut score = 0i32;
+    for token in tokens(old_text).into_iter().chain(tokens(new_text)) {
+        if line_tokens.iter().any(|existing| existing == &token) {
+            score += 3;
+        }
+    }
+    score
+}
+
+fn differing_token_pair(old_text: &str, new_text: &str) -> Option<(String, String)> {
+    fn tokens(s: &str) -> Vec<String> {
+        s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    let old_tokens = tokens(old_text);
+    let new_tokens = tokens(new_text);
+    if old_tokens.len() != new_tokens.len() {
+        return None;
+    }
+
+    let diffs: Vec<(String, String)> = old_tokens.into_iter()
+        .zip(new_tokens)
+        .filter(|(old, new)| old != new)
+        .collect();
+
+    if diffs.len() == 1 {
+        diffs.into_iter().next()
+    } else {
+        None
+    }
 }
 
 /// For a `MacroArg` span: replace the changed portion at or after byte column `src_col`.
@@ -295,6 +374,228 @@ fn attempt_macro_body_fix(
     if new_body == body_line { None } else { Some(new_body) }
 }
 
+fn candidate_line_indices(
+    lines: &[String],
+    hinted: usize,
+    anchor_text: Option<&str>,
+    old_text: &str,
+) -> Vec<usize> {
+    let mut indices = Vec::new();
+    let mut push_unique = |idx: usize| {
+        if idx < lines.len() && !indices.contains(&idx) {
+            indices.push(idx);
+        }
+    };
+
+    push_unique(hinted);
+
+    if let Some(anchor) = anchor_text
+        && let Some(idx) = fuzzy_find_line(lines, hinted, anchor, 40)
+    {
+        push_unique(idx);
+    }
+    if let Some(idx) = fuzzy_find_line(lines, hinted, old_text, 40) {
+        push_unique(idx);
+    }
+
+    let lo = hinted.saturating_sub(6);
+    let hi = (hinted + 6).min(lines.len().saturating_sub(1));
+    for idx in lo..=hi {
+        push_unique(idx);
+    }
+
+    indices
+}
+
+fn rank_candidate(
+    hinted: usize,
+    idx: usize,
+    current_line: &str,
+    old_text: &str,
+    new_text: &str,
+    context_bonus: i32,
+) -> i32 {
+    let distance_penalty = hinted.abs_diff(idx) as i32 * 2;
+    let mut score = 100 - distance_penalty + context_bonus;
+    score += token_overlap_score(current_line, old_text, new_text);
+    if current_line.contains(old_text) {
+        score += 12;
+    }
+    score
+}
+
+fn choose_best_candidate(
+    mut candidates: Vec<CandidateResolution>,
+) -> Option<CandidateResolution> {
+    candidates.sort_by(|left, right| {
+        right.score.cmp(&left.score)
+            .then_with(|| left.line_idx.cmp(&right.line_idx))
+    });
+    let best = candidates.first()?;
+    if candidates.get(1).is_some_and(|next| next.score == best.score && next.line_idx != best.line_idx) {
+        None
+    } else {
+        Some(candidates.remove(0))
+    }
+}
+
+fn chunk_context_bonus(
+    db: &WeavebackDb,
+    src_file: &str,
+    hinted_line_0: usize,
+    idx: usize,
+) -> i32 {
+    let Ok(defs) = db.query_chunk_defs_overlapping(src_file, hinted_line_0 as u32 + 1, hinted_line_0 as u32 + 1) else {
+        return 0;
+    };
+    if defs.iter().any(|def| {
+        let lo = def.def_start.saturating_sub(1) as usize;
+        let hi = def.def_end.saturating_sub(1) as usize;
+        idx >= lo && idx <= hi
+    }) {
+        20
+    } else {
+        0
+    }
+}
+
+fn search_macro_arg_candidate(
+    db: &WeavebackDb,
+    lines: &[String],
+    hinted_line: usize,
+    src_col: u32,
+    old_text: &str,
+    new_text: &str,
+    eval_config: &EvalConfig,
+    src_path: &std::path::Path,
+    expanded_line: u32,
+) -> Option<CandidateResolution> {
+    let candidate_indices = candidate_line_indices(lines, hinted_line, None, old_text);
+    let mut candidates = Vec::new();
+
+    for idx in candidate_indices {
+        let Some(new_line) = attempt_macro_arg_patch(lines, idx, src_col, old_text, new_text) else {
+            continue;
+        };
+        let candidate_src = splice_line(lines, idx, &new_line, true);
+        if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+            continue;
+        }
+        candidates.push(CandidateResolution {
+            line_idx: idx,
+            new_line,
+            score: rank_candidate(
+                hinted_line,
+                idx,
+                &lines[idx],
+                old_text,
+                new_text,
+                chunk_context_bonus(db, &src_path.to_string_lossy(), hinted_line, idx),
+            ),
+        });
+    }
+
+    choose_best_candidate(candidates)
+}
+
+fn search_macro_body_candidate(
+    db: &WeavebackDb,
+    lines: &[String],
+    hinted_line: usize,
+    body_template: Option<&str>,
+    old_text: &str,
+    new_text: &str,
+    special_char: char,
+    eval_config: &EvalConfig,
+    src_path: &std::path::Path,
+    expanded_line: u32,
+) -> Option<CandidateResolution> {
+    let anchor = body_template.unwrap_or(old_text);
+    let candidate_indices = candidate_line_indices(lines, hinted_line, Some(anchor), old_text);
+    let mut candidates = Vec::new();
+
+    for idx in candidate_indices {
+        let template = body_template.unwrap_or(lines.get(idx)?.as_str());
+        let Some(new_line) = attempt_macro_body_fix(template, old_text, new_text, special_char) else {
+            continue;
+        };
+        let candidate_src = splice_line(lines, idx, &new_line, true);
+        if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+            continue;
+        }
+        candidates.push(CandidateResolution {
+            line_idx: idx,
+            new_line,
+            score: rank_candidate(
+                hinted_line,
+                idx,
+                &lines[idx],
+                old_text,
+                new_text,
+                chunk_context_bonus(db, &src_path.to_string_lossy(), hinted_line, idx),
+            ),
+        });
+    }
+
+    choose_best_candidate(candidates)
+}
+
+fn search_macro_call_candidate(
+    lines: &[String],
+    macro_name: &str,
+    special_char: char,
+    old_text: &str,
+    new_text: &str,
+    eval_config: &EvalConfig,
+    src_path: &std::path::Path,
+    expanded_line: u32,
+) -> Option<CandidateResolution> {
+    let needle = format!("{special_char}{macro_name}(");
+    let mut candidates = Vec::new();
+    let token_pair = differing_token_pair(old_text, new_text);
+
+    for (idx, line) in lines.iter().enumerate() {
+        if !line.contains(&needle) {
+            continue;
+        }
+        if let Some(new_line) = attempt_macro_arg_patch(lines, idx, 0, old_text, new_text) {
+            let candidate_src = splice_line(lines, idx, &new_line, true);
+            if verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+                candidates.push(CandidateResolution {
+                    line_idx: idx,
+                    new_line,
+                    score: 80 + token_overlap_score(line, old_text, new_text),
+                });
+            }
+        }
+
+        if let Some((ref old_token, ref new_token)) = token_pair {
+            for (pos, _) in line.match_indices(old_token) {
+                let before_ok = pos == 0 || !line[..pos].chars().last().is_some_and(|ch| ch.is_alphanumeric() || ch == '_');
+                let after_pos = pos + old_token.len();
+                let after_ok = after_pos == line.len() || !line[after_pos..].chars().next().is_some_and(|ch| ch.is_alphanumeric() || ch == '_');
+                if !(before_ok && after_ok) {
+                    continue;
+                }
+
+                let mut token_line = line.clone();
+                token_line.replace_range(pos..after_pos, new_token);
+                let candidate_src = splice_line(lines, idx, &token_line, true);
+                if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+                    continue;
+                }
+                candidates.push(CandidateResolution {
+                    line_idx: idx,
+                    new_line: token_line,
+                    score: 95 + token_overlap_score(line, old_text, new_text),
+                });
+            }
+        }
+    }
+
+    choose_best_candidate(candidates)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resolve_patch_source(
     rel_path: &str,
@@ -376,6 +677,120 @@ fn resolve_patch_source(
             kind_label: other.to_string(),
         }),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_best_patch_source(
+    rel_path: &str,
+    out_line_0: u32,
+    old_text: &str,
+    new_text: &str,
+    indent_chars: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+    nw_src_file: &str,
+    nw_src_line: u32,
+    snapshot: Option<&[u8]>,
+    special_char: char,
+    len: usize,
+    lsp_hint: Option<&LspDefinitionHint>,
+) -> Result<PatchSource, ApplyBackError> {
+    let first_diff = old_text.chars().zip(new_text.chars())
+        .position(|(a, b)| a != b)
+        .unwrap_or(0) as u32;
+    let old_len = old_text.chars().count() as u32;
+    let new_len = new_text.chars().count() as u32;
+    let last_changed = old_len.max(new_len).saturating_sub(1);
+    let start = first_diff.min(last_changed);
+    let end = (first_diff + 6).min(last_changed);
+
+    let mut cols = Vec::new();
+    for rel_col in start..=end {
+        let col = indent_chars + rel_col + 1;
+        if !cols.contains(&col) {
+            cols.push(col);
+        }
+    }
+    if cols.is_empty() {
+        cols.push(indent_chars + 1);
+    }
+
+    let mut best = None;
+    let mut best_rank = i32::MIN;
+    for col in cols {
+        let candidate = resolve_patch_source(
+            rel_path,
+            out_line_0,
+            col,
+            db,
+            resolver,
+            eval_config,
+            nw_src_file,
+            nw_src_line,
+            snapshot,
+            special_char,
+            len,
+        )?;
+        let (candidate_file, candidate_line) = patch_source_location(&candidate);
+        let mut rank = patch_source_rank(&candidate);
+        if let Some(hint) = lsp_hint
+            && candidate_file == hint.src_file
+        {
+            rank += 15;
+            if candidate_line.abs_diff(hint.src_line) <= 2 {
+                rank += 20;
+            }
+        }
+        if rank > best_rank {
+            best_rank = rank;
+            best = Some(candidate);
+        }
+    }
+
+    best.ok_or_else(|| ApplyBackError::Io(std::io::Error::other("no patch source candidates found")))
+}
+
+fn lsp_definition_hint(
+    rel_path: &str,
+    out_line_0: u32,
+    col_1: u32,
+    resolver: &PathResolver,
+    db: &WeavebackDb,
+    eval_config: &EvalConfig,
+    lsp_clients: &mut HashMap<String, LspClient>,
+) -> Option<LspDefinitionHint> {
+    let ext = std::path::Path::new(rel_path).extension()?.to_str()?;
+    let client = if let Some(client) = lsp_clients.get_mut(ext) {
+        client
+    } else {
+        let (lsp_cmd, lsp_lang) = weaveback_lsp::get_lsp_config(ext)?;
+        let project_root = std::env::current_dir().ok()?;
+        let mut client = LspClient::spawn(&lsp_cmd, &[], &project_root, lsp_lang).ok()?;
+        client.initialize(&project_root).ok()?;
+        lsp_clients.insert(ext.to_string(), client);
+        lsp_clients.get_mut(ext)?
+    };
+
+    let out_path = resolver.resolve_gen(rel_path);
+    client.did_open(&out_path).ok()?;
+    let loc = client.goto_definition(&out_path, out_line_0, col_1.saturating_sub(1)).ok()??;
+    let target_path = loc.uri.to_file_path().ok()?;
+    let target_line = loc.range.start.line + 1;
+    let target_col = loc.range.start.character + 1;
+    let traced = lookup::perform_trace(
+        &target_path.to_string_lossy(),
+        target_line,
+        target_col,
+        db,
+        resolver,
+        eval_config.clone(),
+    ).ok()??;
+    let obj = traced.as_object()?;
+    Some(LspDefinitionHint {
+        src_file: obj.get("src_file")?.as_str()?.to_string(),
+        src_line: obj.get("src_line")?.as_u64()? as usize - 1,
+    })
 }
 
 /// Try to apply one line replacement to `lines` at `src_line`.
@@ -462,6 +877,7 @@ fn do_patch(
 }
 
 struct FilePatchContext<'a> {
+    db: &'a WeavebackDb,
     src_file: &'a str,
     src_root: &'a std::path::Path,
     patches: &'a [Patch],
@@ -512,39 +928,51 @@ fn apply_patches_to_file(
                 let body_template = ctx.snapshot
                     .and_then(|b| String::from_utf8_lossy(b).lines().nth(*src_line).map(|l| l.to_string()));
 
-                let candidate = body_template.as_deref().and_then(|tmpl| {
-                    attempt_macro_body_fix(tmpl, &patch.old_text, &patch.new_text, ctx.special_char)
-                });
-
-                match (candidate, ctx.eval_config.clone()) {
-                    (Some(new_line), Some(ec)) => {
+                match ctx.eval_config.clone() {
+                    Some(ec) => {
                         let hint = *src_line;
-                        let old_line_to_find = body_template.as_deref().unwrap_or(&patch.old_text);
-                        let idx = if hint < lines.len() && lines[hint] == old_line_to_find {
-                            Some(hint)
-                        } else {
-                            fuzzy_find_line(&lines, hint, old_line_to_find, 15)
-                        };
-                        if let Some(idx) = idx {
-                            let candidate_src = splice_line(&lines, idx, &new_line, had_trailing_newline);
-                            if verify_candidate(&candidate_src, &src_path, &ec, patch.expanded_line, &patch.new_text) {
-                                if ctx.dry_run {
-                                    let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[idx], new_line);
-                                } else {
-                                    lines[idx] = new_line;
-                                    let _ = writeln!(out, "  {}: patched (body literal fix)", label);
-                                }
-                                applied += 1;
+                        if let Some(candidate) = search_macro_body_candidate(
+                            ctx.db,
+                            &lines,
+                            hint,
+                            body_template.as_deref(),
+                            &patch.old_text,
+                            &patch.new_text,
+                            ctx.special_char,
+                            &ec,
+                            &src_path,
+                            patch.expanded_line,
+                        ) {
+                            if ctx.dry_run {
+                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {
-                                let _ = writeln!(out, "  MANUAL {}: body fix candidate did not verify — edit manually\n    desired output: {:?}", label, patch.new_text);
-                                *skipped += 1;
+                                lines[candidate.line_idx] = candidate.new_line;
+                                let _ = writeln!(out, "  {}: patched (body search+oracle)", label);
                             }
+                            applied += 1;
+                        } else if let Some(candidate) = search_macro_call_candidate(
+                            &lines,
+                            macro_name,
+                            ctx.special_char,
+                            &patch.old_text,
+                            &patch.new_text,
+                            &ec,
+                            &src_path,
+                            patch.expanded_line,
+                        ) {
+                            if ctx.dry_run {
+                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
+                            } else {
+                                lines[candidate.line_idx] = candidate.new_line;
+                                let _ = writeln!(out, "  {}: patched (macro-call search+oracle)", label);
+                            }
+                            applied += 1;
                         } else {
-                            let _ = writeln!(out, "  MANUAL {}: source line not found — edit manually\n    desired output: {:?}", label, patch.new_text);
+                            let _ = writeln!(out, "  MANUAL {}: no verified body candidate found — edit manually\n    desired output: {:?}", label, patch.new_text);
                             *skipped += 1;
                         }
                     }
-                    _ => {
+                    None => {
                         let _ = writeln!(out, "  MANUAL {}: contains variables — edit manually\n    desired output: {:?}", label, patch.new_text);
                         *skipped += 1;
                     }
@@ -556,27 +984,53 @@ fn apply_patches_to_file(
 
                 let candidate = attempt_macro_arg_patch(&lines, *src_line, *src_col, &patch.old_text, &patch.new_text);
 
-                match (candidate, ctx.eval_config.clone()) {
-                    (Some(new_line), Some(ec)) => {
-                        let candidate_src = splice_line(&lines, *src_line, &new_line, had_trailing_newline);
-                        if verify_candidate(&candidate_src, &src_path, &ec, patch.expanded_line, &patch.new_text) {
+                match ctx.eval_config.clone() {
+                    Some(ec) => {
+                        if let Some(candidate) = search_macro_arg_candidate(
+                            ctx.db,
+                            &lines,
+                            *src_line,
+                            *src_col,
+                            &patch.old_text,
+                            &patch.new_text,
+                            &ec,
+                            &src_path,
+                            patch.expanded_line,
+                        ) {
                             if ctx.dry_run {
-                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[*src_line], new_line);
+                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {
-                                lines[*src_line] = new_line;
-                                let _ = writeln!(out, "  {}: patched (arg replacement)", label);
+                                lines[candidate.line_idx] = candidate.new_line;
+                                let _ = writeln!(out, "  {}: patched (arg search+oracle)", label);
+                            }
+                            applied += 1;
+                        } else if let Some(candidate) = search_macro_call_candidate(
+                            &lines,
+                            macro_name,
+                            ctx.special_char,
+                            &patch.old_text,
+                            &patch.new_text,
+                            &ec,
+                            &src_path,
+                            patch.expanded_line,
+                        ) {
+                            if ctx.dry_run {
+                                let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
+                            } else {
+                                lines[candidate.line_idx] = candidate.new_line;
+                                let _ = writeln!(out, "  {}: patched (macro-call search+oracle)", label);
                             }
                             applied += 1;
                         } else {
-                            let _ = writeln!(out, "  MANUAL {}: arg replacement did not verify — edit manually\n    desired output: {:?}\n    at col {}", label, patch.new_text, src_col);
+                            let _ = writeln!(out, "  MANUAL {}: no verified arg candidate found — edit manually\n    desired output: {:?}\n    at col {}", label, patch.new_text, src_col);
                             *skipped += 1;
                         }
                     }
-                    (None, _) => {
+                    None if candidate.is_none() => {
                         let _ = writeln!(out, "  MANUAL {}: could not locate arg value at col {} — edit manually\n    desired output: {:?}", label, src_col, patch.new_text);
                         *skipped += 1;
                     }
-                    (Some(_), None) => {
+                    None => {
                         let _ = writeln!(out, "  MANUAL {}: no eval config for verification — edit manually\n    desired output: {:?}", label, patch.new_text);
                         *skipped += 1;
                     }
@@ -646,6 +1100,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
 
     // Snapshot cache: driver path → bytes.  Populated lazily.
     let mut snapshot_cache: HashMap<String, Option<Vec<u8>>> = HashMap::new();
+    let mut lsp_clients: HashMap<String, LspClient> = HashMap::new();
 
     let mut any_changed = false;
 
@@ -713,22 +1168,26 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                     file_special_char = cfg.special_char;
                                 }
 
-                                // Find the first character that differs between old and new
-                                // (in the indent-stripped text) and use it as the trace column.
-                                // This lets perform_trace land on the specific macro argument
-                                // rather than the start of the body.
-                                let first_diff = old_text.chars().zip(new_text.chars())
-                                    .position(|(a, b)| a != b)
-                                    .unwrap_or(0) as u32;
-                                let indent_chars = entry.indent.chars().count() as u32;
-                                let diff_col = indent_chars + first_diff + 1; // 1-indexed
-
                                 let source = if let Some(ec) = &file_eval_config {
-                                    resolve_patch_source(
-                                        rel_path, out_line_0, diff_col,
+                                    let lsp_hint = lsp_definition_hint(
+                                        rel_path,
+                                        out_line_0,
+                                        entry.indent.chars().count() as u32 + 1,
+                                        &resolver,
+                                        &db,
+                                        ec,
+                                        &mut lsp_clients,
+                                    );
+                                    resolve_best_patch_source(
+                                        rel_path,
+                                        out_line_0,
+                                        &old_text,
+                                        &new_text,
+                                        entry.indent.chars().count() as u32,
                                         &db, &resolver, ec,
                                         &entry.src_file, entry.src_line,
                                         snap, file_special_char, 1,
+                                        lsp_hint.as_ref(),
                                     )?
                                 } else {
                                     PatchSource::Noweb {
@@ -892,6 +1351,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
 
             apply_patches_to_file(
                 FilePatchContext {
+                    db: &db,
                     src_file,
                     src_root: &project_root,
                     patches,

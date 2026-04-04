@@ -133,6 +133,25 @@ enum Commands {
         #[arg(long, default_value = "weaveback.toml")]
         config: std::path::PathBuf,
     },
+    /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
+    #[cfg(feature = "server")]
+    Tag {
+        /// Path to the tangle config file (reads [tags] section)
+        #[arg(long, default_value = "weaveback.toml")]
+        config: std::path::PathBuf,
+        /// Override backend (anthropic/gemini/openai/ollama)
+        #[arg(long)]
+        backend: Option<String>,
+        /// Override model name
+        #[arg(long)]
+        model: Option<String>,
+        /// Override API endpoint (for ollama / openai-compatible)
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Override blocks per LLM request
+        #[arg(long)]
+        batch_size: Option<usize>,
+    },
     /// Run as an MCP server for IDE/agent integration
     Mcp,
     /// Propagate edits in gen/ back to the literate source
@@ -825,6 +844,10 @@ fn main() {
         Some(Commands::Tangle { config }) => {
             run_tangle_all(&config)
         }
+        #[cfg(feature = "server")]
+        Some(Commands::Tag { config, backend, model, endpoint, batch_size }) => {
+            run_tag_only(&config, backend, model, endpoint, batch_size, cli.args.db)
+        }
         Some(Commands::Mcp) => {
             let eval_config = build_eval_config(&cli.args);
             mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config)
@@ -1041,6 +1064,56 @@ fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
             }
             Err(e) => eprintln!("warning: could not open db for FTS rebuild: {e}"),
         }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+fn run_tag_only(
+    config_path: &std::path::Path,
+    backend_override:    Option<String>,
+    model_override:      Option<String>,
+    endpoint_override:   Option<String>,
+    batch_size_override: Option<usize>,
+    db_path: PathBuf,
+) -> Result<(), Error> {
+    // Build TagConfig: CLI flags override weaveback.toml [tags] section.
+    let tag_cfg: tag::TagConfig = {
+        // Try to read toml; if [tags] absent, CLI flags must supply backend+model.
+        let toml_tags: Option<TagsCfg> = std::fs::read_to_string(config_path).ok()
+            .and_then(|s| toml::from_str::<TangleCfg>(&s).ok())
+            .and_then(|c| c.tags);
+
+        let backend = backend_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.backend.clone()))
+            .unwrap_or_else(default_tags_backend);
+        let model = model_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.model.clone()))
+            .unwrap_or_else(default_tags_model);
+        let endpoint = endpoint_override
+            .or_else(|| toml_tags.as_ref().and_then(|t| t.endpoint.clone()));
+        let batch_size = batch_size_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.batch_size))
+            .unwrap_or_else(default_batch_size);
+
+        tag::TagConfig { backend, model, endpoint, batch_size }
+    };
+
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+
+    match weaveback_tangle::db::WeavebackDb::open(&db_path) {
+        Ok(mut db) => {
+            tag::run_auto_tag(&mut db, &tag_cfg);
+            if let Err(e) = db.rebuild_prose_fts() {
+                eprintln!("warning: FTS index rebuild failed: {e}");
+            }
+        }
+        Err(e) => return Err(Error::Io(std::io::Error::other(e.to_string()))),
     }
     Ok(())
 }

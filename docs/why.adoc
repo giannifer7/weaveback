@@ -6,6 +6,52 @@ This document explains the *reasons* behind Weaveback's design.  Start here
 before reading the architecture or source code.  The code answers *what* —
 this page answers *why*.
 
+== Why this still matters now
+
+The project started from an older frustration: using macros and chunks to keep
+related but distant pieces of a codebase in sync.  That use case is still real.
+What changed is the surrounding environment.
+
+In the 1990s and 2000s, abstraction machinery often tried to save humans from
+typing boilerplate.  Today coding agents can generate boilerplate on demand.
+That does *not* make design less important.  It changes where the bottleneck
+is.
+
+Code production is now cheap.  Understanding, reviewing, validating, and
+preserving intent are expensive.
+
+That is the reason Weaveback still exists.  The goal is no longer merely "emit
+less repetitive code".  The goal is to keep *code, provenance, and rationale*
+bound together strongly enough that a human can still judge the result.
+
+This is the practical claim behind the project:
+
+* agents reduce the cost of writing code
+* they do not reduce the cost of deciding *why* code should exist in that form
+* they often increase the volume of code that must later be inspected
+* therefore the value of explicit intent, traceability, and reversible
+  structure goes up, not down
+
+This is also why "design patterns" need to be interpreted carefully.
+As code stencils, many of them are less important than they once were.
+An agent can emit a strategy-like or observer-like structure trivially.
+But as *reasoning vocabulary* they still matter:
+
+* what pressure is this abstraction responding to?
+* what variability axis is being isolated?
+* what coupling is being traded for indirection?
+* what future change is this extra structure buying us?
+
+An agent can generate the pattern-shaped code.  It cannot remove the need for a
+human to judge whether the pattern is justified.
+
+That is why the old motto remains true: `Pensare non ha sostituti`.
+
+Weaveback is worthwhile only if it reduces cognitive load at that level.  If it
+is used merely to create clever macro machinery, it is ornament.  If it helps a
+team preserve intent, keep distant pieces in sync, and audit agent-made changes,
+it is doing real work.
+
 == The core problem
 
 Literate programming is a fifty-year-old idea: write prose and code together,

@@ -17,6 +17,33 @@ weaveback source.adoc --gen src
 
 ---
 
+== Why this exists now
+
+Coding agents made code generation cheap.  They did not make judgment cheap.
+
+That changes the value proposition of literate programming.  The hard part is
+no longer typing boilerplate; it is preserving *intent*, keeping distant but
+related fragments in sync, and making generated or agent-modified code
+reviewable by a human.
+
+Weaveback is useful only if it helps with that higher-level problem:
+
+- keeping related code fragments synchronized across distance
+- tracing generated code back to the rationale that produced it
+- propagating edits without losing the source of truth
+- giving humans enough context to validate agent-produced changes
+
+As code templates, many classic "design patterns" are cheaper than ever for an
+agent to emit.  As a vocabulary for *why* a structure exists, they still
+matter.  The project is built on the assumption that `Pensare non ha
+sostituti`: thinking still has no substitute.
+
+If the tool does not reduce cognitive load and improve auditability, it is just
+cleverness.  If it carries the why together with the code strongly enough that
+people can still reason about large systems, it earns its keep.
+
+---
+
 == What makes Weaveback different
 
 Traditional literate programming is one-way: source → generated code.

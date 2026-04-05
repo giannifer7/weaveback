@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
+    UV_INSTALL_DIR=/usr/local/bin \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 
@@ -70,6 +71,7 @@ FROM alpine:latest AS musl
 RUN apk add --no-cache curl build-base python3 python3-dev py3-virtualenv git
 ENV RUSTUP_HOME=/root/.rustup \
     CARGO_HOME=/root/.cargo \
+    UV_INSTALL_DIR=/usr/local/bin \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     PATH=/root/.cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
@@ -120,6 +122,7 @@ FROM fedora:latest AS fedora
 RUN dnf install -y curl gcc pkg-config git python3 python3-devel python3-virtualenv && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
+    UV_INSTALL_DIR=/usr/local/bin \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \

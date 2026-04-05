@@ -120,8 +120,8 @@ impl Evaluator {
         self.state.source_manager.source_files()
     }
 
-    pub fn get_special_char(&self) -> Vec<u8> {
-        self.state.get_special_char()
+    pub fn get_sigil(&self) -> Vec<u8> {
+        self.state.get_sigil()
     }
 
     pub fn set_early_exit(&mut self) {
@@ -185,23 +185,29 @@ impl Evaluator {
                 return "".into();
             }
 
+            let special_len = std::str::from_utf8(&source[start..])
+                .ok()
+                .and_then(|s| s.chars().next())
+                .map(|c| c.len_utf8())
+                .unwrap_or(1);
+
             let slice = match node.token.kind {
                 TokenKind::BlockOpen | TokenKind::BlockClose | TokenKind::Macro => {
-                    if end > start + 2 {
-                        &source[(start + 1)..(end - 1)]
+                    if end > start + special_len + 1 {
+                        &source[(start + special_len)..(end - 1)]
                     } else {
                         &source[start..end]
                     }
                 }
                 TokenKind::Var => {
-                    if end > start + 3 {
-                        &source[(start + 2)..(end - 1)]
+                    if end > start + special_len + 2 {
+                        &source[(start + special_len + 1)..(end - 1)]
                     } else {
                         &source[start..end]
                     }
                 }
                 TokenKind::Special => {
-                    if end > start + 1 {
+                    if end > start + special_len {
                         &source[start..(end - 1)]
                     } else {
                         &source[start..end]
@@ -458,7 +464,7 @@ impl Evaluator {
 
         let result = crate::evaluator::lexer_parser::lex_parse_content(
             text,
-            self.state.config.special_char,
+            self.state.config.sigil,
             src,
         );
         result.map_err(EvalError::ParseError)

@@ -156,9 +156,9 @@ fn test_multiple_inputs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// 4) Test a custom special char
+// 4) Test a custom sigil
 #[test]
-fn test_custom_special_char() -> Result<(), Box<dyn std::error::Error>> {
+fn test_custom_sigil() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let temp_path = temp.path().canonicalize()?;
 
@@ -171,7 +171,7 @@ fn test_custom_special_char() -> Result<(), Box<dyn std::error::Error>> {
 
     let run = cargo_weaveback_macro_cli()?;
     let mut cmd = run.command();
-    cmd.arg("--special")
+    cmd.arg("--sigil")
         .arg("@")
         .arg("--output")
         .arg(&out_file)
@@ -180,13 +180,48 @@ fn test_custom_special_char() -> Result<(), Box<dyn std::error::Error>> {
     let output = cmd.output()?;
     assert!(
         output.status.success(),
-        "CLI run with custom special char should succeed."
+        "CLI run with custom sigil should succeed."
     );
 
     let content = fs::read_to_string(&out_file)?;
     assert!(
         content.contains("Hello from custom char"),
         "Expected to see expansion with '@' as the macro char."
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_unicode_sigil() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "input_section.txt",
+        "§def(test_macro, Hello from unicode char)\n§test_macro()",
+    );
+    let out_file = temp_path.join("output_section.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--sigil")
+        .arg("§")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "CLI run with unicode sigil should succeed."
+    );
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("Hello from unicode char"),
+        "Expected to see expansion with '§' as the macro char."
     );
 
     Ok(())

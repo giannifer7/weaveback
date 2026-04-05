@@ -121,6 +121,26 @@ fn test_named_params_any_order() {
     );
 }
 
+/// A trailing comma after the last named argument is accepted.
+#[test]
+fn test_named_params_allow_trailing_comma() {
+    let result = process_string_defaults(
+        "%def(http_endpoint, method, path, handler, \
+              %(method) %(path) %(handler))\n\
+         %http_endpoint(\n\
+             handler = list_users,\n\
+             method = GET,\n\
+             path = /api/users,\n\
+         )",
+    )
+    .unwrap();
+    let s = std::str::from_utf8(&result).unwrap();
+    assert!(
+        s.contains("GET /api/users list_users"),
+        "expected trailing comma to be ignored, got: {s:?}"
+    );
+}
+
 /// Positional before named: the first param is positional, the rest named.
 #[test]
 fn test_positional_before_named() {

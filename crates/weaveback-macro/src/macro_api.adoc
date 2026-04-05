@@ -39,12 +39,20 @@ accept a mutable `&mut Evaluator`.  Callers that process a batch of files use
 a single evaluator so macro definitions in file N are visible in file N+1 —
 the same semantics as `eval_files`.
 
+=== File context on failures
+
+Multi-file tangle passes are painful to debug if a parse error reports only
+`line:column` without naming the input document.  `process_file_with_writer`
+already knows the current file, so this module is the right place to wrap
+evaluation failures with that path.
+
 == File structure
 
 [source,rust]
 ----
 // <<@file weaveback-macro/src/macro_api.rs>>=
 // <<macro api preamble>>
+// <<input error context>>
 // <<process string>>
 // <<process string tracing>>
 // <<process file with writer>>
@@ -70,6 +78,17 @@ pub type TracingResult = (Vec<u8>, Vec<(u32, MacroMapEntry)>);
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+// @
+----
+
+== Input error context
+
+[source,rust]
+----
+// <<input error context>>=
+fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
+    EvalError::Runtime(format!("{}: {}", input_file.display(), error))
+}
 // @
 ----
 
@@ -151,7 +170,8 @@ pub fn process_file_with_writer(
 ) -> Result<(), EvalError> {
     let content = fs::read_to_string(input_file)
         .map_err(|e| EvalError::Runtime(format!("Cannot read {input_file:?}: {e}")))?;
-    let expanded = process_string(&content, Some(input_file), evaluator)?;
+    let expanded = process_string(&content, Some(input_file), evaluator)
+        .map_err(|e| with_input_context(input_file, e))?;
     writer
         .write_all(&expanded)
         .map_err(|e| EvalError::Runtime(format!("Cannot write to output: {e}")))?;
@@ -247,7 +267,7 @@ pub fn process_files_from_config(
 
 == `process_string_defaults`
 
-The simplest entry point: default `%` special char, no path.  Useful for
+The simplest entry point: default `%` sigil, no path.  Useful for
 one-shot calls in integration tests and tooling.
 
 [source,rust]

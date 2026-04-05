@@ -418,17 +418,17 @@ fn test_trace_path_normalization() {
     assert_eq!(j1["chunk"], "@file out.txt");
 }
 
-/// Verifies that the special character is correctly recorded and used by apply-back.
+/// Verifies that the sigil is correctly recorded and used by apply-back.
 #[test]
 fn test_apply_back_config_recording() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path().canonicalize().unwrap();
 
-    // Use a non-standard special char '^'
+    // Use a non-standard sigil '^'
     write(&root, "source.md", "^def(val, hello)\n# <[@file out.txt]>=\n^val()\n# @\n");
 
     weaveback()
-        .arg("--special").arg("^")
+        .arg("--sigil").arg("^")
         .arg("--gen").arg("gen")
         .arg("source.md")
         .current_dir(&root)
@@ -457,5 +457,5 @@ fn test_apply_back_config_recording() {
     println!("apply-back stderr: {}", String::from_utf8_lossy(&out.stderr));
 
     let patched = fs::read_to_string(root.join("source.md")).unwrap();
-    assert!(patched.contains("^def(val, world)"), "apply-back failed to patch with correct special char: {}", patched);
+    assert!(patched.contains("^def(val, world)"), "apply-back failed to patch with correct sigil: {}", patched);
 }

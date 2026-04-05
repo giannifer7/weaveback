@@ -1,9 +1,10 @@
 use crate::apply_back::{self, ApplyBackOptions};
 use crate::lookup;
 use weaveback_agent_core::{
-    ChangePlan, ChangeTarget, OutputAnchor, PlannedEdit, Workspace as AgentWorkspace,
+    ChangePlan, ChangeTarget, PlannedEdit, Workspace as AgentWorkspace,
     WorkspaceConfig as AgentWorkspaceConfig,
 };
+use weaveback_agent_core::change_plan::OutputAnchor;
 use weaveback_macro::evaluator::EvalConfig;
 use weaveback_tangle::db::WeavebackDb;
 use weaveback_lsp::LspClient;
@@ -34,6 +35,359 @@ fn get_or_spawn_lsp<'a>(
         clients.insert(lsp_lang.clone(), c);
     }
     Ok(clients.get_mut(&lsp_lang).unwrap())
+}
+
+fn tools_list_result() -> Value {
+    json!({
+        "tools": [
+            {
+                "name": "weaveback_trace",
+                "description": "Trace an output file line back to its original literate source. Returns src_file/src_line/src_col/kind. MacroArg spans include macro_name/param_name. MacroBody spans include macro_name and a def_locations array (all %def call sites). VarBinding spans include var_name and a set_locations array (all %set call sites). Use --col for sub-line token precision.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" },
+                        "out_line": { "type": "integer", "description": "1-indexed line number in the generated file" },
+                        "out_col":  { "type": "integer", "description": "1-indexed character position within the output line (default 1). Use to pinpoint a specific token." }
+                    },
+                    "required": ["out_file", "out_line"]
+                }
+            },
+            {
+                "name": "weaveback_apply_back",
+                "description": "Bulk baseline-reconciliation tool: propagate edits already made directly in gen/ files back to the literate source. Use this only when gen/ files have been edited by hand and you need to reconcile the baseline. For intentional fixes where you know what the source should look like, prefer weaveback_apply_fix (oracle-verified, surgical, no full rebuild needed). weaveback_apply_back diffs each modified gen/ file against its stored baseline, traces each changed line to its noweb+macro origin, and patches the literate source. Returns a report of what was patched, skipped, or needs manual attention.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "files":   { "type": "array", "items": { "type": "string" }, "description": "Relative paths within gen/ to process (default: all modified files)" },
+                        "dry_run": { "type": "boolean", "description": "Show what would change without writing (default: false)" }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "weaveback_apply_fix",
+                "description": "**Preferred tool for all literate-source edits.** Apply a source edit (single line or multi-line range) and oracle-verify it produces the expected output before writing. Workflow: (1) use weaveback_trace to find src_file/src_line, (2) read the source, (3) call this tool with the replacement and the expected output line. The macro expander re-runs as an oracle — the file is written only if the expected output is produced, making the edit safe to apply without a full rebuild. Use apply_back only when you have already edited gen/ files directly and need to reconcile the baseline.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "src_file":        { "type": "string",  "description": "Absolute path of the literate source file to edit" },
+                        "src_line":        { "type": "integer", "description": "1-indexed first line to replace in src_file" },
+                        "src_line_end":    { "type": "integer", "description": "1-indexed last line of the replacement range (inclusive, defaults to src_line for single-line edits)" },
+                        "new_src_line":    { "type": "string",  "description": "Replacement text when replacing a single line (without trailing newline)" },
+                        "new_src_lines":   { "type": "array", "items": { "type": "string" }, "description": "Replacement lines for multi-line edits (each element is one line without trailing newline); overrides new_src_line when present" },
+                        "out_file":        { "type": "string",  "description": "Generated file path (used for oracle lookup)" },
+                        "out_line":        { "type": "integer", "description": "1-indexed line in the generated file (oracle check point)" },
+                        "expected_output": { "type": "string",  "description": "The exact content of out_line expected after the fix (indent-stripped); oracle rejects the edit if this does not match" }
+                    },
+                    "required": ["src_file", "src_line", "out_file", "out_line", "expected_output"]
+                }
+            },
+            {
+                "name": "weaveback_chunk_context",
+                "description": "Return full context for a named noweb chunk: its body, the AsciiDoc section title breadcrumb, the full prose of the enclosing section (paragraphs, admonitions, design notes), bodies of all direct dependencies, reverse-dep names, output files, and recent git log entries. Use this before editing or reasoning about a chunk.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Source file path (relative to project root), e.g. 'crates/weaveback/src/serve.adoc'" },
+                        "name": { "type": "string", "description": "Chunk name as it appears in the <<name>>= marker" },
+                        "nth":  { "type": "integer", "description": "0-based index for chunks defined multiple times (default 0)" }
+                    },
+                    "required": ["file", "name"]
+                }
+            },
+            {
+                "name": "weaveback_list_chunks",
+                "description": "List all chunk definitions in the project, optionally filtered to a single source file. Returns an array of { file, name, nth, def_start, def_end } objects.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Source file to filter to (optional; omit for all files)" }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "weaveback_find_chunk",
+                "description": "Find which source file(s) define a given chunk name. Returns an array of { file, nth, def_start, def_end } objects.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Chunk name to look up" }
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "weaveback_lsp_definition",
+                "description": "Find the definition of a symbol at a given position in a generated file, and map it back to its original literate source. Requires rust-analyzer.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" },
+                        "line":     { "type": "integer", "description": "1-indexed line number" },
+                        "col":      { "type": "integer", "description": "1-indexed character position" }
+                    },
+                    "required": ["out_file", "line", "col"]
+                }
+            },
+            {
+                "name": "weaveback_lsp_references",
+                "description": "Find all references to a symbol at a given position in a generated file, and map them back to their original literate sources. Requires rust-analyzer.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" },
+                        "line":     { "type": "integer", "description": "1-indexed line number" },
+                        "col":      { "type": "integer", "description": "1-indexed character position" }
+                    },
+                    "required": ["out_file", "line", "col"]
+                }
+            },
+            {
+                "name": "weaveback_lsp_hover",
+                "description": "Get type information and documentation for a symbol at a given position in a generated file, mapped back to literate source. Requires rust-analyzer.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" },
+                        "line":     { "type": "integer", "description": "1-indexed line number" },
+                        "col":      { "type": "integer", "description": "1-indexed character position" }
+                    },
+                    "required": ["out_file", "line", "col"]
+                }
+            },
+            {
+                "name": "weaveback_lsp_diagnostics",
+                "description": "Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" }
+                    },
+                    "required": ["out_file"]
+                }
+            },
+            {
+                "name": "weaveback_lsp_symbols",
+                "description": "List all semantic symbols (functions, structs, etc.) in a generated file, with their original literate source locations.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "out_file": { "type": "string", "description": "Path to the generated file" }
+                    },
+                    "required": ["out_file"]
+                }
+            },
+            {
+                "name": "weaveback_search",
+                "description": "Hybrid search over the prose in all literate source files. FTS5 and tags are always used; if prose embeddings were generated during tangle, semantic reranking is also applied. Returns ranked excerpts with file path, line range, tags, score, and contributing channels. Use this to discover which chunks or sections are relevant to a concept before calling weaveback_chunk_context. Supports FTS5 query syntax: AND, OR, NOT, phrase \"...\", prefix foo*.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search terms (FTS5 syntax)" },
+                        "limit": { "type": "integer", "description": "Maximum results to return (default 10)" }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "weaveback_list_tags",
+                "description": "List all LLM-generated tags for prose blocks in the project. Returns each block's source file, line, block type, and comma-separated tags. Optionally filter to a single source file. Use this to explore the semantic landscape of the project or to find all blocks tagged with a given concept.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "file": { "type": "string", "description": "Optional: filter to this source file (plain relative path, e.g. crates/weaveback-tangle/src/db.adoc)" }
+                    }
+                }
+            }
+        ]
+    })
+}
+
+fn build_apply_fix_plan(
+    src_file: &str,
+    src_line_1: usize,
+    src_line_end_1: usize,
+    new_lines: Vec<String>,
+    out_file: &str,
+    out_line_1: u32,
+    expected: &str,
+) -> ChangePlan {
+    ChangePlan {
+        plan_id: "mcp-apply-fix".to_string(),
+        goal: "Apply a single oracle-verified fix".to_string(),
+        constraints: Vec::new(),
+        edits: vec![PlannedEdit {
+            edit_id: "edit-1".to_string(),
+            rationale: "MCP weaveback_apply_fix request".to_string(),
+            target: ChangeTarget {
+                src_file: src_file.to_string(),
+                src_line: src_line_1,
+                src_line_end: src_line_end_1,
+            },
+            new_src_lines: new_lines,
+            anchor: OutputAnchor {
+                out_file: out_file.to_string(),
+                out_line: out_line_1,
+                expected_output: expected.to_string(),
+            },
+        }],
+    }
+}
+
+fn response_payload(id: Option<Value>, result: Value) -> Value {
+    let mut resp = json!({ "jsonrpc": "2.0" });
+    if let Some(id) = id {
+        resp.as_object_mut().unwrap().insert("id".to_string(), id);
+        resp.as_object_mut().unwrap().insert("result".to_string(), result);
+    }
+    resp
+}
+
+fn text_result(text: &str) -> Value {
+    json!({
+        "content": [{ "type": "text", "text": text }]
+    })
+}
+
+fn error_result(msg: &str) -> Value {
+    json!({
+        "isError": true,
+        "content": [{ "type": "text", "text": msg }]
+    })
+}
+
+fn chunk_context_value(ctx: weaveback_agent_core::ChunkContext) -> Value {
+    json!({
+        "file": ctx.file,
+        "name": ctx.name,
+        "nth": ctx.nth,
+        "body": ctx.body,
+        "section_title_chain": ctx.section_breadcrumb,
+        "section_prose": ctx.prose,
+        "dependencies": ctx.direct_dependencies,
+        "output_files": ctx.outputs,
+    })
+}
+
+fn search_results_value(results: &[weaveback_agent_core::SearchHit]) -> Value {
+    Value::Array(
+        results
+            .iter()
+            .map(|r| {
+                let mut obj = json!({
+                    "src_file":   r.src_file,
+                    "block_type": r.block_type,
+                    "line_start": r.line_start,
+                    "line_end":   r.line_end,
+                    "snippet":    r.snippet,
+                    "score":      r.score,
+                    "channels":   r.channels,
+                });
+                if !r.tags.is_empty() {
+                    obj["tags"] = json!(r.tags);
+                }
+                obj
+            })
+            .collect(),
+    )
+}
+
+fn handle_apply_fix(
+    input: &serde_json::Map<String, Value>,
+    agent_session: &weaveback_agent_core::Session,
+) -> Result<String, String> {
+    let src_file = input.get("src_file").and_then(|v| v.as_str()).unwrap_or("");
+    let src_line_1 = input.get("src_line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let src_line_end_1 = input
+        .get("src_line_end")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(src_line_1);
+    let new_lines: Vec<String> = if let Some(arr) = input.get("new_src_lines").and_then(|v| v.as_array()) {
+        arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
+    } else {
+        let s = input.get("new_src_line").and_then(|v| v.as_str()).unwrap_or("");
+        vec![s.to_string()]
+    };
+    let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
+    let out_line_1 = input.get("out_line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let expected = input
+        .get("expected_output")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if src_line_1 == 0 {
+        return Err("src_line must be >= 1".to_string());
+    }
+    if src_line_end_1 < src_line_1 {
+        return Err("src_line_end must be >= src_line".to_string());
+    }
+
+    let plan = build_apply_fix_plan(
+        src_file,
+        src_line_1,
+        src_line_end_1,
+        new_lines,
+        out_file,
+        out_line_1,
+        expected,
+    );
+    match agent_session.apply_change_plan(&plan) {
+        Ok(result) if result.applied => Ok(format!(
+            "Applied ChangePlan {} with edits: {}",
+            result.plan_id,
+            result.applied_edit_ids.join(", ")
+        )),
+        Ok(result) => Err(format!(
+            "Failed ChangePlan {}. Failed edits: {}",
+            result.plan_id,
+            result.failed_edit_ids.join(", ")
+        )),
+        Err(e) => Err(e),
+    }
+}
+
+fn handle_chunk_context(
+    input: &serde_json::Map<String, Value>,
+    agent_session: &weaveback_agent_core::Session,
+) -> Result<String, String> {
+    let file = input.get("file").and_then(|v| v.as_str()).unwrap_or("");
+    let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let nth = input.get("nth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    if file.is_empty() || name.is_empty() {
+        return Err("file and name are required".to_string());
+    }
+    let ctx = agent_session
+        .chunk_context(file, name, nth)
+        .map_err(|_| format!("Chunk not found: {}#{}[{}]", file, name, nth))?;
+    serde_json::to_string_pretty(&chunk_context_value(ctx)).map_err(|e| e.to_string())
+}
+
+fn handle_search(
+    input: Option<&serde_json::Map<String, Value>>,
+    db_path: &std::path::Path,
+    agent_session: &weaveback_agent_core::Session,
+) -> Result<String, String> {
+    let query = input
+        .and_then(|v| v.get("query"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if query.is_empty() {
+        return Err("query is required".to_string());
+    }
+    let limit = input
+        .and_then(|v| v.get("limit"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+    if !db_path.exists() {
+        return Err("Database not found. Run weaveback on your source files first.".to_string());
+    }
+    let results = agent_session
+        .search(query, limit)
+        .map_err(|e| format!("Search error: {e}"))?;
+    serde_json::to_string_pretty(&search_results_value(&results)).map_err(|e| e.to_string())
 }
 
 pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), crate::Error> {
@@ -73,172 +427,8 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
             }
 
             "tools/list" => {
-                send_response(id, json!({
-                    "tools": [
-                        {
-                            "name": "weaveback_trace",
-                            "description": "Trace an output file line back to its original literate source. Returns src_file/src_line/src_col/kind. MacroArg spans include macro_name/param_name. MacroBody spans include macro_name and a def_locations array (all %def call sites). VarBinding spans include var_name and a set_locations array (all %set call sites). Use --col for sub-line token precision.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" },
-                                    "out_line": { "type": "integer", "description": "1-indexed line number in the generated file" },
-                                    "out_col":  { "type": "integer", "description": "1-indexed character position within the output line (default 1). Use to pinpoint a specific token." }
-                                },
-                                "required": ["out_file", "out_line"]
-                            }
-                        },
-                        {
-                            "name": "weaveback_apply_back",
-                            "description": "Bulk baseline-reconciliation tool: propagate edits already made directly in gen/ files back to the literate source. Use this only when gen/ files have been edited by hand and you need to reconcile the baseline. For intentional fixes where you know what the source should look like, prefer weaveback_apply_fix (oracle-verified, surgical, no full rebuild needed). weaveback_apply_back diffs each modified gen/ file against its stored baseline, traces each changed line to its noweb+macro origin, and patches the literate source. Returns a report of what was patched, skipped, or needs manual attention.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "files":   { "type": "array", "items": { "type": "string" }, "description": "Relative paths within gen/ to process (default: all modified files)" },
-                                    "dry_run": { "type": "boolean", "description": "Show what would change without writing (default: false)" }
-                                },
-                                "required": []
-                            }
-                        },
-                        {
-                            "name": "weaveback_apply_fix",
-                            "description": "**Preferred tool for all literate-source edits.** Apply a source edit (single line or multi-line range) and oracle-verify it produces the expected output before writing. Workflow: (1) use weaveback_trace to find src_file/src_line, (2) read the source, (3) call this tool with the replacement and the expected output line. The macro expander re-runs as an oracle — the file is written only if the expected output is produced, making the edit safe to apply without a full rebuild. Use apply_back only when you have already edited gen/ files directly and need to reconcile the baseline.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "src_file":        { "type": "string",  "description": "Absolute path of the literate source file to edit" },
-                                    "src_line":        { "type": "integer", "description": "1-indexed first line to replace in src_file" },
-                                    "src_line_end":    { "type": "integer", "description": "1-indexed last line of the replacement range (inclusive, defaults to src_line for single-line edits)" },
-                                    "new_src_line":    { "type": "string",  "description": "Replacement text when replacing a single line (without trailing newline)" },
-                                    "new_src_lines":   { "type": "array", "items": { "type": "string" }, "description": "Replacement lines for multi-line edits (each element is one line without trailing newline); overrides new_src_line when present" },
-                                    "out_file":        { "type": "string",  "description": "Generated file path (used for oracle lookup)" },
-                                    "out_line":        { "type": "integer", "description": "1-indexed line in the generated file (oracle check point)" },
-                                    "expected_output": { "type": "string",  "description": "The exact content of out_line expected after the fix (indent-stripped); oracle rejects the edit if this does not match" }
-                                },
-                                "required": ["src_file", "src_line", "out_file", "out_line", "expected_output"]
-                            }
-                        },
-                        {
-                            "name": "weaveback_chunk_context",
-                            "description": "Return full context for a named noweb chunk: its body, the AsciiDoc section title breadcrumb, the full prose of the enclosing section (paragraphs, admonitions, design notes), bodies of all direct dependencies, reverse-dep names, output files, and recent git log entries. Use this before editing or reasoning about a chunk.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file": { "type": "string", "description": "Source file path (relative to project root), e.g. 'crates/weaveback/src/serve.adoc'" },
-                                    "name": { "type": "string", "description": "Chunk name as it appears in the <<name>>= marker" },
-                                    "nth":  { "type": "integer", "description": "0-based index for chunks defined multiple times (default 0)" }
-                                },
-                                "required": ["file", "name"]
-                            }
-                        },
-                        {
-                            "name": "weaveback_list_chunks",
-                            "description": "List all chunk definitions in the project, optionally filtered to a single source file. Returns an array of { file, name, nth, def_start, def_end } objects.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file": { "type": "string", "description": "Source file to filter to (optional; omit for all files)" }
-                                },
-                                "required": []
-                            }
-                        },
-                        {
-                            "name": "weaveback_find_chunk",
-                            "description": "Find which source file(s) define a given chunk name. Returns an array of { file, nth, def_start, def_end } objects.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "file": { "type": "string", "description": "Chunk name to look up" }
-                                    },
-                                    "required": ["name"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_definition",
-                                    "description": "Find the definition of a symbol at a given position in a generated file, and map it back to its original literate source. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" },
-                                    "line":     { "type": "integer", "description": "1-indexed line number" },
-                                    "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_references",
-                                    "description": "Find all references to a symbol at a given position in a generated file, and map them back to their original literate sources. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" },
-                                    "line":     { "type": "integer", "description": "1-indexed line number" },
-                                    "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_hover",
-                                    "description": "Get type information and documentation for a symbol at a given position in a generated file, mapped back to literate source. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" },
-                                    "line":     { "type": "integer", "description": "1-indexed line number" },
-                                    "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_diagnostics",
-                                    "description": "Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" }
-                                    },
-                                    "required": ["out_file"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_symbols",
-                                    "description": "List all semantic symbols (functions, structs, etc.) in a generated file, with their original literate source locations.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                    "out_file": { "type": "string", "description": "Path to the generated file" }
-                                    },
-                                    "required": ["out_file"]
-                                    }
-                                    },
-                                    {
-                                        "name": "weaveback_search",
-                                        "description": "Hybrid search over the prose in all literate source files. FTS5 and tags are always used; if prose embeddings were generated during tangle, semantic reranking is also applied. Returns ranked excerpts with file path, line range, tags, score, and contributing channels. Use this to discover which chunks or sections are relevant to a concept before calling weaveback_chunk_context. Supports FTS5 query syntax: AND, OR, NOT, phrase \"...\", prefix foo*.",
-                                        "inputSchema": {
-                                            "type": "object",
-                                            "properties": {
-                                                "query": { "type": "string", "description": "Search terms (FTS5 syntax)" },
-                                                "limit": { "type": "integer", "description": "Maximum results to return (default 10)" }
-                                            },
-                                            "required": ["query"]
-                                        }
-                                    },
-                                    {
-                                        "name": "weaveback_list_tags",
-                                        "description": "List all LLM-generated tags for prose blocks in the project. Returns each block's source file, line, block type, and comma-separated tags. Optionally filter to a single source file. Use this to explore the semantic landscape of the project or to find all blocks tagged with a given concept.",
-                                        "inputSchema": {
-                                            "type": "object",
-                                            "properties": {
-                                                "file": { "type": "string", "description": "Optional: filter to this source file (plain relative path, e.g. crates/weaveback-tangle/src/db.adoc)" }
-                                            }
-                                        }
-                                    }
-                                    ]
-                                    }));
-                                    }
+                send_response(id, tools_list_result());
+            }
 
             "tools/call" => {
                 let params = req.get("params").and_then(|p| p.as_object());
@@ -264,11 +454,6 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 let mut obj = serde_json::Map::new();
                                 obj.insert("out_file".into(), json!(res.out_file));
                                 obj.insert("out_line".into(), json!(res.out_line));
-                                if let Some(v) = res.chunk { obj.insert("chunk".into(), json!(v)); }
-                                if let Some(v) = res.expanded_file { obj.insert("expanded_file".into(), json!(v)); }
-                                if let Some(v) = res.expanded_line { obj.insert("expanded_line".into(), json!(v)); }
-                                if let Some(v) = res.indent { obj.insert("indent".into(), json!(v)); }
-                                if let Some(v) = res.confidence { obj.insert("confidence".into(), json!(v)); }
                                 if let Some(v) = res.src_file { obj.insert("src_file".into(), json!(v)); }
                                 if let Some(v) = res.src_line { obj.insert("src_line".into(), json!(v)); }
                                 if let Some(v) = res.src_col { obj.insert("src_col".into(), json!(v)); }
@@ -309,67 +494,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             send_error(id, "Missing arguments");
                             continue;
                         };
-                        let src_file   = input.get("src_file")       .and_then(|v| v.as_str()).unwrap_or("");
-                        let src_line_1 = input.get("src_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                        let src_line_end_1 = input.get("src_line_end").and_then(|v| v.as_u64())
-                            .map(|v| v as usize).unwrap_or(src_line_1);
-                        let new_lines: Vec<String> = if let Some(arr) = input.get("new_src_lines").and_then(|v| v.as_array()) {
-                            arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
-                        } else {
-                            let s = input.get("new_src_line").and_then(|v| v.as_str()).unwrap_or("");
-                            vec![s.to_string()]
-                        };
-                        let out_file   = input.get("out_file")        .and_then(|v| v.as_str()).unwrap_or("");
-                        let out_line_1 = input.get("out_line")        .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                        let expected   = input.get("expected_output") .and_then(|v| v.as_str()).unwrap_or("");
-
-                        if src_line_1 == 0 {
-                            send_error(id, "src_line must be >= 1");
-                            continue;
-                        }
-                        if src_line_end_1 < src_line_1 {
-                            send_error(id, "src_line_end must be >= src_line");
-                            continue;
-                        }
-
-                        let plan = ChangePlan {
-                            plan_id: "mcp-apply-fix".to_string(),
-                            goal: "Apply a single oracle-verified fix".to_string(),
-                            constraints: Vec::new(),
-                            edits: vec![PlannedEdit {
-                                edit_id: "edit-1".to_string(),
-                                rationale: "MCP weaveback_apply_fix request".to_string(),
-                                target: ChangeTarget {
-                                    src_file: src_file.to_string(),
-                                    src_line: src_line_1,
-                                    src_line_end: src_line_end_1,
-                                },
-                                new_src_lines: new_lines,
-                                anchor: OutputAnchor {
-                                    out_file: out_file.to_string(),
-                                    out_line: out_line_1,
-                                    expected_output: expected.to_string(),
-                                },
-                            }],
-                        };
-                        match agent_session.apply_change_plan(&plan) {
-                            Ok(result) if result.applied => send_text(
-                                id,
-                                &format!(
-                                    "Applied ChangePlan {} with edits: {}",
-                                    result.plan_id,
-                                    result.applied_edit_ids.join(", ")
-                                ),
-                            ),
-                            Ok(result) => send_error(
-                                id,
-                                &format!(
-                                    "Failed ChangePlan {}. Failed edits: {}",
-                                    result.plan_id,
-                                    result.failed_edit_ids.join(", ")
-                                ),
-                            ),
-                            Err(e)  => send_error(id, &e),
+                        match handle_apply_fix(input, &agent_session) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -378,36 +505,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             send_error(id, "Missing arguments");
                             continue;
                         };
-                        let file = input.get("file").and_then(|v| v.as_str()).unwrap_or("");
-                        let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        let nth  = input.get("nth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                        if file.is_empty() || name.is_empty() {
-                            send_error(id, "file and name are required");
-                            continue;
-                        }
-                        match agent_session.chunk_context(file, name, nth) {
-                            Ok(ctx) => {
-                                let mut deps = serde_json::Map::new();
-                                for (name, dep) in ctx.dependency_bodies {
-                                    deps.insert(name, json!({ "file": dep.file, "body": dep.body }));
-                                }
-                                let obj = json!({
-                                    "file": ctx.file,
-                                    "name": ctx.name,
-                                    "nth": ctx.nth,
-                                    "body": ctx.body,
-                                    "def_start": ctx.def_start,
-                                    "def_end": ctx.def_end,
-                                    "section_title_chain": ctx.section_breadcrumb,
-                                    "section_prose": ctx.prose,
-                                    "dependencies": Value::Object(deps),
-                                    "reverse_dependencies": ctx.reverse_dependencies,
-                                    "output_files": ctx.outputs,
-                                    "git_log": ctx.git_log,
-                                });
-                                send_text(id, &serde_json::to_string_pretty(&obj).unwrap());
-                            }
-                            Err(_) => send_error(id, &format!("Chunk not found: {}#{}[{}]", file, name, nth)),
+                        match handle_chunk_context(input, &agent_session) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -673,42 +773,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                     }
 
                     Some("weaveback_search") => {
-                        let query = input.as_ref()
-                            .and_then(|v| v.get("query"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        if query.is_empty() {
-                            send_error(id, "query is required");
-                            continue;
-                        }
-                        let limit = input.as_ref()
-                            .and_then(|v| v.get("limit"))
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(10) as usize;
-                        if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
-                            continue;
-                        }
-                        match agent_session.search(query, limit) {
-                            Err(e) => send_error(id, &format!("Search error: {e}")),
-                            Ok(results) => {
-                                let arr: Vec<Value> = results.iter().map(|r| {
-                                    let mut obj = json!({
-                                        "src_file":   r.src_file,
-                                        "block_type": r.block_type,
-                                        "line_start": r.line_start,
-                                        "line_end":   r.line_end,
-                                        "snippet":    r.snippet,
-                                        "score":      r.score,
-                                        "channels":   r.channels,
-                                    });
-                                    if !r.tags.is_empty() {
-                                        obj["tags"] = json!(r.tags);
-                                    }
-                                    obj
-                                }).collect();
-                                send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
-                            }
+                        match handle_search(input, &db_path, &agent_session) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -750,23 +817,69 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 }
 
 fn send_response(id: Option<Value>, result: Value) {
-    let mut resp = json!({ "jsonrpc": "2.0" });
-    if let Some(id) = id {
-        resp.as_object_mut().unwrap().insert("id".to_string(), id);
-        resp.as_object_mut().unwrap().insert("result".to_string(), result);
-    }
-    println!("{}", serde_json::to_string(&resp).unwrap());
+    println!("{}", serde_json::to_string(&response_payload(id, result)).unwrap());
 }
 
 fn send_text(id: Option<Value>, text: &str) {
-    send_response(id, json!({
-        "content": [{ "type": "text", "text": text }]
-    }));
+    send_response(id, text_result(text));
 }
 
 fn send_error(id: Option<Value>, msg: &str) {
-    send_response(id, json!({
-        "isError": true,
-        "content": [{ "type": "text", "text": msg }]
-    }));
+    send_response(id, error_result(msg));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_apply_fix_plan, error_result, response_payload, text_result, tools_list_result};
+    use serde_json::json;
+
+    #[test]
+    fn tools_list_contains_expected_core_tools() {
+        let result = tools_list_result();
+        let tools = result
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .expect("tools array");
+        assert!(tools.len() >= 10);
+        assert!(tools.iter().any(|tool| tool.get("name") == Some(&json!("weaveback_trace"))));
+        assert!(tools.iter().any(|tool| tool.get("name") == Some(&json!("weaveback_apply_fix"))));
+        assert!(tools.iter().any(|tool| tool.get("name") == Some(&json!("weaveback_search"))));
+    }
+
+    #[test]
+    fn apply_fix_plan_builder_preserves_request_fields() {
+        let plan = build_apply_fix_plan(
+            "/tmp/source.adoc",
+            4,
+            6,
+            vec!["one".to_string(), "two".to_string()],
+            "gen/out.rs",
+            8,
+            "expected line",
+        );
+        assert_eq!(plan.plan_id, "mcp-apply-fix");
+        assert_eq!(plan.edits.len(), 1);
+        let edit = &plan.edits[0];
+        assert_eq!(edit.edit_id, "edit-1");
+        assert_eq!(edit.target.src_file, "/tmp/source.adoc");
+        assert_eq!(edit.target.src_line, 4);
+        assert_eq!(edit.target.src_line_end, 6);
+        assert_eq!(edit.new_src_lines, vec!["one", "two"]);
+        assert_eq!(edit.anchor.out_file, "gen/out.rs");
+        assert_eq!(edit.anchor.out_line, 8);
+        assert_eq!(edit.anchor.expected_output, "expected line");
+    }
+
+    #[test]
+    fn response_helpers_wrap_jsonrpc_text_and_error_shapes() {
+        let text = response_payload(Some(json!(7)), text_result("hello"));
+        assert_eq!(text["jsonrpc"], json!("2.0"));
+        assert_eq!(text["id"], json!(7));
+        assert_eq!(text["result"]["content"][0]["type"], json!("text"));
+        assert_eq!(text["result"]["content"][0]["text"], json!("hello"));
+
+        let err = response_payload(Some(json!("req-1")), error_result("boom"));
+        assert_eq!(err["result"]["isError"], json!(true));
+        assert_eq!(err["result"]["content"][0]["text"], json!("boom"));
+    }
 }

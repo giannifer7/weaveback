@@ -312,8 +312,8 @@ recording for the tracing maps.
         self.state.source_manager.source_files()
     }
 
-    pub fn get_special_char(&self) -> Vec<u8> {
-        self.state.get_special_char()
+    pub fn get_sigil(&self) -> Vec<u8> {
+        self.state.get_sigil()
     }
 
     pub fn set_early_exit(&mut self) {
@@ -382,8 +382,10 @@ node kinds recurse over their children.
 These helpers slice the raw source bytes using the token's `pos`/`length`.
 `node_text` strips the surrounding delimiters for `Macro` (`%name(`→`name`),
 `Var` (`%(name)`→`name`), `BlockOpen`/`BlockClose`, and `Special` tokens.
-`extract_name_value` returns the raw bytes for a plain `Ident` token (no
-stripping needed).
+Because the configurable sigil may now be multi-byte UTF-8, the leading
+delimiter length is derived from the source bytes at the token position instead
+of being hard-coded to one byte. `extract_name_value` returns the raw bytes for
+a plain `Ident` token (no stripping needed).
 
 [source,rust]
 ----
@@ -402,23 +404,29 @@ stripping needed).
                 return "".into();
             }
 
+            let special_len = std::str::from_utf8(&source[start..])
+                .ok()
+                .and_then(|s| s.chars().next())
+                .map(|c| c.len_utf8())
+                .unwrap_or(1);
+
             let slice = match node.token.kind {
                 TokenKind::BlockOpen | TokenKind::BlockClose | TokenKind::Macro => {
-                    if end > start + 2 {
-                        &source[(start + 1)..(end - 1)]
+                    if end > start + special_len + 1 {
+                        &source[(start + special_len)..(end - 1)]
                     } else {
                         &source[start..end]
                     }
                 }
                 TokenKind::Var => {
-                    if end > start + 3 {
-                        &source[(start + 2)..(end - 1)]
+                    if end > start + special_len + 2 {
+                        &source[(start + special_len + 1)..(end - 1)]
                     } else {
                         &source[start..end]
                     }
                 }
                 TokenKind::Special => {
-                    if end > start + 1 {
+                    if end > start + special_len {
                         &source[start..(end - 1)]
                     } else {
                         &source[start..end]
@@ -728,7 +736,7 @@ fails — to prevent a failed include from permanently blocking re-includes.
 
         let result = crate::evaluator::lexer_parser::lex_parse_content(
             text,
-            self.state.config.special_char,
+            self.state.config.sigil,
             src,
         );
         result.map_err(EvalError::ParseError)

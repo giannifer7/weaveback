@@ -12,11 +12,11 @@ use weaveback_tangle::db::WeavebackDb;
 #[derive(Debug, Clone)]
 pub struct TagConfig {
     /// Backend name: "anthropic" | "gemini" | "openai" | "ollama"
-    pub backend:    String,
+    pub backend: String,
     /// Model identifier, e.g. "claude-haiku-4-5-20251001".
-    pub model:      String,
+    pub model: String,
     /// Base URL for openai-compatible / ollama endpoints.
-    pub endpoint:   Option<String>,
+    pub endpoint: Option<String>,
     /// Number of blocks per LLM request (default: 15).
     pub batch_size: usize,
 }
@@ -106,13 +106,19 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
             call_gemini(&key, &cfg.model, prompt)
         }
         "ollama" => {
-            let base = cfg.endpoint.as_deref().unwrap_or("http://localhost:11434/v1");
+            let base = cfg
+                .endpoint
+                .as_deref()
+                .unwrap_or("http://localhost:11434/v1");
             call_openai_compat(None, base, &cfg.model, prompt)
         }
         _ => {
             // "openai" or any unknown value → OpenAI-compatible
             let key = std::env::var("OPENAI_API_KEY").ok();
-            let base = cfg.endpoint.as_deref().unwrap_or("https://api.openai.com/v1");
+            let base = cfg
+                .endpoint
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1");
             call_openai_compat(key.as_deref(), base, &cfg.model, prompt)
         }
     }
@@ -162,16 +168,18 @@ pub(crate) fn parse_response(response: &str) -> Vec<(usize, String)> {
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
                 .join(",");
-            if clean.is_empty() { None } else { Some((idx, clean)) }
+            if clean.is_empty() {
+                None
+            } else {
+                Some((idx, clean))
+            }
         })
         .collect()
 }
 
 pub(crate) fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
     let lo = (line_start as usize).saturating_sub(1);
-    let hi = (line_end as usize).min(
-        source.lines().count()
-    );
+    let hi = (line_end as usize).min(source.lines().count());
     source
         .lines()
         .skip(lo)
@@ -188,13 +196,17 @@ pub(crate) fn block_first_line(source: &str, line_start: u32, line_end: u32) -> 
 pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
     let blocks = match db.get_blocks_needing_tags() {
         Ok(b) => b,
-        Err(e) => { eprintln!("warning: auto-tag db query failed: {e}"); return; }
+        Err(e) => {
+            eprintln!("warning: auto-tag db query failed: {e}");
+            return;
+        }
     };
-    if blocks.is_empty() { return; }
+    if blocks.is_empty() {
+        return;
+    }
 
     // Group blocks by file so we only fetch each snapshot once.
-    let mut by_file: std::collections::HashMap<String, Vec<_>> =
-        std::collections::HashMap::new();
+    let mut by_file: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
     for b in blocks {
         by_file.entry(b.src_file.clone()).or_default().push(b);
     }
@@ -245,12 +257,9 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 
             for (local_idx, tags) in parse_response(&response) {
                 if let Some(b) = chunk.get(local_idx) {
-                    if let Err(e) = db.set_block_tags(
-                        &b.src_file,
-                        b.block_index,
-                        &b.content_hash,
-                        &tags,
-                    ) {
+                    if let Err(e) =
+                        db.set_block_tags(&b.src_file, b.block_index, &b.content_hash, &tags)
+                    {
                         eprintln!("warning: auto-tag store failed: {e}");
                     } else {
                         tagged += 1;
@@ -282,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_parse_response_sanitises_punctuation() {
-        // Hyphens kept; spaces, commas between tags work; special chars stripped.
+        // Hyphens kept; spaces and commas between tags work; punctuation stripped.
         let r = parse_response("0:apply-back, safe-write, I/O!");
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].1, "apply-back,safe-write,io");
@@ -317,7 +326,7 @@ mod tests {
     fn test_build_prompt_contains_all_indices() {
         let items = vec![
             (0usize, "section", "= Introduction"),
-            (1,      "para",    "This is a paragraph."),
+            (1, "para", "This is a paragraph."),
         ];
         let p = build_prompt(&items);
         assert!(p.contains("[0] section | = Introduction"));

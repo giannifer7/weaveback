@@ -115,6 +115,12 @@ the main Rust crates.
 
 | link:../project/agent-python.adoc[Python agent bridge]
 | `crates/weaveback-agent-core/`, `crates/weaveback-py/`, and `python/weaveback-agent/`
+
+| link:../project/option-spec.adoc[CLI option-spec experiment]
+| `scripts/option_spec/` prototype for multi-projection CLI metadata
+
+| link:../cli-spec/cli-spec.adoc[weaveback CLI spec]
+| `crates/weaveback/src/cli_generated.rs` and `docs/cli.adoc`
 |===
 
 == weaveback CLI literate sources

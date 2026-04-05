@@ -1,6 +1,6 @@
 = Macro language reference
 
-The macro expander is invoked with `%` by default (change with `--special`).
+The macro expander is invoked with `%` by default (change with `--sigil`).
 
 == Syntax basics
 

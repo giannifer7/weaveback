@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct EvalConfig {
-    pub special_char: char,
+    pub sigil: char,
     pub include_paths: Vec<PathBuf>,
     /// When true, `%include`/`%import` evaluate their path argument but do not
     /// recurse into the file.  The resolved path is recorded in
@@ -23,7 +23,7 @@ pub struct EvalConfig {
 impl Default for EvalConfig {
     fn default() -> Self {
         Self {
-            special_char: '%',
+            sigil: '%',
             include_paths: vec![PathBuf::from(".")],
             discovery_mode: false,
             allow_env: false,
@@ -249,7 +249,7 @@ impl EvaluatorState {
         None
     }
 
-    pub fn get_special_char(&self) -> Vec<u8> {
-        vec![self.config.special_char as u8]
+    pub fn get_sigil(&self) -> Vec<u8> {
+        self.config.sigil.to_string().into_bytes()
     }
 }

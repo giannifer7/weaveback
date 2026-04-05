@@ -66,15 +66,33 @@ fn test_process_string_with_nested_macros() {
 }
 
 #[test]
-fn test_process_string_with_special_chars() {
+fn test_process_string_with_sigil_chars() {
     let config = EvalConfig {
-        special_char: '@',
+        sigil: '@',
         ..EvalConfig::default()
     };
     let mut evaluator = Evaluator::new(config);
 
     let result = process_string(
         "@def(test, value, Result: @(value))@test(works)",
+        None,
+        &mut evaluator,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Result: works");
+}
+
+#[test]
+fn test_process_string_with_unicode_sigil() {
+    let config = EvalConfig {
+        sigil: '§',
+        ..EvalConfig::default()
+    };
+    let mut evaluator = Evaluator::new(config);
+
+    let result = process_string(
+        "§def(test, value, Result: §(value))§test(works)",
         None,
         &mut evaluator,
     )

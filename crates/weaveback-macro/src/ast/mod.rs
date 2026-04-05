@@ -105,15 +105,11 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
     let (start_idx, param_name) = match state {
         ParamState::Start => match first_not_skippable {
             None => {
-                // Completely empty param.
-                return Ok(Some(ASTNode {
-                    kind: NodeKind::Param,
-                    src: node.src,
-                    token: node.token,
-                    end_pos: node.end_pos,
-                    parts: vec![],
-                    name: None,
-                }));
+                // Completely empty param.  This occurs for a trailing comma
+                // (`%%f(a = x,)`) or doubled commas.  Treat it as absent rather
+                // than as an empty positional argument so the evaluator can
+                // support optional trailing commas cleanly.
+                return Ok(None);
             }
             Some(i) => (i, None), // positional: starts from first non-skip
         },

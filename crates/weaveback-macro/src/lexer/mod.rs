@@ -1,6 +1,6 @@
 // crates/weaveback-macro/src/lexer/mod.rs — generated from lexer.adoc
 use crate::types::{LexerError, Token, TokenKind};
-use memchr::memchr;
+use memchr::{memchr, memmem};
 
 #[cfg(test)]
 mod tests;
@@ -27,7 +27,7 @@ enum State {
     Comment,
 }
 
-/// What `handle_after_special` tells the caller to do.
+/// What `handle_after_sigil` tells the caller to do.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SpecialAction {
     /// A new state was pushed; return `true` to keep the current state active.
@@ -43,30 +43,36 @@ pub struct Lexer<'a> {
     pos: usize,
     src: u32,
     tokens: Vec<Token>,
-    /// ASCII special character (e.g. `%`).
-    special_char: u8,
+    /// Configurable macro sigil (e.g. `%`, `@`, `§`).
+    sigil: char,
+    /// UTF-8 bytes of `sigil`, used by the byte-oriented scanner.
+    sigil_bytes: Vec<u8>,
     state_stack: Vec<State>,
     pub errors: Vec<LexerError>,
-    /// Precomputed `[sc, b'/', b'*']` — checked in comment state.
-    open_comment: [u8; 3],
-    /// Precomputed `[sc, b'*', b'/']`.
-    close_comment: [u8; 3],
+    /// Precomputed `<sigil>/*` — checked in comment state.
+    open_comment: Vec<u8>,
+    /// Precomputed `<sigil>*/`.
+    close_comment: Vec<u8>,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str, special_char: char, src: u32) -> Self {
-        assert!(special_char.is_ascii(), "special_char must be ASCII");
-        let sc = special_char as u8;
+    pub fn new(input: &'a str, sigil: char, src: u32) -> Self {
+        let sigil_bytes = sigil.to_string().into_bytes();
+        let mut open_comment = sigil_bytes.clone();
+        open_comment.extend_from_slice(b"/*");
+        let mut close_comment = sigil_bytes.clone();
+        close_comment.extend_from_slice(b"*/");
         let mut lexer = Lexer {
             bytes: input.as_bytes(),
             pos: 0,
             src,
             tokens: Vec::new(),
-            special_char: sc,
+            sigil,
+            sigil_bytes,
             state_stack: Vec::new(),
             errors: Vec::new(),
-            open_comment: [sc, b'/', b'*'],
-            close_comment: [sc, b'*', b'/'],
+            open_comment,
+            close_comment,
         };
         lexer.state_stack.push(State::Block(0));
         lexer
@@ -87,6 +93,19 @@ impl<'a> Lexer<'a> {
         let b = self.bytes.get(self.pos).copied()?;
         self.pos += 1;
         Some(b)
+    }
+
+    fn starts_with_sigil(&self) -> bool {
+        self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+    }
+
+    fn advance_sigil(&mut self) -> bool {
+        if self.starts_with_sigil() {
+            self.pos += self.sigil_bytes.len();
+            true
+        } else {
+            false
+        }
     }
 
     /// Advance past the rest of the current line (through `\n` or to EOF).
@@ -118,7 +137,7 @@ impl<'a> Lexer<'a> {
     /// Extract the identifier tag from a `%tag{` or `%tag}` position.
     /// `pct_start` is the byte offset of `%`. Returns `""` for anonymous `%{`/`%}`.
     fn block_tag_at(&self, pct_start: usize) -> &str {
-        let start = pct_start + 1; // skip `%`
+        let start = pct_start + self.sigil_bytes.len(); // skip sigil bytes
         let mut end = start;
         while end < self.bytes.len() && is_identifier_continue(self.bytes[end]) {
             end += 1;
@@ -195,10 +214,9 @@ impl<'a> Lexer<'a> {
     // ── Block state ───────────────────────────────────────────────────────
 
     fn run_block_state(&mut self) -> bool {
-        let sc = self.special_char;
         loop {
             let rest = &self.bytes[self.pos..];
-            let text_len = match memchr(sc, rest) {
+            let text_len = match memmem::find(rest, &self.sigil_bytes) {
                 Some(i) => i,
                 None => {
                     if !rest.is_empty() {
@@ -213,8 +231,8 @@ impl<'a> Lexer<'a> {
                 self.pos += text_len;
             }
             let pct_start = self.pos;
-            self.advance(); // consume the special char
-            match self.handle_after_special(pct_start) {
+            self.advance_sigil(); // consume the sigil
+            match self.handle_after_sigil(pct_start) {
                 SpecialAction::Push => return true,
                 SpecialAction::Pop => return false,
                 SpecialAction::Continue => {}
@@ -225,7 +243,6 @@ impl<'a> Lexer<'a> {
     // ── Macro arg state ───────────────────────────────────────────────────
 
     fn run_macro_state(&mut self) -> bool {
-        let sc = self.special_char;
         while let Some(b) = self.peek_byte() {
             if b == b')' {
                 let start = self.pos;
@@ -246,10 +263,10 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 self.emit_token(ws_start, self.pos - ws_start, TokenKind::Space);
-            } else if b == sc {
+            } else if self.starts_with_sigil() {
                 let pct_start = self.pos;
-                self.advance();
-                match self.handle_after_special(pct_start) {
+                self.advance_sigil();
+                match self.handle_after_sigil(pct_start) {
                     SpecialAction::Push => return true,
                     SpecialAction::Pop => return false,
                     SpecialAction::Continue => {}
@@ -260,14 +277,14 @@ impl<'a> Lexer<'a> {
                 self.pos = end;
                 self.emit_token(start, end - start, TokenKind::Ident);
             } else {
-                let start = self.pos;
-                while let Some(b2) = self.peek_byte() {
-                    if is_whitespace(b2)
-                        || matches!(b2, b')' | b',' | b'=')
-                        || b2 == sc
-                    {
-                        break;
-                    }
+                    let start = self.pos;
+                    while let Some(b2) = self.peek_byte() {
+                        if is_whitespace(b2)
+                            || matches!(b2, b')' | b',' | b'=')
+                            || self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+                        {
+                            break;
+                        }
                     self.advance();
                 }
                 self.emit_token(start, self.pos - start, TokenKind::Text);
@@ -284,13 +301,12 @@ impl<'a> Lexer<'a> {
         false
     }
 
-    // ── Shared special-sequence handler ──────────────────────────────────
+    // ── Shared sigil-sequence handler ────────────────────────────────────
     //
-    // Called after the special char has been consumed.
-    // `pct_start` is the byte offset of the special char itself.
+    // Called after the sigil has been consumed.
+    // `pct_start` is the byte offset of the sigil itself.
 
-    fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
-        let sc = self.special_char;
+    fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
         match self.peek_byte() {
             Some(b'(') => {
                 self.handle_var(pct_start);
@@ -329,7 +345,7 @@ impl<'a> Lexer<'a> {
                             pct_start,
                             &format!(
                                 "Unexpected char after '{}/': expected // or /*",
-                                sc as char
+                                self.sigil
                             ),
                         );
                         self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -350,7 +366,7 @@ impl<'a> Lexer<'a> {
                             pct_start,
                             &format!(
                                 "Unexpected char after '{}-': expected --",
-                                sc as char
+                                self.sigil
                             ),
                         );
                         self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -364,8 +380,8 @@ impl<'a> Lexer<'a> {
                 self.emit_token(pct_start, self.pos - pct_start, TokenKind::LineComment);
                 SpecialAction::Continue
             }
-            Some(b) if b == sc => {
-                self.advance();
+            Some(_) if self.starts_with_sigil() => {
+                self.advance_sigil();
                 self.emit_token(pct_start, self.pos - pct_start, TokenKind::Special);
                 SpecialAction::Continue
             }
@@ -405,14 +421,14 @@ impl<'a> Lexer<'a> {
                 // The unrecognized byte is left for the next iteration.
                 self.error_at(
                     pct_start,
-                    &format!("Unrecognized char after '{}'", sc as char),
+                    &format!("Unrecognized char after '{}'", self.sigil),
                 );
-                self.emit_token(pct_start, 1, TokenKind::Text);
+                self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
                 SpecialAction::Continue
             }
             None => {
                 // % at EOF — emit as plain text.
-                self.emit_token(pct_start, 1, TokenKind::Text);
+                self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
                 SpecialAction::Continue
             }
         }
@@ -420,7 +436,6 @@ impl<'a> Lexer<'a> {
 
     /// Handle a `%(varname)` sequence. `pct_start` is the byte offset of the `%`.
     fn handle_var(&mut self, pct_start: usize) {
-        let sc = self.special_char as char;
         self.advance(); // consume '('
         let ident_start = self.pos;
         let ident_end = self.get_identifier_end(ident_start);
@@ -435,7 +450,7 @@ impl<'a> Lexer<'a> {
         } else {
             self.error_at(
                 pct_start,
-                &format!("Var missing identifier after '{}('", sc),
+                &format!("Var missing identifier after '{}('", self.sigil),
             );
         }
         self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -444,14 +459,12 @@ impl<'a> Lexer<'a> {
     // ── Comment state ─────────────────────────────────────────────────────
 
     fn run_comment_state(&mut self) -> bool {
-        let sc = self.special_char;
-        const DELIM_LEN: usize = 3; // [sc, x, y]
         let comment_text_start = self.pos;
 
         loop {
-            // Jump to the next special char — only it can start a delimiter.
+            // Jump to the next sigil — only it can start a delimiter.
             let rest = &self.bytes[self.pos..];
-            let Some(i) = memchr(sc, rest) else {
+            let Some(i) = memmem::find(rest, &self.sigil_bytes) else {
                 break; // EOF inside comment
             };
             self.pos += i;
@@ -465,8 +478,8 @@ impl<'a> Lexer<'a> {
                     );
                 }
                 let delim_start = self.pos;
-                self.pos += DELIM_LEN;
-                self.emit_token(delim_start, DELIM_LEN, TokenKind::CommentOpen);
+                self.pos += self.open_comment.len();
+                self.emit_token(delim_start, self.open_comment.len(), TokenKind::CommentOpen);
                 self.state_stack.push(State::Comment);
                 return true;
             }
@@ -479,12 +492,12 @@ impl<'a> Lexer<'a> {
                     );
                 }
                 let delim_start = self.pos;
-                self.pos += DELIM_LEN;
-                self.emit_token(delim_start, DELIM_LEN, TokenKind::CommentClose);
+                self.pos += self.close_comment.len();
+                self.emit_token(delim_start, self.close_comment.len(), TokenKind::CommentClose);
                 return false;
             }
             // Special char that isn't a comment delimiter — skip past it.
-            self.pos += 1;
+            self.pos += self.sigil_bytes.len();
         }
 
         // EOF: unclosed comment.

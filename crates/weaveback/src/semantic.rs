@@ -29,7 +29,6 @@ pub fn persist_embedding_config(
     Ok(())
 }
 
-#[cfg(feature = "server")]
 fn call_openai_embeddings(
     api_key: Option<&str>,
     base_url: &str,
@@ -65,7 +64,6 @@ fn call_openai_embeddings(
         .collect()
 }
 
-#[cfg(feature = "server")]
 fn call_gemini_embeddings(
     api_key: &str,
     model: &str,
@@ -110,7 +108,6 @@ fn call_gemini_embeddings(
         .collect()
 }
 
-#[cfg(feature = "server")]
 fn embed_texts(cfg: &EmbeddingConfig, inputs: &[String]) -> Result<Vec<Vec<f32>>, String> {
     match cfg.backend.as_str() {
         "gemini" => {
@@ -131,7 +128,6 @@ fn embed_texts(cfg: &EmbeddingConfig, inputs: &[String]) -> Result<Vec<Vec<f32>>
     }
 }
 
-#[cfg(feature = "server")]
 pub fn run_auto_embed(
     db: &mut WeavebackDb,
     cfg: &EmbeddingConfig,

@@ -52,6 +52,43 @@ is used merely to create clever macro machinery, it is ornament.  If it helps a
 team preserve intent, keep distant pieces in sync, and audit agent-made changes,
 it is doing real work.
 
+== Tensions, not conclusions
+
+These tradeoffs are not settled.  They are the questions the project is trying
+to answer.
+
+Weaveback often gives up some degree of *local obviousness* in exchange for
+*global traceability*.  A direct, hand-written codebase is easier to read in the
+small.  A literate, reversible system may be easier to audit in the large.  The
+project is worthwhile only if that global benefit is real enough to justify the
+local friction.
+
+The same doubt applies to every meta-layer inside the project.  A shared
+declaration for CLI options, MCP tools, or configuration keys might reduce
+drift.  It might also just relocate complexity into a less familiar
+intermediate form.  If the abstraction becomes harder to understand than the
+generated surfaces, it has failed.
+
+Uniformity matters here.  A half-adopted abstraction is often worse than
+either:
+
+* direct hand-written code and docs
+* a fully adopted projection system for a clearly bounded surface
+
+Partial adoption creates decision tax: every new option or feature turns into
+"should this one use the macro layer or not?"  That is not a victory over
+duplication; it is another source of cognitive overhead.
+
+So the working standard is intentionally severe:
+
+* does this structure reduce drift?
+* does it preserve rationale in a way comments alone do not?
+* does it make agent-produced change easier to validate?
+* does it lower the overall cost of understanding the system?
+
+If the answer is no, the right move is not to defend the abstraction.  The
+right move is to remove it.
+
 == The core problem
 
 Literate programming is a fifty-year-old idea: write prose and code together,
@@ -211,11 +248,11 @@ have both but are not designed for the prose-with-code use case.
 m4 is also GPL-licensed, which may matter for commercial projects that embed
 a build toolchain.  Weaveback is 0BSD/MIT/Apache-2.0.
 
-=== The special character is configurable
+=== The sigil is configurable
 
-The `%` character is the default special character, but it can be changed per
-pass (`--special @`, for example).  This matters for self-hosting: the
-weaveback-macro source uses `^` as its special character so that `%def` can
+The `%` character is the default sigil, but it can be changed per
+pass (`--sigil @`, for example).  This matters for self-hosting: the
+weaveback-macro source uses `^` as its sigil so that `%def` can
 appear literally in examples and tests without being consumed by the expander.
 
 == Why Rhai *and* Python scripting?

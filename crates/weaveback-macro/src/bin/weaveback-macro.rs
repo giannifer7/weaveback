@@ -40,9 +40,9 @@ struct Args {
     #[arg(long = "output", default_value = "-")]
     output: PathBuf,
 
-    /// Special character for macros
-    #[arg(long = "special", default_value = "%")]
-    special: char,
+    /// Macro sigil
+    #[arg(long = "sigil", default_value = "%")]
+    sigil: char,
 
     /// List of include paths separated by the path separator
     #[arg(long = "include", default_value = ".")]
@@ -88,7 +88,7 @@ fn run(args: Args) -> Result<(), EvalError> {
         .collect();
 
     let config = EvalConfig {
-        special_char: args.special,
+        sigil: args.sigil,
         include_paths,
         discovery_mode: false,
         allow_env: args.allow_env,
@@ -140,7 +140,7 @@ fn run(args: Args) -> Result<(), EvalError> {
     };
 
     if args.dump_ast {
-        return weaveback_macro::ast::dump_macro_ast(args.special, &final_inputs);
+        return weaveback_macro::ast::dump_macro_ast(args.sigil, &final_inputs);
     }
 
     weaveback_macro::macro_api::process_files_from_config(&final_inputs, &args.output, config)

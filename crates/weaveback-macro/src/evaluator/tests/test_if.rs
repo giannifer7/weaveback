@@ -92,8 +92,8 @@ fn test_nested_if_conditions() {
 fn test_if_with_macro_condition() {
     let result = process_string_defaults(
         r#"
-        %def(empty,)
-        %if(%empty(), , %{condition is false.%})
+        %def(empty, %{%})
+        %if(%empty(), %{condition is true.%}, %{condition is false.%})
         "#,
     )
     .unwrap();

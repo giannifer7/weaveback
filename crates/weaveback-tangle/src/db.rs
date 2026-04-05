@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS chunk_defs (
 
 CREATE TABLE IF NOT EXISTS literate_source_config (
     src_file        INTEGER NOT NULL REFERENCES files(id),
-    special_char    TEXT    NOT NULL,
+    sigil    TEXT    NOT NULL,
     open_delim      TEXT    NOT NULL,
     close_delim     TEXT    NOT NULL,
     chunk_end       TEXT    NOT NULL,
@@ -164,7 +164,7 @@ impl Confidence {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TangleConfig {
-    pub special_char: char,
+    pub sigil: char,
     pub open_delim: String,
     pub close_delim: String,
     pub chunk_end: String,
@@ -708,11 +708,11 @@ impl WeavebackDb {
         let file_id = intern_file(&self.conn, src_file)?;
         self.conn.execute(
             "INSERT OR REPLACE INTO literate_source_config
-             (src_file, special_char, open_delim, close_delim, chunk_end, comment_markers)
+             (src_file, sigil, open_delim, close_delim, chunk_end, comment_markers)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 file_id,
-                cfg.special_char.to_string(),
+                cfg.sigil.to_string(),
                 cfg.open_delim,
                 cfg.close_delim,
                 cfg.chunk_end,
@@ -724,18 +724,18 @@ impl WeavebackDb {
 
     pub fn get_source_config(&self, src_file: &str) -> Result<Option<TangleConfig>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT lsc.special_char, lsc.open_delim, lsc.close_delim,
+            "SELECT lsc.sigil, lsc.open_delim, lsc.close_delim,
                     lsc.chunk_end, lsc.comment_markers
              FROM literate_source_config lsc JOIN files f ON f.id = lsc.src_file
              WHERE f.path = ?1",
         )?;
         Ok(stmt.query_row(params![src_file], |row| {
             let sc_str: String = row.get(0)?;
-            let special_char = sc_str.chars().next().unwrap_or('%');
+            let sigil = sc_str.chars().next().unwrap_or('%');
             let cm_str: String = row.get(4)?;
             let comment_markers = cm_str.split(',').map(|s| s.to_string()).collect();
             Ok(TangleConfig {
-                special_char,
+                sigil,
                 open_delim: row.get(1)?,
                 close_delim: row.get(2)?,
                 chunk_end: row.get(3)?,
@@ -977,7 +977,7 @@ impl WeavebackDb {
                 SELECT
                     (SELECT t.id FROM target.files t
                      WHERE t.path = (SELECT path FROM files WHERE id = lsc.src_file)),
-                    lsc.special_char, lsc.open_delim, lsc.close_delim,
+                    lsc.sigil, lsc.open_delim, lsc.close_delim,
                     lsc.chunk_end, lsc.comment_markers
                 FROM literate_source_config lsc;
             ")?;

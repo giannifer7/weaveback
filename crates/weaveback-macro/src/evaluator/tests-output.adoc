@@ -379,8 +379,10 @@ fn test_include_basic() -> Result<(), Box<dyn std::error::Error>> {
 
     let main_file = create_temp_file(&temp_dir, "main.txt", "%include(include.txt)");
 
-    let mut config = EvalConfig::default();
-    config.include_paths = vec![temp_dir.path().to_path_buf()];
+    let config = EvalConfig {
+        include_paths: vec![temp_dir.path().to_path_buf()],
+        ..EvalConfig::default()
+    };
     let mut evaluator = Evaluator::new(config);
 
     let output_file = temp_dir.path().join("output.txt");
@@ -413,13 +415,33 @@ fn test_process_string_with_nested_macros() {
 }
 
 #[test]
-fn test_process_string_with_special_chars() {
-    let mut config = EvalConfig::default();
-    config.special_char = '@';
+fn test_process_string_with_sigil_chars() {
+    let config = EvalConfig {
+        sigil: '@',
+        ..EvalConfig::default()
+    };
     let mut evaluator = Evaluator::new(config);
 
     let result = process_string(
         "@def(test, value, Result: @(value))@test(works)",
+        None,
+        &mut evaluator,
+    )
+    .unwrap();
+
+    assert_eq!(String::from_utf8(result).unwrap().trim(), "Result: works");
+}
+
+#[test]
+fn test_process_string_with_unicode_sigil() {
+    let config = EvalConfig {
+        sigil: '§',
+        ..EvalConfig::default()
+    };
+    let mut evaluator = Evaluator::new(config);
+
+    let result = process_string(
+        "§def(test, value, Result: §(value))§test(works)",
         None,
         &mut evaluator,
     )
@@ -570,6 +592,26 @@ fn test_named_params_any_order() {
     assert!(
         s.contains("GET /api/users list_users"),
         "named params in reverse order should still bind by name, got: {s:?}"
+    );
+}
+
+/// A trailing comma after the last named argument is accepted.
+#[test]
+fn test_named_params_allow_trailing_comma() {
+    let result = process_string_defaults(
+        "%def(http_endpoint, method, path, handler, \
+              %(method) %(path) %(handler))\n\
+         %http_endpoint(\n\
+             handler = list_users,\n\
+             method = GET,\n\
+             path = /api/users,\n\
+         )",
+    )
+    .unwrap();
+    let s = std::str::from_utf8(&result).unwrap();
+    assert!(
+        s.contains("GET /api/users list_users"),
+        "expected trailing comma to be ignored, got: {s:?}"
     );
 }
 

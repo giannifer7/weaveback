@@ -8,7 +8,7 @@ into every rendered HTML page via `docinfo.html` / `docinfo-footer.html`.
 
 Features:
 
-* Live reload over Server-Sent Events (`/__events`)
+* Live reload by polling a server version counter (`/__version`)
 * Table-of-contents collapse / expand
 * Inline CodeMirror 6 chunk editor (local mode only)
 * AI assistant panel (local mode only)
@@ -104,22 +104,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
 == Live reload (`live.ts`)
 
-`initLiveReload` connects to `/__events` (SSE) and reloads on `reload` events,
-reconnecting after 2 s on error.  `initEditButton` adds a pencil link that
+`initLiveReload` polls `/__version` and reloads when the counter changes.
+`initEditButton` adds a pencil link that
 calls `/__open` to jump to the `.adoc` source in the user's editor.
 
 [source,typescript]
 ----
 // <[@file src/live.ts]>=
 export function initLiveReload(): void {
-  if (typeof EventSource === 'undefined' || window.location.protocol === 'file:') return;
+  if (window.location.protocol === 'file:') return;
 
-  function connect() {
-    const es = new EventSource('/__events');
-    es.addEventListener('reload', () => location.reload());
-    es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+  let seen: string | null = null;
+  let inFlight = false;
+
+  async function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const resp = await fetch('/__version', { cache: 'no-store' });
+      if (!resp.ok) return;
+      const current = (await resp.text()).trim();
+      if (seen === null) {
+        seen = current;
+        return;
+      }
+      if (current !== seen) {
+        location.reload();
+      }
+    } catch {
+      // Ignore transient polling failures.
+    } finally {
+      inFlight = false;
+    }
   }
-  connect();
+
+  void poll();
+  window.setInterval(() => { void poll(); }, 2000);
 }
 
 export function initEditButton(): void {

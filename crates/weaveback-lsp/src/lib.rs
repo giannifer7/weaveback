@@ -41,7 +41,7 @@ impl LspClient {
             .current_dir(root_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::null())
             .spawn()?;
 
         let stdin = child.stdin.take().ok_or_else(|| LspError::Protocol("failed to open stdin".into()))?;

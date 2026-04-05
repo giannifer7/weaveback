@@ -38,7 +38,7 @@ confusing.
 Allowed identifier charset (enforced jointly by the lexer and this validator):
 
 * **Start**: `[A-Za-z_]` — the lexer never emits an `Ident` token whose first
-  byte is a digit or a special character.
+  byte is a digit or a sigil.
 * **Continue**: `[A-Za-z0-9_]` — digits are allowed after the first character.
 * `single_ident_param` additionally rejects names that start with an ASCII digit
   even if the text somehow arrived as an `Ident` node, matching the "no leading
@@ -49,19 +49,19 @@ Practical consequence: `foo`, `_bar`, `my_param2` are valid; `foo-bar`,
 
 Inside macro argument parsing, a hyphen is not a delimiter, so `foo-bar` is
 lexed as a single `Text` token `"foo-bar"` (the `else` branch in the args-state
-loop consumes all bytes that are not whitespace, `,`, `)`, `=`, or the special
-char).  `single_ident_param` then rejects it because the Param node's only
+loop consumes all bytes that are not whitespace, `,`, `)`, `=`, or the sigil).
+`single_ident_param` then rejects it because the Param node's only
 non-space child has kind `Text`, not `Ident` — identifiers can only start
 with `[A-Za-z_]` and the lexer never emits an `Ident` token for `foo-bar`.
 
-(`TokenKind::Special` is emitted only for the doubled special char — e.g. `%%`
+(`TokenKind::Special` is emitted only for the doubled sigil — e.g. `%%`
 is the escape sequence for a literal `%` — not for arbitrary punctuation.)
 
 === `%here`: the one side-effecting builtin
 
 `%here(macro_name, args...)` calls `builtin_eval` to get the expansion, then
 uses `modify_source` to patch the current source file in place — prepending the
-special char before the `%here` token (to neutralise the call site) and
+sigil before the `%here` token (to neutralise the call site) and
 appending the expanded text after it, skipping the rest of the line.  It then
 sets `early_exit` so the evaluator stops cleanly.
 
@@ -77,8 +77,8 @@ first one encountered reaches `builtin_here`; all later ones are unreachable.
 further evaluation touches it.  The next tool run starts fresh with a new
 `Evaluator`, re-parses the modified file, and sees the neutralised call site.
 
-**Idempotency.**  The prepend step inserts one extra special char, turning
-`%here(...)` into `%%here(...)`.  A double special char is lexed as literal
+**Idempotency.**  The prepend step inserts one extra sigil, turning
+`%here(...)` into `%%here(...)`.  A double sigil is lexed as literal
 text (the escape sequence for a single `%`), so re-running on the already-patched
 file produces no macro call and no second patch.
 
@@ -92,9 +92,23 @@ simple transformations over the collected word slices.
 
 == Built-in macro table
 
+This table is the practical entry point for the builtin surface registered by
+`default_builtins()`.  The exact registry lives in the code below; this section
+exists to make the available operations and their intended use visible without
+reading the implementation first.
+
+One useful boundary is worth calling out explicitly: evaluator builtins are for
+evaluation semantics, scope, scripting, and string-level transformations.
+Whitespace control for accumulated noweb fragments lives in the tangle layer
+instead (`@compact`, `@tight` on chunk references), because that problem is
+about chunk composition rather than macro evaluation.
+
 [cols="1,4",options="header"]
 |===
 | Name | Behaviour
+
+| *Definition and scope*
+| 
 
 | `%def(name, [p1, …,] body)`
 | Define a text-substitution macro.
@@ -110,6 +124,9 @@ simple transformations over the collected word slices.
 
 | `%export(name)`
 | Move a variable or macro from the current scope into the parent scope, freezing free variables.
+
+| *Control and inclusion*
+| 
 
 | `%include(path)`
 | Evaluate the named file and splice its output inline.
@@ -129,17 +146,26 @@ simple transformations over the collected word slices.
 | `%here(name, args…)`
 | Expand the macro and splice the result into the current source file (one-shot source patching).
 
+| *String transforms*
+| 
+
 | `%capitalize(s)` / `%decapitalize(s)`
 | Upper- / lower-case the first character.
 
 | `%convert_case(s, style)` / `%to_snake_case(s)` / `%to_camel_case(s)` / `%to_pascal_case(s)` / `%to_screaming_case(s)`
 | Convert identifier case.  `convert_case` accepts any style string; the others are shortcuts.
 
+| *Persistent script stores*
+| 
+
 | `%rhaiset(key, val)` / `%rhaiget(key)` / `%rhaiexpr(key, expr)`
 | Manage the persistent Rhai store.
 
 | `%pyset(key, val)` / `%pyget(key)`
 | Manage the persistent Python store.
+
+| *Environment*
+| 
 
 | `%env(NAME)`
 | Read an environment variable.  Requires `--allow-env`.
@@ -521,7 +547,7 @@ the macro name, then constructs a synthetic `Macro` AST node using the name
 argument's token as the origin (so error messages point to the right place).
 
 `%here` is the one builtin with file I/O.  It calls `builtin_eval` to expand
-the macro, then calls `modify_source` with two insertions: a special-char
+the macro, then calls `modify_source` with two insertions: a sigil
 prefix before the `%here` call (neutralising it) and the expansion after it
 (skipping the rest of the original line).  Then it sets `early_exit`.
 
@@ -593,7 +619,7 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     let path = eval.get_current_file_path();
     let start_pos = node.token.pos;
 
-    let prepend_triplet = (start_pos, eval.get_special_char(), false);
+    let prepend_triplet = (start_pos, eval.get_sigil(), false);
     let append_triplet = (node.end_pos, expansion.into_bytes(), true);
 
     super::source_utils::modify_source(&path, &[prepend_triplet, append_triplet])?;

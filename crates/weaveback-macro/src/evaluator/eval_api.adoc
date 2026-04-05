@@ -22,7 +22,7 @@ between runs is required.
 `eval_string` accepts an existing evaluator and an optional `real_path` for
 source attribution (used when the string originated from a file on disk).
 `eval_string_with_defaults` is the simplest entry point — a fresh evaluator,
-no path, `%` as the special char.  It is used extensively in tests.
+no path, `%` as the sigil.  It is used extensively in tests.
 
 === `canonical()` — resolving paths that do not yet exist
 
@@ -218,7 +218,7 @@ pub fn eval_files_with_config(
 
 == `eval_string_with_defaults`
 
-The simplest entry point: fresh evaluator, default `%` special char, no path.
+The simplest entry point: fresh evaluator, default `%` sigil, no path.
 Used extensively in unit tests.
 
 [source,rust]

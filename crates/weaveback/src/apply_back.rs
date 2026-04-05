@@ -148,7 +148,7 @@ struct MacroBodySearch<'a> {
     body_template: Option<&'a str>,
     old_text: &'a str,
     new_text: &'a str,
-    special_char: char,
+    sigil: char,
     eval_config: &'a EvalConfig,
     src_path: &'a std::path::Path,
     expanded_line: u32,
@@ -157,7 +157,7 @@ struct MacroBodySearch<'a> {
 struct MacroCallSearch<'a> {
     lines: &'a [String],
     macro_name: &'a str,
-    special_char: char,
+    sigil: char,
     old_text: &'a str,
     new_text: &'a str,
     eval_config: &'a EvalConfig,
@@ -342,7 +342,7 @@ fn attempt_macro_body_fix(
     body_line: &str,
     old_expanded: &str,
     new_expanded: &str,
-    special_char: char,
+    sigil: char,
 ) -> Option<String> {
     if old_expanded == new_expanded { return None; }
 
@@ -351,7 +351,7 @@ fn attempt_macro_body_fix(
         return Some(new_expanded.to_string());
     }
 
-    let special_esc = regex::escape(&special_char.to_string());
+    let special_esc = regex::escape(&sigil.to_string());
     let var_re = Regex::new(&format!(r"{}[(][A-Za-z_][A-Za-z0-9_]*[)]", special_esc)).ok()?;
 
     let mut lits: Vec<&str> = Vec::new();
@@ -562,7 +562,7 @@ fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<Candidate
             template,
             request.old_text,
             request.new_text,
-            request.special_char,
+            request.sigil,
         ) else {
             continue;
         };
@@ -599,7 +599,7 @@ fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<Candidate
 }
 
 fn search_macro_call_candidate(request: MacroCallSearch<'_>) -> Option<CandidateResolution> {
-    let needle = format!("{}{}(", request.special_char, request.macro_name);
+    let needle = format!("{}{}(", request.sigil, request.macro_name);
     let mut candidates = Vec::new();
     let token_pair = differing_token_pair(request.old_text, request.new_text);
 
@@ -674,7 +674,7 @@ fn resolve_patch_source(
     nw_src_file: &str,
     nw_src_line: u32,
     snapshot: Option<&[u8]>,
-    special_char: char,
+    sigil: char,
     len: usize,
 ) -> Result<PatchSource, ApplyBackError> {
     let trace = lookup::perform_trace(
@@ -722,7 +722,7 @@ fn resolve_patch_source(
                 s.lines().nth(src_line_0).map(|l| l.to_string())
             });
             let has_vars = snap_line.as_deref()
-                .is_none_or(|l| l.contains(special_char));
+                .is_none_or(|l| l.contains(sigil));
 
             if has_vars {
                 Ok(PatchSource::MacroBodyWithVars { src_file, src_line: src_line_0, macro_name })
@@ -759,7 +759,7 @@ fn resolve_best_patch_source(
     nw_src_file: &str,
     nw_src_line: u32,
     snapshot: Option<&[u8]>,
-    special_char: char,
+    sigil: char,
     len: usize,
     lsp_hint: Option<&LspDefinitionHint>,
 ) -> Result<PatchSource, ApplyBackError> {
@@ -796,7 +796,7 @@ fn resolve_best_patch_source(
             nw_src_file,
             nw_src_line,
             snapshot,
-            special_char,
+            sigil,
             len,
         )?;
         let (candidate_file, candidate_line) = patch_source_location(&candidate);
@@ -951,7 +951,7 @@ struct FilePatchContext<'a> {
     dry_run: bool,
     eval_config: Option<EvalConfig>,
     snapshot: Option<&'a [u8]>,
-    special_char: char,
+    sigil: char,
 }
 
 fn apply_patches_to_file(
@@ -1005,7 +1005,7 @@ fn apply_patches_to_file(
                             body_template: body_template.as_deref(),
                             old_text: &patch.old_text,
                             new_text: &patch.new_text,
-                            special_char: ctx.special_char,
+                            sigil: ctx.sigil,
                             eval_config: &ec,
                             src_path: &src_path,
                             expanded_line: patch.expanded_line,
@@ -1020,7 +1020,7 @@ fn apply_patches_to_file(
                         } else if let Some(candidate) = search_macro_call_candidate(MacroCallSearch {
                             lines: &lines,
                             macro_name,
-                            special_char: ctx.special_char,
+                            sigil: ctx.sigil,
                             old_text: &patch.old_text,
                             new_text: &patch.new_text,
                             eval_config: &ec,
@@ -1074,7 +1074,7 @@ fn apply_patches_to_file(
                         } else if let Some(candidate) = search_macro_call_candidate(MacroCallSearch {
                             lines: &lines,
                             macro_name,
-                            special_char: ctx.special_char,
+                            sigil: ctx.sigil,
                             old_text: &patch.old_text,
                             new_text: &patch.new_text,
                             eval_config: &ec,
@@ -1163,7 +1163,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
             .collect()
     };
 
-    let special_char = opts.eval_config.as_ref().map_or('%', |ec| ec.special_char);
+    let sigil = opts.eval_config.as_ref().map_or('%', |ec| ec.sigil);
 
     // Snapshot cache: driver path → bytes.  Populated lazily.
     let mut snapshot_cache: HashMap<String, Option<Vec<u8>>> = HashMap::new();
@@ -1225,14 +1225,14 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                     })
                                     .as_deref();
 
-                                // Retrieve the config used for this source file to get the correct special_char.
+                                // Retrieve the config used for this source file to get the correct sigil.
                                 let mut file_eval_config = opts.eval_config.clone();
-                                let mut file_special_char = special_char;
+                                let mut file_special_char = sigil;
                                 if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, &entry.src_file) {
                                     if let Some(ec) = &mut file_eval_config {
-                                        ec.special_char = cfg.special_char;
+                                        ec.sigil = cfg.sigil;
                                     }
-                                    file_special_char = cfg.special_char;
+                                    file_special_char = cfg.sigil;
                                 }
 
                                 let source = if let Some(ec) = &file_eval_config {
@@ -1406,14 +1406,14 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                 })
                 .as_deref();
 
-            // Retrieve the config used for this source file to get the correct special_char.
+            // Retrieve the config used for this source file to get the correct sigil.
             let mut file_eval_config = opts.eval_config.clone();
-            let mut file_special_char = special_char;
+            let mut file_special_char = sigil;
             if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, src_file) {
                 if let Some(ec) = &mut file_eval_config {
-                    ec.special_char = cfg.special_char;
+                    ec.sigil = cfg.sigil;
                 }
-                file_special_char = cfg.special_char;
+                file_special_char = cfg.sigil;
             }
 
             apply_patches_to_file(
@@ -1425,7 +1425,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                     dry_run: opts.dry_run,
                     eval_config: file_eval_config,
                     snapshot: snap,
-                    special_char: file_special_char,
+                    sigil: file_special_char,
                 },
                 &mut skipped,
                 out,

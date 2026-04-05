@@ -6,7 +6,7 @@
 The weaveback-macro lexer converts a raw `&str` into a flat `Vec<Token>`
 that the parser then assembles into a tree.  It is a hand-written
 pushdown scanner: a state stack allows blocks, macro argument lists, and
-block comments to nest arbitrarily.  The special character (default `%`,
+block comments to nest arbitrarily.  The sigil (default `%`,
 configurable) acts as the sole escape sigil — everything else is plain text.
 
 == Design rationale
@@ -20,18 +20,20 @@ this cleanly: `push` on open, `pop` on close.  Each frame records the
 byte offset of its opening delimiter so that "Unclosed block at offset N"
 errors point to the right place.
 
-=== Why `memchr` in Block and Comment?
+=== Why `memchr` / `memmem` in Block and Comment?
 
-Weaveback documents are mostly plain text.  The special character appears
+Weaveback documents are mostly plain text.  The sigil appears
 rarely.  Scanning byte-by-byte for `%` wastes cycles on the common case.
-`memchr` compiles to a SIMD/vectorised search on every major platform and
-locates the next `%` in O(n/16) wall-clock time.  Macro arg lists are
-short and contain many token types, so a simple loop is used there instead.
+For the default ASCII `%` this is a single-byte `memchr`; for a non-ASCII
+sigil it becomes a short UTF-8 subsequence search via `memmem`.
+Either way the lexer still jumps directly to the next possible macro sigil
+instead of scanning plain text byte-by-byte.  Macro arg lists are short and
+contain many token types, so a simple loop is used there instead.
 
 === Why `SpecialAction`?
 
 Both Block and Macro states must handle a `%` in their input.  The full
-dispatch logic lives in `handle_after_special`, shared by both states.
+dispatch logic lives in `handle_after_sigil`, shared by both states.
 The return value — a `SpecialAction` enum — tells the caller what to do:
 push a new state and return immediately, pop the current state, or
 continue the loop.
@@ -46,9 +48,10 @@ combinations trigger the lexer's machinery.
 
 === Why precompute comment delimiters?
 
-The comment delimiters `%/*` and `%*/` depend on the runtime special char.
-Precomputing them as `open_comment: [u8; 3]` and `close_comment: [u8; 3]`
-avoids rebuilding the arrays on every call to `run_comment_state`.
+The comment delimiters `%/*` and `%*/` depend on the runtime sigil.
+For ASCII sigils these are three bytes; for UTF-8 sigils they are longer.
+Precomputing them as byte vectors avoids rebuilding the delimiter sequences on
+every call to `run_comment_state`.
 
 == Token vocabulary
 
@@ -58,7 +61,7 @@ avoids rebuilding the arrays on every call to `run_comment_state`.
 
 | `Text`        | _any_           | Literal pass-through content
 | `Space`       | whitespace run  | Whitespace inside macro args (preserved)
-| `Special`     | `%%`            | Escaped special char → literal `%` in output
+| `Special`     | `%%`            | Escaped sigil → literal `%` in output
 | `BlockOpen`   | `%{` / `%name{` | Opens a named or anonymous block
 | `BlockClose`  | `%}` / `%name}` | Closes the innermost open block
 | `Macro`       | `%name(`        | Macro call head; starts arg-list scanning
@@ -130,7 +133,7 @@ C --> C : %*/ pop
 note as N
   push: new frame on stack, resume on return
   pop: driver removes top frame, resumes frame below
-  Block and Macro share handle_after_special
+  Block and Macro share handle_after_sigil
 end note
 @enduml
 ....
@@ -176,7 +179,7 @@ impl<'a> Lexer<'a> {
 
     // <<lexer macro state>>
 
-    // <<lexer special handler>>
+    // <<lexer sigil handler>>
 
     // <<lexer comment state>>
 }
@@ -189,7 +192,7 @@ impl<'a> Lexer<'a> {
 ----
 // <<lexer preamble>>=
 use crate::types::{LexerError, Token, TokenKind};
-use memchr::memchr;
+use memchr::{memchr, memmem};
 
 #[cfg(test)]
 mod tests;
@@ -199,9 +202,10 @@ mod tests;
 == Character classifiers
 
 Three byte-level predicates used throughout the lexer.  They operate on
-`u8` rather than `char` because the lexer works on raw bytes — only ASCII
-sequences are structurally significant, and non-ASCII bytes are always
-part of plain text.
+`u8` rather than `char` because the lexer works on raw bytes. Identifiers and
+structural punctuation are still ASCII, but the configurable sigil may
+now be any single Unicode scalar value, so the lexer stores both the `char`
+for diagnostics and its UTF-8 byte sequence for scanning.
 
 [source,rust]
 ----
@@ -232,8 +236,8 @@ self-reports its own "Unclosed comment" error from inside
 
 === `SpecialAction`
 
-`handle_after_special` is called by both `run_block_state` and
-`run_macro_state` after consuming the special char.  The three variants
+`handle_after_sigil` is called by both `run_block_state` and
+`run_macro_state` after consuming the sigil.  The three variants
 encode exactly what the caller must do next:
 
 * `Push` — a new state was just pushed; return `true` immediately so the
@@ -255,7 +259,7 @@ enum State {
     Comment,
 }
 
-/// What `handle_after_special` tells the caller to do.
+/// What `handle_after_sigil` tells the caller to do.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SpecialAction {
     /// A new state was pushed; return `true` to keep the current state active.
@@ -275,8 +279,8 @@ index threaded into every `Token` for source-map purposes.  `state_stack`
 starts with one `State::Block(0)` — the implicit outermost block — so
 that top-level text and constructs are handled identically to nested ones.
 
-`open_comment` and `close_comment` are the precomputed 3-byte delimiters
-for the configurable special char (see <<_design_rationale>>).
+`open_comment` and `close_comment` are the precomputed comment delimiters
+for the configurable sigil (see <<_design_rationale>>).
 
 [source,rust]
 ----
@@ -286,23 +290,24 @@ pub struct Lexer<'a> {
     pos: usize,
     src: u32,
     tokens: Vec<Token>,
-    /// ASCII special character (e.g. `%`).
-    special_char: u8,
+    /// Configurable macro sigil (e.g. `%`, `@`, `§`).
+    sigil: char,
+    /// UTF-8 bytes of `sigil`, used by the byte-oriented scanner.
+    sigil_bytes: Vec<u8>,
     state_stack: Vec<State>,
     pub errors: Vec<LexerError>,
-    /// Precomputed `[sc, b'/', b'*']` — checked in comment state.
-    open_comment: [u8; 3],
-    /// Precomputed `[sc, b'*', b'/']`.
-    close_comment: [u8; 3],
+    /// Precomputed `<sigil>/*` — checked in comment state.
+    open_comment: Vec<u8>,
+    /// Precomputed `<sigil>*/`.
+    close_comment: Vec<u8>,
 }
 // @
 ----
 
 == Public API
 
-`new` validates the special char is ASCII (the SIMD memchr path only works
-on single bytes), precomputes the comment delimiters, and seeds the stack
-with the outermost `Block` frame.
+`new` precomputes the UTF-8 bytes of the sigil and the corresponding
+comment delimiters, then seeds the stack with the outermost `Block` frame.
 
 `lex` consumes the lexer and returns the completed token stream alongside
 any errors.  Errors are non-fatal: the stream is always well-formed up to
@@ -311,19 +316,23 @@ EOF even when errors occur.
 [source,rust]
 ----
 // <<lexer pub api>>=
-pub fn new(input: &'a str, special_char: char, src: u32) -> Self {
-    assert!(special_char.is_ascii(), "special_char must be ASCII");
-    let sc = special_char as u8;
+pub fn new(input: &'a str, sigil: char, src: u32) -> Self {
+    let sigil_bytes = sigil.to_string().into_bytes();
+    let mut open_comment = sigil_bytes.clone();
+    open_comment.extend_from_slice(b"/*");
+    let mut close_comment = sigil_bytes.clone();
+    close_comment.extend_from_slice(b"*/");
     let mut lexer = Lexer {
         bytes: input.as_bytes(),
         pos: 0,
         src,
         tokens: Vec::new(),
-        special_char: sc,
+        sigil,
+        sigil_bytes,
         state_stack: Vec::new(),
         errors: Vec::new(),
-        open_comment: [sc, b'/', b'*'],
-        close_comment: [sc, b'*', b'/'],
+        open_comment,
+        close_comment,
     };
     lexer.state_stack.push(State::Block(0));
     lexer
@@ -369,6 +378,19 @@ fn advance(&mut self) -> Option<u8> {
     Some(b)
 }
 
+fn starts_with_sigil(&self) -> bool {
+    self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+}
+
+fn advance_sigil(&mut self) -> bool {
+    if self.starts_with_sigil() {
+        self.pos += self.sigil_bytes.len();
+        true
+    } else {
+        false
+    }
+}
+
 /// Advance past the rest of the current line (through `\n` or to EOF).
 fn skip_line_comment(&mut self) {
     let rest = &self.bytes[self.pos..];
@@ -398,7 +420,7 @@ fn starts_with_bytes(&self, pat: &[u8]) -> bool {
 /// Extract the identifier tag from a `%tag{` or `%tag}` position.
 /// `pct_start` is the byte offset of `%`. Returns `""` for anonymous `%{`/`%}`.
 fn block_tag_at(&self, pct_start: usize) -> &str {
-    let start = pct_start + 1; // skip `%`
+    let start = pct_start + self.sigil_bytes.len(); // skip sigil bytes
     let mut end = start;
     while end < self.bytes.len() && is_identifier_continue(self.bytes[end]) {
         end += 1;
@@ -509,12 +531,12 @@ pub fn run(&mut self) {
 == Block state
 
 Block is the default state and the most common.  `memchr` locates the
-next special char in O(n/vector_width) time, skipping over all intervening
-text.  If no special char is found before EOF the remaining bytes are
+next sigil in O(n/vector_width) time, skipping over all intervening
+text.  If no sigil is found before EOF the remaining bytes are
 emitted as a single `Text` token.
 
-When a special char is found, the text up to it is emitted, then the char
-is consumed and control passes to `handle_after_special`.  The return
+When a sigil is found, the text up to it is emitted, then the char
+is consumed and control passes to `handle_after_sigil`.  The return
 value determines whether to push (return `true` immediately so the driver
 calls the new state), pop (return `false`), or stay in the loop.
 
@@ -524,10 +546,9 @@ calls the new state), pop (return `false`), or stay in the loop.
 // ── Block state ───────────────────────────────────────────────────────
 
 fn run_block_state(&mut self) -> bool {
-    let sc = self.special_char;
     loop {
         let rest = &self.bytes[self.pos..];
-        let text_len = match memchr(sc, rest) {
+        let text_len = match memmem::find(rest, &self.sigil_bytes) {
             Some(i) => i,
             None => {
                 if !rest.is_empty() {
@@ -542,8 +563,8 @@ fn run_block_state(&mut self) -> bool {
             self.pos += text_len;
         }
         let pct_start = self.pos;
-        self.advance(); // consume the special char
-        match self.handle_after_special(pct_start) {
+        self.advance_sigil(); // consume the sigil
+        match self.handle_after_sigil(pct_start) {
             SpecialAction::Push => return true,
             SpecialAction::Pop => return false,
             SpecialAction::Continue => {}
@@ -563,10 +584,10 @@ everything else — including non-ASCII text and numeric literals — becomes
 
 A `%` inside a macro arg list is valid: it can start a nested macro call,
 a block, a comment, a variable substitution, or an escape.  Delegation to
-`handle_after_special` handles all of these uniformly.
+`handle_after_sigil` handles all of these uniformly.
 
 The trailing check `if !matches!(self.state_stack.last(), Some(State::Macro(_)))`
-handles the case where `handle_after_special` called `Pop` (e.g. a `%}`
+handles the case where `handle_after_sigil` called `Pop` (e.g. a `%}`
 inside a macro arg): in that case, we are no longer the active state and
 must return false without consuming `)`.
 
@@ -576,7 +597,6 @@ must return false without consuming `)`.
 // ── Macro arg state ───────────────────────────────────────────────────
 
 fn run_macro_state(&mut self) -> bool {
-    let sc = self.special_char;
     while let Some(b) = self.peek_byte() {
         if b == b')' {
             let start = self.pos;
@@ -597,10 +617,10 @@ fn run_macro_state(&mut self) -> bool {
                 self.advance();
             }
             self.emit_token(ws_start, self.pos - ws_start, TokenKind::Space);
-        } else if b == sc {
+        } else if self.starts_with_sigil() {
             let pct_start = self.pos;
-            self.advance();
-            match self.handle_after_special(pct_start) {
+            self.advance_sigil();
+            match self.handle_after_sigil(pct_start) {
                 SpecialAction::Push => return true,
                 SpecialAction::Pop => return false,
                 SpecialAction::Continue => {}
@@ -611,14 +631,14 @@ fn run_macro_state(&mut self) -> bool {
             self.pos = end;
             self.emit_token(start, end - start, TokenKind::Ident);
         } else {
-            let start = self.pos;
-            while let Some(b2) = self.peek_byte() {
-                if is_whitespace(b2)
-                    || matches!(b2, b')' | b',' | b'=')
-                    || b2 == sc
-                {
-                    break;
-                }
+                let start = self.pos;
+                while let Some(b2) = self.peek_byte() {
+                    if is_whitespace(b2)
+                        || matches!(b2, b')' | b',' | b'=')
+                        || self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+                    {
+                        break;
+                    }
                 self.advance();
             }
             self.emit_token(start, self.pos - start, TokenKind::Text);
@@ -637,10 +657,10 @@ fn run_macro_state(&mut self) -> bool {
 // @
 ----
 
-== Shared special dispatcher
+== Shared sigil dispatcher
 
-`handle_after_special` is the heart of the lexer.  It is called by both
-Block and Macro states after the special char has been consumed, and
+`handle_after_sigil` is the heart of the lexer.  It is called by both
+Block and Macro states after the sigil has been consumed, and
 decides what to emit and whether to push or pop.
 
 The dispatch table (by the next byte):
@@ -655,7 +675,7 @@ The dispatch table (by the next byte):
 | `/`       | Line (`%//`) or block (`%/*`) comment; `%/*` pushes `State::Comment`
 | `-`       | Line comment `%--`
 | `#`       | Line comment `%#`
-| `sc`      | Escaped special char `%%` → `Special` token
+| `sc`      | Escaped sigil `%%` → `Special` token
 | identifier start | Named macro `%name(`, named block `%name{`/`%name}`, or plain text
 | anything else | Error + emit `%` as `Text`; unrecognised byte left for next iteration
 | EOF       | Emit `%` as `Text`
@@ -667,14 +687,13 @@ deviation produces an error and emits the malformed sequence as `Text`.
 
 [source,rust]
 ----
-// <<lexer special handler>>=
-// ── Shared special-sequence handler ──────────────────────────────────
+// <<lexer sigil handler>>=
+// ── Shared sigil-sequence handler ────────────────────────────────────
 //
-// Called after the special char has been consumed.
-// `pct_start` is the byte offset of the special char itself.
+// Called after the sigil has been consumed.
+// `pct_start` is the byte offset of the sigil itself.
 
-fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
-    let sc = self.special_char;
+fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
     match self.peek_byte() {
         Some(b'(') => {
             self.handle_var(pct_start);
@@ -713,7 +732,7 @@ fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
                         pct_start,
                         &format!(
                             "Unexpected char after '{}/': expected // or /*",
-                            sc as char
+                            self.sigil
                         ),
                     );
                     self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -734,7 +753,7 @@ fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
                         pct_start,
                         &format!(
                             "Unexpected char after '{}-': expected --",
-                            sc as char
+                            self.sigil
                         ),
                     );
                     self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -748,8 +767,8 @@ fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
             self.emit_token(pct_start, self.pos - pct_start, TokenKind::LineComment);
             SpecialAction::Continue
         }
-        Some(b) if b == sc => {
-            self.advance();
+        Some(_) if self.starts_with_sigil() => {
+            self.advance_sigil();
             self.emit_token(pct_start, self.pos - pct_start, TokenKind::Special);
             SpecialAction::Continue
         }
@@ -789,14 +808,14 @@ fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
             // The unrecognized byte is left for the next iteration.
             self.error_at(
                 pct_start,
-                &format!("Unrecognized char after '{}'", sc as char),
+                &format!("Unrecognized char after '{}'", self.sigil),
             );
-            self.emit_token(pct_start, 1, TokenKind::Text);
+            self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
             SpecialAction::Continue
         }
         None => {
             // % at EOF — emit as plain text.
-            self.emit_token(pct_start, 1, TokenKind::Text);
+            self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
             SpecialAction::Continue
         }
     }
@@ -804,7 +823,6 @@ fn handle_after_special(&mut self, pct_start: usize) -> SpecialAction {
 
 /// Handle a `%(varname)` sequence. `pct_start` is the byte offset of the `%`.
 fn handle_var(&mut self, pct_start: usize) {
-    let sc = self.special_char as char;
     self.advance(); // consume '('
     let ident_start = self.pos;
     let ident_end = self.get_identifier_end(ident_start);
@@ -819,7 +837,7 @@ fn handle_var(&mut self, pct_start: usize) {
     } else {
         self.error_at(
             pct_start,
-            &format!("Var missing identifier after '{}('", sc),
+            &format!("Var missing identifier after '{}('", self.sigil),
         );
     }
     self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
@@ -847,14 +865,12 @@ error is recorded.  The frame is then popped by returning `false`.
 // ── Comment state ─────────────────────────────────────────────────────
 
 fn run_comment_state(&mut self) -> bool {
-    let sc = self.special_char;
-    const DELIM_LEN: usize = 3; // [sc, x, y]
     let comment_text_start = self.pos;
 
     loop {
-        // Jump to the next special char — only it can start a delimiter.
+        // Jump to the next sigil — only it can start a delimiter.
         let rest = &self.bytes[self.pos..];
-        let Some(i) = memchr(sc, rest) else {
+        let Some(i) = memmem::find(rest, &self.sigil_bytes) else {
             break; // EOF inside comment
         };
         self.pos += i;
@@ -868,8 +884,8 @@ fn run_comment_state(&mut self) -> bool {
                 );
             }
             let delim_start = self.pos;
-            self.pos += DELIM_LEN;
-            self.emit_token(delim_start, DELIM_LEN, TokenKind::CommentOpen);
+            self.pos += self.open_comment.len();
+            self.emit_token(delim_start, self.open_comment.len(), TokenKind::CommentOpen);
             self.state_stack.push(State::Comment);
             return true;
         }
@@ -882,12 +898,12 @@ fn run_comment_state(&mut self) -> bool {
                 );
             }
             let delim_start = self.pos;
-            self.pos += DELIM_LEN;
-            self.emit_token(delim_start, DELIM_LEN, TokenKind::CommentClose);
+            self.pos += self.close_comment.len();
+            self.emit_token(delim_start, self.close_comment.len(), TokenKind::CommentClose);
             return false;
         }
         // Special char that isn't a comment delimiter — skip past it.
-        self.pos += 1;
+        self.pos += self.sigil_bytes.len();
     }
 
     // EOF: unclosed comment.
@@ -930,7 +946,11 @@ use crate::types::{Token, TokenKind};
 
 /// Collect tokens from the lexer (non-EOF tokens only).
 fn collect_tokens_with_timeout(input: &str) -> Result<Vec<Token>, String> {
-    let (tokens, errors) = Lexer::new(input, '%', 0).lex();
+    collect_tokens_with_sigil(input, '%')
+}
+
+fn collect_tokens_with_sigil(input: &str, sigil: char) -> Result<Vec<Token>, String> {
+    let (tokens, errors) = Lexer::new(input, sigil, 0).lex();
     if !errors.is_empty() {
         // Errors are non-fatal for these tests; just return what was produced.
         let _ = errors;
@@ -945,6 +965,36 @@ fn collect_tokens_with_timeout(input: &str) -> Result<Vec<Token>, String> {
 /// We compare both `kind` and the `length` of the text (since we can't store real text easily).
 fn assert_tokens(input: &str, expected: &[(TokenKind, &str)]) {
     let result = collect_tokens_with_timeout(input).expect("Failed to collect tokens");
+    let tokens = result;
+
+    assert_eq!(
+        tokens.len(),
+        expected.len(),
+        "Wrong number of tokens: expected {}, got {}. Tokens: {:?}",
+        expected.len(),
+        tokens.len(),
+        tokens
+    );
+
+    for (i, (token, (exp_kind, exp_text))) in tokens.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            token.kind, *exp_kind,
+            "Token {} kind mismatch: expected {:?}, got {:?}",
+            i, exp_kind, token.kind
+        );
+        let got_len = token.length;
+        let exp_len = exp_text.len();
+        assert_eq!(
+            got_len, exp_len,
+            "Token {} length mismatch: expected {}, got {} (expected text='{}')",
+            i, exp_len, got_len, exp_text
+        );
+    }
+}
+
+fn assert_tokens_with_sigil(input: &str, sigil: char, expected: &[(TokenKind, &str)]) {
+    let result = collect_tokens_with_sigil(input, sigil)
+        .expect("Failed to collect tokens with custom sigil");
     let tokens = result;
 
     assert_eq!(
@@ -1033,7 +1083,7 @@ fn test_nested_comment() {
 }
 
 #[test]
-fn test_unfinished_special() {
+fn test_unfinished_sigil() {
     assert_tokens("%something", &[(TokenKind::Text, "%something")]);
 }
 
@@ -1159,7 +1209,26 @@ fn test_unicode() {
 }
 
 #[test]
-fn test_special_sequences() {
+fn test_unicode_sigil() {
+    assert_tokens_with_sigil(
+        "§macro(名前) §§done §/* note §*/",
+        '§',
+        &[
+            (TokenKind::Macro, "§macro("),
+            (TokenKind::Text, "名前"),
+            (TokenKind::CloseParen, ")"),
+            (TokenKind::Text, " "),
+            (TokenKind::Special, "§§"),
+            (TokenKind::Text, "done "),
+            (TokenKind::CommentOpen, "§/*"),
+            (TokenKind::Text, " note "),
+            (TokenKind::CommentClose, "§*/"),
+        ],
+    );
+}
+
+#[test]
+fn test_sigil_sequences() {
     assert_tokens(
         "%%double",
         &[(TokenKind::Special, "%%"), (TokenKind::Text, "double")],

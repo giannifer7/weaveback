@@ -47,6 +47,14 @@ py-wheel-musllinux:
 py-sync:
     cd {{_pyproj}} && uv sync
 
+# Render the experimental option-spec sample into Rust/Python/docs/facts outputs
+option-spec-demo:
+    python3 scripts/option_spec/render.py --spec scripts/option_spec/specs/tangle.toml --out /tmp/weaveback-option-spec
+
+# Run the option-spec experiment tests
+option-spec-test:
+    python3 -m unittest scripts/option_spec/tests/test_render.py
+
 # Full local Python check cycle
 py-check: py-build lint-python test-python
 
@@ -67,6 +75,14 @@ test-noweb:
 # Run Python tests
 test-python:
     cd {{_pyproj}} && uv run pytest
+
+# Measure Rust test coverage with cargo-llvm-cov
+coverage:
+    cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+# Generate an HTML Rust coverage report under coverage_report/
+coverage-html:
+    cargo llvm-cov --workspace --html --output-dir coverage_report
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
@@ -194,19 +210,19 @@ install *ARGS:
 PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
 
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
-# --special % de-escapes %% in files that use % as the macro special char
-# --special ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as special)
+# --sigil % de-escapes %% in files that use % as the macro sigil
+# --sigil ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as sigil)
 docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --special % --special ^ \
+        --sigil % --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --special % --special ^ \
+        --sigil % --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}} \
         --ai-xref
 

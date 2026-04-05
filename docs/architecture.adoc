@@ -128,11 +128,10 @@ no conflict can arise.
 == Propagating gen/ edits back to the source (`apply-back`)
 
 `weaveback apply-back` is the batch inverse of `weaveback`: it reads the diff
-between modified `gen/` files and their stored baselines, uses
-link:../crates/weaveback-tangle/src/db.adoc#_noweb_map[`noweb_map`] (populated
-by link:../crates/weaveback-tangle/src/noweb.adoc[`Clip::write_files`]) to trace
-each changed output line back to the literate source chunk and line that
-produced it, and patches the literate source in place.
+between modified `gen/` files and their stored baselines, traces each changed
+output line back through `noweb_map` and macro tracing, and then tries to
+reconstruct the best literate-source edit that would reproduce the desired
+generated result.
 
 [source,bash]
 ----
@@ -143,16 +142,18 @@ weaveback apply-back --dry-run      # show what would change without writing
 
 *What it can and cannot handle:*
 
-* *Literal chunk content* (no macros in the chunk body) — patched automatically.
-* *Size-preserving edits* (same number of lines changed) — handled line-by-line.
+* *Literal chunk content* (no macros in the chunk body) — patched directly.
+* *Simple noweb-mapped edits* — patched directly when attribution is
+  unambiguous.
+* *Macro-generated content* (`MacroBodyWithVars`, `MacroArg`) — handled through
+  bounded candidate search plus oracle verification.  weaveback searches nearby
+  source lines and macro call sites, reruns the macro expander in memory, and
+  keeps only candidates that reproduce the edited generated output.
 * *Added or deleted lines* — reported and skipped; edit the literate source
   manually for those.
-* *Macro-generated content* (`%def`, `%rhaidef` bodies) — traced through the
-  two-level source map (noweb_map → macro_map) back to the original definition
-  or call-site argument in the literate source, then patched automatically where
-  unambiguous.  Conflicts (source also changed since last run) are reported for
-  manual resolution.  `weaveback_apply_fix` in the MCP server handles surgical
-  single-line fixes with oracle verification.
+* *Conflicts or unverifiable candidates* — reported for manual resolution.
+  `weaveback_apply_fix` in the MCP server remains the surgical edit path for
+  explicit, oracle-checked fixes.
 
 After applying, `apply-back` updates the baselines in `weaveback.db` so the next
 `weaveback` run proceeds without a `ModifiedExternally` error.
@@ -317,9 +318,12 @@ just tangle && just docs       # weaveback serve detects the HTML changes and
                                # reloads the browser tab automatically
 ----
 
-The server is intentionally *orthogonal* to the tangle and docgen passes.
-It does not rebuild anything itself; it only watches the HTML directory and
-signals connected browsers when files change.
+The server is intentionally *orthogonal* to the normal tangle and docgen
+passes. In its default mode it serves existing HTML and watches for changes so
+connected browsers can reload. In `--watch` mode it also triggers rebuilds when
+`.adoc` or theme sources change. The important boundary is that the browser
+editor still writes literate source; the normal build pipeline remains the
+authority that regenerates code and docs.
 
 `weaveback serve` also adds a floating "✏ Edit source" button to every rendered
 page.  Clicking it opens the corresponding `.adoc` file at line 1 in
@@ -345,7 +349,7 @@ page.  Clicking it opens the corresponding `.adoc` file at line 1 in
 | `/__chunk`
 | GET
 | Returns the current body of a named chunk and its line bounds, for
-  pre-filling the inline editor textarea. +
+  pre-filling the inline editor. +
   Query params: `file`, `name`, `nth` (default 0). +
   Response: `{ "ok": true, "body": "...", "def_start": N, "def_end": M }`.
 
@@ -392,8 +396,8 @@ when clicked.
 The editor panel appears at the bottom-right of the browser window:
 
 * Fetches the current chunk body via `GET /__chunk`.
-* Displays it in a `<textarea>` pre-filled with the body (header and close
-  marker lines are excluded).
+* Displays it in the embedded CodeMirror editor, pre-filled with the body
+  (header and close marker lines are excluded).
 * `Save` (or `Ctrl+S` / `Cmd+S`) posts to `/__apply` with `old_body` for
   optimistic-concurrency checking.
 * On `body_mismatch` (file changed since the panel was opened) or

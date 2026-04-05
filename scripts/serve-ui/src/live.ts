@@ -1,12 +1,32 @@
 export function initLiveReload(): void {
-  if (typeof EventSource === 'undefined' || window.location.protocol === 'file:') return;
+  if (window.location.protocol === 'file:') return;
 
-  function connect() {
-    const es = new EventSource('/__events');
-    es.addEventListener('reload', () => location.reload());
-    es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+  let seen: string | null = null;
+  let inFlight = false;
+
+  async function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    try {
+      const resp = await fetch('/__version', { cache: 'no-store' });
+      if (!resp.ok) return;
+      const current = (await resp.text()).trim();
+      if (seen === null) {
+        seen = current;
+        return;
+      }
+      if (current !== seen) {
+        location.reload();
+      }
+    } catch {
+      // Ignore transient polling failures.
+    } finally {
+      inFlight = false;
+    }
   }
-  connect();
+
+  void poll();
+  window.setInterval(() => { void poll(); }, 2000);
 }
 
 export function initEditButton(): void {

@@ -113,9 +113,8 @@ fn test_empty_param() {
     let mut parser = Parser::new();
     let builder = NodeBuilder::new();
     let param_idx = builder.param(&mut parser);
-    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
-    check_node(&result, NodeKind::Param, 0);
-    assert!(result.name.is_none());
+    let result = analyze_param(&parser, param_idx).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
@@ -208,6 +207,15 @@ fn test_param_equals_only_comment() {
     let name = result.name.unwrap();
     assert_eq!(name.pos, 0);
     assert_eq!(name.length, 3);
+}
+
+#[test]
+fn test_trailing_comma_empty_param_is_ignored() {
+    let mut parser = Parser::new();
+    let builder = NodeBuilder::new();
+    let param_idx = builder.param(&mut parser);
+    let result = analyze_param(&parser, param_idx).unwrap();
+    assert!(result.is_none());
 }
 
 #[test]
@@ -525,7 +533,7 @@ fn test_serialize_token_src_field_present() {
 
 #[test]
 fn test_strip_removes_space_node_before_line_comment() {
-    let content = b"hello %// comment\n";
+    let content = b"hello %%// comment\n";
     let mut parser = Parser::new();
     let text_idx    = n(&mut parser, NodeKind::Text,        0,  5, vec![]);
     let space_idx   = n(&mut parser, NodeKind::Space,       5,  1, vec![]);
@@ -541,7 +549,7 @@ fn test_strip_removes_space_node_before_line_comment() {
 
 #[test]
 fn test_strip_trims_trailing_spaces_in_text_before_line_comment() {
-    let content = b"hello   %// comment\n";
+    let content = b"hello   %%// comment\n";
     let mut parser = Parser::new();
     let text_idx    = n(&mut parser, NodeKind::Text,        0,  8, vec![]);
     let comment_idx = n(&mut parser, NodeKind::LineComment, 8, 12, vec![]);
@@ -587,7 +595,7 @@ fn test_no_strip_before_inline_block_comment() {
 #[test]
 fn test_strip_removes_multiple_spaces_before_line_comment() {
     // Text("hello") / Space / Space / LineComment — both Spaces must be removed.
-    let content = b"hello  %// comment\n";
+    let content = b"hello  %%// comment\n";
     let mut parser = Parser::new();
     let text_idx     = n(&mut parser, NodeKind::Text,        0,  5, vec![]);
     let space1_idx   = n(&mut parser, NodeKind::Space,       5,  1, vec![]);
@@ -608,9 +616,9 @@ fn test_strip_removes_multiple_spaces_before_line_comment() {
 fn test_strip_trims_trailing_tab_in_text_before_comment() {
     // `strip_ending_space` should strip tabs as well as ASCII spaces.
     // "hello\t" followed by a line comment — the tab must be stripped.
-    let content = b"hello\t%// c\n";
+    let content = b"hello\t%%// c\n";
     let mut parser = Parser::new();
-    // Text token covers "hello\t" (6 bytes), comment token covers "%// c\n" (6 bytes).
+    // Text token covers "hello\t" (6 bytes), comment token covers "%%// c\n" (6 bytes).
     let text_idx    = n(&mut parser, NodeKind::Text,        0, 6, vec![]);
     let comment_idx = n(&mut parser, NodeKind::LineComment, 6, 6, vec![]);
     let root_idx    = n(&mut parser, NodeKind::Block,       0, 12,
@@ -625,14 +633,14 @@ fn test_strip_trims_trailing_tab_in_text_before_comment() {
 fn test_strip_removes_spaces_before_multiple_consecutive_comments() {
     // Text / Space / Comment1 / Space / Comment2:
     // both Space nodes must be removed (one before each comment).
-    // Content layout: "text %// c1\n %// c2\n"
+    // Content layout: "text %%// c1\n %%// c2\n"
     //   0..4  "text"   (Text)
     //   4     " "      (Space1)
-    //   5..11 "%// c1" (LineComment1, ends at 11; next byte is \n at 11 but
+    //   5..11 "%%// c1" (LineComment1, ends at 11; next byte is \n at 11 but
     //                   we don't need newline accuracy for LineComment)
     //   12    " "      (Space2)
-    //   13..19"%// c2" (LineComment2)
-    let content = b"text %// c1\n %// c2\n";
+    //   13..19"%%// c2" (LineComment2)
+    let content = b"text %%// c1\n %%// c2\n";
     let mut parser = Parser::new();
     let text_idx     = n(&mut parser, NodeKind::Text,        0,  4, vec![]);
     let space1_idx   = n(&mut parser, NodeKind::Space,       4,  1, vec![]);
@@ -707,7 +715,7 @@ fn test_pipeline_tagged_block() {
 fn test_strip_is_idempotent() {
     use crate::Lexer;
     use crate::parser::Parser;
-    let src = "hello %// comment\nworld";
+    let src = "hello %%// comment\nworld";
     let (tokens, _) = Lexer::new(src, '%', 0).lex();
     let li = crate::line_index::LineIndex::new(src);
 
@@ -740,9 +748,9 @@ fn test_ast_no_comments_invariant() {
     }
     for src in &[
         "plain text",
-        "before %// line comment\nafter",
-        "before %/* block %*/ mid after",
-        "%def(foo, body) %foo()",
+        "before %%// line comment\nafter",
+        "before %%/* block %%*/ mid after",
+        "%%def(foo, body) %%foo()",
     ] {
         let ast = lex_parse_content(src, '%', 0).unwrap();
         check_no_comments(&ast);

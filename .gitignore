@@ -15,6 +15,9 @@ wheels/
 .pytest_cache
 .coverage
 coverage_report/
+lcov.info
+cobertura.xml
+codecov.json
 
 *.db
 

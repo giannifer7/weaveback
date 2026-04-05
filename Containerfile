@@ -35,6 +35,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN cargo install cargo-llvm-cov
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 RUN uv tool install --python /usr/bin/python3 maturin \
     && uv tool install --python /usr/bin/python3 mypy \
@@ -50,7 +51,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 # ── dependency cacher (glibc / deb) ──────────────────────────────────────────
 FROM rust-base AS cacher
 WORKDIR /src
-RUN cargo install cargo-chef cargo-deb cargo-generate-rpm
+RUN cargo install cargo-chef cargo-deb cargo-generate-rpm cargo-llvm-cov
 COPY --from=planner /src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
@@ -78,6 +79,7 @@ ENV RUSTUP_HOME=/root/.rustup \
     PATH=/root/.cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN cargo install cargo-llvm-cov
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 RUN uv tool install --python /usr/bin/python3 maturin \
     && uv tool install --python /usr/bin/python3 mypy \
@@ -134,6 +136,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN cargo install cargo-llvm-cov
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 RUN uv tool install --python /usr/bin/python3 maturin \
     && uv tool install --python /usr/bin/python3 mypy \

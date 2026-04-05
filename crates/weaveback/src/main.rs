@@ -12,12 +12,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod apply_back;
+mod cli_generated;
 mod lookup;
 mod mcp;
 mod semantic;
 mod serve;
-#[cfg(feature = "server")]
 mod tag;
+
+use cli_generated::{Args, Cli, Commands, LspCommands};
 
 fn default_pathsep() -> String {
     if cfg!(windows) {
@@ -27,281 +29,7 @@ fn default_pathsep() -> String {
     }
 }
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "weaveback",
-    version,
-    about = "Macro expander + literate-programming chunk extractor in one pass"
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-
-    #[command(flatten)]
-    args: Args,
-}
-
-#[derive(clap::Subcommand, Debug)]
-enum Commands {
-    /// Trace back output line to its noweb and macro sources
-    Trace {
-        out_file: String,
-        line: u32,
-        /// 1-indexed character position within the output line.
-        /// Defaults to 1 (first character).  Use this to look past a structural
-        /// wrapper and find the token that produced a specific sub-expression.
-        #[arg(long, default_value = "1")]
-        col: u32,
-    },
-    /// Find the noweb chunk that produced output line
-    Where {
-        out_file: String,
-        line: u32,
-    },
-    /// Run all tangle passes from weaveback.toml (or --config <file>)
-    Tangle {
-        /// Path to the tangle config file
-        #[arg(long, default_value = "weaveback.toml")]
-        config: std::path::PathBuf,
-        /// Overwrite generated files even if they differ from the stored baseline.
-        /// Use this only when the literate source is the authoritative state.
-        #[arg(long)]
-        force_generated: bool,
-    },
-    /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
-    #[cfg(feature = "server")]
-    Tag {
-        /// Path to the tangle config file (reads [tags] section)
-        #[arg(long, default_value = "weaveback.toml")]
-        config: std::path::PathBuf,
-        /// Override backend (anthropic/gemini/openai/ollama)
-        #[arg(long)]
-        backend: Option<String>,
-        /// Override model name
-        #[arg(long)]
-        model: Option<String>,
-        /// Override API endpoint (for ollama / openai-compatible)
-        #[arg(long)]
-        endpoint: Option<String>,
-        /// Override blocks per LLM request
-        #[arg(long)]
-        batch_size: Option<usize>,
-    },
-    /// Run as an MCP server for IDE/agent integration
-    Mcp,
-    /// Propagate edits in gen/ back to the literate source
-    ApplyBack {
-        /// Relative paths within gen/ to process (default: all modified files)
-        files: Vec<String>,
-        /// Show what would change without writing anything
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Show every chunk and output file transitively affected if CHUNK changes
-    Impact {
-        chunk: String,
-    },
-    /// Export the chunk-dependency graph in DOT (Graphviz) format
-    Graph {
-        /// Restrict to the subgraph reachable from this chunk
-        #[arg(long)]
-        chunk: Option<String>,
-    },
-    /// Search literate source prose (FTS5 + tags + optional embeddings)
-    Search {
-        /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)
-        query: String,
-        /// Maximum number of results to show
-        #[arg(long, default_value = "10")]
-        limit: usize,
-    },
-    /// List LLM-generated tags for prose blocks
-    Tags {
-        /// Filter to a single source file (plain relative path)
-        #[arg(long)]
-        file: Option<String>,
-    },
-    /// Semantic language server operations (requires rust-analyzer)
-    Lsp {
-        /// Manual override for the LSP command (e.g. "nimlsp")
-        #[arg(long)]
-        lsp_cmd: Option<String>,
-        /// Manual override for the language ID (e.g. "nim")
-        #[arg(long)]
-        lsp_lang: Option<String>,
-        #[command(subcommand)]
-        cmd: LspCommands,
-    },
-    /// Serve docs/html/ locally with live reload and "Edit source" navigation
-    #[cfg(feature = "server")]
-    Serve {
-        /// TCP port to listen on
-        #[arg(long, default_value = "7779")]
-        port: u16,
-        /// Directory to serve (default: <project-root>/docs/html)
-        #[arg(long)]
-        html: Option<PathBuf>,
-        /// Chunk open delimiter for the tangle oracle (default: <[)
-        #[arg(long, default_value = "<[")]
-        open_delim: String,
-        /// Chunk close delimiter for the tangle oracle (default: ]>)
-        #[arg(long, default_value = "]>")]
-        close_delim: String,
-        /// Chunk-end marker for the tangle oracle (default: @@)
-        #[arg(long, default_value = "@@")]
-        chunk_end: String,
-        /// Comment markers for the tangle oracle (comma-separated, default: //)
-        #[arg(long, default_value = "//")]
-        comment_markers: String,
-        /// AI backend for /__ai: "claude-cli" (default), "anthropic", "gemini", "ollama", "openai"
-        #[arg(long, default_value = "claude-cli")]
-        ai_backend: String,
-        /// AI model name (e.g. "claude-3-5-sonnet-20240620", "gemini-1.5-pro", "llama3")
-        #[arg(long)]
-        ai_model: Option<String>,
-        /// AI API endpoint / base URL (for ollama or openai-compatible backends)
-        #[arg(long)]
-        ai_endpoint: Option<String>,
-        /// Watch .adoc and theme sources; tangle + re-render docs on each change
-        #[arg(long)]
-        watch: bool,
-    },
-}
-
-#[derive(clap::Subcommand, Debug)]
-enum LspCommands {
-    /// Go to definition of a symbol and map it to literate source
-    Definition {
-        out_file: String,
-        line: u32,
-        col: u32,
-    },
-    /// Find all references to a symbol and map them to literate sources
-    References {
-        out_file: String,
-        line: u32,
-        col: u32,
-    },
-}
-
-#[derive(clap::Args, Debug)]
-struct Args {
-    /// Input files (mutually exclusive with --dir)
-    #[arg(required = false)]
-    inputs: Vec<PathBuf>,
-
-    // ── weaveback-macro options ──────────────────────────────────────────────────
-    /// Base directory prepended to every input path
-    #[arg(long, default_value = ".")]
-    input_dir: PathBuf,
-
-    /// Special character for macros
-    #[arg(long, default_value = "%")]
-    special: char,
-
-    /// Skip macro expansion and feed source files directly to the tangle pass.
-    /// Use this when the source files contain no macros and the special
-    /// character would collide with literal text (e.g. %, ^ in Rust or shell).
-    #[arg(long)]
-    no_macros: bool,
-
-    /// Include paths for %include/%import (colon-separated on Unix)
-    #[arg(long, default_value = ".")]
-    include: String,
-
-    /// Path to the weaveback database [default: weaveback.db in current directory]
-    #[arg(long, default_value = "weaveback.db")]
-    db: PathBuf,
-
-    // ── debugging ─────────────────────────────────────────────────────────────
-    /// Print macro-expanded text to stderr before noweb processing
-    #[arg(long)]
-    dump_expanded: bool,
-
-    // ── weaveback-tangle options ───────────────────────────────────────────────────
-    /// Base directory for generated output files
-    #[arg(long = "gen", default_value = "gen")]
-    gen_dir: PathBuf,
-
-    /// Chunk open delimiter
-    #[arg(long, default_value = "<[")]
-    open_delim: String,
-
-    /// Chunk close delimiter
-    #[arg(long, default_value = "]>")]
-    close_delim: String,
-
-    /// Chunk end marker
-    #[arg(long, default_value = "@")]
-    chunk_end: String,
-
-    /// Comment markers recognised before chunk delimiters (comma-separated)
-    #[arg(long, default_value = "#,//")]
-    comment_markers: String,
-
-    /// Formatter command per output file extension, e.g. --formatter rs=rustfmt
-    #[arg(long, value_name = "EXT=CMD")]
-    formatter: Vec<String>,
-
-    /// Overwrite generated files even if they differ from the stored baseline.
-    /// Intended for explicit recovery or regeneration workflows.
-    #[arg(long)]
-    force_generated: bool,
-
-    // ── batch/directory mode ──────────────────────────────────────────────────
-    /// Discover and process driver files under this directory.
-    /// A driver is any file (matching --ext) not referenced by a %include() in another such file.
-    /// Mutually exclusive with positional input files.
-    #[arg(long = "dir", conflicts_with = "inputs")]
-    directory: Option<PathBuf>,
-
-    /// File extension(s) to scan in --dir mode (can be repeated).
-    /// Default: md. Example: --ext adoc --ext md to scan both.
-    #[arg(long, default_value = "md")]
-    ext: Vec<String>,
-
-    // ── build-system integration ──────────────────────────────────────────────
-    /// Write a Makefile depfile listing every source file read.
-    /// In --dir mode the depfile lists ALL matching files found so that
-    /// adding a new file triggers a rebuild.
-    #[arg(long)]
-    depfile: Option<PathBuf>,
-
-    /// Touch this file on success (build-system stamp).
-    #[arg(long)]
-    stamp: Option<PathBuf>,
-
-    // ── FTS ───────────────────────────────────────────────────────────────────
-    /// Skip rebuilding the prose full-text search index after this run.
-    /// Used internally by `weaveback tangle` to avoid concurrent FTS rebuilds;
-    /// the tangle command rebuilds the index once after all passes complete.
-    #[arg(long, hide = true)]
-    no_fts: bool,
-
-    // ── security ──────────────────────────────────────────────────────────────
-    /// Allow %env(NAME) to read environment variables.
-    /// Disabled by default to prevent templates from silently reading secrets.
-    #[arg(long)]
-    allow_env: bool,
-
-    /// Allow @file ~/… chunks to write outside the gen/ directory.
-    #[arg(long)]
-    allow_home: bool,
-
-    /// Treat references to undefined chunks as fatal errors (default: expand to nothing).
-    #[arg(long)]
-    strict: bool,
-
-    /// Print output paths without writing anything.
-    #[arg(long)]
-    dry_run: bool,
-
-    /// Warn about chunks that are defined but never referenced by any @file chunk.
-    /// Suppressed by default to keep output clean when large libraries of helper
-    /// chunks are defined speculatively.
-    #[arg(long)]
-    warn_unused: bool,
-}
+// CLI declarations live in cli_generated.rs, emitted from cli-spec.adoc.
 
 use thiserror::Error;
 
@@ -497,7 +225,7 @@ fn run(args: Args) -> Result<(), Error> {
     let include_paths: Vec<PathBuf> = args.include.split(&pathsep).map(PathBuf::from).collect();
 
     let eval_config = EvalConfig {
-        special_char: args.special,
+        sigil: args.sigil,
         include_paths: include_paths.clone(),
         discovery_mode: false,
         allow_env: args.allow_env,
@@ -599,7 +327,7 @@ fn run(args: Args) -> Result<(), Error> {
 
         // Record the configuration used for this source file.
         let tangle_cfg = weaveback_tangle::db::TangleConfig {
-            special_char: args.special,
+            sigil: args.sigil,
             open_delim: args.open_delim.clone(),
             close_delim: args.close_delim.clone(),
             chunk_end: args.chunk_end.clone(),
@@ -710,7 +438,7 @@ fn build_eval_config(args: &Args) -> weaveback_macro::evaluator::EvalConfig {
     let pathsep = default_pathsep();
     let include_paths: Vec<std::path::PathBuf> = args.include.split(&pathsep).map(std::path::PathBuf::from).collect();
     weaveback_macro::evaluator::EvalConfig {
-        special_char: args.special,
+        sigil: args.sigil,
         include_paths,
         discovery_mode: false,
         allow_env: args.allow_env,
@@ -731,8 +459,7 @@ fn main() {
         Some(Commands::Tangle { config, force_generated }) => {
             run_tangle_all(&config, force_generated)
         }
-        #[cfg(feature = "server")]
-        Some(Commands::Tag { config, backend, model, endpoint, batch_size }) => {
+                Some(Commands::Tag { config, backend, model, endpoint, batch_size }) => {
             run_tag_only(&config, backend, model, endpoint, batch_size, cli.args.db)
         }
         Some(Commands::Mcp) => {
@@ -766,8 +493,7 @@ fn main() {
             let eval_config = build_eval_config(&cli.args);
             run_lsp(cmd, cli.args.db, cli.args.gen_dir, eval_config, lsp_cmd, lsp_lang)
         }
-        #[cfg(feature = "server")]
-        Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint, watch }) => {
+                Some(Commands::Serve { port, html, open_delim, close_delim, chunk_end, comment_markers, ai_backend, ai_model, ai_endpoint, watch }) => {
             let backend = match ai_backend.as_str() {
                 "anthropic" => serve::AiBackend::Anthropic,
                 "gemini"    => serve::AiBackend::Gemini,
@@ -1018,10 +744,9 @@ struct TanglePassCfg {
     chunk_end:        Option<String>,
     comment_markers:  Option<String>,
     #[serde(default)]
-    special:          Vec<String>,
+    sigil:           Vec<String>,
 }
 
-#[cfg(feature = "server")]
 #[derive(serde::Deserialize)]
 struct TagsCfg {
     /// "anthropic" | "gemini" | "openai" | "ollama"
@@ -1037,14 +762,10 @@ struct TagsCfg {
     batch_size: usize,
 }
 
-#[cfg(feature = "server")]
 fn default_tags_backend() -> String { "anthropic".to_string() }
-#[cfg(feature = "server")]
 fn default_tags_model()   -> String { "claude-haiku-4-5-20251001".to_string() }
-#[cfg(feature = "server")]
 fn default_batch_size()   -> usize  { 15 }
 
-#[cfg(feature = "server")]
 #[derive(serde::Deserialize)]
 struct EmbeddingsCfg {
     #[serde(default = "semantic::default_embeddings_backend")]
@@ -1062,10 +783,8 @@ struct TangleCfg {
     default_gen: Option<String>,
     #[serde(rename = "pass")]
     passes:      Vec<TanglePassCfg>,
-    #[cfg(feature = "server")]
-    tags:        Option<TagsCfg>,
-    #[cfg(feature = "server")]
-    embeddings:  Option<EmbeddingsCfg>,
+        tags:        Option<TagsCfg>,
+        embeddings:  Option<EmbeddingsCfg>,
 }
 
 fn build_pass_cmd(
@@ -1098,8 +817,8 @@ fn build_pass_cmd(
     if let Some(cm) = &pass.comment_markers {
         cmd.arg("--comment-markers").arg(cm);
     }
-    for s in &pass.special {
-        cmd.arg("--special").arg(s);
+    for s in &pass.sigil {
+        cmd.arg("--sigil").arg(s);
     }
     cmd.arg("--no-fts");
     cmd
@@ -1139,8 +858,7 @@ fn run_tangle_all(config_path: &std::path::Path, force_generated: bool) -> Resul
     if db_path.exists() {
         match weaveback_tangle::db::WeavebackDb::open(db_path) {
             Ok(mut db) => {
-                #[cfg(feature = "server")]
-                if let Some(tags_cfg) = &cfg.tags {
+                                if let Some(tags_cfg) = &cfg.tags {
                     tag::run_auto_tag(&mut db, &tag::TagConfig {
                         backend:    tags_cfg.backend.clone(),
                         model:      tags_cfg.model.clone(),
@@ -1148,8 +866,7 @@ fn run_tangle_all(config_path: &std::path::Path, force_generated: bool) -> Resul
                         batch_size: tags_cfg.batch_size,
                     });
                 }
-                #[cfg(feature = "server")]
-                if let Some(embed_cfg) = &cfg.embeddings {
+                                if let Some(embed_cfg) = &cfg.embeddings {
                     semantic::run_auto_embed(&mut db, &semantic::EmbeddingConfig {
                         backend: embed_cfg.backend.clone(),
                         model: embed_cfg.model.clone(),
@@ -1167,7 +884,6 @@ fn run_tangle_all(config_path: &std::path::Path, force_generated: bool) -> Resul
     Ok(())
 }
 
-#[cfg(feature = "server")]
 fn run_tag_only(
     config_path: &std::path::Path,
     backend_override:    Option<String>,

@@ -219,10 +219,17 @@ impl Parser {
     }
     /// Extract the tag sub-span from a `BlockOpen` or `BlockClose` token.
     /// For `%{` / `%}` (length 2) the tag is empty (tag_len == 0).
-    /// For `%foo{` / `%foo}` (length > 2) the tag is bytes [pos+1 .. pos+length-1].
-    fn block_tag(token: &Token) -> (usize, usize) {
-        let tag_len = token.length.saturating_sub(2);
-        (token.pos + 1, tag_len)
+    /// For `%foo{` / `%foo}` (length > 2) the tag is bytes
+    /// [pos+special_len .. pos+length-1].
+    fn block_tag(token: &Token, content: &[u8]) -> (usize, usize) {
+        let special_len = content
+            .get(token.pos..)
+            .and_then(|tail| std::str::from_utf8(tail).ok())
+            .and_then(|s| s.chars().next())
+            .map(|c| c.len_utf8())
+            .unwrap_or(1);
+        let tag_len = token.length.saturating_sub(special_len + 1);
+        (token.pos + special_len, tag_len)
     }
     /// Handle a token when the top of the stack is a `Block`.
     /// `tag_pos`/`tag_len` come directly from the caller's pattern match —
@@ -238,7 +245,7 @@ impl Parser {
         if token.kind != TokenKind::BlockClose {
             return Ok(false);
         }
-        let close_tag = Self::block_tag(&token);
+        let close_tag = Self::block_tag(&token, ctx.content);
         let open_tag = (tag_pos, tag_len);
         if !ctx.tags_match(open_tag, close_tag) {
             let (ol, oc) = ctx.line_col(tag_pos);
@@ -377,7 +384,7 @@ impl Parser {
             // Tokens that open new structure or become leaf nodes.
             match token.kind {
                 TokenKind::BlockOpen => {
-                    let (tag_pos, tag_len) = Self::block_tag(&token);
+                    let (tag_pos, tag_len) = Self::block_tag(&token, ctx.content);
                     self.push_node(
                         ParserState::Block { tag_pos, tag_len },
                         NodeKind::Block,

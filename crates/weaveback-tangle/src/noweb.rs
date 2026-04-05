@@ -167,7 +167,7 @@ impl ChunkStore {
             escaped_comments, od, cd
         );
         let slot_pattern = format!(
-            r"^(\s*)(?:{})?\s*{}((?:@file\s+|@reversed\s+)?)(.+?){}\s*$",
+            r"^(\s*)(?:{})?\s*{}((?:(?:@file|@reversed|@compact|@tight)\s+)*)?(.+?){}\s*$",
             escaped_comments, od, cd
         );
         let close_pattern = format!(
@@ -357,6 +357,47 @@ impl ExpandState {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct RefOptions {
+    reversed: bool,
+    compact: bool,
+    tight: bool,
+}
+
+fn trim_blank_edge_lines(lines: Vec<(String, NowebMapEntry)>) -> Vec<(String, NowebMapEntry)> {
+    let start = lines
+        .iter()
+        .position(|(line, _)| !line.trim().is_empty())
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|(line, _)| !line.trim().is_empty())
+        .map(|idx| idx + 1)
+        .unwrap_or(start);
+    lines.into_iter().skip(start).take(end.saturating_sub(start)).collect()
+}
+
+fn drop_blank_only_lines(lines: Vec<(String, NowebMapEntry)>) -> Vec<(String, NowebMapEntry)> {
+    lines
+        .into_iter()
+        .filter(|(line, _)| !line.trim().is_empty())
+        .collect()
+}
+
+fn apply_ref_space_options(
+    lines: Vec<(String, NowebMapEntry)>,
+    options: RefOptions,
+) -> Vec<(String, NowebMapEntry)> {
+    let mut lines = lines;
+    if options.compact || options.tight {
+        lines = trim_blank_edge_lines(lines);
+    }
+    if options.tight {
+        lines = drop_blank_only_lines(lines);
+    }
+    lines
+}
+
 /// Return type of `expand_with_map`: expanded lines, source-map entries,
 /// referenced chunk names, and direct dependency edges.
 type ExpandResult = (Vec<String>, Vec<NowebMapEntry>, HashSet<String>, Vec<(String, String, String)>);
@@ -368,7 +409,7 @@ impl ChunkStore {
         target_indent: &str,
         state: &mut ExpandState,
         reference_location: ChunkLocation,
-        reversed_mode: bool,
+        options: RefOptions,
     ) -> Result<Vec<(String, NowebMapEntry)>, ChunkError> {
         if state.stack.len() > weaveback_core::MAX_RECURSION_DEPTH {
             let file_name = self
@@ -422,7 +463,7 @@ impl ChunkStore {
         let defs = &chunk.definitions;
 
         // Collect indices so we can reverse without a Box<dyn Iterator>.
-        let indices: Vec<usize> = if reversed_mode {
+        let indices: Vec<usize> = if options.reversed {
             (0..defs.len()).rev().collect()
         } else {
             (0..defs.len()).collect()
@@ -439,6 +480,7 @@ impl ChunkStore {
                 .get(def.file_idx)
                 .cloned()
                 .unwrap_or_default();
+            let mut def_result = Vec::new();
 
             for (line_count, line) in def.content.iter().enumerate() {
                 if let Some(caps) = memchr::memmem::find(line.as_bytes(), &self.open_bytes)
@@ -448,7 +490,11 @@ impl ChunkStore {
                     let modifier = caps.get(2).map_or("", |m| m.as_str());
                     let referenced_chunk = caps.get(3).map_or("", |m| m.as_str());
 
-                    let line_is_reversed = modifier.contains("@reversed");
+                    let child_options = RefOptions {
+                        reversed: modifier.contains("@reversed"),
+                        compact: modifier.contains("@compact"),
+                        tight: modifier.contains("@tight"),
+                    };
                     let relative_indent = if add_indent.len() > def.base_indent {
                         &add_indent[def.base_indent..]
                     } else {
@@ -476,9 +522,9 @@ impl ChunkStore {
                         &new_indent,
                         state,
                         new_loc,
-                        line_is_reversed,
+                        child_options,
                     )?;
-                    result.extend(expanded);
+                    def_result.extend(apply_ref_space_options(expanded, child_options));
                 } else {
                     let line_indent = if line.len() > def.base_indent {
                         &line[def.base_indent..]
@@ -497,9 +543,10 @@ impl ChunkStore {
                         indent: target_indent.to_string(),
                         confidence: Confidence::Exact,
                     };
-                    result.push((out_line, entry));
+                    def_result.push((out_line, entry));
                 }
             }
+            result.extend(apply_ref_space_options(def_result, options));
         }
 
         state.stack.pop();
@@ -514,7 +561,13 @@ impl ChunkStore {
     ) -> Result<ExpandResult, ChunkError> {
         let mut state = ExpandState::new();
         let loc = ChunkLocation { file_idx: 0, line: 0 };
-        let pairs = self.expand_inner(chunk_name, indent, &mut state, loc, false)?;
+        let pairs = self.expand_inner(
+            chunk_name,
+            indent,
+            &mut state,
+            loc,
+            RefOptions::default(),
+        )?;
         let (lines, entries) = pairs.into_iter().unzip();
         let deps: Vec<_> = state.deps.into_iter().collect();
         Ok((lines, entries, state.referenced_chunks, deps))

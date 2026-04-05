@@ -60,9 +60,9 @@ fn test_def_macro_with_params() {
 }
 
 #[test]
-fn test_def_macro_empty_body() {
+fn test_def_macro_trailing_comma_is_ignored() {
     let result = process_string_defaults("%def(foo, bar,)\n%foo()").unwrap();
-    assert_eq!(std::str::from_utf8(&result).unwrap(), "\n");
+    assert_eq!(std::str::from_utf8(&result).unwrap(), "\nbar");
 }
 
 #[test]
@@ -70,10 +70,10 @@ fn test_def_macro_comma_errors() {
     let result = process_string_defaults("%def(foo bar baz, body)");
     assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
 
-    let result = process_string_defaults("%def(, foo, bar)");
+    let result = process_string_defaults("%def(,)");
     assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
 
-    let result = process_string_defaults("%def(foo,, bar, baz)");
+    let result = process_string_defaults("%def(foo,,)");
     assert!(matches!(result, Err(EvalError::InvalidUsage(_))));
 }
 

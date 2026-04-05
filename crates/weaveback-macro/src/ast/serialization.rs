@@ -80,13 +80,13 @@ fn read_input(input: &PathBuf) -> io::Result<String> {
     }
 }
 
-pub fn dump_macro_ast(special: char, input_files: &[PathBuf]) -> Result<(), EvalError> {
+pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalError> {
     for input in input_files {
         let content = read_input(input).map_err(|e| {
             EvalError::Runtime(format!("Failed to read {}: {}", input.display(), e))
         })?;
 
-        let ast = lex_parse_content(&content, special, 0)?;
+        let ast = lex_parse_content(&content, sigil, 0)?;
         let nodes = serialize_ast_nodes(&ast);
 
         let (output, src_name) = if input.to_str() == Some("-") {

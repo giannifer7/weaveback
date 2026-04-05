@@ -319,7 +319,7 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     let path = eval.get_current_file_path();
     let start_pos = node.token.pos;
 
-    let prepend_triplet = (start_pos, eval.get_special_char(), false);
+    let prepend_triplet = (start_pos, eval.get_sigil(), false);
     let append_triplet = (node.end_pos, expansion.into_bytes(), true);
 
     super::source_utils::modify_source(&path, &[prepend_triplet, append_triplet])?;

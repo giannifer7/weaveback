@@ -993,7 +993,7 @@ fn apply_fix_impl(
     let oracle_path = std::path::Path::new(request.src_file).with_file_name("<oracle>");
     let mut oracle_config = eval_config.clone();
     if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(db, request.src_file) {
-        oracle_config.special_char = cfg.special_char;
+        oracle_config.sigil = cfg.sigil;
     }
 
     let mut evaluator = Evaluator::new(oracle_config);

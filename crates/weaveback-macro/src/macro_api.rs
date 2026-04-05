@@ -7,6 +7,9 @@ pub type TracingResult = (Vec<u8>, Vec<(u32, MacroMapEntry)>);
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
+    EvalError::Runtime(format!("{}: {}", input_file.display(), error))
+}
 pub fn process_string(
     source: &str,
     real_path: Option<&Path>,
@@ -52,7 +55,8 @@ pub fn process_file_with_writer(
 ) -> Result<(), EvalError> {
     let content = fs::read_to_string(input_file)
         .map_err(|e| EvalError::Runtime(format!("Cannot read {input_file:?}: {e}")))?;
-    let expanded = process_string(&content, Some(input_file), evaluator)?;
+    let expanded = process_string(&content, Some(input_file), evaluator)
+        .map_err(|e| with_input_context(input_file, e))?;
     writer
         .write_all(&expanded)
         .map_err(|e| EvalError::Runtime(format!("Cannot write to output: {e}")))?;

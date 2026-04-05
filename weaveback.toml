@@ -24,7 +24,7 @@ dir = "crates/weaveback-macro/"
 ext = "adoc"
 open_delim = "<<"
 close_delim = ">>"
-special = ["^"]
+sigil = ["^"]
 
 [[pass]]
 dir = "crates/weaveback-tangle/"
@@ -75,6 +75,13 @@ dir = "project/"
 gen = "."
 ext = "adoc"
 no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "cli-spec/"
+gen = "."
+ext = "adoc"
 open_delim = "<<"
 close_delim = ">>"
 

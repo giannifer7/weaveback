@@ -33,13 +33,9 @@ toml.workspace = true
 rayon.workspace = true
 similar.workspace = true
 regex.workspace = true
-tiny_http = { workspace = true, optional = true }
-notify = { workspace = true, optional = true }
-ureq = { workspace = true, optional = true }
-
-[features]
-default = ["server"]
-server = ["dep:tiny_http", "dep:notify", "dep:ureq"]
+tiny_http.workspace = true
+notify.workspace = true
+ureq.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

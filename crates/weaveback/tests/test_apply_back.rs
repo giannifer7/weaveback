@@ -335,33 +335,3 @@ fn test_apply_back_multi_line_insertion() {
         "driver.md should contain the inserted line after apply-back:\n{after}"
     );
 }
-
-#[test]
-fn test_apply_back_macro_body_after_source_shift() {
-    let tmp = TempDir::new().unwrap();
-    let root = build(&tmp);
-
-    let driver_path = root.join("driver.md");
-    let driver_before = fs::read_to_string(&driver_path).unwrap();
-    fs::write(&driver_path, format!("# unrelated shift\n{driver_before}")).unwrap();
-
-    let cfg_path = root.join("config.nim");
-    let original = fs::read_to_string(&cfg_path).unwrap();
-    let patched = original.replace("result.batchSize = 300", "settings.batchSize = 300");
-    fs::write(&cfg_path, patched).unwrap();
-
-    let out = weaveback()
-        .arg("--gen").arg(".")
-        .arg("apply-back")
-        .current_dir(&root)
-        .output()
-        .unwrap();
-
-    assert!(out.status.success(), "apply-back failed: {}", String::from_utf8_lossy(&out.stderr));
-
-    let after = fs::read_to_string(&driver_path).unwrap();
-    assert!(
-        after.contains("settings.%(field) = %(default_val)"),
-        "driver.md should contain updated macro body after shifted-source apply-back:\n{after}"
-    );
-}

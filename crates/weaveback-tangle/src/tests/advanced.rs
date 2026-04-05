@@ -407,6 +407,64 @@ gamma
     assert_eq!(expanded, vec!["gamma\n", "beta\n", "alpha\n"]);
 }
 
+/// `@compact` trims blank edge lines from each accumulated definition before
+/// splicing them into the caller. This is useful for table rows and similar
+/// projection chunks where each definition should contribute one logical line.
+#[test]
+fn test_compact_reference_trims_blank_edge_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+# @
+
+# <<rows>>=
+
+beta
+
+# @
+
+# <<list>>=
+# <<@compact rows>>
+# @
+"#,
+        "compact.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "beta\n"]);
+}
+
+/// `@tight` is stronger than `@compact`: it also drops blank-only lines inside
+/// each accumulated definition. This is useful for highly structured fragments
+/// like generated table rows.
+#[test]
+fn test_tight_reference_drops_blank_only_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+omega
+
+# @
+
+# <<list>>=
+# <<@tight rows>>
+# @
+"#,
+        "tight.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "omega\n"]);
+}
+
 /// `~` in an `@file` path expands to `$HOME` when `--allow-home` is set.
 #[test]
 fn test_tilde_expansion_in_file_chunk() {

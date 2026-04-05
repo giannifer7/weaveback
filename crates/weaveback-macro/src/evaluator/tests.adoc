@@ -80,7 +80,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 | `test_eval_api`
 | `eval_string_with_defaults`, `eval_file_with_config`, `eval_files_with_config`:
-  basic, include, error, nested macros, special char, shared macros
+  basic, include, error, nested macros, sigil, shared macros
 
 | `test_macro_api`
 | `process_string`, `process_file`, `process_files_from_config` at the macro_api layer

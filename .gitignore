@@ -25,10 +25,27 @@ tarpaulin-report.html
 .hist.txt
 hist-search.txt
 
+.codex
+.gemini/
+
 chats
 python/*
 !python/weaveback-agent/
 !python/weaveback-agent/**
 resume.txt
 
+examples/**/*.db
+examples/**/*.html
+examples/**/build.log
+examples/**/tmp/
+examples/**/gen_ast_tmp/
+examples/**/mem_test
+examples/**/session_test
+examples/**/hello
+examples/visualization/graph.json
+
+weaveback_*.log
+
 scripts/serve-ui/node_modules/
+scripts/serve-ui/.npm/
+scripts/serve-ui/.pnpm-store/

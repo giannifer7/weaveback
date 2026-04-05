@@ -7,6 +7,8 @@ _wb := if path_exists("target/release/weaveback") == "true" { \
            "./target/debug/weaveback" \
        } else { "weaveback" }
 
+_pyproj := "python/weaveback-agent"
+
 # Default: list available recipes
 default:
     @just --list
@@ -20,6 +22,33 @@ build:
 # Build the whole workspace (release)
 release:
     cargo build --release
+
+# Build the PyO3 extension in place for local Python development
+py-build:
+    cd {{_pyproj}} && uv run maturin develop
+
+# Build a wheel for the Python package
+py-wheel:
+    cd {{_pyproj}} && uv run maturin build
+
+# Build Linux wheels via cibuildwheel
+py-wheel-ci:
+    cd {{_pyproj}} && uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Build a manylinux wheel for CPython 3.14
+py-wheel-manylinux:
+    cd {{_pyproj}} && CIBW_BUILD='cp314-manylinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Build a musllinux wheel for CPython 3.14
+py-wheel-musllinux:
+    cd {{_pyproj}} && CIBW_BUILD='cp314-musllinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Sync the Python project environment
+py-sync:
+    cd {{_pyproj}} && uv sync
+
+# Full local Python check cycle
+py-check: py-build lint-python test-python
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
@@ -35,11 +64,22 @@ test-macros:
 test-noweb:
     cargo test --package weaveback-tangle
 
+# Run Python tests
+test-python:
+    cd {{_pyproj}} && uv run pytest
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Clippy (warnings as errors)
 lint:
     cargo clippy -- -D warnings
+
+# Python lint/type-check suite
+lint-python:
+    cd {{_pyproj}} && uv run ruff check .
+    cd {{_pyproj}} && uv run pyright
+    cd {{_pyproj}} && uv run --with mypy mypy src
+    cd {{_pyproj}} && uv run --with pylint pylint src/weaveback_agent
 
 # Format check
 fmt-check:
@@ -48,6 +88,10 @@ fmt-check:
 # Apply formatting
 fmt:
     cargo fmt
+
+# Apply Python formatting
+fmt-python:
+    cd {{_pyproj}} && uv run ruff format .
 
 # Find code duplicates
 duplicates TARGET='.':

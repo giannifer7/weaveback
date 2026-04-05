@@ -34,6 +34,9 @@ pub struct SafeWriterConfig {
     /// Default `false`: tilde-expanded (absolute) paths are rejected unless
     /// the user explicitly passes `--allow-home`.
     pub allow_home: bool,
+    /// Override modification detection for generated files and always rewrite
+    /// them from the current literate source.
+    pub force_generated: bool,
 }
 
 impl Default for SafeWriterConfig {
@@ -42,6 +45,7 @@ impl Default for SafeWriterConfig {
             buffer_size: 8192,
             formatters: HashMap::new(),
             allow_home: false,
+            force_generated: false,
         }
     }
 }
@@ -268,7 +272,7 @@ impl SafeFileWriter {
         // what tangle is about to write: in a consistent literate project the
         // committed generated file should match the committed .adoc, so any
         // difference still indicates a hand-edit.
-        if output_file.is_file() {
+        if output_file.is_file() && !self.config.force_generated {
             let current = fs::read(&output_file)?;
             let reference = match self.db.get_baseline(&key)? {
                 Some(b) => b,

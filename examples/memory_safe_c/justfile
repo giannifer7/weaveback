@@ -1,0 +1,23 @@
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f session.h session.c main.c session_test weaveback.db
+
+# Generate C source from this adoc
+tangle:
+    ../../target/debug/weaveback memory.adoc --gen . --db weaveback.db
+
+# Compile the C program
+build: tangle
+    gcc main.c session.c -o session_test
+
+# Run the test
+run: build
+    ./session_test
+
+# Render this document to dark-themed HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . memory.adoc

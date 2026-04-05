@@ -1,6 +1,5 @@
 // crates/weaveback-macro/tests/test_macro_cli.rs
 
-use escargot;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};

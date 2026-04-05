@@ -1,0 +1,321 @@
+= Weaveback Graph Visualization
+:source-highlighter: syntect
+
+This example demonstrates how to visualize the Weaveback chunk dependency graph
+using a D3.js force-directed layout.
+
+== Automation with Just
+
+[source,weaveback]
+----
+# <[@file justfile]>=
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f gen_graph.py serve_graph.py index.html graph.json weaveback.db
+
+# Generate the Python script and HTML
+tangle:
+    ../../target/debug/weaveback visualize.adoc --gen . --db weaveback.db
+
+# Generate the graph JSON from memory_safe_c database
+gen: tangle
+    python3 gen_graph.py ../../weaveback.db
+
+# Run a local server to view the graph
+serve: gen
+    python3 serve_graph.py
+
+# Render this document
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . visualize.adoc
+# @
+----
+
+== Structural Macros
+
+[source,weaveback]
+----
+%def(pastafarian_warning, %{I’d Really Rather You Didn’t edit this generated file.%})
+
+%def(pyfile, name, content, %{
+# <[@file %(name).py]>=
+#!/usr/bin/env python3
+# %(name).py
+# %pastafarian_warning()
+import sqlite3
+import json
+import sys
+import os
+
+%(content)
+
+if __name__ == "__main__":
+    main()
+# @
+%})
+
+%def(htmlfile, name, content, %{
+# <[@file %(name).html]>=
+<!DOCTYPE html>
+<!-- %(name).html -->
+<!-- %pastafarian_warning() -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Weaveback Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body { margin: 0; background: #282828; color: #ebdbb2; font-family: sans-serif; overflow: hidden; }
+        .links line { stroke: #665c54; stroke-opacity: 0.6; stroke-width: 1.5px; }
+        .nodes circle { stroke: #1d2021; stroke-width: 1.5px; }
+        .labels text { fill: #ebdbb2; font-size: 10px; pointer-events: none; }
+        svg { width: 100vw; height: 100vh; }
+        #hint {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(60, 56, 54, 0.85);
+            border: 1px solid #504945;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #d5c4a1;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="hint"><strong>Tip:</strong> Double-click a node to open its documentation.</div>
+    <svg id="graph"></svg>
+    <script>
+        %(content)
+    </script>
+</body>
+</html>
+# @
+%})
+----
+
+== Data Generation
+
+We extract the chunk dependency graph from `weaveback.db`.
+
+[source,weaveback]
+----
+%pyfile(gen_graph, %{
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: gen_graph.py <weaveback.db>")
+        sys.exit(1)
+
+    db_path = sys.argv[1]
+    if not os.path.exists(db_path):
+        print(f"Error: {db_path} not found.")
+        sys.exit(1)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # --- collect chunks ---
+    cursor.execute("SELECT DISTINCT from_chunk FROM chunk_deps")
+    nodes_set = {row[0] for row in cursor.fetchall()}
+
+    cursor.execute("SELECT DISTINCT to_chunk FROM chunk_deps")
+    for row in cursor.fetchall():
+        nodes_set.add(row[0])
+
+    nodes = []
+    chunk_to_file = {}
+
+    for name in sorted(nodes_set):
+        cursor.execute("""
+            SELECT src_file, nth
+            FROM chunk_defs
+            WHERE chunk_name = ?
+            ORDER BY nth ASC
+            LIMIT 1
+        """, (name,))
+        row = cursor.fetchone()
+
+        node_type = "file" if name.startswith("@file") else "chunk"
+
+        if row:
+            src_file, nth = row
+            nodes.append({
+                "id": f"chunk:{name}",
+                "label": name,
+                "type": node_type,
+                "src_file": src_file,
+                "nth": nth
+            })
+        else:
+            nodes.append({
+                "id": f"chunk:{name}",
+                "label": name,
+                "type": node_type
+            })
+
+    # --- links ---
+    cursor.execute("SELECT from_chunk, to_chunk FROM chunk_deps")
+    links = []
+
+    for src, dst in cursor.fetchall():
+        links.append({
+            "source": f"chunk:{src}",
+            "target": f"chunk:{dst}",
+            "type": "chunk_dep"
+        })
+
+    graph = {"nodes": nodes, "links": links}
+
+    with open("graph.json", "w") as f:
+        json.dump(graph, f, indent=2)
+
+    print(f"Graph: {len(nodes)} nodes, {len(links)} edges")
+
+    conn.close()
+%})
+----
+
+== Visualization Logic
+
+We use D3.js to render a force-directed layout.
+
+[source,weaveback]
+----
+%htmlfile(index, %{
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    const svg = d3.select("#graph")
+        .attr("viewBox", [0, 0, width, height]);
+
+    const g = svg.append("g");
+
+    const zoom = d3.zoom()
+        .scaleExtent([0.1, 8])
+        .on("zoom", (event) => {
+            g.attr("transform", event.transform);
+        });
+
+    svg.call(zoom);
+
+    d3.json("graph.json").then(graph => {
+        const simulation = d3.forceSimulation(graph.nodes)
+            .force("link", d3.forceLink(graph.links).id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-300))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        const link = g.append("g")
+            .attr("class", "links")
+            .selectAll("line")
+            .data(graph.links)
+            .join("line");
+
+        const node = g.append("g")
+            .attr("class", "nodes")
+            .selectAll("circle")
+            .data(graph.nodes)
+            .join("circle")
+            .attr("r", 8)
+            .style("cursor", "pointer")
+            .on("dblclick", (event, d) => {
+                if (d.src_file && d.type === "chunk") {
+                    let html_file = d.src_file.replace(/\.adoc$/, ".html");
+                    let url = `../../docs/html/${html_file}#${d.src_file}|${d.label}|${d.nth || 0}`;
+                    window.open(url, '_blank');
+                }
+            })
+            .call(drag(simulation));
+
+        node.append("title")
+            .text(d => `Double-click to open ${d.label || d.id}`);
+
+        const label = g.append("g")
+            .attr("class", "labels")
+            .selectAll("text")
+            .data(graph.nodes)
+            .join("text")
+            .text(d => d.label || d.id)
+            .attr("dx", 12)
+            .attr("dy", 4);
+
+        simulation.on("tick", () => {
+            link
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            node
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y)
+                .attr("fill", d => d.type === "file" ? "#83a598" : "#fb4934");
+
+            label
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
+        });
+    });
+
+    function drag(simulation) {
+        function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+        }
+        
+        function dragged(event) {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+        }
+        
+        function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+        }
+        
+        return d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended);
+    }
+%})
+
+%pyfile(serve_graph, %{
+import http.server
+import socketserver
+import os
+
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_request(self, code='-', size='-'):
+        # completely squelch livereload logging
+        if self.path == '/__events':
+            return
+        super().log_request(code, size)
+
+    def do_GET(self):
+        if self.path == '/__events':
+            # Send an infinite retry SSE to quiet the livereload script
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(b'retry: 3600000\n\n')
+            return
+        super().do_GET()
+
+def main():
+    port = 8000
+    os.chdir("../..")
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", port), QuietHandler) as httpd:
+        print(f"Opening visualization at http://localhost:{port}/examples/visualization/")
+        httpd.serve_forever()
+%})
+----

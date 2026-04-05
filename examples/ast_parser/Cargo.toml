@@ -1,0 +1,7 @@
+[package]
+name = "ast_parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+asciidoc-parser = { git = "https://github.com/asciidoc-rs/asciidoc-parser" }

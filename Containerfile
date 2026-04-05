@@ -1,29 +1,41 @@
 # Containerfile — multi-stage packaging builds for weaveback
 #
 # Stages:
-#   glibc   — Debian binary + .deb  (cargo-deb)  — includes python feature
-#   musl    — Alpine static binary               — includes python feature (Alpine musl-native Python)
-#   windows — MinGW cross-compiled .exe          — includes python feature (Fedora mingw64-python3-devel)
-#   fedora  — Fedora binary + .rpm               — includes python feature
+#   glibc   — Debian binary + .deb  (cargo-deb)  — includes Python/PyO3 tooling
+#   musl    — Alpine static binary               — includes Python/PyO3 tooling
+#   windows — MinGW cross-compiled .exe          — cross-compiles the PyO3 extension
+#   fedora  — Fedora binary + .rpm               — includes Python/PyO3 tooling
 #
 # Usage:
 #   podman build --target glibc  -t weaveback-glibc  .
 #   podman build --target fedora -t weaveback-fedora .
+#
+# Python policy:
+#   - use uv as the package/tool runner
+#   - keep maturin available for crates/weaveback-py
+#   - keep mypy and pylint installed for python/weaveback-agent even before
+#     they are wired into CI
+#   - keep the runtime stages simple; these are primarily build/dev images
 
 # ── Rust base (Debian bookworm) ───────────────────────────────────────────────
 FROM debian:bookworm-slim AS rust-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates build-essential pkg-config git \
-        python3 python3-dev \
+        python3 python3-dev python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 
 # ── cargo-chef planner ────────────────────────────────────────────────────────
 FROM rust-base AS planner
@@ -55,12 +67,17 @@ RUN mkdir -p /out \
 
 # ── musl: static binary (Alpine — musl-native Python for PyO3) ───────────────
 FROM alpine:latest AS musl
-RUN apk add --no-cache curl build-base python3 python3-dev
+RUN apk add --no-cache curl build-base python3 python3-dev py3-virtualenv git
 ENV RUSTUP_HOME=/root/.rustup \
     CARGO_HOME=/root/.cargo \
-    PATH=/root/.cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/root/.cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 WORKDIR /src
 COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl --workspace
@@ -100,12 +117,17 @@ RUN mkdir -p /out \
 
 # ── fedora: RPM ───────────────────────────────────────────────────────────────
 FROM fedora:latest AS fedora
-RUN dnf install -y curl gcc pkg-config git python3 python3-devel && dnf clean all
+RUN dnf install -y curl gcc pkg-config git python3 python3-devel python3-virtualenv && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 RUN cargo install cargo-generate-rpm
 WORKDIR /src
 COPY . .

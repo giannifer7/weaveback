@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Run asciidoctor with the given arguments, then touch the stamp file.
+
+Usage: gen_docs.py <asciidoctor> [asciidoctor-args...] <stamp>
+The last argument is always the stamp file to touch on success.
+"""
+import subprocess
+import sys
+import pathlib
+
+
+def main():
+    *asciidoc_cmd, stamp = sys.argv[1:]
+    subprocess.check_call(asciidoc_cmd)
+    pathlib.Path(stamp).touch()
+
+
+if __name__ == "__main__":
+    main()

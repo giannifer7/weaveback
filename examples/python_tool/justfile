@@ -1,0 +1,23 @@
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f weaveback_tool.py weaveback.db
+
+# Generate the Python script
+tangle:
+    ../../target/debug/weaveback tool.adoc --gen . --db weaveback.db
+
+# Run the tool on it's own database (stats)
+stats: tangle
+    python3 weaveback_tool.py weaveback.db stats
+
+# List chunks in the database
+list: tangle
+    python3 weaveback_tool.py weaveback.db list
+
+# Render this document
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . tool.adoc

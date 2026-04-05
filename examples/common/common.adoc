@@ -1,0 +1,148 @@
+= Weaveback Common Example Boilerplate
+:toc: left
+:source-highlighter: syntect
+
+This document defines a set of shared structural macros used across the Weaveback example suite. These macros help standardize the generation of `justfile` automation, Python scripts, and HTML documentation. It's intended to be used by `%%import(../common/common.adoc)`
+
+== Template for Automation with Just
+
+The `mk_justfile` macro provides a standardized set of development recipes. By using this macro (intended to be invoked via `%%here(mk_justfile, ...)`), examples maintain a consistent interface for cleaning, tangling, and documentation generation.
+
+[source,weaveback]
+-----
+%def(mk_justfile, main_doc, %{
+
+== Automation with Just
+
+[source,just]
+----
+# <[@file justfile]>=
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts and database
+clean:
+    rm -f weaveback.db
+
+# Generate the components from the source
+tangle:
+    ../../target/debug/weaveback %(main_doc) --gen .
+
+# Execute the primary script (template - override as needed)
+run: tangle
+    #python3 main.py
+
+# Render this document to HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . %(main_doc)
+# @
+----
+%})
+-----
+
+== Component Macros
+
+These macros simplify the definition of common file types, ensuring they include standard headers and safety warnings.
+
+=== General Safety
+[source,weaveback]
+----
+%def(pastafarian_warning, %{I’d Really Rather You Didn’t edit this generated file.%})
+----
+
+=== Python Scripting
+
+We provide two levels of abstraction for Python. The `pyfile` macro defines a generic three-part structure (head, body, tail) with a safety warning. The `pyscript` macro extends this to provide a "batteries-included" script template.
+
+==== Base File Structure
+The `pyfile` macro is ideal when you need full control over headers and footers but want to maintain a consistent logical separation. It sets up the core placeholders that can be filled in later.
+
+[source,weaveback]
+----
+%def(pyfile, name, content, %{
+# <[@file %(name).py]>=
+# %(name).py
+# %pastafarian_warning()
+
+# <[%(name) head]>
+# <[%(name) body]>
+# <[%(name) tail]>
+# @
+
+# <[%(name) body]>=
+%(content)
+# @
+%})
+----
+
+==== Specialized Script Template
+The `pyscript` macro uses `pyfile` as its engine, but automatically populates the `head` with a standard hash-bang and the `tail` with the `main()` entry-point guard. This allows the author to define a complete runnable script by providing only the core logic, contrasting with `pyfile` which requires manual setup of these boilerplate parts.
+
+[source,weaveback]
+----
+%def(pyscript, name, content, %{
+%pyfile(%(name), %(content))
+
+# <[%(name) head]>=
+#!/usr/bin/env python3
+# @
+
+# <[%(name) tail]>=
+if __name__ == "__main__":
+    main()
+# @
+%})
+----
+
+=== Web Components
+The `htmlfile` macro provides a minimal HTML5 shell for generating documentation or simple UI prototypes.
+
+[source,weaveback]
+----
+%def(htmlfile, name, content, %{
+# <[@file %(name).html]>=
+<!DOCTYPE html>
+<!-- %(name).html -->
+<!-- %pastafarian_warning() -->
+<[%(name) content]>
+# @
+
+# <[%(name) content]>=
+%(content)
+# @
+%})
+----
+
+== Implementation
+
+Finally, we instantiate the `justfile` for this library itself using the `%here` macro.
+
+%%here(mk_justfile, common.adoc)
+
+== Automation with Just
+
+[source,just]
+----
+# <[@file justfile]>=
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts and database
+clean:
+    rm -f weaveback.db
+
+# Generate the components from the source
+tangle:
+    ../../target/debug/weaveback common.adoc --gen .
+
+# Execute the primary script (template - override as needed)
+run: tangle
+    #python3 main.py
+
+# Render this document to HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . common.adoc
+# @
+----

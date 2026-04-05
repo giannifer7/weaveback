@@ -1,0 +1,106 @@
+= Status enum
+:source-highlighter: syntect
+
+This document is a literate program.
+It generates two C source files from a single list of enum values —
+each value declared exactly once.
+
+[source,sh]
+----
+weaveback status.adoc --gen .
+----
+
+== Configuration
+
+The enum name and constant prefix are set once here.
+Everything else — file names, include guard, function name — is derived from them.
+
+[source,weaveback]
+----
+%set(enum_name, Status)
+%set(prefix,    STATUS_)
+----
+
+== The value macro
+
+`%enum_val(enum_name, prefix, name, value)` declares one constant.
+A single call emits two noweb chunk fragments simultaneously:
+
+* one line into `<[enum_values]>` — the enum body
+* one case into `<[string_cases]>` — the body of `<enum>_as_string()`
+
+[source,weaveback]
+----
+%def(enum_val, enum_name, prefix, name, value, %{
+// <[enum_values]>=
+%(prefix)%(name) = %(value),
+// @
+// <[string_cases]>=
+case %(prefix)%(name): return "%(prefix)%(name)";
+// @
+%})
+----
+
+== Values
+
+Each constant is declared exactly once.
+
+[source,weaveback]
+----
+%enum_val(%(enum_name), %(prefix), OK,             0)
+%enum_val(%(enum_name), %(prefix), NOT_FOUND,      1)
+%enum_val(%(enum_name), %(prefix), FORBIDDEN,      2)
+%enum_val(%(enum_name), %(prefix), INTERNAL_ERROR, 3)
+----
+
+== src/%to_snake_case(%(enum_name)).h
+
+The type name is `%(enum_name)` (PascalCase).
+The function and file names use `%to_snake_case(%(enum_name))` (snake_case).
+The include guard uses `%to_screaming_case(%(enum_name))_H` (SCREAMING_CASE).
+
+[source,c]
+----
+// <[@file src/%to_snake_case(%(enum_name)).h]>=
+#ifndef %to_screaming_case(%(enum_name))_H
+#define %to_screaming_case(%(enum_name))_H
+
+// <[enum_typedef]>
+
+const char *%to_snake_case(%(enum_name))_as_string(%(enum_name) s);
+
+#endif /* %to_screaming_case(%(enum_name))_H */
+// @
+----
+
+== src/%to_snake_case(%(enum_name)).c
+
+Any value outside the enum range returns `"<UNKNOWN>"`.
+
+[source,c]
+----
+// <[@file src/%to_snake_case(%(enum_name)).c]>=
+#include "%to_snake_case(%(enum_name)).h"
+
+const char *%to_snake_case(%(enum_name))_as_string(%(enum_name) s)
+{
+    switch (s) {
+        // <[string_cases]>
+        default: return "<UNKNOWN>";
+    }
+}
+// @
+----
+
+== Sub-chunks
+
+The enum typedef assembles the accumulated values in definition order.
+
+[source,c]
+----
+// <[enum_typedef]>=
+typedef enum {
+    // <[enum_values]>
+} %(enum_name);
+// @
+----

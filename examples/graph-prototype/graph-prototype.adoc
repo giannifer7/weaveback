@@ -1,0 +1,69 @@
+= Chunk graph as a property graph
+:source-highlighter: syntect
+
+`weaveback.db` is an ordinary SQLite file.
+This prototype reads it and loads the chunk dependency graph into
+link:https://github.com/lbug-db/lbug[LadybugDB] — a property graph database
+with a Cypher-like query language — to answer questions that are awkward as SQL joins.
+
+== The idea
+
+After a `weaveback` run, `weaveback.db` contains two tables that together
+describe the full dependency graph:
+
+`chunk_defs`:: which source file defines which chunk (and at which line range)
+`chunk_deps`:: directed edges — chunk A references chunk B in source file F
+
+Loading these into a property graph gives you two node types and two relationship types:
+
+[source]
+----
+(File)-[:DEFINES]->(Chunk)
+(Chunk)-[:REFERENCES {src_file}]->(Chunk)
+----
+
+== Example query
+
+[source,cypher]
+----
+MATCH (f:File)-[:DEFINES]->(a:Chunk)-[:REFERENCES*1..3]->(b:Chunk)
+WHERE f.path = 'crates/weaveback/src/weaveback.adoc'
+RETURN DISTINCT a.name, b.name
+----
+
+This finds every chunk defined in `weaveback.adoc` and all chunks they transitively
+depend on, up to depth 3.
+The equivalent with `weaveback impact` is hardcoded imperative BFS;
+the graph query is composable and explorable interactively.
+
+== Running it
+
+[source,sh]
+----
+# weaveback.db must already exist in the project root
+just build
+cd examples/graph-prototype
+cargo run
+----
+
+The program writes `weaveback_graph.lbdb` in the current directory,
+runs the example query, and prints the results.
+
+== Source
+
+[source,rust]
+----
+include::src/main.rs[]
+----
+
+== What this points toward
+
+The prototype is a proof of concept for a future
+`weaveback graph --format lbdb` export subcommand.
+Compared to the existing `weaveback graph` (Graphviz DOT output),
+a queryable property graph would enable:
+
+* impact analysis across arbitrary depth without re-implementing BFS
+* "which files share a chunk?" (reverse ownership queries)
+* cross-language dependency tracking (C → Rust → SQL in the events example)
+* integration with graph visualisation tools that speak Cypher

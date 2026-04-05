@@ -1,0 +1,215 @@
+= Memory-Safe Sessions in C
+:source-highlighter: syntect
+
+This example shows how to automate the allocation and deallocation of struct
+members using Weaveback macros and the `@reversed` attribute.
+
+== Automation with Just
+
+To manage the lifecycle of this example, we generate a `justfile` directly
+from this source.
+
+[source,weaveback]
+----
+# <[@file justfile]>=
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f session.h session.c main.c session_test weaveback.db
+
+# Generate C source from this adoc
+tangle:
+    ../../target/debug/weaveback memory.adoc --gen . --db weaveback.db
+
+# Compile the C program
+build: tangle
+    gcc main.c session.c -o session_test
+
+# Run the test
+run: build
+    ./session_test
+
+# Render this document to dark-themed HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . memory.adoc
+# @
+----
+
+With this `justfile` in place, you can simply run:
+
+[source,sh]
+----
+just run        # Tangle, build, and execute
+just docs       # Render the dark-themed HTML
+----
+
+== Structural Macros
+
+To standardize our project structure, we define several helper macros. These
+macros generate the standard boilerplate for C files, including include guards,
+file headers, and a warning to discourage manual editing of generated files.
+
+[source,weaveback]
+----
+%def(pastafarian_warning, %{I’d Really Rather You Didn’t edit this generated file.%})
+
+%# --- Header file: %(name).h -------------------------------------------
+%def(hfile, name, content, %{
+%def(guard, name, %to_screaming_case(%(name)_H))
+
+// <[@file %(name).h]>=
+// %(name).h
+// %pastafarian_warning()
+#ifndef %guard(%(name))
+#define %guard(%(name))
+
+// <[%(name) header head]>
+// <[%(name) header body]>
+// <[%(name) header tail]>
+
+#endif // %guard(%(name))
+// @
+
+// <[%(name) header body]>=
+%(content)
+// @
+%})
+
+%# --- Implementation file: %(name).c -----------------------------------
+%def(cfile, name, content, %{
+// <[@file %(name).c]>=
+// %(name).c
+// %pastafarian_warning()
+
+// <[%(name) impl head]>
+// <[%(name) impl body]>
+// <[%(name) impl tail]>
+// @
+
+// <[%(name) impl body]>=
+%(content)
+// @
+%})
+
+%# --- Combined Unit ----------------------------------------------------
+%def(unit, name, %{
+%hfile(%(name))
+%cfile(%(name))
+%})
+----
+
+
+
+== The Session Unit
+
+We define our `Session` unit using the structural macros. This creates both
+`session.h` and `session.c` with the appropriate boilerplate.
+
+[source,weaveback]
+----
+%unit(session)
+----
+
+We populate the header with our struct definition and lifecycle functions.
+
+[source,weaveback]
+----
+// <[session header body]>=
+typedef struct {
+    <[struct_members]>
+} Session;
+
+int  session_init(Session *self);
+void session_free(Session *self);
+// @
+----
+
+== Implementation
+
+The implementation includes the header and uses the chunks populated by our
+`def_member` calls. Crucially, `session_free` uses the `@reversed` attribute.
+
+[source,weaveback]
+----
+// <[session impl head]>=
+#include "session.h"
+// @
+
+// <[session impl body]>=
+int session_init(Session *self) {
+    <[init_members]>
+    return 0;
+}
+
+void session_free(Session *self) {
+    <[@reversed cleanup_members]>
+}
+// @
+----
+
+== The Allocation Macro
+
+We define a macro that generates three different code fragments for each member.
+If `ptr` is non-empty, the field is a pointer and gets a `malloc`/`free` pair.
+
+[source,weaveback]
+----
+%def(def_member, name, type, ptr, size, %{
+// <[struct_members]>=
+%(type) %if(%(ptr), *)%(name);
+// @
+// <[init_members]>=
+%if(%(ptr), %{
+self->%(name) = malloc(sizeof(*(self->%(name))) * %if(%(size), %(size), 1));
+if (self->%(name)) {
+    printf("Allocated pointer field: %(name) (%if(%(size), %(size), 1) units)\n");
+}
+%}, %{
+printf("Initialized direct field: %(name)\n");
+%})
+// @
+%if(%(ptr), %{
+// <[cleanup_members]>=
+printf("Freeing pointer field: %(name)\n");
+free(self->%(name));
+// @
+%})
+%})
+----
+
+== Usage
+
+We define our specific members and a main function to test the lifecycle.
+
+[source,weaveback]
+----
+// <[session header head]>=
+#include <stdio.h>
+#include <stdlib.h>
+#include <stddef.h>
+// @
+
+%def_member(user_id, int)
+%def_member(username, char, ptr, 32)
+%def_member(payload, unsigned char, ptr, 1024)
+%def_member(payload_len, size_t)
+----
+
+[source,c]
+----
+%cfile(main, %{
+#include "session.h"
+
+int main() {
+    Session s;
+    if (session_init(&s) == 0) {
+        printf("\nSession initialized. Performing safe teardown...\n\n");
+        session_free(&s);
+    }
+    return 0;
+}
+%})
+----

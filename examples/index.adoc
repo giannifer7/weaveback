@@ -1,0 +1,261 @@
+= Weaveback Examples
+:toc: left
+:toc-title: Examples
+:toclevels: 2
+:source-highlighter: syntect
+
+Self-contained examples of weaveback's literate programming patterns,
+ordered from introductory to advanced.
+Each example is its own working project: run it, read it, modify it.
+
+---
+
+== hello-world — first steps
+
+link:../docs/html/examples/hello-world/hello.html[Read the literate source]
+
+The smallest possible weaveback program.
+Introduces the two building blocks: a *macro* that wraps a `printf` call, and a
+*chunk* that assembles the output file.
+
+[source,sh]
+----
+cd hello-world
+just run       # tangle → compile → execute
+----
+
+*What you learn here:*
+
+* `%def(name, params..., body)` — define a parameterised text replacement
+* `%{...%}` — quoting rule: wrap a macro argument when it contains commas or `)`
+* `<[name]>=` / `<[@file path]>=` / `// @` — chunk declaration, file chunk, end marker
+* Chunk reference `<[name]>` expands inline, indented to match its context
+
+---
+
+== c_enum — single source of truth
+
+link:../docs/html/examples/c_enum/status.html[Read the literate source]
+
+A C enum whose values are declared *exactly once*.
+A single `%enum_val` call simultaneously appends one line to the enum body
+and one `case` branch to the `_as_string()` switch — in both `.h` and `.c`.
+Adding a new status means adding one line.
+
+[source,sh]
+----
+cd c_enum
+weaveback status.adoc --gen .
+----
+
+.Generated output (abridged)
+[source,c]
+----
+// status.h
+typedef enum {
+    STATUS_OK = 0,
+    STATUS_NOT_FOUND = 1,
+    ...
+} Status;
+const char *status_as_string(Status s);
+
+// status.c
+const char *status_as_string(Status s) {
+    switch (s) {
+        case STATUS_OK: return "STATUS_OK";
+        ...
+    }
+}
+----
+
+*What you learn here:*
+
+* `%set(name, value)` — project-level variables (`enum_name`, `prefix`)
+* Accumulated chunks — `<[enum_values]>=` called multiple times, content concatenates
+* Case-conversion builtins: `%to_snake_case(...)`, `%to_screaming_case(...)`
+* The source file is Markdown (`.md`) — weaveback is format-agnostic
+
+---
+
+== events — fan-out from a single declaration
+
+link:../docs/html/examples/events/events.html[Read the literate source]
+
+The centrepiece example.
+One `%event(id, ns, name, description)` call fans out simultaneously into:
+
+[cols="1,2", options="header"]
+|===
+| Output file | Content added
+| `include/events.h` | C enum arm + cleanup function pointer
+| `src/events.rs` | Rust enum variant + `fmt::Display` match arm
+| `db/seed_events.sql` | `INSERT INTO audit_event_types`
+|===
+
+Registering a new event means one line.
+Removing an event means removing one line — the C, Rust, and SQL stay in sync automatically.
+
+[source,sh]
+----
+cd events
+weaveback events.adoc --gen .
+----
+
+*What you learn here:*
+
+* Fan-out: one macro call appending to multiple independent chunk slots
+* `@reversed` — the cleanup array expands in reverse registration order (LIFO),
+  so destructors fire in the correct sequence
+* Generating multiple output files in multiple languages from one source
+
+---
+
+== memory_safe_c — structural macros and @reversed
+
+link:../docs/html/examples/memory_safe_c/memory.html[Read the literate source]
+
+A session-management library in C where `malloc`/`free` pairs are guaranteed
+to match because both are generated from the same `%def_member` call.
+Adding a field is one line; the destructor order is automatically reversed.
+
+[source,sh]
+----
+cd memory_safe_c
+just run     # tangle → compile → execute
+just docs    # render HTML
+----
+
+.Sample output
+----
+Allocated pointer field: username (32 units)
+Allocated pointer field: payload (1024 units)
+
+Session initialized. Performing safe teardown...
+
+Freeing pointer field: payload
+Freeing pointer field: username
+----
+
+*What you learn here:*
+
+* Nested macro definitions — `%hfile`, `%cfile`, `%unit` compose into larger structures
+* `%if(cond, then, else)` — conditional code generation inside macro bodies
+* `@reversed` for correct destructor ordering without manual bookkeeping
+* Generating a `justfile` from the literate source itself
+
+---
+
+== python_tool — querying weaveback.db
+
+link:../docs/html/examples/python_tool/tool.html[Read the literate source]
+
+Generates a Python CLI tool that queries `weaveback.db` directly — the SQLite
+database that weaveback writes after every run.
+Demonstrates that the database is an open, queryable artefact, not a black box.
+
+[source,sh]
+----
+cd python_tool
+just stats   # tangle + run: show table row counts
+just list    # list source files and chunk names
+----
+
+*What you learn here:*
+
+* Generating Python scripts with a `%pyfile` structural macro
+* `weaveback.db` schema: `chunk_defs`, `chunk_deps`, `noweb_map`, `gen_baselines`
+* The `confidence` column in `noweb_map`: `exact` / `hash_match` / `inferred`
+
+---
+
+== visualization — interactive chunk graph
+
+link:../docs/html/examples/visualization/visualize.html[Read the literate source]
+
+Generates a D3.js force-directed graph of the chunk dependency graph from any
+`weaveback.db`.
+Double-click a node to jump to its documentation.
+
+[source,sh]
+----
+cd visualization
+just serve   # tangle → generate graph.json → open http://localhost:8000
+----
+
+*What you learn here:*
+
+* Generating an HTML file with embedded JavaScript from a literate source
+* Reading `chunk_deps` to reconstruct the dependency graph at runtime
+* `%htmlfile` and `%pyfile` as reusable structural macros
+
+---
+
+== nim-adoc — real-world use
+
+link:../docs/html/examples/nim-adoc/config.nim.html[Read the literate source]
+
+A configuration module from the link:https://github.com/giannifer7/rompla[rompla]
+project, kept in weaveback literate source.
+Shows weaveback used outside a toy context: Nim code, meson build integration,
+and the dark-themed HTML documentation that ships alongside the source.
+
+[source,sh]
+----
+just example-nim-adoc
+----
+
+*What you learn here:*
+
+* Weaveback with a non-C, non-Rust target language (Nim)
+* Integration with meson/ninja as the outer build system
+* A real codebase where the `.adoc` is the canonical source
+
+---
+
+== graph-prototype — chunk graph as a property graph
+
+link:../docs/html/examples/graph-prototype/graph-prototype.html[Read the documentation]
+
+An experimental Rust program that reads `weaveback.db` and imports the chunk
+dependency graph into link:https://github.com/kuzudb/kuzu[LadybugDB] — a
+property graph database with a Cypher-like query language.
+
+Once the graph is loaded you can ask questions that are awkward to express as
+SQL joins:
+
+[source,cypher]
+----
+-- find all chunks defined in weaveback.adoc and their transitive dependencies
+MATCH (f:File)-[:DEFINES]->(a:Chunk)-[:REFERENCES*1..3]->(b:Chunk)
+WHERE f.path = 'crates/weaveback/src/weaveback.adoc'
+RETURN DISTINCT a.name, b.name
+----
+
+[source,sh]
+----
+# run weaveback first so weaveback.db exists
+weaveback crates/weaveback/src/weaveback.adoc --gen crates/weaveback/src
+cd examples/graph-prototype
+cargo run
+----
+
+*What you learn here:*
+
+* `weaveback.db` is an open SQLite file — any language can read it
+* `chunk_defs` and `chunk_deps` tables expose the full dependency graph
+* `WeavebackDb::open_read_only()` for read-only access from Rust
+* Property graph queries let you explore transitive impact, shared chunks,
+  and file ownership patterns that the built-in `weaveback impact` command
+  expresses imperatively
+
+NOTE: This example is deliberately rough — it is a proof of concept for a
+future `weaveback graph --format lbdb` export mode, not a finished tool.
+
+---
+
+== Further reading
+
+[horizontal]
+link:../docs/html/docs/index.html[Documentation]:: architecture, CLI reference, apply-back workflow
+link:../docs/html/crates/weaveback/src/weaveback.html[weaveback source]:: the tool itself, written in weaveback
+Agent skill:: `.agent/skills/weaveback_literate_programming/SKILL.md` — MCP tool reference for AI assistants

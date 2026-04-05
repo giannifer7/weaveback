@@ -49,6 +49,11 @@ struct Args {
     #[arg(long)]
     allow_home: bool,
 
+    /// Overwrite generated files even if they differ from the stored baseline.
+    /// Use this only when the literate source is the authoritative state.
+    #[arg(long)]
+    force_generated: bool,
+
     /// Treat references to undefined chunks as fatal errors
     #[arg(long)]
     strict: bool,
@@ -99,6 +104,7 @@ fn run(args: Args) -> Result<(), WeavebackError> {
         SafeWriterConfig {
             formatters,
             allow_home: args.allow_home,
+            force_generated: args.force_generated,
             ..SafeWriterConfig::default()
         },
     )?;

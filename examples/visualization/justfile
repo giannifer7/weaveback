@@ -1,0 +1,23 @@
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts
+clean:
+    rm -f gen_graph.py serve_graph.py index.html graph.json weaveback.db
+
+# Generate the Python script and HTML
+tangle:
+    ../../target/debug/weaveback visualize.adoc --gen . --db weaveback.db
+
+# Generate the graph JSON from memory_safe_c database
+gen: tangle
+    python3 gen_graph.py ../../weaveback.db
+
+# Run a local server to view the graph
+serve: gen
+    python3 serve_graph.py
+
+# Render this document
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . visualize.adoc

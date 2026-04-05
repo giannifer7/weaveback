@@ -63,6 +63,10 @@ enum Commands {
         /// Path to the tangle config file
         #[arg(long, default_value = "weaveback.toml")]
         config: std::path::PathBuf,
+        /// Overwrite generated files even if they differ from the stored baseline.
+        /// Use this only when the literate source is the authoritative state.
+        #[arg(long)]
+        force_generated: bool,
     },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
     #[cfg(feature = "server")]
@@ -238,6 +242,11 @@ struct Args {
     /// Formatter command per output file extension, e.g. --formatter rs=rustfmt
     #[arg(long, value_name = "EXT=CMD")]
     formatter: Vec<String>,
+
+    /// Overwrite generated files even if they differ from the stored baseline.
+    /// Intended for explicit recovery or regeneration workflows.
+    #[arg(long)]
+    force_generated: bool,
 
     // ── batch/directory mode ──────────────────────────────────────────────────
     /// Discover and process driver files under this directory.
@@ -515,6 +524,7 @@ fn run(args: Args) -> Result<(), Error> {
         SafeWriterConfig {
             formatters,
             allow_home: args.allow_home,
+            force_generated: args.force_generated,
             ..SafeWriterConfig::default()
         },
     )
@@ -718,8 +728,8 @@ fn main() {
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
         }
-        Some(Commands::Tangle { config }) => {
-            run_tangle_all(&config)
+        Some(Commands::Tangle { config, force_generated }) => {
+            run_tangle_all(&config, force_generated)
         }
         #[cfg(feature = "server")]
         Some(Commands::Tag { config, backend, model, endpoint, batch_size }) => {
@@ -1058,10 +1068,18 @@ struct TangleCfg {
     embeddings:  Option<EmbeddingsCfg>,
 }
 
-fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str) -> std::process::Command {
+fn build_pass_cmd(
+    exe: &std::path::Path,
+    pass: &TanglePassCfg,
+    default_gen: &str,
+    force_generated: bool,
+) -> std::process::Command {
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("--dir").arg(&pass.dir);
     cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
+    if force_generated {
+        cmd.arg("--force-generated");
+    }
     if let Some(ext) = &pass.ext {
         cmd.arg("--ext").arg(ext);
     }
@@ -1087,7 +1105,7 @@ fn build_pass_cmd(exe: &std::path::Path, pass: &TanglePassCfg, default_gen: &str
     cmd
 }
 
-fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
+fn run_tangle_all(config_path: &std::path::Path, force_generated: bool) -> Result<(), Error> {
     let src = std::fs::read_to_string(config_path)
         .map_err(|e| Error::Io(std::io::Error::new(e.kind(),
             format!("{}: {e}", config_path.display()))))?;
@@ -1102,7 +1120,7 @@ fn run_tangle_all(config_path: &std::path::Path) -> Result<(), Error> {
     let errors: Vec<String> = cfg.passes
         .par_iter()
         .filter_map(|pass| {
-            let mut cmd = build_pass_cmd(&exe, pass, default_gen);
+            let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
             match cmd.status() {
                 Err(e)                => Some(format!("{}: {e}", pass.dir)),
                 Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),

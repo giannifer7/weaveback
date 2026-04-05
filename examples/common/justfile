@@ -1,0 +1,19 @@
+# List available recipes
+default:
+    @just --list
+
+# Clean generated artifacts and database
+clean:
+    rm -f weaveback.db
+
+# Generate the components from the source
+tangle:
+    ../../target/debug/weaveback common.adoc --gen .
+
+# Execute the primary script (template - override as needed)
+run: tangle
+    #python3 main.py
+
+# Render this document to HTML
+docs:
+    asciidoctor -a docinfo=shared -a docinfodir=../../scripts/asciidoc-theme -D . common.adoc

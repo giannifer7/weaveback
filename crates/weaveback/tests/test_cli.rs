@@ -194,7 +194,7 @@ fn test_directory_mode_conditional_include_is_fragment() {
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
-        .arg(&root.join("src"))
+        .arg(root.join("src"))
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())

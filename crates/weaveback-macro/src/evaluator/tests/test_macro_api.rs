@@ -30,8 +30,10 @@ fn test_include_basic() -> Result<(), Box<dyn std::error::Error>> {
 
     let main_file = create_temp_file(&temp_dir, "main.txt", "%include(include.txt)");
 
-    let mut config = EvalConfig::default();
-    config.include_paths = vec![temp_dir.path().to_path_buf()];
+    let config = EvalConfig {
+        include_paths: vec![temp_dir.path().to_path_buf()],
+        ..EvalConfig::default()
+    };
     let mut evaluator = Evaluator::new(config);
 
     let output_file = temp_dir.path().join("output.txt");
@@ -65,8 +67,10 @@ fn test_process_string_with_nested_macros() {
 
 #[test]
 fn test_process_string_with_special_chars() {
-    let mut config = EvalConfig::default();
-    config.special_char = '@';
+    let config = EvalConfig {
+        special_char: '@',
+        ..EvalConfig::default()
+    };
     let mut evaluator = Evaluator::new(config);
 
     let result = process_string(

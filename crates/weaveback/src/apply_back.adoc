@@ -296,6 +296,42 @@ struct LspDefinitionHint {
     src_file: String,
     src_line: usize,
 }
+
+struct MacroArgSearch<'a> {
+    db: &'a WeavebackDb,
+    lines: &'a [String],
+    hinted_line: usize,
+    src_col: u32,
+    old_text: &'a str,
+    new_text: &'a str,
+    eval_config: &'a EvalConfig,
+    src_path: &'a std::path::Path,
+    expanded_line: u32,
+}
+
+struct MacroBodySearch<'a> {
+    db: &'a WeavebackDb,
+    lines: &'a [String],
+    hinted_line: usize,
+    body_template: Option<&'a str>,
+    old_text: &'a str,
+    new_text: &'a str,
+    special_char: char,
+    eval_config: &'a EvalConfig,
+    src_path: &'a std::path::Path,
+    expanded_line: u32,
+}
+
+struct MacroCallSearch<'a> {
+    lines: &'a [String],
+    macro_name: &'a str,
+    special_char: char,
+    old_text: &'a str,
+    new_text: &'a str,
+    eval_config: &'a EvalConfig,
+    src_path: &'a std::path::Path,
+    expanded_line: u32,
+}
 // @
 ----
 
@@ -670,38 +706,50 @@ fn chunk_context_bonus(
     }
 }
 
-fn search_macro_arg_candidate(
-    db: &WeavebackDb,
-    lines: &[String],
-    hinted_line: usize,
-    src_col: u32,
-    old_text: &str,
-    new_text: &str,
-    eval_config: &EvalConfig,
-    src_path: &std::path::Path,
-    expanded_line: u32,
-) -> Option<CandidateResolution> {
-    let candidate_indices = candidate_line_indices(lines, hinted_line, None, old_text);
+fn search_macro_arg_candidate(request: MacroArgSearch<'_>) -> Option<CandidateResolution> {
+    let candidate_indices = candidate_line_indices(
+        request.lines,
+        request.hinted_line,
+        None,
+        request.old_text,
+    );
     let mut candidates = Vec::new();
 
     for idx in candidate_indices {
-        let Some(new_line) = attempt_macro_arg_patch(lines, idx, src_col, old_text, new_text) else {
+        let Some(new_line) = attempt_macro_arg_patch(
+            request.lines,
+            idx,
+            request.src_col,
+            request.old_text,
+            request.new_text,
+        ) else {
             continue;
         };
-        let candidate_src = splice_line(lines, idx, &new_line, true);
-        if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+        let candidate_src = splice_line(request.lines, idx, &new_line, true);
+        if !verify_candidate(
+            &candidate_src,
+            request.src_path,
+            request.eval_config,
+            request.expanded_line,
+            request.new_text,
+        ) {
             continue;
         }
         candidates.push(CandidateResolution {
             line_idx: idx,
             new_line,
             score: rank_candidate(
-                hinted_line,
+                request.hinted_line,
                 idx,
-                &lines[idx],
-                old_text,
-                new_text,
-                chunk_context_bonus(db, &src_path.to_string_lossy(), hinted_line, idx),
+                &request.lines[idx],
+                request.old_text,
+                request.new_text,
+                chunk_context_bonus(
+                    request.db,
+                    &request.src_path.to_string_lossy(),
+                    request.hinted_line,
+                    idx,
+                ),
             ),
         });
     }
@@ -709,41 +757,51 @@ fn search_macro_arg_candidate(
     choose_best_candidate(candidates)
 }
 
-fn search_macro_body_candidate(
-    db: &WeavebackDb,
-    lines: &[String],
-    hinted_line: usize,
-    body_template: Option<&str>,
-    old_text: &str,
-    new_text: &str,
-    special_char: char,
-    eval_config: &EvalConfig,
-    src_path: &std::path::Path,
-    expanded_line: u32,
-) -> Option<CandidateResolution> {
-    let anchor = body_template.unwrap_or(old_text);
-    let candidate_indices = candidate_line_indices(lines, hinted_line, Some(anchor), old_text);
+fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<CandidateResolution> {
+    let anchor = request.body_template.unwrap_or(request.old_text);
+    let candidate_indices = candidate_line_indices(
+        request.lines,
+        request.hinted_line,
+        Some(anchor),
+        request.old_text,
+    );
     let mut candidates = Vec::new();
 
     for idx in candidate_indices {
-        let template = body_template.unwrap_or(lines.get(idx)?.as_str());
-        let Some(new_line) = attempt_macro_body_fix(template, old_text, new_text, special_char) else {
+        let template = request.body_template.unwrap_or(request.lines.get(idx)?.as_str());
+        let Some(new_line) = attempt_macro_body_fix(
+            template,
+            request.old_text,
+            request.new_text,
+            request.special_char,
+        ) else {
             continue;
         };
-        let candidate_src = splice_line(lines, idx, &new_line, true);
-        if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+        let candidate_src = splice_line(request.lines, idx, &new_line, true);
+        if !verify_candidate(
+            &candidate_src,
+            request.src_path,
+            request.eval_config,
+            request.expanded_line,
+            request.new_text,
+        ) {
             continue;
         }
         candidates.push(CandidateResolution {
             line_idx: idx,
             new_line,
             score: rank_candidate(
-                hinted_line,
+                request.hinted_line,
                 idx,
-                &lines[idx],
-                old_text,
-                new_text,
-                chunk_context_bonus(db, &src_path.to_string_lossy(), hinted_line, idx),
+                &request.lines[idx],
+                request.old_text,
+                request.new_text,
+                chunk_context_bonus(
+                    request.db,
+                    &request.src_path.to_string_lossy(),
+                    request.hinted_line,
+                    idx,
+                ),
             ),
         });
     }
@@ -751,31 +809,34 @@ fn search_macro_body_candidate(
     choose_best_candidate(candidates)
 }
 
-fn search_macro_call_candidate(
-    lines: &[String],
-    macro_name: &str,
-    special_char: char,
-    old_text: &str,
-    new_text: &str,
-    eval_config: &EvalConfig,
-    src_path: &std::path::Path,
-    expanded_line: u32,
-) -> Option<CandidateResolution> {
-    let needle = format!("{special_char}{macro_name}(");
+fn search_macro_call_candidate(request: MacroCallSearch<'_>) -> Option<CandidateResolution> {
+    let needle = format!("{}{}(", request.special_char, request.macro_name);
     let mut candidates = Vec::new();
-    let token_pair = differing_token_pair(old_text, new_text);
+    let token_pair = differing_token_pair(request.old_text, request.new_text);
 
-    for (idx, line) in lines.iter().enumerate() {
+    for (idx, line) in request.lines.iter().enumerate() {
         if !line.contains(&needle) {
             continue;
         }
-        if let Some(new_line) = attempt_macro_arg_patch(lines, idx, 0, old_text, new_text) {
-            let candidate_src = splice_line(lines, idx, &new_line, true);
-            if verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+        if let Some(new_line) = attempt_macro_arg_patch(
+            request.lines,
+            idx,
+            0,
+            request.old_text,
+            request.new_text,
+        ) {
+            let candidate_src = splice_line(request.lines, idx, &new_line, true);
+            if verify_candidate(
+                &candidate_src,
+                request.src_path,
+                request.eval_config,
+                request.expanded_line,
+                request.new_text,
+            ) {
                 candidates.push(CandidateResolution {
                     line_idx: idx,
                     new_line,
-                    score: 80 + token_overlap_score(line, old_text, new_text),
+                    score: 80 + token_overlap_score(line, request.old_text, request.new_text),
                 });
             }
         }
@@ -791,14 +852,20 @@ fn search_macro_call_candidate(
 
                 let mut token_line = line.clone();
                 token_line.replace_range(pos..after_pos, new_token);
-                let candidate_src = splice_line(lines, idx, &token_line, true);
-                if !verify_candidate(&candidate_src, src_path, eval_config, expanded_line, new_text) {
+                let candidate_src = splice_line(request.lines, idx, &token_line, true);
+                if !verify_candidate(
+                    &candidate_src,
+                    request.src_path,
+                    request.eval_config,
+                    request.expanded_line,
+                    request.new_text,
+                ) {
                     continue;
                 }
                 candidates.push(CandidateResolution {
                     line_idx: idx,
                     new_line: token_line,
-                    score: 95 + token_overlap_score(line, old_text, new_text),
+                    score: 95 + token_overlap_score(line, request.old_text, request.new_text),
                 });
             }
         }
@@ -1172,18 +1239,18 @@ fn apply_patches_to_file(
                 match ctx.eval_config.clone() {
                     Some(ec) => {
                         let hint = *src_line;
-                        if let Some(candidate) = search_macro_body_candidate(
-                            ctx.db,
-                            &lines,
-                            hint,
-                            body_template.as_deref(),
-                            &patch.old_text,
-                            &patch.new_text,
-                            ctx.special_char,
-                            &ec,
-                            &src_path,
-                            patch.expanded_line,
-                        ) {
+                        if let Some(candidate) = search_macro_body_candidate(MacroBodySearch {
+                            db: ctx.db,
+                            lines: &lines,
+                            hinted_line: hint,
+                            body_template: body_template.as_deref(),
+                            old_text: &patch.old_text,
+                            new_text: &patch.new_text,
+                            special_char: ctx.special_char,
+                            eval_config: &ec,
+                            src_path: &src_path,
+                            expanded_line: patch.expanded_line,
+                        }) {
                             if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {
@@ -1191,16 +1258,16 @@ fn apply_patches_to_file(
                                 let _ = writeln!(out, "  {}: patched (body search+oracle)", label);
                             }
                             applied += 1;
-                        } else if let Some(candidate) = search_macro_call_candidate(
-                            &lines,
+                        } else if let Some(candidate) = search_macro_call_candidate(MacroCallSearch {
+                            lines: &lines,
                             macro_name,
-                            ctx.special_char,
-                            &patch.old_text,
-                            &patch.new_text,
-                            &ec,
-                            &src_path,
-                            patch.expanded_line,
-                        ) {
+                            special_char: ctx.special_char,
+                            old_text: &patch.old_text,
+                            new_text: &patch.new_text,
+                            eval_config: &ec,
+                            src_path: &src_path,
+                            expanded_line: patch.expanded_line,
+                        }) {
                             if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {
@@ -1227,17 +1294,17 @@ fn apply_patches_to_file(
 
                 match ctx.eval_config.clone() {
                     Some(ec) => {
-                        if let Some(candidate) = search_macro_arg_candidate(
-                            ctx.db,
-                            &lines,
-                            *src_line,
-                            *src_col,
-                            &patch.old_text,
-                            &patch.new_text,
-                            &ec,
-                            &src_path,
-                            patch.expanded_line,
-                        ) {
+                        if let Some(candidate) = search_macro_arg_candidate(MacroArgSearch {
+                            db: ctx.db,
+                            lines: &lines,
+                            hinted_line: *src_line,
+                            src_col: *src_col,
+                            old_text: &patch.old_text,
+                            new_text: &patch.new_text,
+                            eval_config: &ec,
+                            src_path: &src_path,
+                            expanded_line: patch.expanded_line,
+                        }) {
                             if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {
@@ -1245,16 +1312,16 @@ fn apply_patches_to_file(
                                 let _ = writeln!(out, "  {}: patched (arg search+oracle)", label);
                             }
                             applied += 1;
-                        } else if let Some(candidate) = search_macro_call_candidate(
-                            &lines,
+                        } else if let Some(candidate) = search_macro_call_candidate(MacroCallSearch {
+                            lines: &lines,
                             macro_name,
-                            ctx.special_char,
-                            &patch.old_text,
-                            &patch.new_text,
-                            &ec,
-                            &src_path,
-                            patch.expanded_line,
-                        ) {
+                            special_char: ctx.special_char,
+                            old_text: &patch.old_text,
+                            new_text: &patch.new_text,
+                            eval_config: &ec,
+                            src_path: &src_path,
+                            expanded_line: patch.expanded_line,
+                        }) {
                             if ctx.dry_run {
                                 let _ = writeln!(out, "  [dry-run] {}: {:?} → {:?}", label, lines[candidate.line_idx], candidate.new_line);
                             } else {

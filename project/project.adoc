@@ -123,6 +123,8 @@ _wb := if path_exists("target/release/weaveback") == "true" { \
            "./target/debug/weaveback" \
        } else { "weaveback" }
 
+_pyproj := "python/weaveback-agent"
+
 # Default: list available recipes
 default:
     @just --list
@@ -136,6 +138,33 @@ build:
 # Build the whole workspace (release)
 release:
     cargo build --release
+
+# Build the PyO3 extension in place for local Python development
+py-build:
+    cd {{_pyproj}} && uv run maturin develop
+
+# Build a wheel for the Python package
+py-wheel:
+    cd {{_pyproj}} && uv run maturin build
+
+# Build Linux wheels via cibuildwheel
+py-wheel-ci:
+    cd {{_pyproj}} && uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Build a manylinux wheel for CPython 3.14
+py-wheel-manylinux:
+    cd {{_pyproj}} && CIBW_BUILD='cp314-manylinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Build a musllinux wheel for CPython 3.14
+py-wheel-musllinux:
+    cd {{_pyproj}} && CIBW_BUILD='cp314-musllinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+
+# Sync the Python project environment
+py-sync:
+    cd {{_pyproj}} && uv sync
+
+# Full local Python check cycle
+py-check: py-build lint-python test-python
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
@@ -151,11 +180,22 @@ test-macros:
 test-noweb:
     cargo test --package weaveback-tangle
 
+# Run Python tests
+test-python:
+    cd {{_pyproj}} && uv run pytest
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Clippy (warnings as errors)
 lint:
     cargo clippy -- -D warnings
+
+# Python lint/type-check suite
+lint-python:
+    cd {{_pyproj}} && uv run ruff check .
+    cd {{_pyproj}} && uv run pyright
+    cd {{_pyproj}} && uv run --with mypy mypy src
+    cd {{_pyproj}} && uv run --with pylint pylint src/weaveback_agent
 
 # Format check
 fmt-check:
@@ -164,6 +204,10 @@ fmt-check:
 # Apply formatting
 fmt:
     cargo fmt
+
+# Apply Python formatting
+fmt-python:
+    cd {{_pyproj}} && uv run ruff format .
 
 # Find code duplicates
 duplicates TARGET='.':
@@ -328,13 +372,30 @@ tarpaulin-report.html
 .hist.txt
 hist-search.txt
 
+.codex
+.gemini/
+
 chats
 python/*
 !python/weaveback-agent/
 !python/weaveback-agent/**
 resume.txt
 
+examples/**/*.db
+examples/**/*.html
+examples/**/build.log
+examples/**/tmp/
+examples/**/gen_ast_tmp/
+examples/**/mem_test
+examples/**/session_test
+examples/**/hello
+examples/visualization/graph.json
+
+weaveback_*.log
+
 scripts/serve-ui/node_modules/
+scripts/serve-ui/.npm/
+scripts/serve-ui/.pnpm-store/
 # @
 ----
 
@@ -575,29 +636,41 @@ target platforms: glibc (Debian), musl (Alpine), Windows (MinGW), Fedora.
 # Containerfile — multi-stage packaging builds for weaveback
 #
 # Stages:
-#   glibc   — Debian binary + .deb  (cargo-deb)  — includes python feature
-#   musl    — Alpine static binary               — includes python feature (Alpine musl-native Python)
-#   windows — MinGW cross-compiled .exe          — includes python feature (Fedora mingw64-python3-devel)
-#   fedora  — Fedora binary + .rpm               — includes python feature
+#   glibc   — Debian binary + .deb  (cargo-deb)  — includes Python/PyO3 tooling
+#   musl    — Alpine static binary               — includes Python/PyO3 tooling
+#   windows — MinGW cross-compiled .exe          — cross-compiles the PyO3 extension
+#   fedora  — Fedora binary + .rpm               — includes Python/PyO3 tooling
 #
 # Usage:
 #   podman build --target glibc  -t weaveback-glibc  .
 #   podman build --target fedora -t weaveback-fedora .
+#
+# Python policy:
+#   - use uv as the package/tool runner
+#   - keep maturin available for crates/weaveback-py
+#   - keep mypy and pylint installed for python/weaveback-agent even before
+#     they are wired into CI
+#   - keep the runtime stages simple; these are primarily build/dev images
 
 # ── Rust base (Debian bookworm) ───────────────────────────────────────────────
 FROM debian:bookworm-slim AS rust-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates build-essential pkg-config git \
-        python3 python3-dev \
+        python3 python3-dev python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 
 # ── cargo-chef planner ────────────────────────────────────────────────────────
 FROM rust-base AS planner
@@ -629,12 +702,17 @@ RUN mkdir -p /out \
 
 # ── musl: static binary (Alpine — musl-native Python for PyO3) ───────────────
 FROM alpine:latest AS musl
-RUN apk add --no-cache curl build-base python3 python3-dev
+RUN apk add --no-cache curl build-base python3 python3-dev py3-virtualenv git
 ENV RUSTUP_HOME=/root/.rustup \
     CARGO_HOME=/root/.cargo \
-    PATH=/root/.cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/root/.cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 WORKDIR /src
 COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl --workspace
@@ -674,12 +752,17 @@ RUN mkdir -p /out \
 
 # ── fedora: RPM ───────────────────────────────────────────────────────────────
 FROM fedora:latest AS fedora
-RUN dnf install -y curl gcc pkg-config git python3 python3-devel && dnf clean all
+RUN dnf install -y curl gcc pkg-config git python3 python3-devel python3-virtualenv && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH
 RUN curl https://sh.rustup.rs -sSf \
     | sh -s -- -y --default-toolchain stable --no-modify-path
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN uv tool install --python /usr/bin/python3 maturin \
+    && uv tool install --python /usr/bin/python3 mypy \
+    && uv tool install --python /usr/bin/python3 pylint
 RUN cargo install cargo-generate-rpm
 WORKDIR /src
 COPY . .
@@ -716,7 +799,15 @@ It is not tangled from this document — the block below is a snapshot for refer
       base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
 
       # Pre-built musl binaries are x86_64-linux only.
-      # The devShell works on all common systems.
+      # They package the CLI tools, which are a good fit for Nix consumption.
+      #
+      # The PyO3 extension is intentionally *not* exposed here as a pre-built
+      # Nix package because it is Python-ABI- and platform-specific: for that
+      # side we want wheels or a source build inside a dev shell, not a single
+      # "universal musl" artifact.
+      #
+      # The devShell works on all common systems and includes the Python build
+      # and lint tools needed for python/weaveback-agent and crates/weaveback-py.
       devSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forEachDevSystem = f: lib.genAttrs devSystems (s: f nixpkgs.legacyPackages.${s});
 
@@ -746,7 +837,12 @@ It is not tangled from this document — the block below is a snapshot for refer
             just         # task runner
             plantuml     # UML diagrams via --plantuml-jar (brings JDK)
             nodejs       # TypeScript bundle for the serve UI
-            python3      # scripts/install.py, packaging scripts
+            python3      # packaging scripts and Python project runtime
+            uv           # Python package / tool runner
+            maturin      # PyO3 build frontend
+            ruff         # Python formatter / linter
+            mypy         # Python static typing
+            pylint       # Python lint baseline
             git
           ];
           shellHook = ''
@@ -756,6 +852,13 @@ It is not tangled from this document — the block below is a snapshot for refer
             echo "  just docs       render HTML documentation"
             echo "  just serve      live-reload server with inline editor"
             echo "  just test       run all tests"
+            echo "  just py-check   build + lint + test the Python agent bridge"
+            if [ -f python/weaveback-agent/pyproject.toml ]; then
+              echo "  syncing python/weaveback-agent with uv..."
+              if ! uv sync --project python/weaveback-agent --all-groups; then
+                echo "  warning: uv sync failed; continuing with the shell environment"
+              fi
+            fi
             echo ""
           '';
         };

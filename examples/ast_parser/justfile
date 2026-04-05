@@ -1,0 +1,5 @@
+tangle:
+    ../../target/debug/weaveback ast_parser.adoc --gen . --db ast_parser.db --chunk-end @@
+
+run: tangle
+    cargo run --release -- ../../crates/weaveback/src/lib.adoc

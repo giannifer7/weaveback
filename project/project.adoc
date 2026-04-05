@@ -31,7 +31,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.9.3"
+version = "0.9.4"
 edition = "2024"
 authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"

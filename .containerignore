@@ -1,0 +1,12 @@
+.git
+target
+docs/html
+docs/.plantuml-cache
+asciidoc-parser
+codex-resume.txt
+gemini-resume.txt
+weaveback.db
+weaveback.db-shm
+weaveback.db-wal
+.venv
+node_modules

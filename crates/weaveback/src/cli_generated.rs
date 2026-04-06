@@ -57,15 +57,22 @@ pub(crate) enum Commands {
     Attribute {
 
 
-        /// Generated location in FILE:LINE or FILE:LINE:COL form
+        /// One or more generated locations in FILE:LINE or FILE:LINE:COL form
 
-    location: String,
+    locations: Vec<String>,
 
 
 
     },
     /// Run cargo with JSON diagnostics and add source-of-truth attribution
     Cargo {
+
+
+        /// Emit only compiler messages and the final weaveback summary, not Cargo artifact chatter
+    #[arg(long)]
+
+    diagnostics_only: bool,
+
 
 
         /// Cargo subcommand and arguments, passed through after `weaveback cargo`
@@ -191,6 +198,13 @@ pub(crate) enum Commands {
     #[arg(long)]
 
     rule: Option<String>,
+
+
+
+        /// Emit structured JSON instead of human-readable text
+    #[arg(long)]
+
+    json: bool,
 
 
 

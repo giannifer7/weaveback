@@ -456,13 +456,22 @@ fn main() {
             let eval_config = build_eval_config(&cli.args);
             run_trace(out_file, line, col, cli.args.db, cli.args.gen_dir, eval_config)
         }
-        Some(Commands::Attribute { location }) => {
+        Some(Commands::Attribute { locations }) => {
             let eval_config = build_eval_config(&cli.args);
-            run_attribute(location, cli.args.db, cli.args.gen_dir, eval_config)
+            run_attribute(locations, cli.args.db, cli.args.gen_dir, eval_config)
         }
-        Some(Commands::Cargo { args }) => {
+        Some(Commands::Cargo {
+            diagnostics_only,
+            args,
+        }) => {
             let eval_config = build_eval_config(&cli.args);
-            run_cargo_annotated(args, cli.args.db, cli.args.gen_dir, eval_config)
+            run_cargo_annotated(
+                args,
+                diagnostics_only,
+                cli.args.db,
+                cli.args.gen_dir,
+                eval_config,
+            )
         }
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
@@ -497,8 +506,8 @@ fn main() {
         Some(Commands::Search { query, limit }) => {
             run_search(query, limit, cli.args.db)
         }
-        Some(Commands::Lint { paths, strict, rule }) => {
-            lint::run_lint(paths, strict, rule)
+        Some(Commands::Lint { paths, strict, rule, json }) => {
+            lint::run_lint(paths, strict, rule, json)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
         Some(Commands::Tags { file }) => {
@@ -610,13 +619,53 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
 }
 
 fn run_attribute(
-    location: String,
+    locations: Vec<String>,
     db_path: PathBuf,
     gen_dir: PathBuf,
     eval_config: weaveback_macro::evaluator::EvalConfig,
 ) -> Result<(), Error> {
-    let (out_file, line, col) = parse_generated_location(&location)?;
-    run_trace(out_file, line, col, db_path, gen_dir, eval_config)
+    if locations.is_empty() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "at least one location is required",
+        )));
+    }
+    if locations.len() == 1 {
+        let (out_file, line, col) = parse_generated_location(&locations[0])?;
+        return run_trace(out_file, line, col, db_path, gen_dir, eval_config);
+    }
+
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+    let mut results = Vec::new();
+
+    for location in locations {
+        let (out_file, line, col) = parse_generated_location(&location)?;
+        match lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config.clone()) {
+            Ok(Some(json)) => results.push(json!({
+                "location": location,
+                "ok": true,
+                "trace": json,
+            })),
+            Ok(None) => results.push(json!({
+                "location": location,
+                "ok": false,
+                "trace": serde_json::Value::Null,
+            })),
+            Err(lookup::LookupError::InvalidInput(msg)) => {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    msg,
+                )));
+            }
+            Err(lookup::LookupError::Db(e)) => return Err(Error::Noweb(WeavebackError::Db(e))),
+            Err(lookup::LookupError::Io(e)) => return Err(Error::Io(e)),
+        }
+    }
+
+    println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    Ok(())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -641,6 +690,7 @@ struct CargoDiagnosticSpan {
 fn collect_cargo_attributions(
     diagnostic: &CargoDiagnostic,
     db: Option<&weaveback_tangle::db::WeavebackDb>,
+    project_root: &Path,
     resolver: &PathResolver,
     eval_config: &EvalConfig,
 ) -> Vec<serde_json::Value> {
@@ -651,16 +701,16 @@ fn collect_cargo_attributions(
     let mut seen = HashSet::new();
 
     for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
-        let trace = match lookup::perform_trace(
+        let Some(trace) = trace_generated_location(
             &span.file_name,
             span.line_start,
             span.column_start,
             db,
+            project_root,
             resolver,
-            eval_config.clone(),
-        ) {
-            Ok(Some(value)) => value,
-            _ => continue,
+            eval_config,
+        ) else {
+            continue;
         };
 
         let dedupe_key = serde_json::to_string(&trace).unwrap_or_default();
@@ -675,6 +725,7 @@ fn collect_cargo_attributions(
 fn collect_cargo_span_attributions(
     diagnostic: &CargoDiagnostic,
     db: Option<&weaveback_tangle::db::WeavebackDb>,
+    project_root: &Path,
     resolver: &PathResolver,
     eval_config: &EvalConfig,
 ) -> Vec<serde_json::Value> {
@@ -685,16 +736,16 @@ fn collect_cargo_span_attributions(
     let mut seen = HashSet::new();
 
     for span in &diagnostic.spans {
-        let trace = match lookup::perform_trace(
+        let Some(trace) = trace_generated_location(
             &span.file_name,
             span.line_start,
             span.column_start,
             db,
+            project_root,
             resolver,
-            eval_config.clone(),
-        ) {
-            Ok(Some(value)) => value,
-            _ => continue,
+            eval_config,
+        ) else {
+            continue;
         };
 
         let record = json!({
@@ -713,17 +764,63 @@ fn collect_cargo_span_attributions(
     records
 }
 
+fn trace_generated_location(
+    file_name: &str,
+    line: u32,
+    col: u32,
+    db: &weaveback_tangle::db::WeavebackDb,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Option<serde_json::Value> {
+    if let Ok(Some(value)) =
+        lookup::perform_trace(file_name, line, col, db, resolver, eval_config.clone())
+    {
+        return Some(value);
+    }
+
+    let file_path = Path::new(file_name);
+    let rel = file_path
+        .strip_prefix(project_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))?;
+    lookup::perform_trace(&rel, line, col, db, resolver, eval_config.clone())
+        .ok()
+        .flatten()
+}
+
 fn build_cargo_attribution_summary(
     span_attributions: &[serde_json::Value],
 ) -> serde_json::Value {
-    let mut grouped: std::collections::BTreeMap<String, (usize, std::collections::BTreeSet<String>)> =
+    #[derive(Default)]
+    struct SectionSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        generated_spans: Vec<serde_json::Value>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
         std::collections::BTreeMap::new();
 
     for record in span_attributions {
         let Some(trace) = record.get("trace") else {
             continue;
         };
-        let Some(src_file) = trace.get("src_file").and_then(|v| v.as_str()) else {
+        let Some(src_file) = trace
+            .get("src_file")
+            .and_then(|v| v.as_str())
+            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
+        else {
             continue;
         };
         let chunk = trace
@@ -731,12 +828,52 @@ fn build_cargo_attribution_summary(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+        let generated_span = json!({
+            "generated_file": record.get("generated_file").cloned().unwrap_or(serde_json::Value::Null),
+            "generated_line": record.get("generated_line").cloned().unwrap_or(serde_json::Value::Null),
+            "generated_col": record.get("generated_col").cloned().unwrap_or(serde_json::Value::Null),
+            "is_primary": record.get("is_primary").cloned().unwrap_or(serde_json::Value::Bool(false)),
+            "chunk": if chunk.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(chunk.clone()) },
+        });
         let entry = grouped
             .entry(src_file.to_string())
-            .or_insert_with(|| (0, std::collections::BTreeSet::new()));
-        entry.0 += 1;
+            .or_default();
+        entry.count += 1;
         if !chunk.is_empty() {
-            entry.1.insert(chunk);
+            entry.chunks.insert(chunk.clone());
+        }
+        let section = entry.sections.entry(section_key).or_default();
+        section.count += 1;
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        section.generated_spans.push(generated_span);
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
         }
     }
 
@@ -744,10 +881,22 @@ fn build_cargo_attribution_summary(
         "count": span_attributions.len(),
         "sources": grouped
             .into_iter()
-            .map(|(src_file, (count, chunks))| json!({
+            .map(|(src_file, summary)| json!({
                 "src_file": src_file,
-                "count": count,
-                "chunks": chunks.into_iter().collect::<Vec<_>>(),
+                "count": summary.count,
+                "chunks": summary.chunks.into_iter().collect::<Vec<_>>(),
+                "sections": summary
+                    .sections
+                    .into_values()
+                    .map(|section| json!({
+                        "count": section.count,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "generated_spans": section.generated_spans,
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                    }))
+                    .collect::<Vec<_>>(),
             }))
             .collect::<Vec<_>>(),
     })
@@ -785,11 +934,52 @@ fn emit_augmented_cargo_message(
     Ok(())
 }
 
+fn emit_cargo_summary_message(
+    compiler_message_count: usize,
+    span_attributions: &[serde_json::Value],
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    serde_json::to_writer(
+        &mut out,
+        &json!({
+            "reason": "weaveback-summary",
+            "compiler_message_count": compiler_message_count,
+            "generated_span_count": span_attributions.len(),
+            "weaveback_source_summary": build_cargo_attribution_summary(span_attributions),
+        }),
+    )?;
+    writeln!(out)?;
+    Ok(())
+}
+
 fn run_cargo_annotated(
-    mut cargo_args: Vec<String>,
+    cargo_args: Vec<String>,
+    diagnostics_only: bool,
     db_path: PathBuf,
     gen_dir: PathBuf,
     eval_config: EvalConfig,
+) -> Result<(), Error> {
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let mut stdout_out = std::io::stdout().lock();
+    run_cargo_annotated_to_writer(
+        cargo_args,
+        diagnostics_only,
+        db_path,
+        gen_dir,
+        eval_config,
+        &project_root,
+        &mut stdout_out,
+    )
+}
+
+fn run_cargo_annotated_to_writer(
+    mut cargo_args: Vec<String>,
+    diagnostics_only: bool,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+    project_root: &Path,
+    mut out: impl Write,
 ) -> Result<(), Error> {
     if cargo_args.is_empty() {
         cargo_args.push("check".to_string());
@@ -801,8 +991,7 @@ fn run_cargo_annotated(
         cargo_args.push("--message-format=json-diagnostic-rendered-ansi".to_string());
     }
 
-    let project_root = std::env::current_dir().unwrap_or_default();
-    let resolver = PathResolver::new(project_root.clone(), gen_dir);
+    let resolver = PathResolver::new(project_root.to_path_buf(), gen_dir);
     let db = if db_path.exists() {
         Some(weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?)
     } else {
@@ -811,7 +1000,7 @@ fn run_cargo_annotated(
 
     let mut child = Command::new("cargo")
         .args(&cargo_args)
-        .current_dir(&project_root)
+        .current_dir(project_root)
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit())
         .stdout(Stdio::piped())
@@ -823,32 +1012,45 @@ fn run_cargo_annotated(
         .take()
         .ok_or_else(|| Error::Io(std::io::Error::other("failed to capture cargo stdout")))?;
     let reader = BufReader::new(stdout);
-    let mut stdout_out = std::io::stdout().lock();
+    let mut compiler_message_count = 0usize;
+    let mut all_span_records = Vec::new();
 
     for line in reader.lines() {
         let line = line.map_err(Error::Io)?;
         let Ok(envelope) = serde_json::from_str::<CargoMessageEnvelope>(&line) else {
-            writeln!(stdout_out, "{line}").map_err(Error::Io)?;
+            writeln!(out, "{line}").map_err(Error::Io)?;
             continue;
         };
 
         if envelope.reason == "compiler-message"
             && let Some(diagnostic) = envelope.message
         {
+            compiler_message_count += 1;
             let records =
-                collect_cargo_attributions(&diagnostic, db.as_ref(), &resolver, &eval_config);
+                collect_cargo_attributions(
+                    &diagnostic,
+                    db.as_ref(),
+                    project_root,
+                    &resolver,
+                    &eval_config,
+                );
             let span_records = collect_cargo_span_attributions(
                 &diagnostic,
                 db.as_ref(),
+                project_root,
                 &resolver,
                 &eval_config,
             );
-            emit_augmented_cargo_message(&line, records, span_records, &mut stdout_out)
+            all_span_records.extend(span_records.iter().cloned());
+            emit_augmented_cargo_message(&line, records, span_records, &mut out)
                 .map_err(Error::Io)?;
-        } else {
-            writeln!(stdout_out, "{line}").map_err(Error::Io)?;
+        } else if !diagnostics_only || envelope.reason == "build-finished" {
+            writeln!(out, "{line}").map_err(Error::Io)?;
         }
     }
+
+    emit_cargo_summary_message(compiler_message_count, &all_span_records, &mut out)
+        .map_err(Error::Io)?;
 
     let status = child.wait().map_err(Error::Io)?;
     if status.success() {
@@ -1362,6 +1564,7 @@ fn run_lsp(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
     use weaveback_tangle::db::{Confidence, NowebMapEntry, WeavebackDb};
 
     #[test]
@@ -1374,6 +1577,46 @@ mod tests {
             parse_generated_location("gen/out.rs:17:9").unwrap(),
             ("gen/out.rs".to_string(), 17, 9)
         );
+    }
+
+    #[test]
+    fn attribute_command_options_support_multiple_locations() {
+        let cli = Cli::try_parse_from([
+            "weaveback",
+            "attribute",
+            "gen/out.rs:17",
+            "gen/out.rs:18:3",
+        ])
+        .unwrap();
+        match cli.command.unwrap() {
+            Commands::Attribute { locations } => {
+                assert_eq!(locations, vec!["gen/out.rs:17", "gen/out.rs:18:3"]);
+            }
+            _ => panic!("expected attribute command"),
+        }
+    }
+
+    #[test]
+    fn cargo_command_options_support_diagnostics_only() {
+        let cli = Cli::try_parse_from([
+            "weaveback",
+            "cargo",
+            "--diagnostics-only",
+            "check",
+            "-p",
+            "weaveback",
+        ])
+        .unwrap();
+        match cli.command.unwrap() {
+            Commands::Cargo {
+                diagnostics_only,
+                args,
+            } => {
+                assert!(diagnostics_only);
+                assert_eq!(args, vec!["check", "-p", "weaveback"]);
+            }
+            _ => panic!("expected cargo command"),
+        }
     }
 
     #[test]
@@ -1410,6 +1653,152 @@ mod tests {
         assert_eq!(span_attrs[0]["generated_file"], "gen/out.rs");
         assert_eq!(span_attrs[0]["trace"]["chunk"], "main");
         assert_eq!(value["weaveback_source_summary"]["sources"][0]["src_file"], "src/doc.adoc");
+        assert_eq!(
+            value["weaveback_source_summary"]["sources"][0]["sections"][0]["source_section_breadcrumb"],
+            json!(["Root", "Topic"])
+        );
+        assert_eq!(
+            value["weaveback_source_summary"]["sources"][0]["sections"][0]["generated_spans"][0]["generated_file"],
+            "gen/out.rs"
+        );
+    }
+
+    #[test]
+    fn emit_cargo_summary_message_emits_final_grouped_json() {
+        let span_records = vec![
+            json!({
+                "generated_file": "gen/out.rs",
+                "generated_line": 17,
+                "generated_col": 9,
+                "is_primary": true,
+                "trace": {
+                    "src_file": "src/doc.adoc",
+                    "chunk": "main",
+                    "source_section_breadcrumb": ["Root", "Topic"],
+                    "source_section_prose": "Explain."
+                },
+            }),
+            json!({
+                "generated_file": "gen/out.rs",
+                "generated_line": 20,
+                "generated_col": 1,
+                "is_primary": false,
+                "trace": {
+                    "src_file": "src/doc.adoc",
+                    "chunk": "helper",
+                    "source_section_breadcrumb": ["Root", "Topic"],
+                    "source_section_prose": "Explain."
+                },
+            }),
+        ];
+        let mut out = Vec::new();
+        emit_cargo_summary_message(3, &span_records, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(value["reason"], "weaveback-summary");
+        assert_eq!(value["compiler_message_count"], 3);
+        assert_eq!(value["generated_span_count"], 2);
+        assert_eq!(value["weaveback_source_summary"]["sources"][0]["src_file"], "src/doc.adoc");
+        assert_eq!(
+            value["weaveback_source_summary"]["sources"][0]["sections"][0]["chunks"],
+            json!(["helper", "main"])
+        );
+    }
+
+    #[test]
+    fn run_cargo_annotated_to_writer_traces_real_generated_compile_error() {
+        let temp = tempdir().expect("tempdir");
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src")).expect("src dir");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            r#"[package]
+name = "wb-fixture"
+version = "0.1.0"
+edition = "2024"
+"#,
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            root.join("src/main.rs"),
+            "mod generated;\nfn main() { generated::broken(); }\n",
+        )
+        .expect("main");
+        std::fs::write(
+            root.join("src/generated.rs"),
+            "pub fn broken() { let x = ; }\n",
+        )
+        .expect("generated");
+
+        let db_path = root.join("weaveback.db");
+        let mut db = WeavebackDb::open(&db_path).expect("db");
+        db.set_noweb_entries(
+            "src/generated.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "generated".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Generated\nThe generated body.\n")
+            .expect("snapshot");
+
+        let mut out = Vec::new();
+        let err = run_cargo_annotated_to_writer(
+            vec!["check".to_string(), "--quiet".to_string()],
+            true,
+            db_path,
+            root.join("gen"),
+            EvalConfig::default(),
+            root,
+            &mut out,
+        )
+        .expect_err("cargo should fail on generated syntax error");
+        let rendered = String::from_utf8(out).expect("utf8");
+        let lines = rendered
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json line"))
+            .collect::<Vec<_>>();
+
+        assert!(matches!(err, Error::Io(_)));
+        let compiler = lines
+            .iter()
+            .find(|value| value["reason"] == "compiler-message")
+            .expect("compiler message");
+        let span_attrs = compiler["weaveback_span_attributions"]
+            .as_array()
+            .expect("span attributions");
+        assert!(!span_attrs.is_empty());
+        assert!(span_attrs.iter().any(|record| {
+            record["trace"]["src_file"]
+                .as_str()
+                .or_else(|| record["trace"]["expanded_file"].as_str())
+                .is_some_and(|path| path.ends_with("src/doc.adoc"))
+                && record["trace"]["source_section_breadcrumb"] == json!(["Root", "Generated"])
+        }));
+
+        let summary = lines
+            .iter()
+            .find(|value| value["reason"] == "weaveback-summary")
+            .expect("summary");
+        let sections = summary["weaveback_source_summary"]["sources"][0]["sections"]
+            .as_array()
+            .expect("sections");
+        assert!(sections.iter().any(|section| {
+            section["source_section_breadcrumb"] == json!(["Root", "Generated"])
+                && section["generated_spans"]
+                    .as_array()
+                    .is_some_and(|spans| spans.iter().any(|span| {
+                        span["generated_file"]
+                            .as_str()
+                            .is_some_and(|file| file.ends_with("src/generated.rs"))
+                    }))
+        }));
     }
 
     #[test]
@@ -1444,6 +1833,7 @@ mod tests {
         let records = collect_cargo_attributions(
             &diagnostic,
             Some(&db),
+            Path::new("."),
             &resolver,
             &EvalConfig::default(),
         );
@@ -1498,6 +1888,7 @@ mod tests {
         let records = collect_cargo_span_attributions(
             &diagnostic,
             Some(&db),
+            Path::new("."),
             &resolver,
             &EvalConfig::default(),
         );
@@ -1515,26 +1906,49 @@ mod tests {
                 "generated_line": 1,
                 "generated_col": 1,
                 "is_primary": true,
-                "trace": {"src_file": "src/a.adoc", "chunk": "alpha"}
+                "trace": {
+                    "src_file": "src/a.adoc",
+                    "chunk": "alpha",
+                    "source_section_breadcrumb": ["Root", "Alpha"],
+                    "source_section_prose": "Alpha prose."
+                }
             }),
             json!({
                 "generated_file": "out.rs",
                 "generated_line": 2,
                 "generated_col": 1,
                 "is_primary": false,
-                "trace": {"src_file": "src/a.adoc", "chunk": "beta"}
+                "trace": {
+                    "src_file": "src/a.adoc",
+                    "chunk": "beta",
+                    "source_section_breadcrumb": ["Root", "Alpha"],
+                    "source_section_prose": "Alpha prose."
+                }
             }),
             json!({
                 "generated_file": "out2.rs",
                 "generated_line": 1,
                 "generated_col": 1,
                 "is_primary": true,
-                "trace": {"src_file": "src/b.adoc", "chunk": "gamma"}
+                "trace": {
+                    "src_file": "src/b.adoc",
+                    "chunk": "gamma",
+                    "source_section_breadcrumb": ["Root", "Beta"],
+                    "source_section_prose": "Beta prose."
+                }
             }),
         ]);
         assert_eq!(summary["count"], 3);
         assert_eq!(summary["sources"][0]["src_file"], "src/a.adoc");
         assert_eq!(summary["sources"][0]["count"], 2);
+        assert_eq!(
+            summary["sources"][0]["sections"][0]["source_section_breadcrumb"],
+            json!(["Root", "Alpha"])
+        );
+        assert_eq!(
+            summary["sources"][0]["sections"][0]["generated_spans"][0]["generated_file"],
+            "out.rs"
+        );
         assert_eq!(summary["sources"][1]["src_file"], "src/b.adoc");
     }
 }

@@ -148,6 +148,11 @@ pub fn perform_trace(
     };
 
     let mut evaluator = Evaluator::new(eval_config.clone());
+    append_source_context(
+        result.as_object_mut().unwrap(),
+        &src_content,
+        (nw_entry.src_line + 1) as usize,
+    );
     match process_string_precise(&src_content, Some(&src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;

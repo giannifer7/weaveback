@@ -425,17 +425,26 @@ doc_descr = %{Maximum number of results to show.%},
 
 %def(attribute_command_options, %{
 %emit_option(
-field = location,
-rust_type = String,
+field = locations,
+rust_type = Vec<String>,
 arg_attr =,
-doc_block = %{        /// Generated location in FILE:LINE or FILE:LINE:COL form%},
-doc_flag = %{`<LOCATION>`%},
+doc_block = %{        /// One or more generated locations in FILE:LINE or FILE:LINE:COL form%},
+doc_flag = %{`<LOCATIONS>...`%},
 doc_default = %{ %},
-doc_descr = %{Generated location in `FILE:LINE` or `FILE:LINE:COL` form.%},
+doc_descr = %{One or more generated locations in `FILE:LINE` or `FILE:LINE:COL` form.%},
 )
 %})
 
 %def(cargo_command_options, %{
+%emit_option(
+field = diagnostics_only,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// Emit only compiler messages and the final weaveback summary, not Cargo artifact chatter%},
+doc_flag = %{`--diagnostics-only`%},
+doc_default = %{off%},
+doc_descr = %{Emit only compiler messages and the final weaveback summary.%},
+)
 %emit_option(
 field = args,
 rust_type = Vec<String>,
@@ -474,6 +483,15 @@ doc_block = %{        /// Restrict linting to one rule%},
 doc_flag = %{`--rule <RULE>`%},
 doc_default = %{all%},
 doc_descr = %{Restrict linting to one rule.%},
+)
+%emit_option(
+field = json,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// Emit structured JSON instead of human-readable text%},
+doc_flag = %{`--json`%},
+doc_default = %{off%},
+doc_descr = %{Emit structured JSON instead of human-readable text.%},
 )
 %})
 

@@ -16,7 +16,7 @@ struct LintCfg {
     passes: Vec<LintPassCfg>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub(crate) enum LintRule {
     ChunkBodyOutsideFence,
 }
@@ -42,7 +42,7 @@ impl std::str::FromStr for LintRule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct LintViolation {
     pub(crate) file: PathBuf,
     pub(crate) line: usize,
@@ -194,6 +194,7 @@ pub(crate) fn run_lint(
     paths: Vec<PathBuf>,
     strict: bool,
     rule: Option<String>,
+    json_output: bool,
 ) -> Result<(), String> {
     let rule_filter = match rule {
         Some(rule) => Some(rule.parse::<LintRule>()?),
@@ -201,6 +202,21 @@ pub(crate) fn run_lint(
     };
 
     let violations = lint_paths(&paths, rule_filter)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ok": violations.is_empty(),
+                "count": violations.len(),
+                "violations": violations,
+            }))
+            .unwrap()
+        );
+        if strict && !violations.is_empty() {
+            return Err(format!("lint: {} violation(s)", violations.len()));
+        }
+        return Ok(());
+    }
     if violations.is_empty() {
         println!("lint: no violations");
         return Ok(());
@@ -324,8 +340,17 @@ comment_markers = "//"
         let path = temp.path().join("bad.adoc");
         fs::write(&path, "// <<alpha>>=\nbody\n// @\n").unwrap();
 
-        assert!(run_lint(vec![path.clone()], false, None).is_ok());
-        let err = run_lint(vec![path], true, None).unwrap_err();
+        assert!(run_lint(vec![path.clone()], false, None, false).is_ok());
+        let err = run_lint(vec![path], true, None, false).unwrap_err();
         assert!(err.contains("1 violation"));
+    }
+
+    #[test]
+    fn run_lint_can_emit_json() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("bad.adoc");
+        fs::write(&path, "// <<alpha>>=\nbody\n// @\n").unwrap();
+
+        assert!(run_lint(vec![path], false, None, true).is_ok());
     }
 }

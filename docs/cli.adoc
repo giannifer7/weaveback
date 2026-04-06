@@ -246,6 +246,7 @@ weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
 | `<PATHS>...` | current tree | Files or directories to lint (default: current tree).
 | `--strict` | off | Treat violations as errors.
 | `--rule <RULE>` | all | Restrict linting to one rule.
+| `--json` | off | Emit structured JSON instead of human-readable text.
 |===
 
 '''

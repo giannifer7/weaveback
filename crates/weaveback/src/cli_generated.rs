@@ -227,6 +227,20 @@ pub(crate) enum Commands {
 
 
 
+        /// Maximum number of source files to show in summary mode
+    #[arg(long, default_value = "10")]
+
+    top_sources: usize,
+
+
+
+        /// Maximum number of sections to show per source file in summary mode
+    #[arg(long, default_value = "3")]
+
+    top_sections: usize,
+
+
+
         /// Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`
 
     lcov_file: PathBuf,

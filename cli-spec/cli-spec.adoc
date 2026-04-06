@@ -515,6 +515,24 @@ doc_default = %{off%},
 doc_descr = %{Print a concise human summary ranked by missed lines instead of full JSON.%},
 )
 %emit_option(
+field = top_sources,
+rust_type = usize,
+arg_attr = %{long, default_value = "10"%},
+doc_block = %{        /// Maximum number of source files to show in summary mode%},
+doc_flag = %{`--top-sources <N>`%},
+doc_default = %{`10`%},
+doc_descr = %{Maximum number of source files to show in summary mode.%},
+)
+%emit_option(
+field = top_sections,
+rust_type = usize,
+arg_attr = %{long, default_value = "3"%},
+doc_block = %{        /// Maximum number of sections to show per source file in summary mode%},
+doc_flag = %{`--top-sections <N>`%},
+doc_default = %{`3`%},
+doc_descr = %{Maximum number of sections to show per source file in summary mode.%},
+)
+%emit_option(
 field = lcov_file,
 rust_type = PathBuf,
 arg_attr =,

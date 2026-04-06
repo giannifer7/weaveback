@@ -266,6 +266,8 @@ weaveback coverage lcov.info
 |===
 | Flag | Default | Description
 | `--summary` | off | Print a concise human summary ranked by missed lines instead of full JSON.
+| `--top-sources <N>` | `10` | Maximum number of source files to show in summary mode.
+| `--top-sections <N>` | `3` | Maximum number of sections to show per source file in summary mode.
 | `<LCOV>` |   | Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.
 |===
 

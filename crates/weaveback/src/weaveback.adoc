@@ -658,9 +658,22 @@ fn main() {
             lint::run_lint(paths, strict, rule, json)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
-        Some(Commands::Coverage { summary, lcov_file }) => {
+        Some(Commands::Coverage {
+            summary,
+            top_sources,
+            top_sections,
+            lcov_file,
+        }) => {
             let eval_config = build_eval_config(&cli.args);
-            run_coverage(summary, lcov_file, cli.args.db, cli.args.gen_dir, eval_config)
+            run_coverage(
+                summary,
+                top_sources,
+                top_sections,
+                lcov_file,
+                cli.args.db,
+                cli.args.gen_dir,
+                eval_config,
+            )
         }
         Some(Commands::Tags { file }) => {
             run_tags(file, cli.args.db)
@@ -1344,22 +1357,33 @@ fn build_coverage_summary(
     })
 }
 
-fn print_coverage_summary(summary: &serde_json::Value) {
-    println!(
+fn print_coverage_summary_to_writer(
+    summary: &serde_json::Value,
+    top_sources: usize,
+    top_sections: usize,
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    writeln!(
+        out,
         "Coverage by source: {} attributed / {} total line records",
         summary["attributed_records"].as_u64().unwrap_or(0),
         summary["line_records"].as_u64().unwrap_or(0)
-    );
+    )?;
 
     if let Some(sources) = summary["sources"].as_array() {
-        for source in sources.iter().take(10) {
+        for source in sources.iter().take(top_sources) {
             let src_file = source["src_file"].as_str().unwrap_or("<unknown>");
             let covered = source["covered_lines"].as_u64().unwrap_or(0);
             let missed = source["missed_lines"].as_u64().unwrap_or(0);
             let total = source["total_lines"].as_u64().unwrap_or(0);
-            println!("{src_file}: {covered}/{total} covered, {missed} missed");
+            let pct = if total == 0 {
+                0.0
+            } else {
+                100.0 * covered as f64 / total as f64
+            };
+            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed")?;
             if let Some(sections) = source["sections"].as_array() {
-                for section in sections.iter().take(3) {
+                for section in sections.iter().take(top_sections) {
                     let breadcrumb = section["source_section_breadcrumb"]
                         .as_array()
                         .map(|parts| {
@@ -1373,7 +1397,15 @@ fn print_coverage_summary(summary: &serde_json::Value) {
                     let covered = section["covered_lines"].as_u64().unwrap_or(0);
                     let missed = section["missed_lines"].as_u64().unwrap_or(0);
                     let total = section["total_lines"].as_u64().unwrap_or(0);
-                    println!("  {breadcrumb}: {covered}/{total} covered, {missed} missed");
+                    let pct = if total == 0 {
+                        0.0
+                    } else {
+                        100.0 * covered as f64 / total as f64
+                    };
+                    writeln!(
+                        out,
+                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                    )?;
                 }
             }
         }
@@ -1381,12 +1413,15 @@ fn print_coverage_summary(summary: &serde_json::Value) {
 
     let unattributed = summary["unattributed_records"].as_u64().unwrap_or(0);
     if unattributed > 0 {
-        println!("Unattributed line records: {unattributed}");
+        writeln!(out, "Unattributed line records: {unattributed}")?;
     }
+    Ok(())
 }
 
 fn run_coverage(
     summary_only: bool,
+    top_sources: usize,
+    top_sections: usize,
     lcov_file: PathBuf,
     db_path: PathBuf,
     gen_dir: PathBuf,
@@ -1399,7 +1434,8 @@ fn run_coverage(
     let resolver = PathResolver::new(project_root.clone(), gen_dir);
     let summary = build_coverage_summary(&records, &db, &project_root, &resolver, &eval_config);
     if summary_only {
-        print_coverage_summary(&summary);
+        print_coverage_summary_to_writer(&summary, top_sources, top_sections, &mut std::io::stdout())
+            .map_err(Error::Io)?;
     } else {
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
     }
@@ -2340,8 +2376,15 @@ mod tests {
         ])
         .unwrap();
         match cli.command.unwrap() {
-            Commands::Coverage { summary, lcov_file } => {
+            Commands::Coverage {
+                summary,
+                top_sources,
+                top_sections,
+                lcov_file,
+            } => {
                 assert!(summary);
+                assert_eq!(top_sources, 10);
+                assert_eq!(top_sections, 3);
                 assert_eq!(lcov_file, PathBuf::from("lcov.info"));
             }
             _ => panic!("expected coverage command"),

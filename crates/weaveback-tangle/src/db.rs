@@ -399,6 +399,39 @@ impl WeavebackDb {
             )
             .optional()?)
     }
+
+    pub fn get_noweb_entry_by_suffix(
+        &self,
+        out_file_suffix: &str,
+        out_line: u32,
+    ) -> Result<Option<NowebMapEntry>, DbError> {
+        let suffix_pattern = format!("%/{}", out_file_suffix.trim_start_matches("./"));
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+                 FROM noweb_map nm
+                 JOIN files f_out ON f_out.id = nm.out_file
+                 JOIN files f_src ON f_src.id = nm.src_file
+                 WHERE (f_out.path = ?1 OR f_out.path LIKE ?2) AND nm.out_line = ?3
+                 ORDER BY length(f_out.path)
+                 LIMIT 1",
+                params![out_file_suffix, suffix_pattern, out_line],
+                |row| {
+                    Ok(NowebMapEntry {
+                        src_file: row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        src_line: row.get::<_, u32>(2)?,
+                        indent: row.get(3)?,
+                        confidence: row
+                            .get::<_, String>(4)
+                            .map(|s| Confidence::parse(&s))
+                            .unwrap_or_default(),
+                    })
+                },
+            )
+            .optional()?)
+    }
 }
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.

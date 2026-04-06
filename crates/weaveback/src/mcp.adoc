@@ -30,9 +30,10 @@ See link:weaveback.adoc[weaveback.adoc] for the module map.
 use crate::apply_back::{self, ApplyBackOptions};
 use crate::lookup;
 use weaveback_agent_core::{
-    ChangePlan, ChangeTarget, OutputAnchor, PlannedEdit, Workspace as AgentWorkspace,
+    ChangePlan, ChangeTarget, PlannedEdit, Workspace as AgentWorkspace,
     WorkspaceConfig as AgentWorkspaceConfig,
 };
+use weaveback_agent_core::change_plan::OutputAnchor;
 use weaveback_macro::evaluator::EvalConfig;
 use weaveback_tangle::db::WeavebackDb;
 use weaveback_lsp::LspClient;
@@ -310,11 +311,6 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 let mut obj = serde_json::Map::new();
                                 obj.insert("out_file".into(), json!(res.out_file));
                                 obj.insert("out_line".into(), json!(res.out_line));
-                                if let Some(v) = res.chunk { obj.insert("chunk".into(), json!(v)); }
-                                if let Some(v) = res.expanded_file { obj.insert("expanded_file".into(), json!(v)); }
-                                if let Some(v) = res.expanded_line { obj.insert("expanded_line".into(), json!(v)); }
-                                if let Some(v) = res.indent { obj.insert("indent".into(), json!(v)); }
-                                if let Some(v) = res.confidence { obj.insert("confidence".into(), json!(v)); }
                                 if let Some(v) = res.src_file { obj.insert("src_file".into(), json!(v)); }
                                 if let Some(v) = res.src_line { obj.insert("src_line".into(), json!(v)); }
                                 if let Some(v) = res.src_col { obj.insert("src_col".into(), json!(v)); }
@@ -433,23 +429,15 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         }
                         match agent_session.chunk_context(file, name, nth) {
                             Ok(ctx) => {
-                                let mut deps = serde_json::Map::new();
-                                for (name, dep) in ctx.dependency_bodies {
-                                    deps.insert(name, json!({ "file": dep.file, "body": dep.body }));
-                                }
                                 let obj = json!({
                                     "file": ctx.file,
                                     "name": ctx.name,
                                     "nth": ctx.nth,
                                     "body": ctx.body,
-                                    "def_start": ctx.def_start,
-                                    "def_end": ctx.def_end,
                                     "section_title_chain": ctx.section_breadcrumb,
                                     "section_prose": ctx.prose,
-                                    "dependencies": Value::Object(deps),
-                                    "reverse_dependencies": ctx.reverse_dependencies,
+                                    "dependencies": ctx.direct_dependencies,
                                     "output_files": ctx.outputs,
-                                    "git_log": ctx.git_log,
                                 });
                                 send_text(id, &serde_json::to_string_pretty(&obj).unwrap());
                             }

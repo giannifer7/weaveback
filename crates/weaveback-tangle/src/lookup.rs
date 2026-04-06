@@ -13,7 +13,8 @@ pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
 }
 
 /// Attempt to find a noweb-map entry for `out_file`.  Tries the raw path,
-/// then the normalized path.
+/// then the normalized path, then a canonical absolute path when the file
+/// exists on disk, then suffix matches for multi-root workspaces.
 pub fn find_best_noweb_entry(
     db: &WeavebackDb,
     out_file: &str,
@@ -29,6 +30,37 @@ pub fn find_best_noweb_entry(
     let norm = resolver.normalize(out_file);
     if norm != out_file && let Some(entry) = db.get_noweb_entry(&norm, out_line_0)? {
         return Ok(Some(entry));
+    }
+
+    let path = Path::new(out_file);
+    let abs = if path.is_absolute() {
+        Some(path.to_path_buf())
+    } else {
+        std::env::current_dir().ok().map(|cwd| cwd.join(path))
+    };
+    if let Some(abs) = abs
+        && let Ok(canon) = abs.canonicalize() {
+        let canon = canon.to_string_lossy().into_owned();
+        if canon != out_file && canon != norm
+            && let Some(entry) = db.get_noweb_entry(&canon, out_line_0)? {
+            return Ok(Some(entry));
+        }
+    }
+
+    let mut suffix = Path::new(out_file);
+    while let Some(parent) = suffix.parent() {
+        let next = match suffix.strip_prefix(parent) {
+            Ok(next) if next != suffix => next,
+            _ => break,
+        };
+        let next_str = next.to_string_lossy();
+        if !next_str.is_empty()
+            && next_str != out_file
+            && next_str != norm
+            && let Some(entry) = db.get_noweb_entry_by_suffix(&next_str, out_line_0)? {
+            return Ok(Some(entry));
+        }
+        suffix = next;
     }
 
     Ok(None)
@@ -94,4 +126,84 @@ pub fn find_best_source_config(
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Confidence;
+    use std::path::PathBuf;
+
+    #[test]
+    fn find_best_noweb_entry_can_match_by_suffix() {
+        let mut db = WeavebackDb::open_temp().expect("temp db");
+        db.set_noweb_entries(
+            "/tmp/wb-pass-root/weaveback/src/main.rs",
+            &[(
+                99,
+                NowebMapEntry {
+                    src_file: "crates/weaveback/src/weaveback.adoc".to_string(),
+                    chunk_name: "main command handler".to_string(),
+                    src_line: 123,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set noweb entries");
+
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("crates"));
+        let entry = find_best_noweb_entry(
+            &db,
+            "crates/weaveback/src/main.rs",
+            99,
+            &resolver,
+        )
+        .expect("lookup ok")
+        .expect("entry found");
+
+        assert_eq!(entry.chunk_name, "main command handler");
+        assert_eq!(entry.src_file, "crates/weaveback/src/weaveback.adoc");
+    }
+
+    #[test]
+    fn db_suffix_lookup_prefers_shortest_matching_path() {
+        let mut db = WeavebackDb::open_temp().expect("temp db");
+        db.set_noweb_entries(
+            "/tmp/a/weaveback/src/main.rs",
+            &[(
+                10,
+                NowebMapEntry {
+                    src_file: "a.adoc".to_string(),
+                    chunk_name: "short".to_string(),
+                    src_line: 1,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set a");
+        db.set_noweb_entries(
+            "/tmp/very/long/prefix/weaveback/src/main.rs",
+            &[(
+                10,
+                NowebMapEntry {
+                    src_file: "b.adoc".to_string(),
+                    chunk_name: "long".to_string(),
+                    src_line: 2,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set b");
+
+        let entry = db
+            .get_noweb_entry_by_suffix("weaveback/src/main.rs", 10)
+            .expect("lookup ok")
+            .expect("entry found");
+
+        assert_eq!(entry.chunk_name, "short");
+        assert_eq!(entry.src_file, "a.adoc");
+    }
 }

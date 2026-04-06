@@ -1040,6 +1040,15 @@ impl Clip {
             let written_bytes = cw.write_chunk(name, &lines)?;
 
             let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
+            let out_file_key = {
+                let expanded = expand_tilde(out_file);
+                let path = std::path::Path::new(&expanded);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.writer.get_gen_base().join(path)
+                }
+            };
 
             let keyed = if let Some(bytes) = written_bytes {
                 let formatted = String::from_utf8_lossy(&bytes);
@@ -1057,7 +1066,7 @@ impl Clip {
 
             self.writer
                 .db_mut()
-                .set_noweb_entries(out_file, &keyed)
+                .set_noweb_entries(&out_file_key.to_string_lossy(), &keyed)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
 
             self.writer
@@ -1097,6 +1106,15 @@ impl Clip {
             let written_bytes = cw.write_chunk(name, &lines)?;
 
             let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
+            let out_file_key = {
+                let expanded = expand_tilde(out_file);
+                let path = std::path::Path::new(&expanded);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.writer.get_gen_base().join(path)
+                }
+            };
 
             // After formatting, re-key map entries to post-formatter lines.
             // Use the bytes already returned by write_chunk — no second disk read.
@@ -1116,7 +1134,7 @@ impl Clip {
 
             self.writer
                 .db_mut()
-                .set_noweb_entries(out_file, &keyed)
+                .set_noweb_entries(&out_file_key.to_string_lossy(), &keyed)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
 
             self.writer

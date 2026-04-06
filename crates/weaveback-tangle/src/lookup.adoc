@@ -22,7 +22,8 @@ pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
 }
 
 /// Attempt to find a noweb-map entry for `out_file`.  Tries the raw path,
-/// then the normalized path.
+/// then the normalized path, then a canonical absolute path when the file
+/// exists on disk.
 pub fn find_best_noweb_entry(
     db: &WeavebackDb,
     out_file: &str,
@@ -38,6 +39,42 @@ pub fn find_best_noweb_entry(
     let norm = resolver.normalize(out_file);
     if norm != out_file && let Some(entry) = db.get_noweb_entry(&norm, out_line_0)? {
         return Ok(Some(entry));
+    }
+
+    // Try 3: Canonical on-disk path. This helps external tools like cargo and
+    // llvm-cov that often report absolute paths.
+    let path = Path::new(out_file);
+    let abs = if path.is_absolute() {
+        Some(path.to_path_buf())
+    } else {
+        std::env::current_dir().ok().map(|cwd| cwd.join(path))
+    };
+    if let Some(abs) = abs
+        && let Ok(canon) = abs.canonicalize() {
+        let canon = canon.to_string_lossy().into_owned();
+        if canon != out_file && canon != norm
+            && let Some(entry) = db.get_noweb_entry(&canon, out_line_0)? {
+            return Ok(Some(entry));
+        }
+    }
+
+    // Try 4: progressively strip leading path components and match by suffix.
+    // This bridges current repo layouts like `crates/weaveback/src/main.rs`
+    // to db keys like `weaveback/src/main.rs`.
+    let mut suffix = Path::new(out_file);
+    while let Some(parent) = suffix.parent() {
+        let next = match suffix.strip_prefix(parent) {
+            Ok(next) if next != suffix => next,
+            _ => break,
+        };
+        let next_str = next.to_string_lossy();
+        if !next_str.is_empty()
+            && next_str != out_file
+            && next_str != norm
+            && let Some(entry) = db.get_noweb_entry_by_suffix(&next_str, out_line_0)? {
+            return Ok(Some(entry));
+        }
+        suffix = next;
     }
 
     Ok(None)

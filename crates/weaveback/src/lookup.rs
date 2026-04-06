@@ -49,6 +49,10 @@ pub fn perform_where(
         Ok(None)
     }
 }
+fn trace_warnings_enabled() -> bool {
+    std::env::var_os("WB_TRACE_WARNINGS").is_some()
+}
+
 pub fn perform_trace(
     out_file: &str,
     line: u32,
@@ -86,7 +90,9 @@ pub fn perform_trace(
         match std::fs::read_to_string(&src_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Warning: cannot read {} for trace: {}", nw_entry.src_file, e);
+                if trace_warnings_enabled() {
+                    eprintln!("Warning: cannot read {} for trace: {}", nw_entry.src_file, e);
+                }
                 return Ok(Some(result));
             }
         }
@@ -126,7 +132,9 @@ pub fn perform_trace(
             }
         }
         Err(e) => {
-            eprintln!("Warning: re-evaluation for trace failed: {e}");
+            if trace_warnings_enabled() {
+                eprintln!("Warning: re-evaluation for trace failed: {e}");
+            }
         }
     }
 

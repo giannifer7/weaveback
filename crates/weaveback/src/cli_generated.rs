@@ -53,8 +53,19 @@ pub(crate) enum Commands {
 
 
     },
+    /// Parse FILE:LINE[:COL] and return structured source-of-truth attribution
+    Attribute {
+
+
+        /// Generated location in FILE:LINE or FILE:LINE:COL form
+
+    location: String,
+
+
+
+    },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
-        Tag {
+    Tag {
 
 
         /// Path to the tangle config file (reads [tags] section)
@@ -147,6 +158,31 @@ pub(crate) enum Commands {
 
 
     },
+    /// Run structural checks on literate source files
+    Lint {
+
+
+        /// Files or directories to lint (default: current tree)
+
+    paths: Vec<PathBuf>,
+
+
+
+        /// Treat violations as errors
+    #[arg(long)]
+
+    strict: bool,
+
+
+
+        /// Restrict linting to one rule
+    #[arg(long)]
+
+    rule: Option<String>,
+
+
+
+    },
     /// List LLM-generated tags for prose blocks
     Tags {
 
@@ -181,7 +217,7 @@ pub(crate) enum Commands {
         cmd: LspCommands,
     },
     /// Serve docs/html/ locally with live reload and "Edit source" navigation
-        Serve {
+    Serve {
 
 
         /// TCP port to listen on

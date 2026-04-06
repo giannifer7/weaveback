@@ -181,6 +181,7 @@ fn append_span_fields(
     obj.insert("src_file".into(), Value::String(src_path.to_string_lossy().into_owned()));
     obj.insert("src_line".into(), Value::Number(src_line_1.into()));
     obj.insert("src_col".into(), Value::Number(src_col_1.into()));
+    append_source_context(obj, &src_content, src_line_1 as usize);
 
     let kind_str = match &span.kind {
         SpanKind::Literal => "Literal",
@@ -204,6 +205,125 @@ fn append_span_fields(
         }
         _ => {}
     }
+}
+
+fn heading_level(line: &str) -> Option<usize> {
+    let trimmed = line.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let count = trimmed.bytes().take_while(|&byte| byte == b'=').count();
+    if count > 0 && trimmed.len() > count && trimmed.as_bytes()[count] == b' ' {
+        Some(count)
+    } else {
+        None
+    }
+}
+
+fn section_range(lines: &[&str], line_1: usize) -> (usize, usize) {
+    let anchor = line_1.saturating_sub(1).min(lines.len().saturating_sub(1));
+    let mut sec_start = 0usize;
+    let mut sec_level = 1usize;
+    for idx in (0..=anchor).rev() {
+        if let Some(level) = heading_level(lines[idx]) {
+            sec_start = idx;
+            sec_level = level;
+            break;
+        }
+    }
+
+    let sec_end = lines
+        .iter()
+        .enumerate()
+        .skip(anchor.saturating_add(1))
+        .find(|(_, line)| heading_level(line).is_some_and(|level| level <= sec_level))
+        .map(|(idx, _)| idx)
+        .unwrap_or(lines.len());
+
+    (sec_start, sec_end)
+}
+
+fn title_chain(lines: &[&str], line_1: usize) -> Vec<String> {
+    let anchor = line_1.saturating_sub(1).min(lines.len().saturating_sub(1));
+    let mut chain = Vec::new();
+    for line in lines.iter().take(anchor.saturating_add(1)) {
+        if let Some(level) = heading_level(line) {
+            let title = line[level + 1..].trim().to_string();
+            chain.retain(|(existing_level, _): &(usize, String)| *existing_level < level);
+            chain.push((level, title));
+        }
+    }
+    chain.into_iter().map(|(_, title)| title).collect()
+}
+
+fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
+    let end = end.min(lines.len());
+    let mut in_fence = false;
+    let mut in_chunk = false;
+    let mut out = Vec::new();
+
+    for line in lines.iter().take(end).skip(start) {
+        let trimmed = line.trim();
+        if trimmed == "----" {
+            in_fence = !in_fence;
+            continue;
+        }
+        if trimmed.starts_with("// <<") && trimmed.ends_with(">>=") {
+            in_chunk = true;
+            continue;
+        }
+        if trimmed == "// @" {
+            in_chunk = false;
+            continue;
+        }
+        if !in_fence && !in_chunk {
+            out.push(*line);
+        }
+    }
+
+    let mut collapsed = Vec::new();
+    let mut prev_blank = false;
+    for line in out {
+        let blank = line.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        prev_blank = blank;
+        collapsed.push(line);
+    }
+    while collapsed.first().is_some_and(|line| line.trim().is_empty()) {
+        collapsed.remove(0);
+    }
+    while collapsed.last().is_some_and(|line| line.trim().is_empty()) {
+        collapsed.pop();
+    }
+    collapsed.join("\n")
+}
+
+fn append_source_context(
+    obj: &mut serde_json::Map<String, Value>,
+    src_content: &str,
+    src_line_1: usize,
+) {
+    let lines: Vec<&str> = src_content.lines().collect();
+    if lines.is_empty() {
+        return;
+    }
+    let (sec_start, sec_end) = section_range(&lines, src_line_1);
+    let section_breadcrumb = title_chain(&lines, src_line_1);
+    let section_prose = extract_prose(&lines, sec_start, sec_end);
+    obj.insert(
+        "source_section_breadcrumb".into(),
+        Value::Array(section_breadcrumb.into_iter().map(Value::String).collect()),
+    );
+    obj.insert(
+        "source_section_range".into(),
+        json!({
+            "start_line": sec_start + 1,
+            "end_line": sec_end,
+        }),
+    );
+    obj.insert("source_section_prose".into(), Value::String(section_prose));
 }
 
 /// Look up definition sites from the db and append them to `obj` as a JSON array.
@@ -238,7 +358,6 @@ fn append_def_locations(
         obj.insert(field.into(), Value::Array(locations));
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,32 +440,57 @@ mod tests {
                 NowebMapEntry {
                     src_file: "src/doc.adoc".to_string(),
                     chunk_name: "main".to_string(),
-                    src_line: 0,
+                    src_line: 3,
                     indent: String::new(),
                     confidence: Confidence::Exact,
                 },
             )],
         )
         .expect("noweb");
-        db.set_src_snapshot("src/doc.adoc", b"alpha\n")
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
             .expect("snapshot");
 
-        let traced = perform_trace(
-            "out.rs",
-            1,
-            1,
-            &db,
-            &resolver(),
-            EvalConfig::default(),
-        )
-        .expect("trace")
-        .expect("value");
+        let traced = perform_trace("out.rs", 1, 1, &db, &resolver(), EvalConfig::default())
+            .expect("trace")
+            .expect("value");
 
         assert_eq!(traced["chunk"], "main");
         assert_eq!(traced["expanded_file"], "src/doc.adoc");
-        assert_eq!(traced["src_line"], 1);
+        assert_eq!(traced["src_line"], 4);
         assert_eq!(traced["src_col"], 1);
         assert_eq!(traced["kind"], "Literal");
+        assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+        assert_eq!(
+            traced["source_section_range"],
+            json!({ "start_line": 3, "end_line": 4 })
+        );
+        assert_eq!(traced["source_section_prose"], "== Trace\nalpha");
+    }
+
+    #[test]
+    fn append_source_context_skips_chunk_bodies_and_fences() {
+        let src = [
+            "= Root",
+            "",
+            "== Topic",
+            "Intro.",
+            "",
+            "----",
+            "code",
+            "----",
+            "",
+            "// <<main>>=",
+            "generated-ish",
+            "// @",
+            "",
+            "Tail.",
+        ]
+        .join("\n");
+        let mut obj = serde_json::Map::new();
+        append_source_context(&mut obj, &src, 14);
+
+        assert_eq!(obj["source_section_breadcrumb"], json!(["Root", "Topic"]));
+        assert_eq!(obj["source_section_prose"], "== Topic\nIntro.\n\nTail.");
     }
 
     #[test]

@@ -148,6 +148,9 @@ integration features (MCP, LSP, Documentation Server).
 | link:../crates/weaveback/src/lookup.adoc[source lookup and tracing]
 | `crates/weaveback/src/lookup.rs`
 
+| link:../crates/weaveback/src/lint.adoc[structural lint]
+| `crates/weaveback/src/lint.rs`
+
 | link:../crates/weaveback/src/manifest.adoc[Cargo manifest]
 | `crates/weaveback/Cargo.toml`
 |===
@@ -157,6 +160,7 @@ integration features (MCP, LSP, Documentation Server).
 Some project constraints and future directions are still exploratory.  These
 notes are meant to preserve them without pretending they are settled.
 
+* link:stability-first.adoc[stability first]
 * link:linter-plan.adoc[linter planning notes]
 * link:fact-rules-plan.adoc[facts and rules for option specs]
 

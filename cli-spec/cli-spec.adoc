@@ -423,6 +423,48 @@ doc_descr = %{Maximum number of results to show.%},
 )
 %})
 
+%def(attribute_command_options, %{
+%emit_option(
+field = location,
+rust_type = String,
+arg_attr =,
+doc_block = %{        /// Generated location in FILE:LINE or FILE:LINE:COL form%},
+doc_flag = %{`<LOCATION>`%},
+doc_default = %{ %},
+doc_descr = %{Generated location in `FILE:LINE` or `FILE:LINE:COL` form.%},
+)
+%})
+
+%def(lint_command_options, %{
+%emit_option(
+field = paths,
+rust_type = Vec<PathBuf>,
+arg_attr =,
+doc_block = %{        /// Files or directories to lint (default: current tree)%},
+doc_flag = %{`<PATHS>...`%},
+doc_default = %{current tree%},
+doc_descr = %{Files or directories to lint (default: current tree).%},
+)
+%emit_option(
+field = strict,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// Treat violations as errors%},
+doc_flag = %{`--strict`%},
+doc_default = %{off%},
+doc_descr = %{Treat violations as errors.%},
+)
+%emit_option(
+field = rule,
+rust_type = Option<String>,
+arg_attr = %{long%},
+doc_block = %{        /// Restrict linting to one rule%},
+doc_flag = %{`--rule <RULE>`%},
+doc_default = %{all%},
+doc_descr = %{Restrict linting to one rule.%},
+)
+%})
+
 %def(tags_command_options, %{
 %emit_option(
 field = file,
@@ -604,8 +646,11 @@ doc_descr = %(doc_descr),
 %})
 %tangle_command_options()
     },
+    /// Parse FILE:LINE[:COL] and return structured source-of-truth attribution
+    Attribute {
+%attribute_command_options()
+    },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
-    #[cfg(feature = "server")]
     Tag {
 %tag_command_options()
     },
@@ -627,6 +672,10 @@ doc_descr = %(doc_descr),
     Search {
 %search_command_options()
     },
+    /// Run structural checks on literate source files
+    Lint {
+%lint_command_options()
+    },
     /// List LLM-generated tags for prose blocks
     Tags {
 %tags_command_options()
@@ -638,7 +687,6 @@ doc_descr = %(doc_descr),
         cmd: LspCommands,
     },
     /// Serve docs/html/ locally with live reload and "Edit source" navigation
-    #[cfg(feature = "server")]
     Serve {
 %serve_command_options()
     },
@@ -778,6 +826,23 @@ doc_descr = %(doc_descr),
 
 [source,adoc]
 ----
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-lint-rows>>=
+%render_doc_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+// @
+%})
+%lint_command_options()
+----
+
+[source,adoc]
+----
 %def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-tags-rows>>=
 %render_doc_option(
 field = %(field),
@@ -900,10 +965,12 @@ think it is always missing and reruns the target on every build.
 weaveback tangle [OPTIONS]           # run all configured tangle passes
 weaveback where <file> <line>        # trace output line to its noweb chunk
 weaveback trace <file> <line>        # full two-level trace (noweb + macro)
+weaveback attribute <location>       # parse FILE:LINE[:COL] and trace it
 weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
 weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
 weaveback search <query> [OPTIONS]   # search prose via FTS/tags/embeddings
+weaveback lint [OPTIONS] [PATHS]     # run structural checks on literate sources
 weaveback tags [OPTIONS]             # list prose tags
 weaveback lsp <command> [ARGS]       # semantic language server operations
 weaveback mcp                        # start MCP server for IDE/agent integration
@@ -926,6 +993,19 @@ weaveback tangle --force-generated
 | Flag | Default | Description
 <<@tight cli-doc-tangle-rows>>
 |===
+
+'''
+
+==== `attribute`
+
+Parses a compiler-style generated location, `FILE:LINE` or `FILE:LINE:COL`,
+and returns the same structured JSON attribution as `trace`.
+
+[source,bash]
+----
+weaveback attribute gen/out.rs:17
+weaveback attribute gen/out.rs:17:9
+----
 
 '''
 
@@ -1003,6 +1083,27 @@ weaveback search "tags:sqlite error handling" --limit 20
 |===
 | Flag | Default | Description
 <<@tight cli-doc-search-rows>>
+|===
+
+'''
+
+==== `lint`
+
+Runs structural checks on literate source files. The first implemented rule is
+`chunk-body-outside-fence`, which warns when a `// <<...>>=` chunk definition
+appears outside an AsciiDoc listing block fenced by `----`.
+
+[source,bash]
+----
+weaveback lint
+weaveback lint --strict
+weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
+----
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+<<@tight cli-doc-lint-rows>>
 |===
 
 '''

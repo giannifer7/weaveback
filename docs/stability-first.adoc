@@ -1,0 +1,227 @@
+= Stability First
+:toc: left
+:toclevels: 3
+
+This note records a practical conclusion from recent work on weaveback.
+It is not a final theory of the project.  It is a statement of where effort
+currently seems most justified.
+
+== The current priority
+
+The difference between weaveback being a help or a burden is no longer mainly
+about adding clever features.  It is about reducing the friction around the
+features that already define the project:
+
+* tracing generated code back to literate source
+* propagating edits back safely
+* keeping source-of-truth documents and generated files in sync
+* making the rationale around code easy to find and trust
+
+The highest-value work now looks like:
+
+* stability
+* synchronization
+* diagnostics
+* linting
+* documentation
+* coverage and tests around the critical translation layers
+
+This is the area where the project most clearly earns or loses its keep.
+
+== Why this matters
+
+Literate programming brings real costs:
+
+* more moving parts
+* extra synchronization steps
+* compiler, test, and coverage tools often point first at generated files
+* generated and literate layers can drift if the supporting tools are weak
+
+Those costs are tolerable only if the project pays them back through:
+
+* stronger provenance
+* easier trace-back
+* safer edit propagation
+* better preservation of intent and rationale
+
+If the synchronization loop is shaky, literate structure becomes ceremony.
+If the loop is strong, the project has a serious reason to exist.
+
+== What already helps
+
+Weaveback already has important pieces of that loop:
+
+* `trace`
+* `apply-back`
+* MCP context and related helper operations
+* baseline protection against accidental silent drift
+
+These are not fake value.  They already make the project more defensible than
+traditional one-way literate systems.
+
+But they do not yet make the cost disappear.  The remaining friction is mostly
+tooling friction:
+
+* diagnostics that still land on generated files first
+* reconciliation work when `.adoc` and generated files diverge
+* missing structural lint checks
+* rough edges in projection and synchronization workflows
+
+So the right question is no longer "should weaveback be clever?"  It is:
+
+* can the translation and synchronization cost be made cheap enough, reliable
+  enough, and visible enough that the system becomes net helpful?
+
+== A useful distinction
+
+The current cost is mostly not surprise.
+
+This project is explicit that many tools operate on generated files first.
+That translation boundary is visible.  We usually know what is happening.
+
+The cost is the repeated extra step:
+
+* trace this generated location back
+* identify the owning source chunk or section
+* reconcile the source-of-truth edit
+* retangle and verify
+
+That means the burden is a tooling problem more than a conceptual one.
+It should be pushed downward:
+
+* first into deterministic algorithms
+* then, where interpretation is still needed, into cheap agents
+* and only last onto the human
+
+== Where effort should concentrate
+
+Near-term effort should favor work such as:
+
+* better diagnostics with source-of-truth attribution
+* lint rules for structural invariants
+* stronger coverage around lexer → AST, tangle, trace, and apply-back
+* clearer documentation of assumptions and limitations
+* better tooling for mapping generated-file reports back to literate source
+
+This does not mean new features are forbidden.  It means they should be judged
+against a stricter standard:
+
+* do they reduce friction in the core loop?
+* do they make the system easier to trust?
+* do they improve the odds that the literate source remains alive and useful?
+
+If not, they are probably lower priority than stability work.
+
+== Missing pieces
+
+The main missing pieces are the ones that still leave humans doing routine
+reconciliation work by hand.
+
+=== Better attribution everywhere
+
+Many failures still arrive first in generated-file terms:
+
+* compiler errors in generated Rust
+* test failures pointing at generated sources
+* coverage reports grouped by generated modules
+
+The missing layer is a deterministic attribution step that can answer, quickly
+and consistently:
+
+* which `.adoc` owns this generated line?
+* which chunk produced it?
+* which section or surrounding prose explains it?
+
+The less often a human has to reconstruct that path manually, the cheaper the
+core loop becomes.
+
+=== Early structural linting
+
+Several project invariants still exist mostly as conventions:
+
+* chunk bodies should live inside fenced code blocks
+* source-of-truth documents should stay aligned with generated projections
+* implementation-heavy docs should not drift silently away from code
+
+Those should be reported explicitly and early, before downstream tools need to
+compensate defensively.  The linter work belongs here.
+
+=== Stronger source/generated synchronization
+
+`apply-back` is already valuable, but the overall synchronization loop is still
+rougher than it should be.
+
+The missing improvements include:
+
+* clearer stale-file detection
+* better bulk reconciliation of several changed generated files
+* better presentation of source-of-truth ownership when drift is found
+* stronger handling of larger or less local refactors
+
+The goal is not magic.  The goal is to make ordinary synchronization cheap and
+predictable.
+
+=== Better diagnostics
+
+A recurring source of wasted time is diagnostics that omit the one actionable
+fact the user needs:
+
+* file path
+* chunk name
+* option name
+* command name
+* bad value
+
+This is not glamorous work, but it has high leverage.  A weak error message can
+turn a mechanical fix into detective work.
+
+=== More deterministic translation helpers
+
+A lot of friction should be pushed into algorithms rather than habits.
+
+Examples:
+
+* regroup coverage reports by owning `.adoc`
+* map compiler errors back to source-of-truth locations automatically
+* show which docs are affected by a code change
+* open the owning chunk or section directly from a generated-file location
+
+These are precisely the places where the project should let machinery carry the
+translation cost instead of humans.
+
+=== Confidence in the outer workflow
+
+The parser and translation internals matter, but trust also depends on the
+outer surfaces:
+
+* CLI behavior
+* `serve`
+* `mcp`
+* doc generation
+* lint behavior itself
+
+If those layers are weakly tested, the project can still feel fragile even when
+the inner engines are solid.
+
+=== Clearer boundary documentation
+
+Users need precise answers to questions such as:
+
+* what is the source of truth here?
+* when is a direct edit acceptable?
+* what does `apply-back` guarantee, and what does it not guarantee?
+* which parts are deterministic, and which are heuristic?
+
+When those boundaries are explicit, the project is easier to trust and harder
+to misuse.
+
+== Working standard
+
+For now, a good practical standard is:
+
+* prefer work that makes weaveback easier to trust
+* prefer work that makes trace-back and synchronization cheaper
+* prefer work that documents tensions honestly rather than hiding them
+* treat "help or burden?" as a live evaluation criterion, not a settled answer
+
+That is the area where the project seems most likely to justify itself.

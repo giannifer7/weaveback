@@ -89,6 +89,18 @@ So the working standard is intentionally severe:
 If the answer is no, the right move is not to defend the abstraction.  The
 right move is to remove it.
 
+The synchronization story sits inside the same tension.  `trace`,
+`apply-back`, baseline protection, and MCP context do make the literate system
+more usable than a one-way tangle tool.  They close part of the loop that
+traditional literate programming leaves open.  But they do not eliminate the
+cost entirely.  Today the biggest friction is not prose itself; it is the
+immaturity of the synchronization tooling around it: drift between `.adoc` and
+generated files, diagnostics that still target the generated layer first,
+manual reconciliation when the source of truth is unclear, and missing lint
+checks for structural invariants.  The tools are already good enough to make
+the approach defensible.  They are not yet good enough to make the cost
+disappear.
+
 == The core problem
 
 Literate programming is a fifty-year-old idea: write prose and code together,

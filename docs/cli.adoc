@@ -17,7 +17,7 @@ weaveback [OPTIONS] --dir <DIR>      # auto-discover driver files
 | Flag | Default | Description
 | `<INPUTS>...` |   | Explicit files to process when `--dir` is not used.
 | `--input-dir <PATH>` | `.` | Base directory prepended to every input path.
-| `--sigil <CHAR>` | `%` | Macro invocation character.
+| `--sigil <CHAR>` | `%` | Macro sigil character.
 | `--no-macros` | off | Skip macro expansion and feed source files directly to the tangle pass.
 | `--include <PATHS>` | `.` | Include search paths for `%include` and `%import` (colon-separated on Unix).
 | `--db <PATH>` | `weaveback.db` | Path to the source-map database.
@@ -90,10 +90,12 @@ think it is always missing and reruns the target on every build.
 weaveback tangle [OPTIONS]           # run all configured tangle passes
 weaveback where <file> <line>        # trace output line to its noweb chunk
 weaveback trace <file> <line>        # full two-level trace (noweb + macro)
+weaveback attribute <location>       # parse FILE:LINE[:COL] and trace it
 weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
 weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
 weaveback search <query> [OPTIONS]   # search prose via FTS/tags/embeddings
+weaveback lint [OPTIONS] [PATHS]     # run structural checks on literate sources
 weaveback tags [OPTIONS]             # list prose tags
 weaveback lsp <command> [ARGS]       # semantic language server operations
 weaveback mcp                        # start MCP server for IDE/agent integration
@@ -117,6 +119,19 @@ weaveback tangle --force-generated
 | `--config <PATH>` | `weaveback.toml` | Path to the tangle config file.
 | `--force-generated` | off | Overwrite generated files even if they differ from the stored baseline.
 |===
+
+'''
+
+==== `attribute`
+
+Parses a compiler-style generated location, `FILE:LINE` or `FILE:LINE:COL`,
+and returns the same structured JSON attribution as `trace`.
+
+[source,bash]
+----
+weaveback attribute gen/out.rs:17
+weaveback attribute gen/out.rs:17:9
+----
 
 '''
 
@@ -196,6 +211,29 @@ weaveback search "tags:sqlite error handling" --limit 20
 | Flag | Default | Description
 | `<QUERY>` |   | Search query (FTS5 syntax: `AND`, `OR`, `NOT`, phrase `"..."`, prefix `foo*`).
 | `--limit <N>` | `10` | Maximum number of results to show.
+|===
+
+'''
+
+==== `lint`
+
+Runs structural checks on literate source files. The first implemented rule is
+`chunk-body-outside-fence`, which warns when a `// <<...>>=` chunk definition
+appears outside an AsciiDoc listing block fenced by `----`.
+
+[source,bash]
+----
+weaveback lint
+weaveback lint --strict
+weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
+----
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+| `<PATHS>...` | current tree | Files or directories to lint (default: current tree).
+| `--strict` | off | Treat violations as errors.
+| `--rule <RULE>` | all | Restrict linting to one rule.
 |===
 
 '''

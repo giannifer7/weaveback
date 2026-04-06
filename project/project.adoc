@@ -390,9 +390,12 @@ tarpaulin-report.html
 
 .hist.txt
 hist-search.txt
+codex-resume.txt
+gemini-resume.txt
 
 .codex
 .gemini/
+docs/.plantuml-cache/
 
 chats
 python/*

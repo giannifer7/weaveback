@@ -1,0 +1,142 @@
+= Near-Term Engineering Plan
+:toc: left
+
+This is not a grand roadmap.  It is a short working plan for the next phase of
+weaveback, based on the practical standard already stated elsewhere:
+
+* make routine translation cost mechanical
+* prefer structured outputs over text parsing
+* make the safe edit path obvious
+* let agents use intelligence for interpretation, not for basic provenance
+
+== Main objective
+
+The main objective is to make weaveback cheaper to use in the ordinary loop of:
+
+* read a generated-file diagnostic
+* map it back to literate source
+* understand the relevant local rationale
+* make a safe source-of-truth edit
+* regenerate and verify
+
+If that loop remains expensive, the project becomes burden.  If that loop
+becomes routine and mostly mechanical, the project becomes help.
+
+== Workstreams
+
+=== 1. Shared syntax and structure
+
+Avoid parallel parsers and local ad hoc syntax rules.
+
+Near-term work:
+
+* reuse shared noweb syntax matching instead of duplicating it
+* keep `lint`, `trace`, and related tools grounded in the same syntax model
+* continue extracting small reusable matcher/helpers from `weaveback-tangle`
+
+Success condition:
+
+* syntax changes should need to be implemented once, not in several loosely
+  related tools
+
+=== 2. Mechanical attribution
+
+Generated-file failures should be translated into source-of-truth terms by
+default.
+
+Near-term work:
+
+* keep improving `weaveback cargo`
+* preserve structured JSON output while attaching richer provenance
+* add grouped source summaries and span-level attribution where useful
+* extend the same approach later to other diagnostic surfaces
+
+Success condition:
+
+* routine diagnostic translation should not require manual trace-back
+
+=== 3. Structural linting
+
+Use linting to enforce project invariants early instead of compensating for
+them later.
+
+Near-term work:
+
+* keep `chunk-body-outside-fence`
+* add the next few high-value invariants only when they clearly reduce friction
+* avoid speculative style rules
+
+Success condition:
+
+* common structural mistakes are caught directly and described clearly
+
+=== 4. Safe edit workflow
+
+The edit path should be narrow, auditable, and unsurprising.
+
+Near-term work:
+
+* strengthen `trace`, `chunk_context`, and `apply-back`
+* keep the safe path obvious in CLI, Python, and MCP surfaces
+* improve confidence/error reporting when edits cannot be applied cleanly
+
+Success condition:
+
+* a user or agent can tell quickly what to edit, where to edit, and why an edit
+  was accepted or rejected
+
+=== 5. Outer-loop trust
+
+Parser correctness is not enough if the outer workflow still feels fragile.
+
+Near-term work:
+
+* continue coverage and tests on `serve`, `mcp`, CLI flows, and docgen
+* treat diagnostics quality and sync failures as first-class bugs
+* keep the translation layers boring and predictable
+
+Success condition:
+
+* the whole workflow feels dependable, not only the inner parsing engines
+
+=== 6. Structured composition surfaces
+
+The core should remain authoritative, but the composition layers should become
+easier to use programmatically.
+
+Near-term work:
+
+* keep CLI outputs structured where possible
+* use Python as the main typed composition layer
+* keep MCP as a thin integration surface over the same deterministic core
+
+Success condition:
+
+* the project can be driven through structured APIs instead of shell/text glue
+
+== Prioritization rule
+
+When choosing between possible improvements, prefer the ones that:
+
+* reduce repeated translation work
+* improve the confidence of the safe edit path
+* remove ambiguity from diagnostics and ownership
+* reduce the amount of provenance reconstruction done by humans
+
+And deprioritize work that:
+
+* adds abstraction without clearly reducing friction
+* duplicates syntax or logic already present elsewhere
+* improves elegance more than trustworthiness
+
+== Review questions
+
+This plan should be revisited periodically with a few blunt questions:
+
+* Did this make the core loop cheaper?
+* Did this make the project easier to trust?
+* Did this remove manual provenance work?
+* Did this reduce duplicated logic?
+* Did this improve the odds that the literate source remains the live source of truth?
+
+If the answer is repeatedly no, the work is probably not on the right path.

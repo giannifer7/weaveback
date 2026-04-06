@@ -672,7 +672,6 @@ fn main() {
             top_sections,
             lcov_file,
         }) => {
-            let eval_config = build_eval_config(&cli.args);
             run_coverage(
                 summary,
                 top_sources,
@@ -680,7 +679,6 @@ fn main() {
                 lcov_file,
                 cli.args.db,
                 cli.args.gen_dir,
-                eval_config,
             )
         }
         Some(Commands::Tags { file }) => {
@@ -1184,7 +1182,6 @@ fn build_coverage_summary(
     db: &weaveback_tangle::db::WeavebackDb,
     project_root: &Path,
     resolver: &PathResolver,
-    eval_config: &EvalConfig,
 ) -> serde_json::Value {
     #[derive(Default)]
     struct SectionSummary {
@@ -1211,17 +1208,30 @@ fn build_coverage_summary(
         std::collections::BTreeMap::new();
     let mut unattributed = Vec::new();
     let mut attributed_count = 0usize;
+    let mut noweb_cache: std::collections::HashMap<
+        String,
+        std::collections::HashMap<u32, weaveback_tangle::db::NowebMapEntry>,
+    > = std::collections::HashMap::new();
+    let mut source_cache: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut section_cache: std::collections::HashMap<String, Vec<(u32, u32, serde_json::Value)>> =
+        std::collections::HashMap::new();
 
     for (file_name, line_no, hit_count) in records {
-        let Some(trace) = trace_generated_location(
-            file_name,
-            *line_no,
-            1,
-            db,
-            project_root,
-            resolver,
-            eval_config,
-        ) else {
+        let noweb_map = if let Some(entries) = noweb_cache.get(file_name) {
+            entries
+        } else {
+            let loaded = find_noweb_entries_for_generated_file(db, file_name, project_root)
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<std::collections::HashMap<_, _>>();
+            noweb_cache.entry(file_name.clone()).or_insert(loaded)
+        };
+
+        let Some(entry) = line_no
+            .checked_sub(1)
+            .and_then(|line_0| noweb_map.get(&line_0))
+        else {
             unattributed.push(json!({
                 "generated_file": file_name,
                 "generated_line": line_no,
@@ -1230,14 +1240,67 @@ fn build_coverage_summary(
             continue;
         };
 
-        attributed_count += 1;
-        let Some(src_file) = trace
-            .get("src_file")
-            .and_then(|v| v.as_str())
-            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
-        else {
-            continue;
+        let src_file = entry.src_file.clone();
+        let src_line = (entry.src_line + 1) as u64;
+
+        let context = if let Some(cached) = section_cache
+            .get(&src_file)
+            .and_then(|sections| {
+                sections.iter().find_map(|(start, end, value)| {
+                    if src_line >= *start as u64 && src_line <= *end as u64 {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                })
+            }) {
+            cached
+        } else {
+            let src_content = if let Some(text) = source_cache.get(&src_file) {
+                text.clone()
+            } else {
+                let Ok(text) = lookup::load_source_text(&src_file, db, resolver) else {
+                    unattributed.push(json!({
+                        "generated_file": file_name,
+                        "generated_line": line_no,
+                        "hit_count": hit_count,
+                    }));
+                    continue;
+                };
+                source_cache.insert(src_file.clone(), text.clone());
+                text
+            };
+            let value = lookup::build_source_context_value(&src_content, src_line as usize);
+            let start = value
+                .get("source_section_range")
+                .and_then(|v| v.get("start_line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(src_line) as u32;
+            let end = value
+                .get("source_section_range")
+                .and_then(|v| v.get("end_line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(src_line) as u32;
+            section_cache
+                .entry(src_file.clone())
+                .or_default()
+                .push((start, end, value.clone()));
+            value
         };
+
+        attributed_count += 1;
+        let mut trace = json!({
+            "generated_file": file_name,
+            "generated_line": line_no,
+            "chunk": entry.chunk_name,
+            "expanded_file": src_file,
+            "expanded_line": src_line,
+            "indent": entry.indent,
+            "confidence": entry.confidence.as_str(),
+        });
+        if let (Some(trace_obj), Some(ctx_obj)) = (trace.as_object_mut(), context.as_object()) {
+            trace_obj.extend(ctx_obj.clone());
+        }
 
         let breadcrumb = trace
             .get("source_section_breadcrumb")
@@ -1268,7 +1331,7 @@ fn build_coverage_summary(
             "chunk": if chunk.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(chunk.clone()) },
         });
 
-        let source = grouped.entry(src_file.to_string()).or_default();
+        let source = grouped.entry(src_file).or_default();
         source.total_lines += 1;
         if covered {
             source.covered_lines += 1;
@@ -1378,6 +1441,41 @@ fn build_coverage_summary(
         "sources": sources,
         "unattributed": unattributed,
     })
+}
+
+fn find_noweb_entries_for_generated_file(
+    db: &weaveback_tangle::db::WeavebackDb,
+    file_name: &str,
+    project_root: &Path,
+) -> Option<Vec<(u32, weaveback_tangle::db::NowebMapEntry)>> {
+    let mut candidates = Vec::new();
+    candidates.push(file_name.to_string());
+    let file_path = Path::new(file_name);
+    if let Ok(rel) = file_path.strip_prefix(project_root) {
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if !candidates.contains(&rel) {
+            candidates.push(rel);
+        }
+    }
+
+    for candidate in candidates {
+        if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&candidate)
+            && !entries.is_empty()
+        {
+            return Some(entries);
+        }
+        let parts: Vec<&str> = candidate.split('/').filter(|part| !part.is_empty()).collect();
+        for start in 1..parts.len() {
+            let suffix = parts[start..].join("/");
+            if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&suffix)
+                && !entries.is_empty()
+            {
+                return Some(entries);
+            }
+        }
+    }
+
+    None
 }
 
 fn print_coverage_summary_to_writer(
@@ -1497,14 +1595,13 @@ fn run_coverage(
     lcov_file: PathBuf,
     db_path: PathBuf,
     gen_dir: PathBuf,
-    eval_config: EvalConfig,
 ) -> Result<(), Error> {
     let text = std::fs::read_to_string(&lcov_file).map_err(Error::Io)?;
     let records = parse_lcov_records(&text);
     let db = open_db(&db_path)?;
     let project_root = std::env::current_dir().unwrap_or_default();
     let resolver = PathResolver::new(project_root.clone(), gen_dir);
-    let summary = build_coverage_summary(&records, &db, &project_root, &resolver, &eval_config);
+    let summary = build_coverage_summary(&records, &db, &project_root, &resolver);
     if summary_only {
         print_coverage_summary_to_writer(&summary, top_sources, top_sections, &mut std::io::stdout())
             .map_err(Error::Io)?;
@@ -3086,7 +3183,6 @@ build = "build.rs"
             &db,
             &project_root,
             &resolver,
-            &EvalConfig::default(),
         );
         assert_eq!(summary["line_records"], 3);
         assert_eq!(summary["attributed_records"], 2);
@@ -3181,7 +3277,6 @@ build = "build.rs"
             &db,
             &project_root,
             &resolver,
-            &EvalConfig::default(),
         );
         let sources = summary["sources"].as_array().expect("sources");
         assert!(

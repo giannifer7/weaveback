@@ -564,6 +564,43 @@ impl WeavebackDb {
             )
             .optional()?)
     }
+
+    pub fn get_noweb_entries_for_file_by_suffix(
+        &self,
+        out_file_suffix: &str,
+    ) -> Result<Vec<(u32, NowebMapEntry)>, DbError> {
+        let suffix_pattern = format!("%/{}", out_file_suffix.trim_start_matches("./"));
+        let mut stmt = self.conn.prepare_cached(
+            "WITH chosen AS (
+                 SELECT id
+                 FROM files
+                 WHERE path = ?1 OR path LIKE ?2
+                 ORDER BY length(path)
+                 LIMIT 1
+             )
+             SELECT nm.out_line, f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+             FROM noweb_map nm
+             JOIN chosen c ON c.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             ORDER BY nm.out_line",
+        )?;
+        let rows = stmt.query_map(params![out_file_suffix, suffix_pattern], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                NowebMapEntry {
+                    src_file: row.get(1)?,
+                    chunk_name: row.get(2)?,
+                    src_line: row.get::<_, u32>(3)?,
+                    indent: row.get(4)?,
+                    confidence: row
+                        .get::<_, String>(5)
+                        .map(|s| Confidence::parse(&s))
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
+    }
 }
 // @@
 ----

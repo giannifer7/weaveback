@@ -20,6 +20,13 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/weaveback-agent-core/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/weaveback-macro/"
 ext = "adoc"
 open_delim = "<<"

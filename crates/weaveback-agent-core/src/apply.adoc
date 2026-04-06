@@ -1,3 +1,9 @@
+= weaveback-agent-core apply
+:source-highlighter: syntect
+
+[source,rust]
+----
+// <<@file weaveback-agent-core/src/apply.rs>>=
 use crate::change_plan::ChangePlan;
 use crate::workspace::WorkspaceConfig;
 use serde::{Deserialize, Serialize};
@@ -599,3 +605,5 @@ mod tests {
         assert_eq!(workspace.read_source("docs/sample.adoc"), "after\nkeep\n");
     }
 }
+// @
+----

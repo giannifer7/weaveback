@@ -24,7 +24,7 @@ use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanK
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string_precise;
 use weaveback_tangle::db::WeavebackDb;
-use weaveback_tangle::lookup::{find_line_col, find_best_noweb_entry};
+use weaveback_tangle::lookup::{find_best_noweb_entry, find_best_source_config, find_line_col};
 use weaveback_core::PathResolver;
 use serde_json::{Value, json};
 
@@ -108,13 +108,30 @@ fn trace_warnings_enabled() -> bool {
     std::env::var_os("WB_TRACE_WARNINGS").is_some()
 }
 
-pub fn perform_trace(
-    out_file: &str,
-    line: u32,
-    col: u32,
+pub fn load_source_text(
+    src_file: &str,
     db: &WeavebackDb,
     resolver: &PathResolver,
-    eval_config: EvalConfig,
+) -> Result<String, LookupError> {
+    let src_path = resolver.resolve_src(src_file);
+    if let Ok(Some(bytes)) = db.get_src_snapshot(src_file) {
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        std::fs::read_to_string(&src_path).map_err(LookupError::Io)
+    }
+}
+
+pub fn build_source_context_value(src_content: &str, src_line_1: usize) -> Value {
+    let mut obj = serde_json::Map::new();
+    append_source_context(&mut obj, src_content, src_line_1);
+    Value::Object(obj)
+}
+
+pub fn perform_trace_coarse(
+    out_file: &str,
+    line: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
 ) -> Result<Option<Value>, LookupError> {
     if line == 0 {
         return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
@@ -136,29 +153,55 @@ pub fn perform_trace(
         "confidence": nw_entry.confidence.as_str(),
     });
 
-    // Re-evaluate the driver file with precise tracing.
-    // Prefer the stored snapshot for reproducibility; fall back to disk.
-    let src_path = resolver.resolve_src(&nw_entry.src_file);
-    let src_content = if let Ok(Some(bytes)) = db.get_src_snapshot(&nw_entry.src_file) {
-        String::from_utf8_lossy(&bytes).into_owned()
-    } else {
-        match std::fs::read_to_string(&src_path) {
-            Ok(s) => s,
-            Err(e) => {
-                if trace_warnings_enabled() {
-                    eprintln!("Warning: cannot read {} for trace: {}", nw_entry.src_file, e);
-                }
-                return Ok(Some(result));
+    match load_source_text(&nw_entry.src_file, db, resolver) {
+        Ok(src_content) => {
+            let context = build_source_context_value(&src_content, (nw_entry.src_line + 1) as usize);
+            if let Some(ctx) = context.as_object() {
+                result.as_object_mut().unwrap().extend(ctx.clone());
             }
         }
+        Err(e) => {
+            if trace_warnings_enabled() {
+                eprintln!("Warning: cannot read {} for trace: {:?}", nw_entry.src_file, e);
+            }
+        }
+    }
+
+    Ok(Some(result))
+}
+
+pub fn perform_trace(
+    out_file: &str,
+    line: u32,
+    col: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+    eval_config: EvalConfig,
+) -> Result<Option<Value>, LookupError> {
+    let mut result = match perform_trace_coarse(out_file, line, db, resolver)? {
+        None => return Ok(None),
+        Some(value) => value,
     };
 
-    let mut evaluator = Evaluator::new(eval_config.clone());
-    append_source_context(
-        result.as_object_mut().unwrap(),
-        &src_content,
-        (nw_entry.src_line + 1) as usize,
-    );
+    let Some(nw_entry) = find_best_noweb_entry(db, out_file, line - 1, resolver)? else {
+        return Ok(Some(result));
+    };
+    let src_path = resolver.resolve_src(&nw_entry.src_file);
+    let src_content = match load_source_text(&nw_entry.src_file, db, resolver) {
+        Ok(s) => s,
+        Err(e) => {
+            if trace_warnings_enabled() {
+                eprintln!("Warning: cannot read {} for trace: {:?}", nw_entry.src_file, e);
+            }
+            return Ok(Some(result));
+        }
+    };
+    let mut effective_eval_config = eval_config.clone();
+    if let Ok(Some(cfg)) = find_best_source_config(db, &nw_entry.src_file) {
+        effective_eval_config.sigil = cfg.sigil;
+    }
+
+    let mut evaluator = Evaluator::new(effective_eval_config);
     match process_string_precise(&src_content, Some(&src_path), &mut evaluator) {
         Ok((expanded, ranges)) => {
             let expanded_line_0 = nw_entry.src_line;
@@ -560,6 +603,38 @@ mod tests {
             json!({ "start_line": 3, "end_line": 4 })
         );
         assert_eq!(traced["source_section_prose"], "== Trace\nalpha");
+    }
+
+    #[test]
+    fn perform_trace_coarse_adds_context_without_precise_span_fields() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
+            .expect("snapshot");
+
+        let traced = perform_trace_coarse("out.rs", 1, &db, &resolver())
+            .expect("trace")
+            .expect("value");
+
+        assert_eq!(traced["chunk"], "main");
+        assert_eq!(traced["expanded_file"], "src/doc.adoc");
+        assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+        assert!(traced.get("src_line").is_none());
+        assert!(traced.get("src_col").is_none());
+        assert!(traced.get("kind").is_none());
     }
 
     #[test]

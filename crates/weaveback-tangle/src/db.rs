@@ -432,6 +432,43 @@ impl WeavebackDb {
             )
             .optional()?)
     }
+
+    pub fn get_noweb_entries_for_file_by_suffix(
+        &self,
+        out_file_suffix: &str,
+    ) -> Result<Vec<(u32, NowebMapEntry)>, DbError> {
+        let suffix_pattern = format!("%/{}", out_file_suffix.trim_start_matches("./"));
+        let mut stmt = self.conn.prepare_cached(
+            "WITH chosen AS (
+                 SELECT id
+                 FROM files
+                 WHERE path = ?1 OR path LIKE ?2
+                 ORDER BY length(path)
+                 LIMIT 1
+             )
+             SELECT nm.out_line, f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+             FROM noweb_map nm
+             JOIN chosen c ON c.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             ORDER BY nm.out_line",
+        )?;
+        let rows = stmt.query_map(params![out_file_suffix, suffix_pattern], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                NowebMapEntry {
+                    src_file: row.get(1)?,
+                    chunk_name: row.get(2)?,
+                    src_line: row.get::<_, u32>(3)?,
+                    indent: row.get(4)?,
+                    confidence: row
+                        .get::<_, String>(5)
+                        .map(|s| Confidence::parse(&s))
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
+    }
 }
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.
@@ -1525,320 +1562,5 @@ impl WeavebackDb {
         results.sort_by(|lhs, rhs| rhs.score.partial_cmp(&lhs.score).unwrap_or(std::cmp::Ordering::Equal));
         results.truncate(limit);
         Ok(results)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::block_parser::SourceBlockEntry;
-    use tempfile::tempdir;
-
-    fn hash_bytes(text: &str) -> [u8; 32] {
-        *blake3::hash(text.as_bytes()).as_bytes()
-    }
-
-    fn sample_blocks() -> Vec<SourceBlockEntry> {
-        vec![
-            SourceBlockEntry {
-                block_index: 0,
-                block_type: "section".to_string(),
-                line_start: 1,
-                line_end: 2,
-                content_hash: hash_bytes("Intro"),
-            },
-            SourceBlockEntry {
-                block_index: 1,
-                block_type: "para".to_string(),
-                line_start: 3,
-                line_end: 4,
-                content_hash: hash_bytes("Body"),
-            },
-            SourceBlockEntry {
-                block_index: 2,
-                block_type: "code".to_string(),
-                line_start: 6,
-                line_end: 8,
-                content_hash: hash_bytes("code"),
-            },
-        ]
-    }
-
-    #[test]
-    fn baseline_snapshot_and_run_config_roundtrip() {
-        let db = WeavebackDb::open_temp().expect("db");
-
-        db.set_baseline("gen/out.rs", b"fn main() {}\n").expect("baseline");
-        db.set_src_snapshot("src/doc.adoc", b"= Doc\nbody\n").expect("snapshot");
-        db.set_run_config("embedding.model", "mini").expect("config");
-
-        assert_eq!(
-            db.get_baseline("gen/out.rs").expect("get baseline"),
-            Some(b"fn main() {}\n".to_vec())
-        );
-        assert_eq!(
-            db.get_src_snapshot("src/doc.adoc").expect("get snapshot"),
-            Some(b"= Doc\nbody\n".to_vec())
-        );
-        assert_eq!(
-            db.get_run_config("embedding.model").expect("get config").as_deref(),
-            Some("mini")
-        );
-        assert_eq!(db.list_baselines().expect("list baselines").len(), 1);
-        assert_eq!(db.list_src_snapshots().expect("list snapshots").len(), 1);
-    }
-
-    #[test]
-    fn noweb_chunk_defs_and_dependency_queries_roundtrip() {
-        let mut db = WeavebackDb::open_temp().expect("db");
-
-        db.set_noweb_entries(
-            "gen/out.rs",
-            &[
-                (
-                    10,
-                    NowebMapEntry {
-                        src_file: "src/doc.adoc".to_string(),
-                        chunk_name: "alpha".to_string(),
-                        src_line: 7,
-                        indent: "    ".to_string(),
-                        confidence: Confidence::HashMatch,
-                    },
-                ),
-                (
-                    11,
-                    NowebMapEntry {
-                        src_file: "src/doc.adoc".to_string(),
-                        chunk_name: "beta".to_string(),
-                        src_line: 12,
-                        indent: "".to_string(),
-                        confidence: Confidence::Inferred,
-                    },
-                ),
-            ],
-        )
-        .expect("noweb");
-        db.set_chunk_defs(&[
-            ChunkDefEntry {
-                src_file: "src/doc.adoc".to_string(),
-                chunk_name: "alpha".to_string(),
-                nth: 0,
-                def_start: 6,
-                def_end: 10,
-            },
-            ChunkDefEntry {
-                src_file: "src/doc.adoc".to_string(),
-                chunk_name: "beta".to_string(),
-                nth: 0,
-                def_start: 12,
-                def_end: 16,
-            },
-        ])
-        .expect("defs");
-        db.set_chunk_deps(&[
-            ("alpha".to_string(), "beta".to_string(), "src/doc.adoc".to_string()),
-            ("beta".to_string(), "gamma".to_string(), "src/doc.adoc".to_string()),
-        ])
-        .expect("deps");
-
-        let mapped = db
-            .get_noweb_entry("gen/out.rs", 10)
-            .expect("get noweb")
-            .expect("mapped");
-        assert_eq!(mapped.chunk_name, "alpha");
-        assert_eq!(mapped.confidence, Confidence::HashMatch);
-        assert_eq!(
-            db.get_output_location("src/doc.adoc", 7).expect("out loc"),
-            Some(("gen/out.rs".to_string(), 10))
-        );
-        assert_eq!(
-            db.get_all_output_mappings("src/doc.adoc").expect("all mappings").len(),
-            2
-        );
-        assert_eq!(
-            db.query_chunk_output_files("alpha").expect("outputs"),
-            vec!["gen/out.rs".to_string()]
-        );
-
-        let alpha = db
-            .get_chunk_def("src/doc.adoc", "alpha", 0)
-            .expect("get def")
-            .expect("alpha def");
-        assert_eq!(alpha.def_start, 6);
-        assert_eq!(db.list_chunk_defs(Some("src/doc.adoc")).expect("list defs").len(), 2);
-        assert_eq!(db.find_chunk_defs_by_name("beta").expect("find by name").len(), 1);
-        assert_eq!(
-            db.query_chunk_defs_overlapping("src/doc.adoc", 8, 13)
-                .expect("overlap defs")
-                .len(),
-            2
-        );
-
-        assert_eq!(
-            db.query_chunk_deps("alpha").expect("deps"),
-            vec![("beta".to_string(), "src/doc.adoc".to_string())]
-        );
-        assert_eq!(
-            db.query_reverse_deps("beta").expect("reverse deps"),
-            vec![("alpha".to_string(), "src/doc.adoc".to_string())]
-        );
-        assert_eq!(db.query_all_chunk_deps().expect("all deps").len(), 2);
-        assert_eq!(db.list_all_chunk_defs().expect("all defs").len(), 2);
-        assert_eq!(db.list_all_chunk_deps().expect("list all deps").len(), 2);
-    }
-
-    #[test]
-    fn source_blocks_configs_and_symbol_maps_roundtrip() {
-        let mut db = WeavebackDb::open_temp().expect("db");
-        let cfg = TangleConfig {
-            sigil: '§',
-            open_delim: "<<".to_string(),
-            close_delim: ">>".to_string(),
-            chunk_end: "// @".to_string(),
-            comment_markers: vec!["//".to_string(), "#".to_string()],
-        };
-
-        db.set_source_config("src/doc.adoc", &cfg).expect("set config");
-        db.set_macro_map_entries("src/doc.adoc", &[(9, vec![1, 2, 3])])
-            .expect("macro map");
-        db.set_source_blocks("src/doc.adoc", &sample_blocks())
-            .expect("source blocks");
-        db.record_var_def("answer", "src/doc.adoc", 42, 6).expect("var def");
-        db.record_macro_def("emit", "src/doc.adoc", 11, 4).expect("macro def");
-
-        let loaded_cfg = db
-            .get_source_config("src/doc.adoc")
-            .expect("get config")
-            .expect("config present");
-        assert_eq!(loaded_cfg.sigil, '§');
-        assert_eq!(loaded_cfg.comment_markers, vec!["//".to_string(), "#".to_string()]);
-        assert_eq!(
-            db.get_macro_map_bytes("src/doc.adoc", 9).expect("macro bytes"),
-            Some(vec![1, 2, 3])
-        );
-        assert_eq!(
-            db.get_source_block_hashes("src/doc.adoc").expect("block hashes").len(),
-            3
-        );
-        let overlapping = db
-            .query_blocks_overlapping_range("src/doc.adoc", 2, 6)
-            .expect("overlap blocks");
-        assert_eq!(overlapping.len(), 3);
-        assert_eq!(overlapping[0].block_type, "section");
-        assert_eq!(
-            db.query_var_defs("answer").expect("var defs"),
-            vec![("src/doc.adoc".to_string(), 42, 6)]
-        );
-        assert_eq!(
-            db.query_macro_defs("emit").expect("macro defs"),
-            vec![("src/doc.adoc".to_string(), 11, 4)]
-        );
-    }
-
-    #[test]
-    fn merge_into_preserves_remapped_file_data() {
-        let dir = tempdir().expect("tempdir");
-        let target_path = dir.path().join("merged.db");
-
-        let mut source = WeavebackDb::open_temp().expect("source");
-        source.set_baseline("gen/out.rs", b"hello").expect("baseline");
-        source
-            .set_noweb_entries(
-                "gen/out.rs",
-                &[(
-                    1,
-                    NowebMapEntry {
-                        src_file: "src/doc.adoc".to_string(),
-                        chunk_name: "alpha".to_string(),
-                        src_line: 3,
-                        indent: "".to_string(),
-                        confidence: Confidence::Exact,
-                    },
-                )],
-            )
-            .expect("noweb");
-        source
-            .set_chunk_defs(&[ChunkDefEntry {
-                src_file: "src/doc.adoc".to_string(),
-                chunk_name: "alpha".to_string(),
-                nth: 0,
-                def_start: 2,
-                def_end: 5,
-            }])
-            .expect("defs");
-        source
-            .set_source_config(
-                "src/doc.adoc",
-                &TangleConfig {
-                    sigil: '%',
-                    open_delim: "<<".to_string(),
-                    close_delim: ">>".to_string(),
-                    chunk_end: "// @".to_string(),
-                    comment_markers: vec!["//".to_string()],
-                },
-            )
-            .expect("cfg");
-        source
-            .set_source_blocks("src/doc.adoc", &sample_blocks())
-            .expect("blocks");
-        source.merge_into(&target_path).expect("merge");
-
-        let merged = WeavebackDb::open(&target_path).expect("open merged");
-        assert_eq!(
-            merged.get_baseline("gen/out.rs").expect("baseline"),
-            Some(b"hello".to_vec())
-        );
-        assert_eq!(
-            merged
-                .get_noweb_entry("gen/out.rs", 1)
-                .expect("noweb")
-                .map(|entry| entry.src_file),
-            Some("src/doc.adoc".to_string())
-        );
-        assert!(merged
-            .get_chunk_def("src/doc.adoc", "alpha", 0)
-            .expect("chunk def")
-            .is_some());
-        assert!(merged
-            .get_source_config("src/doc.adoc")
-            .expect("source config")
-            .is_some());
-        assert_eq!(
-            merged
-                .query_blocks_overlapping_range("src/doc.adoc", 1, 10)
-                .expect("blocks")
-                .len(),
-            3
-        );
-    }
-
-    #[test]
-    fn prose_helpers_handle_paths_snippets_and_vectors() {
-        let cwd = std::env::current_dir().expect("cwd");
-        let abs = cwd.join("src/doc.adoc");
-
-        assert_eq!(normalise_snapshot_path("./src/doc.adoc", &cwd), "src/doc.adoc");
-        assert_eq!(
-            normalise_snapshot_path(&abs.to_string_lossy(), &cwd),
-            "src/doc.adoc"
-        );
-        assert_eq!(sqlite_string_literal("it's fine"), "it''s fine");
-        assert_eq!(prose_snippet("many   spaces\nbecome compact"), "many spaces become compact");
-        assert!(cosine_similarity(&[1.0, 0.0], &[0.5, 0.0]) > 0.9);
-        assert_eq!(cosine_similarity(&[1.0], &[1.0, 2.0]), 0.0);
-    }
-
-    #[test]
-    fn open_read_only_can_read_existing_database() {
-        let dir = tempdir().expect("tempdir");
-        let db_path = dir.path().join("roundtrip.db");
-        let writable = WeavebackDb::open(&db_path).expect("open writable");
-        writable.set_baseline("gen/out.rs", b"ok").expect("baseline");
-
-        let readonly = WeavebackDb::open_read_only(&db_path).expect("open read only");
-        assert_eq!(
-            readonly.get_baseline("gen/out.rs").expect("read baseline"),
-            Some(b"ok".to_vec())
-        );
     }
 }

@@ -136,7 +136,8 @@ See link:weaveback.adoc[weaveback.adoc] for the module map.
 // <<applyback-types>>=
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string;
-use weaveback_tangle::db::{WeavebackDb, DbError};
+use weaveback_tangle::db::{WeavebackDb, DbError, NowebMapEntry};
+use weaveback_tangle::lookup::find_best_noweb_entry;
 use weaveback_core::PathResolver;
 use weaveback_lsp::LspClient;
 use regex::Regex;
@@ -706,6 +707,23 @@ fn chunk_context_bonus(
     }
 }
 
+fn resolve_noweb_entry(
+    db: &WeavebackDb,
+    out_file: &str,
+    out_line_0: u32,
+    resolver: &PathResolver,
+) -> Result<Option<NowebMapEntry>, ApplyBackError> {
+    if let Some(entry) =
+        find_best_noweb_entry(db, out_file, out_line_0, resolver).map_err(ApplyBackError::Db)?
+    {
+        return Ok(Some(entry));
+    }
+
+    let resolved = resolver.resolve_gen(out_file);
+    find_best_noweb_entry(db, resolved.to_string_lossy().as_ref(), out_line_0, resolver)
+        .map_err(ApplyBackError::Db)
+}
+
 fn search_macro_arg_candidate(request: MacroArgSearch<'_>) -> Option<CandidateResolution> {
     let candidate_indices = candidate_line_indices(
         request.lines,
@@ -907,7 +925,25 @@ fn resolve_patch_source(
         db,
         resolver,
         eval_config.clone(),
-    )?;
+    )?
+    .or_else(|| {
+        let resolved = resolver.resolve_gen(rel_path);
+        let resolved = resolved.to_string_lossy().into_owned();
+        if resolved == rel_path {
+            None
+        } else {
+            lookup::perform_trace(
+                &resolved,
+                out_line_0 + 1,
+                col,
+                db,
+                resolver,
+                eval_config.clone(),
+            )
+            .ok()
+            .flatten()
+        }
+    });
 
     let Some(json) = trace else {
         return Ok(PatchSource::Noweb {
@@ -1024,6 +1060,12 @@ fn resolve_best_patch_source(
         )?;
         let (candidate_file, candidate_line) = patch_source_location(&candidate);
         let mut rank = patch_source_rank(&candidate);
+        if matches!(candidate, PatchSource::Literal { .. } | PatchSource::Noweb { .. })
+            && candidate_file == nw_src_file
+            && candidate_line == nw_src_line as usize
+        {
+            rank -= 20;
+        }
         if let Some(hint) = lsp_hint
             && candidate_file == hint.src_file
         {
@@ -1462,7 +1504,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                         let old_line = old_lines[0];
                         let new_line = new_lines[0];
 
-                        match db.get_noweb_entry(rel_path, out_line_0)? {
+                        match resolve_noweb_entry(&db, rel_path, out_line_0, &resolver)? {
                             None => {
                                 let _ = writeln!(out, "  skip line {}: no source map entry", out_line_0 + 1);
                                 skipped += 1;
@@ -1482,6 +1524,9 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                                 let mut file_eval_config = opts.eval_config.clone();
                                 let mut file_special_char = sigil;
                                 if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, &entry.src_file) {
+                                    if file_eval_config.is_none() {
+                                        file_eval_config = Some(EvalConfig::default());
+                                    }
                                     if let Some(ec) = &mut file_eval_config {
                                         ec.sigil = cfg.sigil;
                                     }
@@ -1536,7 +1581,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                     // Check if the entire hunk maps to a continuous region in one source file.
                     let mut hunk_entries = Vec::new();
                     for i in 0..*old_len {
-                        hunk_entries.push(db.get_noweb_entry(rel_path, (*old_index + i) as u32)?);
+                        hunk_entries.push(resolve_noweb_entry(&db, rel_path, (*old_index + i) as u32, &resolver)?);
                     }
 
                     if hunk_entries.iter().all(|e| e.is_some()) {
@@ -1575,7 +1620,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                 similar::DiffOp::Delete { old_index, old_len, .. } => {
                     let mut hunk_entries = Vec::new();
                     for i in 0..*old_len {
-                        hunk_entries.push(db.get_noweb_entry(rel_path, (*old_index + i) as u32)?);
+                        hunk_entries.push(resolve_noweb_entry(&db, rel_path, (*old_index + i) as u32, &resolver)?);
                     }
 
                     if hunk_entries.iter().all(|e| e.is_some()) {
@@ -1614,10 +1659,10 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
                 similar::DiffOp::Insert { old_index, new_index, new_len, .. } => {
                     let mut is_after = true;
                     let target_entry = if *old_index > 0 {
-                        db.get_noweb_entry(rel_path, (*old_index - 1) as u32)?
+                        resolve_noweb_entry(&db, rel_path, (*old_index - 1) as u32, &resolver)?
                     } else {
                         is_after = false;
-                        db.get_noweb_entry(rel_path, *old_index as u32)?
+                        resolve_noweb_entry(&db, rel_path, *old_index as u32, &resolver)?
                     };
 
                     if let Some(entry) = target_entry {
@@ -1663,6 +1708,9 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
             let mut file_eval_config = opts.eval_config.clone();
             let mut file_special_char = sigil;
             if let Ok(Some(cfg)) = weaveback_tangle::lookup::find_best_source_config(&db, src_file) {
+                if file_eval_config.is_none() {
+                    file_eval_config = Some(EvalConfig::default());
+                }
                 if let Some(ec) = &mut file_eval_config {
                     ec.sigil = cfg.sigil;
                 }

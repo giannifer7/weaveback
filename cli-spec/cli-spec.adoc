@@ -434,6 +434,15 @@ doc_default = %{off%},
 doc_descr = %{Read plain text from stdin, extract `FILE:LINE[:COL]` locations, and attribute them.%},
 )
 %emit_option(
+field = summary,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// Emit grouped source-of-truth summary JSON instead of a flat result array%},
+doc_flag = %{`--summary`%},
+doc_default = %{off%},
+doc_descr = %{Emit grouped source-of-truth summary JSON instead of a flat result array.%},
+)
+%emit_option(
 field = locations,
 rust_type = Vec<String>,
 arg_attr =,

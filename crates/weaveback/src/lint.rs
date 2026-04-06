@@ -19,12 +19,14 @@ struct LintCfg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub(crate) enum LintRule {
     ChunkBodyOutsideFence,
+    UnterminatedChunkDefinition,
 }
 
 impl LintRule {
     pub(crate) fn id(self) -> &'static str {
         match self {
             Self::ChunkBodyOutsideFence => "chunk-body-outside-fence",
+            Self::UnterminatedChunkDefinition => "unterminated-chunk-definition",
         }
     }
 }
@@ -35,8 +37,9 @@ impl std::str::FromStr for LintRule {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "chunk-body-outside-fence" => Ok(Self::ChunkBodyOutsideFence),
+            "unterminated-chunk-definition" => Ok(Self::UnterminatedChunkDefinition),
             _ => Err(format!(
-                "unknown lint rule '{s}' (supported: chunk-body-outside-fence)"
+                "unknown lint rule '{s}' (supported: chunk-body-outside-fence, unterminated-chunk-definition)"
             )),
         }
     }
@@ -132,6 +135,15 @@ fn parse_chunk_definition_name(line: &str, syntaxes: &[NowebSyntax]) -> Option<S
     None
 }
 
+fn parse_chunk_definition(line: &str, syntaxes: &[NowebSyntax]) -> Option<(String, usize)> {
+    for (idx, syntax) in syntaxes.iter().enumerate() {
+        if let Some(def_match) = syntax.parse_definition_line(line) {
+            return Some((def_match.base_name, idx));
+        }
+    }
+    None
+}
+
 fn lint_chunk_body_outside_fence(
     file: &Path,
     text: &str,
@@ -165,6 +177,59 @@ fn lint_chunk_body_outside_fence(
     violations
 }
 
+fn lint_unterminated_chunk_definition(
+    file: &Path,
+    text: &str,
+    syntaxes: &[NowebSyntax],
+) -> Vec<LintViolation> {
+    let mut violations = Vec::new();
+    let mut active: Option<(usize, String, usize)> = None;
+
+    for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+
+        if let Some((syntax_idx, _, _)) = &active
+            && syntaxes[*syntax_idx].is_close_line(trimmed)
+        {
+            active = None;
+            continue;
+        }
+
+        if let Some((chunk_name, syntax_idx)) = parse_chunk_definition(trimmed, syntaxes) {
+            if let Some((_, prev_name, prev_line)) = active.take() {
+                violations.push(LintViolation {
+                    file: file.to_path_buf(),
+                    line: prev_line + 1,
+                    rule: LintRule::UnterminatedChunkDefinition,
+                    message: format!(
+                        "chunk definition `{prev_name}` is not closed before a new chunk definition starts"
+                    ),
+                    hint: Some(
+                        "add the configured chunk-end marker (for example `// @`) before the next chunk definition"
+                            .to_string(),
+                    ),
+                });
+            }
+            active = Some((syntax_idx, chunk_name, idx));
+        }
+    }
+
+    if let Some((_, chunk_name, line)) = active {
+        violations.push(LintViolation {
+            file: file.to_path_buf(),
+            line: line + 1,
+            rule: LintRule::UnterminatedChunkDefinition,
+            message: format!("chunk definition `{chunk_name}` reaches end of file without a closing marker"),
+            hint: Some(
+                "add the configured chunk-end marker (for example `// @`) before end of file"
+                    .to_string(),
+            ),
+        });
+    }
+
+    violations
+}
+
 pub(crate) fn lint_paths(
     paths: &[PathBuf],
     rule_filter: Option<LintRule>,
@@ -186,6 +251,9 @@ pub(crate) fn lint_paths(
         let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         if rule_filter.is_none() || rule_filter == Some(LintRule::ChunkBodyOutsideFence) {
             violations.extend(lint_chunk_body_outside_fence(&file, &text, &syntaxes));
+        }
+        if rule_filter.is_none() || rule_filter == Some(LintRule::UnterminatedChunkDefinition) {
+            violations.extend(lint_unterminated_chunk_definition(&file, &text, &syntaxes));
         }
     }
     Ok(violations)
@@ -268,6 +336,37 @@ mod tests {
             &["#".to_string(), "//".to_string()],
         )];
         assert!(lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes).is_empty());
+    }
+
+    #[test]
+    fn lint_detects_unterminated_chunk_at_end_of_file() {
+        let text = "= Title\n\n----\n// <<alpha>>=\nbody\n----\n";
+        let syntaxes = vec![NowebSyntax::new(
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
+        )];
+        let violations =
+            lint_unterminated_chunk_definition(Path::new("sample.adoc"), text, &syntaxes);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 4);
+        assert_eq!(violations[0].rule, LintRule::UnterminatedChunkDefinition);
+    }
+
+    #[test]
+    fn lint_detects_new_chunk_before_previous_close() {
+        let text = "= Title\n\n----\n// <<alpha>>=\nbody\n// <<beta>>=\nmore\n// @\n----\n";
+        let syntaxes = vec![NowebSyntax::new(
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
+        )];
+        let violations =
+            lint_unterminated_chunk_definition(Path::new("sample.adoc"), text, &syntaxes);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].message.contains("alpha"));
     }
 
     #[test]

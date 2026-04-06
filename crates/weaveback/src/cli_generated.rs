@@ -64,6 +64,13 @@ pub(crate) enum Commands {
 
 
 
+        /// Emit grouped source-of-truth summary JSON instead of a flat result array
+    #[arg(long)]
+
+    summary: bool,
+
+
+
         /// One or more generated locations in FILE:LINE or FILE:LINE:COL form
 
     locations: Vec<String>,

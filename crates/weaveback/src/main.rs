@@ -460,10 +460,18 @@ fn main() {
         }
         Some(Commands::Attribute {
             scan_stdin,
+            summary,
             locations,
         }) => {
             let eval_config = build_eval_config(&cli.args);
-            run_attribute(scan_stdin, locations, cli.args.db, cli.args.gen_dir, eval_config)
+            run_attribute(
+                scan_stdin,
+                summary,
+                locations,
+                cli.args.db,
+                cli.args.gen_dir,
+                eval_config,
+            )
         }
         Some(Commands::Cargo {
             diagnostics_only,
@@ -671,6 +679,7 @@ fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) ->
 
 fn run_attribute(
     scan_stdin: bool,
+    summary: bool,
     mut locations: Vec<String>,
     db_path: PathBuf,
     gen_dir: PathBuf,
@@ -691,7 +700,7 @@ fn run_attribute(
             "at least one location is required (or use --scan-stdin)",
         )));
     }
-    if !scan_stdin && locations.len() == 1 {
+    if !summary && !scan_stdin && locations.len() == 1 {
         let (out_file, line, col) = parse_generated_location(&locations[0])?;
         return run_trace(out_file, line, col, db_path, gen_dir, eval_config);
     }
@@ -725,7 +734,21 @@ fn run_attribute(
         }
     }
 
-    println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    if summary {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "count": results.len(),
+                "ok_count": results.iter().filter(|r| r["ok"].as_bool() == Some(true)).count(),
+                "miss_count": results.iter().filter(|r| r["ok"].as_bool() != Some(true)).count(),
+                "results": results,
+                "weaveback_source_summary": build_location_attribution_summary(&results),
+            }))
+            .unwrap()
+        );
+    } else {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    }
     Ok(())
 }
 
@@ -1023,6 +1046,55 @@ fn print_coverage_summary_to_writer(
     Ok(())
 }
 
+fn build_coverage_summary_view(
+    summary: &serde_json::Value,
+    top_sources: usize,
+    top_sections: usize,
+) -> serde_json::Value {
+    let mut value = summary.clone();
+    let top_sources_value = summary["sources"]
+        .as_array()
+        .map(|sources| {
+            serde_json::Value::Array(
+                sources
+                    .iter()
+                    .take(top_sources)
+                    .map(|source| {
+                        let mut source = source.clone();
+                        if let Some(obj) = source.as_object_mut()
+                            && let Some(sections) =
+                                obj.get("sections").and_then(|v| v.as_array()).cloned()
+                        {
+                            obj.insert(
+                                "sections".to_string(),
+                                serde_json::Value::Array(
+                                    sections.into_iter().take(top_sections).collect(),
+                                ),
+                            );
+                        }
+                        source
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "summary_view".to_string(),
+            json!({
+                "top_sources": top_sources,
+                "top_sections": top_sections,
+                "sources": top_sources_value,
+                "unattributed_records": summary["unattributed_records"].clone(),
+                "line_records": summary["line_records"].clone(),
+                "attributed_records": summary["attributed_records"].clone(),
+            }),
+        );
+    }
+    value
+}
+
 fn run_coverage(
     summary_only: bool,
     top_sources: usize,
@@ -1042,7 +1114,8 @@ fn run_coverage(
         print_coverage_summary_to_writer(&summary, top_sources, top_sections, &mut std::io::stdout())
             .map_err(Error::Io)?;
     } else {
-        println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        let value = build_coverage_summary_view(&summary, top_sources, top_sections);
+        println!("{}", serde_json::to_string_pretty(&value).unwrap());
     }
     Ok(())
 }
@@ -1281,6 +1354,120 @@ fn build_cargo_attribution_summary(
     })
 }
 
+fn build_location_attribution_summary(records: &[serde_json::Value]) -> serde_json::Value {
+    #[derive(Default)]
+    struct SectionSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        locations: Vec<String>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+
+    for record in records.iter().filter(|record| record["ok"].as_bool() == Some(true)) {
+        let Some(trace) = record.get("trace") else {
+            continue;
+        };
+        let Some(src_file) = trace
+            .get("src_file")
+            .and_then(|v| v.as_str())
+            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
+        else {
+            continue;
+        };
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+
+        let source = grouped.entry(src_file.to_string()).or_default();
+        source.count += 1;
+        if !chunk.is_empty() {
+            source.chunks.insert(chunk.clone());
+        }
+
+        let section = source.sections.entry(section_key).or_default();
+        section.count += 1;
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        if let Some(location) = record.get("location").and_then(|v| v.as_str()) {
+            section.locations.push(location.to_string());
+        }
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
+        }
+    }
+
+    json!({
+        "count": records.iter().filter(|record| record["ok"].as_bool() == Some(true)).count(),
+        "sources": grouped
+            .into_iter()
+            .map(|(src_file, summary)| {
+                let mut sections = summary
+                    .sections
+                    .into_values()
+                    .map(|section| json!({
+                        "count": section.count,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "locations": section.locations,
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                    }))
+                    .collect::<Vec<_>>();
+                sections.sort_by(|a, b| {
+                    let ac = a["count"].as_u64().unwrap_or(0);
+                    let bc = b["count"].as_u64().unwrap_or(0);
+                    bc.cmp(&ac)
+                });
+                json!({
+                    "src_file": src_file,
+                    "count": summary.count,
+                    "chunks": summary.chunks.into_iter().collect::<Vec<_>>(),
+                    "sections": sections,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn emit_augmented_cargo_message(
     original_line: &str,
     attributions: Vec<serde_json::Value>,
@@ -1384,6 +1571,9 @@ fn emit_text_attribution_message(
             "stream": stream,
             "text": line,
             "weaveback_attributions": attributions,
+            "weaveback_source_summary": build_location_attribution_summary(
+                &attributions
+            ),
         }),
     )?;
     writeln!(out)?;
@@ -2078,9 +2268,11 @@ mod tests {
         match cli.command.unwrap() {
             Commands::Attribute {
                 scan_stdin,
+                summary,
                 locations,
             } => {
                 assert!(!scan_stdin);
+                assert!(!summary);
                 assert_eq!(locations, vec!["gen/out.rs:17", "gen/out.rs:18:3"]);
             }
             _ => panic!("expected attribute command"),
@@ -2098,9 +2290,34 @@ mod tests {
         match cli.command.unwrap() {
             Commands::Attribute {
                 scan_stdin,
+                summary,
                 locations,
             } => {
                 assert!(scan_stdin);
+                assert!(!summary);
+                assert!(locations.is_empty());
+            }
+            _ => panic!("expected attribute command"),
+        }
+    }
+
+    #[test]
+    fn attribute_command_options_support_summary() {
+        let cli = Cli::try_parse_from([
+            "weaveback",
+            "attribute",
+            "--summary",
+            "--scan-stdin",
+        ])
+        .unwrap();
+        match cli.command.unwrap() {
+            Commands::Attribute {
+                scan_stdin,
+                summary,
+                locations,
+            } => {
+                assert!(scan_stdin);
+                assert!(summary);
                 assert!(locations.is_empty());
             }
             _ => panic!("expected attribute command"),
@@ -2259,6 +2476,10 @@ mod tests {
         assert_eq!(value["stream"], "stderr");
         assert_eq!(value["text"], "panic at src/generated.rs:1:27");
         assert_eq!(value["weaveback_attributions"][0]["location"], "src/generated.rs:1:27");
+        assert_eq!(
+            value["weaveback_source_summary"]["sources"][0]["src_file"],
+            "src/doc.adoc"
+        );
     }
 
     #[test]
@@ -2292,6 +2513,33 @@ mod tests {
         assert_eq!(records[0]["location"], "out.rs:1");
         assert_eq!(records[0]["ok"], true);
         assert_eq!(records[0]["trace"]["chunk"], "main");
+    }
+
+    #[test]
+    fn build_location_attribution_summary_groups_successful_records() {
+        let summary = build_location_attribution_summary(&[
+            json!({
+                "location": "out.rs:1",
+                "ok": true,
+                "trace": {
+                    "src_file": "src/doc.adoc",
+                    "chunk": "main",
+                    "source_section_breadcrumb": ["Root", "Topic"],
+                    "source_section_prose": "Explain."
+                },
+            }),
+            json!({
+                "location": "out.rs:2",
+                "ok": false,
+                "trace": serde_json::Value::Null,
+            }),
+        ]);
+        assert_eq!(summary["count"], 1);
+        assert_eq!(summary["sources"][0]["src_file"], "src/doc.adoc");
+        assert_eq!(
+            summary["sources"][0]["sections"][0]["locations"],
+            json!(["out.rs:1"])
+        );
     }
 
     #[test]
@@ -2681,6 +2929,38 @@ build = "build.rs"
         assert_eq!(a_sections[0]["source_section_breadcrumb"], json!(["Root", "A2"]));
         assert_eq!(a_sections[0]["missed_lines"], 1);
         assert_eq!(a_sections[1]["source_section_breadcrumb"], json!(["Root", "A1"]));
+    }
+
+    #[test]
+    fn build_coverage_summary_view_keeps_ranked_top_slices() {
+        let summary = json!({
+            "line_records": 3,
+            "attributed_records": 3,
+            "unattributed_records": 0,
+            "sources": [
+                {
+                    "src_file": "src/a.adoc",
+                    "sections": [
+                        {"source_section_breadcrumb": ["Root", "A1"]},
+                        {"source_section_breadcrumb": ["Root", "A2"]}
+                    ]
+                },
+                {
+                    "src_file": "src/b.adoc",
+                    "sections": [
+                        {"source_section_breadcrumb": ["Root", "B1"]}
+                    ]
+                }
+            ]
+        });
+        let view = build_coverage_summary_view(&summary, 1, 1);
+        assert_eq!(view["summary_view"]["top_sources"], 1);
+        assert_eq!(view["summary_view"]["top_sections"], 1);
+        assert_eq!(view["summary_view"]["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            view["summary_view"]["sources"][0]["sections"].as_array().unwrap().len(),
+            1
+        );
     }
 
     #[test]

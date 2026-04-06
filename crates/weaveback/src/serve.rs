@@ -299,8 +299,8 @@ fn parse_query(url: &str) -> HashMap<String, String> {
 }
 
 fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len()
@@ -675,9 +675,15 @@ pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
 }
 
 /// Extract all prose lines from `lines[start..end]`, skipping content inside
-/// `----` listing-block fences.  The result is the human-written narrative
-/// of the section — headings, paragraphs, admonitions, lists — without any
-/// code.
+/// `----` listing-block fences and noweb chunk bodies.  The result is the
+/// human-written narrative of the section — headings, paragraphs, admonitions,
+/// lists — without any code.
+///
+/// Skipping chunk bodies here is defensive.  In well-formed literate sources,
+/// chunk definitions should already live inside fenced code blocks.  If prose
+/// extraction still encounters raw chunk markers in section text, that is a
+/// source-structure problem and should eventually be reported by a linter
+/// rather than silently normalized by every downstream consumer.
 pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;
@@ -1524,7 +1530,6 @@ pub fn run_serve(
 
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1532,8 +1537,8 @@ mod tests {
         percent_decode, safe_path, section_range, sse_headers, tangle_oracle, title_chain,
         AiBackend, AiChannelReader, SseReader, TangleConfig,
     };
-    use std::io::Read;
     use std::fs;
+    use std::io::Read;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1588,7 +1593,10 @@ mod tests {
 
         let docs_dir = workspace.root.join("docs");
         assert_eq!(content_type(&docs_dir.join("index.html")), "text/html; charset=utf-8");
-        assert_eq!(content_type(&docs_dir.join("app.js")), "application/javascript; charset=utf-8");
+        assert_eq!(
+            content_type(&docs_dir.join("app.js")),
+            "application/javascript; charset=utf-8"
+        );
         assert_eq!(safe_path(&docs_dir, "/index.html"), Some(docs_dir.join("index.html")));
         assert_eq!(safe_path(&docs_dir, "/"), Some(docs_dir.join("index.html")));
         assert_eq!(safe_path(&docs_dir, "/../secret"), None);
@@ -1660,13 +1668,7 @@ mod tests {
 
     #[test]
     fn heading_and_section_helpers_handle_edge_cases() {
-        let lines = vec![
-            "= Root",
-            "plain text",
-            "=== Deep",
-            "==== Deeper",
-            "body",
-        ];
+        let lines = vec!["= Root", "plain text", "=== Deep", "==== Deeper", "body"];
 
         assert_eq!(heading_level("plain text"), None);
         assert_eq!(heading_level("==NoSpace"), None);
@@ -1806,8 +1808,16 @@ mod tests {
     #[test]
     fn sse_headers_and_readers_emit_expected_frames() {
         let headers = sse_headers();
-        assert!(headers.iter().any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "text/event-stream"));
-        assert!(headers.iter().any(|h| h.field.equiv("Cache-Control") && h.value.as_str() == "no-cache"));
+        assert!(
+            headers
+                .iter()
+                .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "text/event-stream")
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|h| h.field.equiv("Cache-Control") && h.value.as_str() == "no-cache")
+        );
 
         let (_tx, rx) = std::sync::mpsc::channel();
         let mut sse = SseReader::new(rx);
@@ -1821,7 +1831,8 @@ mod tests {
         let n = ai.read(&mut buf).unwrap();
         let first = std::str::from_utf8(&buf[..n]).unwrap();
         assert_eq!(first, ": weaveback-ai\n\n");
-        tx.send("event: token\ndata: {\"t\":\"hi\"}\n\n".to_string()).unwrap();
+        tx.send("event: token\ndata: {\"t\":\"hi\"}\n\n".to_string())
+            .unwrap();
         let n = ai.read(&mut buf).unwrap();
         let second = std::str::from_utf8(&buf[..n]).unwrap();
         assert_eq!(second, "event: token\ndata: {\"t\":\"hi\"}\n\n");
@@ -1831,8 +1842,16 @@ mod tests {
     fn json_resp_sets_json_and_cors_headers() {
         let response = super::json_resp(serde_json::json!({ "ok": true }));
         let headers = response.headers();
-        assert!(headers.iter().any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "application/json"));
-        assert!(headers.iter().any(|h| h.field.equiv("Access-Control-Allow-Origin") && h.value.as_str() == "*"));
+        assert!(
+            headers
+                .iter()
+                .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "application/json")
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|h| h.field.equiv("Access-Control-Allow-Origin") && h.value.as_str() == "*")
+        );
     }
 
     #[test]
@@ -1871,7 +1890,10 @@ mod tests {
         let deps = super::dep_bodies(
             &db,
             &workspace.root,
-            &[("alpha".to_string(), "docs/dep.adoc".to_string()), ("missing".to_string(), "docs/dep.adoc".to_string())],
+            &[
+                ("alpha".to_string(), "docs/dep.adoc".to_string()),
+                ("missing".to_string(), "docs/dep.adoc".to_string()),
+            ],
         );
         assert_eq!(deps.len(), 1);
         assert_eq!(deps["alpha"]["body"], "alpha");

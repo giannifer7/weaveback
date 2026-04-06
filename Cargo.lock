@@ -2853,7 +2853,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2878,7 +2878,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-agent-core"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2892,11 +2892,11 @@ dependencies = [
 
 [[package]]
 name = "weaveback-core"
-version = "0.9.6"
+version = "0.10.0"
 
 [[package]]
 name = "weaveback-docgen"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "acdc-converters-core",
  "acdc-converters-html",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-lsp"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "log",
  "lsp-types",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-macro"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -2953,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-py"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "pyo3",
  "pythonize",
@@ -2964,7 +2964,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-tangle"
-version = "0.9.6"
+version = "0.10.0"
 dependencies = [
  "asciidoc-parser",
  "assert_cmd",

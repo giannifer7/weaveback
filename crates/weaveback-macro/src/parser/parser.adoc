@@ -86,6 +86,8 @@ with `Macro` on top is an internal invariant violation.
 
 The single output file is assembled from all the chunks defined below.
 
+[source,rust]
+----
 // <<@file weaveback-macro/src/parser/mod.rs>>=
 // crates/weaveback-macro/src/parser/mod.rs — generated from parser.adoc
 // <<parser preamble>>
@@ -97,6 +99,7 @@ The single output file is assembled from all the chunks defined below.
 
 // <<parser impl>>
 // @
+----
 
 == `impl Parser` Structure
 

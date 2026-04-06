@@ -107,6 +107,9 @@ pub fn find_best_source_config(
 // @@
 ----
 
+[source,rust]
+----
 // <[@file weaveback-tangle/src/lookup.rs]>=
 // <[lookup-types]>
 // @@
+----

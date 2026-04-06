@@ -4,11 +4,12 @@
 //   - --dir mode (auto-discovers drivers, skips %include'd fragments)
 //   - --depfile and --stamp (build-system integration)
 
-use assert_cmd::Command;
 use predicates::prelude::*;
 use predicates::str::contains;
 use std::fs;
 use std::path::Path;
+use std::process::Command as StdCommand;
+use std::process::Stdio;
 use tempfile::TempDir;
 
 fn write(dir: &Path, rel: &str, content: &str) {
@@ -17,8 +18,8 @@ fn write(dir: &Path, rel: &str, content: &str) {
     fs::write(path, content).unwrap();
 }
 
-fn weaveback_in(dir: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("weaveback").unwrap();
+fn weaveback_in(dir: &Path) -> StdCommand {
+    let mut cmd = StdCommand::new(assert_cmd::cargo::cargo_bin("weaveback"));
     cmd.current_dir(dir);
     cmd
 }
@@ -68,7 +69,7 @@ fn test_directory_mode_processes_drivers() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -76,8 +77,9 @@ fn test_directory_mode_processes_drivers() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     let output = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
     assert!(
@@ -97,7 +99,7 @@ fn test_directory_mode_multiple_drivers() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -105,8 +107,9 @@ fn test_directory_mode_multiple_drivers() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     assert_eq!(
         fs::read_to_string(gen_dir.join("a.txt")).unwrap().trim(),
@@ -141,7 +144,7 @@ fn test_directory_mode_import_is_fragment() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -149,8 +152,9 @@ fn test_directory_mode_import_is_fragment() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     let output = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
     assert!(
@@ -190,7 +194,7 @@ fn test_directory_mode_conditional_include_is_fragment() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -198,8 +202,9 @@ fn test_directory_mode_conditional_include_is_fragment() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     let output = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
     assert!(
@@ -230,7 +235,7 @@ fn test_directory_mode_custom_ext() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--ext")
@@ -240,8 +245,9 @@ fn test_directory_mode_custom_ext() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     let output = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
     assert!(
@@ -261,7 +267,7 @@ fn test_directory_mode_multiple_exts() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--ext")
@@ -273,8 +279,9 @@ fn test_directory_mode_multiple_exts() {
         .arg("--gen")
         .arg(&gen_dir)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     assert_eq!(
         fs::read_to_string(gen_dir.join("a.txt")).unwrap().trim(),
@@ -298,7 +305,7 @@ fn test_stamp_is_written_on_success() {
 
     let stamp = root.join("build.stamp");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -308,8 +315,9 @@ fn test_stamp_is_written_on_success() {
         .arg("--stamp")
         .arg(&stamp)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     assert!(stamp.exists(), "--stamp file should be created on success");
 }
@@ -331,7 +339,7 @@ fn test_env_builtin_with_allow_env() {
 
     let gen_dir = root.join("gen");
 
-    weaveback_in(&root)
+    let status = weaveback_in(&root)
         .env("WEAVEBACK_TEST_VAR", "hello-from-env")
         .arg("--dir")
         .arg(root.join("src"))
@@ -341,8 +349,9 @@ fn test_env_builtin_with_allow_env() {
         .arg(&gen_dir)
         .arg("--allow-env")
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success());
 
     let output = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
     assert!(
@@ -363,7 +372,7 @@ fn test_env_builtin_disabled_by_default() {
         "# <<@file out.txt>>=\n%env(HOME)\n# @\n",
     );
 
-    weaveback_in(&root)
+    let output = weaveback_in(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -371,9 +380,11 @@ fn test_env_builtin_disabled_by_default() {
         .arg("--gen")
         .arg(root.join("gen"))
         .args(delim_args())
-        .assert()
-        .failure()
-        .stderr(contains("--allow-env"));
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(contains("--allow-env").eval(&stderr));
 }
 
 /// --depfile lists all discovered files as dependencies and names the
@@ -393,7 +404,8 @@ fn test_depfile_lists_source_files() {
     let stamp = root.join("build.stamp");
     let depfile = root.join("build.d");
 
-    weaveback_in(&root)
+    let status = StdCommand::new(assert_cmd::cargo::cargo_bin("weaveback"))
+        .current_dir(&root)
         .arg("--dir")
         .arg(root.join("src"))
         .arg("--include")
@@ -405,8 +417,9 @@ fn test_depfile_lists_source_files() {
         .arg("--depfile")
         .arg(&depfile)
         .args(delim_args())
-        .assert()
-        .success();
+        .status()
+        .unwrap();
+    assert!(status.success(), "weaveback should succeed for depfile test");
 
     let dep_content = fs::read_to_string(&depfile).unwrap();
 
@@ -441,16 +454,22 @@ fn test_serve_ai_flags() {
     // We can't easily test the full server loop, but we can verify it parses
     // the new flags and starts up (before we kill it).
     use std::time::Duration;
-    weaveback_in(&root)
+    let mut child = weaveback_in(&root)
         .arg("serve")
         .arg("--port").arg("0") // Random port
         .arg("--ai-backend").arg("ollama")
         .arg("--ai-model").arg("llama3")
         .arg("--ai-endpoint").arg("http://localhost:11434")
-        .timeout(Duration::from_secs(2))
-        .assert()
-        // It might fail because of "Address already in use" if we are unlucky,
-        // or just timeout (which is success for a server test).
-        // But we want to see it didn't fail with "Unknown argument".
-        .stderr(predicates::str::contains("Unknown argument").not());
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    let _ = child.kill();
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        predicates::str::contains("Unknown argument").not().eval(&stderr),
+        "serve stderr should not report unknown arguments; got:\n{stderr}"
+    );
 }

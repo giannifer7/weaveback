@@ -44,6 +44,11 @@ impl From<String> for ASTError {
     }
 }
 
+#[inline]
+fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
+    end_pos.max(token.end())
+}
+
 /// Main entry point that unwraps the Option
 pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
     let root_idx = parser
@@ -114,7 +119,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
                     kind: NodeKind::Param,
                     src: node.src,
                     token: node.token,
-                    end_pos: node.end_pos,
+                    end_pos: normalized_end_pos(node.token, node.end_pos),
                     parts: vec![],
                     name: None,
                 }));
@@ -129,7 +134,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
                     kind: NodeKind::Param,
                     src: node.src,
                     token: node.token,
-                    end_pos: node.end_pos,
+                    end_pos: normalized_end_pos(node.token, node.end_pos),
                     parts: vec![],
                     name: Some(name),
                 }));
@@ -150,7 +155,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
         kind: NodeKind::Param,
         src: node.src,
         token: node.token,
-        end_pos: node.end_pos,
+        end_pos: normalized_end_pos(node.token, node.end_pos),
         parts: value_parts,
         name: param_name,
     }))
@@ -200,7 +205,7 @@ fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTEr
         kind: node.kind,
         src: node.src,
         token: node.token,
-        end_pos: node.end_pos,
+        end_pos: normalized_end_pos(node.token, node.end_pos),
         parts: if node.kind == NodeKind::Macro {
             trim_trailing_empty_params(child_nodes)
         } else {

@@ -96,7 +96,7 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
     Ok(())
 }
 
-fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
+fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     let mut syntaxes = vec![LintSyntaxEntry {
         dir: None,
         syntax: NowebSyntax::new(
@@ -107,7 +107,7 @@ fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
         ),
     }];
 
-    let Ok(src) = fs::read_to_string("weaveback.toml") else {
+    let Ok(src) = fs::read_to_string(base_dir.join("weaveback.toml")) else {
         return syntaxes;
     };
     let Ok(cfg) = toml::from_str::<LintCfg>(&src) else {
@@ -138,6 +138,10 @@ fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
     }
 
     syntaxes
+}
+
+fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
+    load_lint_syntaxes_from(Path::new("."))
 }
 
 fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> Vec<&'a NowebSyntax> {
@@ -447,10 +451,7 @@ comment_markers = "//"
 "#,
         )
         .unwrap();
-        let cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-        let syntaxes = load_lint_syntaxes();
-        std::env::set_current_dir(cwd).unwrap();
+        let syntaxes = load_lint_syntaxes_from(temp.path());
         let syntaxes = syntaxes.iter().map(|entry| &entry.syntax).collect::<Vec<_>>();
 
         assert!(
@@ -479,11 +480,8 @@ comment_markers = "//"
         let file = temp.path().join("README.adoc");
         fs::write(&file, "----\n// <[alpha]>=\nbody\n// @\n----\n").unwrap();
 
-        let cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-        let syntaxes = load_lint_syntaxes();
+        let syntaxes = load_lint_syntaxes_from(temp.path());
         let file_syntaxes = lint_syntaxes_for_file(Path::new("./README.adoc"), &syntaxes);
-        std::env::set_current_dir(cwd).unwrap();
 
         assert!(parse_chunk_definition_name("// <[alpha]>=", &file_syntaxes).is_none());
     }

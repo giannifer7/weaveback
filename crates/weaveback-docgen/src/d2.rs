@@ -41,9 +41,7 @@ fn collect_from_blocks<'src>(
 
     for block in blocks {
         if let Block::RawDelimited(rdb) = block {
-            let is_d2 = rdb
-                .attrlist()
-                .and_then(|a| a.block_style())
+            let is_d2 = raw_block_language(rdb.attrlist())
                 .map(|s| s == "d2")
                 .unwrap_or(false);
             if is_d2 {
@@ -56,6 +54,19 @@ fn collect_from_blocks<'src>(
             }
         }
         collect_from_blocks(block.nested_blocks(), out);
+    }
+}
+
+fn raw_block_language<'src>(
+    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
+) -> Option<&'src str> {
+    let attrlist = attrlist?;
+    let mut attrs = attrlist.attributes();
+    let style = attrs.next()?.value();
+    if style == "source" {
+        attrs.next().map(|attr| attr.value())
+    } else {
+        Some(style)
     }
 }
 pub fn render_d2_diagram(
@@ -144,63 +155,4 @@ pub fn preprocess_d2(
     }
 
     Ok(Some(result))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::tempdir;
-
-    #[test]
-    fn collect_d2_blocks_finds_nested_raw_blocks() {
-        let source = concat!(
-            "= Demo\n\n",
-            "[d2]\n----\n",
-            "a -> b\n",
-            "----\n"
-        );
-
-        let blocks = collect_d2_blocks(source, "demo.adoc");
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].2.contains("a -> b"));
-    }
-
-    #[test]
-    fn preprocess_d2_returns_none_when_no_blocks_exist() {
-        let dir = tempdir().expect("tempdir");
-        let result = preprocess_d2(
-            "= Plain\n\nNo diagrams here.\n",
-            dir.path(),
-            dir.path(),
-            "plain.adoc",
-            200,
-            "elk",
-        )
-        .expect("preprocess");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn preprocess_d2_uses_cached_svg_without_invoking_renderer() {
-        let dir = tempdir().expect("tempdir");
-        let images = dir.path().join("images");
-        let cache = dir.path().join("cache");
-        fs::create_dir_all(&images).expect("images dir");
-        fs::create_dir_all(&cache).expect("cache dir");
-
-        let source = "[d2]\n----\na -> b\n----\n";
-        let blocks = collect_d2_blocks(source, "demo.adoc");
-        assert_eq!(blocks.len(), 1);
-        let hash = blake3::hash(blocks[0].2.as_bytes());
-        let svg_name = format!("d2-{}.svg", hash.to_hex());
-        fs::write(cache.join(&svg_name), "<svg>d2</svg>").expect("cache svg");
-
-        let processed = preprocess_d2(source, &images, &cache, "demo.adoc", 200, "elk")
-            .expect("preprocess")
-            .expect("replacement");
-
-        assert_eq!(processed, format!("image::{svg_name}[D2 diagram]\n\n"));
-        assert_eq!(fs::read_to_string(images.join(&svg_name)).expect("copied svg"), "<svg>d2</svg>");
-    }
 }

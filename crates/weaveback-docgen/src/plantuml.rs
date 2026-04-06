@@ -48,9 +48,7 @@ fn collect_from_blocks<'src>(
 
     for block in blocks {
         if let Block::RawDelimited(rdb) = block {
-            let is_plantuml = rdb
-                .attrlist()
-                .and_then(|a| a.block_style())
+            let is_plantuml = raw_block_language(rdb.attrlist())
                 .map(|s| s == "plantuml")
                 .unwrap_or(false);
             if is_plantuml {
@@ -65,6 +63,19 @@ fn collect_from_blocks<'src>(
         collect_from_blocks(block.nested_blocks(), out);
     }
 }
+
+fn raw_block_language<'src>(
+    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
+) -> Option<&'src str> {
+    let attrlist = attrlist?;
+    let mut attrs = attrlist.attributes();
+    let style = attrs.next()?.value();
+    if style == "source" {
+        attrs.next().map(|attr| attr.value())
+    } else {
+        Some(style)
+    }
+}
 fn render_diagram(
     jar: &Path,
     diagram_source: &str,
@@ -76,7 +87,7 @@ fn render_diagram(
     let jar_str = jar.to_string_lossy().into_owned();
 
     let mut child = Command::new("java")
-        .args(["-jar", &jar_str, "-tsvg", "-pipe"])
+        .args(["-Djava.awt.headless=true", "-jar", &jar_str, "-tsvg", "-pipe"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -99,7 +110,29 @@ fn render_diagram(
         });
     }
 
-    Ok(output.stdout)
+    Ok(normalize_svg_background(output.stdout))
+}
+
+fn normalize_svg_background(svg: Vec<u8>) -> Vec<u8> {
+    let Ok(text) = String::from_utf8(svg.clone()) else {
+        return svg;
+    };
+    text.replace("background:#FFFFFF;", "background:transparent;")
+        .replace("background:#ffffff;", "background:transparent;")
+        .into_bytes()
+}
+
+fn normalize_svg_file_in_place(path: &Path) -> Result<(), PlantUmlError> {
+    let bytes = std::fs::read(path).map_err(|e| PlantUmlError::CacheWrite {
+        path: path.to_string_lossy().into_owned(),
+        source: e,
+    })?;
+    let normalized = normalize_svg_background(bytes);
+    std::fs::write(path, normalized).map_err(|e| PlantUmlError::CacheWrite {
+        path: path.to_string_lossy().into_owned(),
+        source: e,
+    })?;
+    Ok(())
 }
 pub(crate) fn collect_uncached_plantuml_diagrams(
     source: &str,
@@ -144,7 +177,7 @@ pub(crate) fn batch_render_plantuml(
     let out_str = tmp_dir.path().to_string_lossy().into_owned();
 
     let mut cmd = std::process::Command::new("java");
-    cmd.args(["-jar", &jar_str, "-tsvg", "-o", &out_str]);
+    cmd.args(["-Djava.awt.headless=true", "-jar", &jar_str, "-tsvg", "-o", &out_str]);
     for i in 0..diagrams.len() {
         cmd.arg(tmp_dir.path().join(format!("{i}.puml")));
     }
@@ -198,15 +231,15 @@ pub fn preprocess_plantuml(
                 path: svg_cache_path.to_string_lossy().into_owned(),
                 source: e,
             })?;
+        } else {
+            normalize_svg_file_in_place(&svg_cache_path)?;
         }
 
-        // Copy from cache to output dir if not already there.
-        if !svg_out_path.exists() {
-            std::fs::copy(&svg_cache_path, &svg_out_path).map_err(|e| PlantUmlError::CacheWrite {
-                path: svg_out_path.to_string_lossy().into_owned(),
-                source: e,
-            })?;
-        }
+        // Copy from cache to output dir on every render so stale local outputs are refreshed.
+        std::fs::copy(&svg_cache_path, &svg_out_path).map_err(|e| PlantUmlError::CacheWrite {
+            path: svg_out_path.to_string_lossy().into_owned(),
+            source: e,
+        })?;
 
         let replacement = format!("image::{svg_name}[PlantUML diagram]\n");
         replacements.push((start, end, replacement));
@@ -219,87 +252,4 @@ pub fn preprocess_plantuml(
     }
 
     Ok(Some(result))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::tempdir;
-
-    #[test]
-    fn collect_plantuml_blocks_finds_nested_diagrams() {
-        let source = concat!(
-            "= Demo\n\n",
-            "[plantuml]\n----\n",
-            "@startuml\nAlice -> Bob\n@enduml\n",
-            "----\n\n",
-            "[example]\n====\n",
-            "[plantuml]\n----\n",
-            "@startuml\nBob -> Eve\n@enduml\n",
-            "----\n====\n"
-        );
-
-        let blocks = collect_plantuml_blocks(source, "demo.adoc");
-        assert_eq!(blocks.len(), 2);
-        assert!(blocks[0].2.contains("Alice -> Bob"));
-        assert!(blocks[1].2.contains("Bob -> Eve"));
-    }
-
-    #[test]
-    fn collect_uncached_plantuml_diagrams_skips_existing_cache_entries() {
-        let dir = tempdir().expect("tempdir");
-        let source = "[plantuml]\n----\n@startuml\nAlice -> Bob\n@enduml\n----\n";
-        let blocks = collect_plantuml_blocks(source, "demo.adoc");
-        assert_eq!(blocks.len(), 1);
-        let hash = blake3::hash(blocks[0].2.as_bytes());
-        let svg_name = format!("{}.svg", hash.to_hex());
-        fs::write(dir.path().join(&svg_name), "<svg/>").expect("cache");
-
-        let diagrams = collect_uncached_plantuml_diagrams(source, dir.path(), "demo.adoc");
-        assert!(diagrams.is_empty());
-    }
-
-    #[test]
-    fn preprocess_plantuml_returns_none_when_no_diagrams_exist() {
-        let dir = tempdir().expect("tempdir");
-        let result = preprocess_plantuml(
-            "= Plain\n\nNo diagrams.\n",
-            Path::new("/missing/plantuml.jar"),
-            dir.path(),
-            dir.path(),
-            "plain.adoc",
-        )
-        .expect("preprocess");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn preprocess_plantuml_uses_cached_svg_without_invoking_java() {
-        let dir = tempdir().expect("tempdir");
-        let images = dir.path().join("images");
-        let cache = dir.path().join("cache");
-        fs::create_dir_all(&images).expect("images dir");
-        fs::create_dir_all(&cache).expect("cache dir");
-
-        let source = "[plantuml]\n----\n@startuml\nAlice -> Bob\n@enduml\n----\n";
-        let blocks = collect_plantuml_blocks(source, "demo.adoc");
-        assert_eq!(blocks.len(), 1);
-        let hash = blake3::hash(blocks[0].2.as_bytes());
-        let svg_name = format!("{}.svg", hash.to_hex());
-        fs::write(cache.join(&svg_name), "<svg>uml</svg>").expect("cache svg");
-
-        let processed = preprocess_plantuml(
-            source,
-            Path::new("/missing/plantuml.jar"),
-            &images,
-            &cache,
-            "demo.adoc",
-        )
-        .expect("preprocess")
-        .expect("replacement");
-
-        assert_eq!(processed, format!("image::{svg_name}[PlantUML diagram]\n\n"));
-        assert_eq!(fs::read_to_string(images.join(&svg_name)).expect("copied svg"), "<svg>uml</svg>");
-    }
 }

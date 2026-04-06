@@ -99,6 +99,23 @@ The write path should stay boring and explicit.
 [source,plantuml]
 ----
 @startuml
+skinparam BackgroundColor transparent
+skinparam DefaultFontColor #E6EDF3
+skinparam ArrowColor #AAB4C3
+skinparam ArrowFontColor #E6EDF3
+skinparam LifeLineBorderColor #7D8590
+skinparam LifeLineBackgroundColor transparent
+skinparam ParticipantBorderColor #D0D7DE
+skinparam ParticipantBackgroundColor #E2E2F0
+skinparam ParticipantFontColor #1F2328
+skinparam ActorBorderColor #D0D7DE
+skinparam ActorBackgroundColor #E2E2F0
+skinparam ActorFontColor #E6EDF3
+skinparam DatabaseBorderColor #D0D7DE
+skinparam DatabaseBackgroundColor #E2E2F0
+skinparam DatabaseFontColor #E6EDF3
+skinparam SequenceLifeLineBorderColor #7D8590
+skinparam SequenceLifeLineBackgroundColor transparent
 actor Planner
 participant "Python Agent" as PY
 participant "PyO3 Module" as PYO3
@@ -1331,7 +1348,7 @@ backend.
 
 [source,markdown]
 ----
-<!-- <<agent-python-readme>>= -->
+# <<agent-python-readme>>=
 # weaveback-agent
 
 Typed Python bindings and agent orchestration helpers for weaveback.
@@ -1341,7 +1358,7 @@ This package is intentionally thin:
 - Rust owns tracing, context gathering, and verified source edits.
 - Python owns typed planning, Pydantic models, and agent-loop composition.
 - Edits are expected to go through a typed `ChangePlan`, not arbitrary file writes.
-<!-- @ -->
+# @
 ----
 
 === Package Entry Point
@@ -1597,9 +1614,9 @@ incrementally without losing the rationale.
 
 [source,markdown]
 ----
-<!-- <<@file python/weaveback-agent/README.md>>= -->
-<!-- <<agent-python-readme>> -->
-<!-- @ -->
+# <<@file python/weaveback-agent/README.md>>=
+# <<agent-python-readme>>
+# @
 ----
 
 [source,python]

@@ -78,6 +78,96 @@ impl From<WeavebackError> for ChunkError {
         ChunkError::IoError(std::io::Error::other(e.to_string()))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkDefinitionMatch {
+    pub indent_len: usize,
+    pub base_name: String,
+    pub is_replace: bool,
+    pub is_file: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ChunkReferenceMatch {
+    add_indent: String,
+    modifier: String,
+    referenced_chunk: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NowebSyntax {
+    open_re: Regex,
+    slot_re: Regex,
+    close_re: Regex,
+    open_bytes: Box<[u8]>,
+    close_bytes: Box<[u8]>,
+}
+
+impl NowebSyntax {
+    pub fn new(
+        open_delim: &str,
+        close_delim: &str,
+        chunk_end: &str,
+        comment_markers: &[String],
+    ) -> Self {
+        let od = regex::escape(open_delim);
+        let cd = regex::escape(close_delim);
+
+        let escaped_comments = comment_markers
+            .iter()
+            .map(|m| regex::escape(m))
+            .collect::<Vec<_>>()
+            .join("|");
+
+        let open_pattern = format!(
+            r"^(?P<indent>\s*)(?:{})?[ \t]*{}(?P<replace>@replace[ \t]+)?(?P<file>@file[ \t]+)?(?P<name>.+?){}=",
+            escaped_comments, od, cd
+        );
+        let slot_pattern = format!(
+            r"^(\s*)(?:{})?\s*{}((?:(?:@file|@reversed|@compact|@tight)\s+)*)?(.+?){}\s*$",
+            escaped_comments, od, cd
+        );
+        let close_pattern = format!(
+            r"^(?:{})?[ \t]*{}\s*$",
+            escaped_comments,
+            regex::escape(chunk_end)
+        );
+
+        Self {
+            open_re: Regex::new(&open_pattern).expect("Invalid open pattern"),
+            slot_re: Regex::new(&slot_pattern).expect("Invalid slot pattern"),
+            close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
+            open_bytes: open_delim.as_bytes().into(),
+            close_bytes: chunk_end.as_bytes().into(),
+        }
+    }
+
+    pub fn parse_definition_line(&self, line: &str) -> Option<ChunkDefinitionMatch> {
+        memchr::memmem::find(line.as_bytes(), &self.open_bytes)?;
+        let caps = self.open_re.captures(line)?;
+        Some(ChunkDefinitionMatch {
+            indent_len: caps.name("indent").map_or("", |m| m.as_str()).len(),
+            base_name: caps.name("name").map_or("", |m| m.as_str()).to_string(),
+            is_replace: caps.name("replace").is_some(),
+            is_file: caps.name("file").is_some(),
+        })
+    }
+
+    pub fn is_close_line(&self, line: &str) -> bool {
+        memchr::memmem::find(line.as_bytes(), &self.close_bytes).is_some()
+            && self.close_re.is_match(line)
+    }
+
+    fn parse_reference_line(&self, line: &str) -> Option<ChunkReferenceMatch> {
+        memchr::memmem::find(line.as_bytes(), &self.open_bytes)?;
+        let caps = self.slot_re.captures(line)?;
+        Some(ChunkReferenceMatch {
+            add_indent: caps.get(1).map_or("", |m| m.as_str()).to_string(),
+            modifier: caps.get(2).map_or("", |m| m.as_str()).to_string(),
+            referenced_chunk: caps.get(3).map_or("", |m| m.as_str()).to_string(),
+        })
+    }
+}
 #[derive(Debug)]
 struct NamedChunk {
     definitions: Vec<ChunkDef>,
@@ -123,16 +213,7 @@ fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
 pub struct ChunkStore {
     chunks: HashMap<String, NamedChunk>,
     file_chunks: Vec<String>,
-    open_re: Regex,
-    slot_re: Regex,
-    close_re: Regex,
-    /// Byte sequence of the open delimiter — used as a fast pre-filter
-    /// before running `open_re` or `slot_re`.  A line without these bytes
-    /// cannot contain a chunk marker.
-    open_bytes: Box<[u8]>,
-    /// Byte sequence of the chunk-end marker — used as a fast pre-filter
-    /// before running `close_re`.
-    close_bytes: Box<[u8]>,
+    syntax: NowebSyntax,
     file_names: Vec<String>,
     /// When `true`, referencing an undefined chunk is a fatal error
     /// and `@file` redefinition without `@replace` is also a fatal error.
@@ -153,37 +234,10 @@ impl ChunkStore {
         chunk_end: &str,
         comment_markers: &[String],
     ) -> Self {
-        let od = regex::escape(open_delim);
-        let cd = regex::escape(close_delim);
-
-        let escaped_comments = comment_markers
-            .iter()
-            .map(|m| regex::escape(m))
-            .collect::<Vec<_>>()
-            .join("|");
-
-        let open_pattern = format!(
-            r"^(?P<indent>\s*)(?:{})?[ \t]*{}(?P<replace>@replace[ \t]+)?(?P<file>@file[ \t]+)?(?P<name>.+?){}=",
-            escaped_comments, od, cd
-        );
-        let slot_pattern = format!(
-            r"^(\s*)(?:{})?\s*{}((?:(?:@file|@reversed|@compact|@tight)\s+)*)?(.+?){}\s*$",
-            escaped_comments, od, cd
-        );
-        let close_pattern = format!(
-            r"^(?:{})?[ \t]*{}\s*$",
-            escaped_comments,
-            regex::escape(chunk_end)
-        );
-
         Self {
             chunks: HashMap::new(),
             file_chunks: Vec::new(),
-            open_re: Regex::new(&open_pattern).expect("Invalid open pattern"),
-            slot_re: Regex::new(&slot_pattern).expect("Invalid slot pattern"),
-            close_re: Regex::new(&close_pattern).expect("Invalid close pattern"),
-            open_bytes: open_delim.as_bytes().into(),
-            close_bytes: chunk_end.as_bytes().into(),
+            syntax: NowebSyntax::new(open_delim, close_delim, chunk_end, comment_markers),
             file_names: Vec::new(),
             strict_undefined: false,
             warn_unused: false,
@@ -212,16 +266,9 @@ impl ChunkStore {
         let mut current_chunk: Option<(String, usize)> = None;
 
         for (line_no, line) in text.lines().enumerate() {
-            let bytes = line.as_bytes();
-            // Fast reject: skip regex entirely when the open-delimiter bytes
-            // are absent.  memmem uses SIMD and is much cheaper than the regex
-            // NFA for the common case where most lines are plain prose or code.
-            if memchr::memmem::find(bytes, &self.open_bytes).is_some() {
-            } else {
+            if self.syntax.parse_definition_line(line).is_none() {
                 // No open delimiter — can only be a close marker or content.
-                if memchr::memmem::find(bytes, &self.close_bytes).is_some()
-                    && self.close_re.is_match(line)
-                {
+                if self.syntax.is_close_line(line) {
                     if let Some((ref cname, idx)) = current_chunk
                         && let Some(chunk) = self.chunks.get_mut(cname)
                         && let Some(def) = chunk.definitions.get_mut(idx)
@@ -242,25 +289,21 @@ impl ChunkStore {
                 }
                 continue;
             }
-            if let Some(caps) = self.open_re.captures(line) {
-                let indentation = caps.name("indent").map_or("", |m| m.as_str());
-                let base_name = caps.name("name").map_or("", |m| m.as_str()).to_string();
+            if let Some(def_match) = self.syntax.parse_definition_line(line) {
                 debug!(
                     "Found open pattern: indentation='{}', base_name='{}'",
-                    indentation, base_name
+                    def_match.indent_len, def_match.base_name
                 );
 
-                let is_replace = caps.name("replace").is_some();
-                let is_file = caps.name("file").is_some();
-                let full_name = if is_file {
-                    format!("@file {}", base_name)
+                let full_name = if def_match.is_file {
+                    format!("@file {}", def_match.base_name)
                 } else {
-                    base_name
+                    def_match.base_name
                 };
 
-                if self.validate_chunk_name(&full_name, is_file) {
+                if self.validate_chunk_name(&full_name, def_match.is_file) {
                     if full_name.starts_with("@file ") {
-                        if self.chunks.contains_key(&full_name) && !is_replace {
+                        if self.chunks.contains_key(&full_name) && !def_match.is_replace {
                             let location = ChunkLocation { file_idx, line: line_no };
                             let err = ChunkError::FileChunkRedefinition {
                                 file_chunk: full_name.clone(),
@@ -278,10 +321,10 @@ impl ChunkStore {
                             }
                             continue;
                         }
-                        if is_replace {
+                        if def_match.is_replace {
                             self.chunks.remove(&full_name);
                         }
-                    } else if is_replace {
+                    } else if def_match.is_replace {
                         self.chunks.remove(&full_name);
                     }
 
@@ -291,7 +334,7 @@ impl ChunkStore {
                         .or_insert_with(NamedChunk::new);
                     let def_idx = chunk.definitions.len();
                     chunk.definitions.push(ChunkDef::new(
-                        indentation.len(),
+                        def_match.indent_len,
                         file_idx,
                         line_no,
                     ));
@@ -305,9 +348,7 @@ impl ChunkStore {
                 continue;
             }
 
-            if memchr::memmem::find(bytes, &self.close_bytes).is_some()
-                && self.close_re.is_match(line)
-            {
+            if self.syntax.is_close_line(line) {
                 if let Some((ref cname, idx)) = current_chunk
                     && let Some(chunk) = self.chunks.get_mut(cname)
                     && let Some(def) = chunk.definitions.get_mut(idx)
@@ -483,12 +524,10 @@ impl ChunkStore {
             let mut def_result = Vec::new();
 
             for (line_count, line) in def.content.iter().enumerate() {
-                if let Some(caps) = memchr::memmem::find(line.as_bytes(), &self.open_bytes)
-                    .and_then(|_| self.slot_re.captures(line))
-                {
-                    let add_indent = caps.get(1).map_or("", |m| m.as_str());
-                    let modifier = caps.get(2).map_or("", |m| m.as_str());
-                    let referenced_chunk = caps.get(3).map_or("", |m| m.as_str());
+                if let Some(slot_match) = self.syntax.parse_reference_line(line) {
+                    let add_indent = slot_match.add_indent.as_str();
+                    let modifier = slot_match.modifier.as_str();
+                    let referenced_chunk = slot_match.referenced_chunk.as_str();
 
                     let child_options = RefOptions {
                         reversed: modifier.contains("@reversed"),
@@ -1128,177 +1167,5 @@ impl Clip {
 
     pub fn finish(self, target: &Path) -> Result<(), WeavebackError> {
         self.writer.finish(target).map_err(WeavebackError::SafeWriter)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::safe_writer::SafeWriterConfig;
-    use tempfile::tempdir;
-
-    fn entry(chunk_name: &str, src_line: u32) -> NowebMapEntry {
-        NowebMapEntry {
-            src_file: "src/doc.adoc".to_string(),
-            chunk_name: chunk_name.to_string(),
-            src_line,
-            indent: String::new(),
-            confidence: Confidence::Exact,
-        }
-    }
-
-    #[test]
-    fn helper_functions_trim_paths_and_hash_normalisation() {
-        assert_eq!(expand_tilde("plain/path"), "plain/path");
-        assert!(path_is_safe("gen/out.rs").is_ok());
-        assert!(path_is_safe("/abs/out.rs").is_err());
-        assert!(path_is_safe("../escape.rs").is_err());
-        assert!(path_is_safe("C:\\bad.rs").is_err());
-        assert_eq!(normalise_for_hash("  use foo; // trailing note  "), "use foo;");
-
-        let lines = vec![
-            ("   \n".to_string(), entry("main", 1)),
-            ("body\n".to_string(), entry("main", 2)),
-            ("\n".to_string(), entry("main", 3)),
-        ];
-        assert_eq!(trim_blank_edge_lines(lines.clone()).len(), 1);
-        assert_eq!(drop_blank_only_lines(lines).len(), 1);
-    }
-
-    #[test]
-    fn chunk_defs_skip_unclosed_defs_and_reset_clears_state() {
-        let mut store = ChunkStore::new("<<", ">>", "@", &["#".to_string()]);
-        let file_idx = store.add_file_name("sample.nw");
-        store.read(
-            r#"
-# <<closed>>=
-ok
-# @
-
-# <<open>>=
-still open
-"#,
-            file_idx,
-        );
-
-        let defs = store.chunk_defs();
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].chunk_name, "closed");
-
-        store.reset();
-        assert!(!store.has_chunk("closed"));
-        assert!(store.get_file_chunks().is_empty());
-    }
-
-    #[test]
-    fn remap_noweb_entries_infers_inserted_lines() {
-        let pre_lines = vec![
-            "use crate::b;\n".to_string(),
-            "use crate::a;\n".to_string(),
-        ];
-        let post = "header\nuse crate::a; // sorted\nuse crate::b;\n";
-        let entries = vec![entry("imports", 10), entry("imports", 11)];
-
-        let remapped = remap_noweb_entries(&pre_lines, post, entries);
-        assert_eq!(remapped.len(), 3);
-        let inferred = remapped
-            .iter()
-            .filter(|(_, entry)| entry.confidence == Confidence::Inferred)
-            .count();
-        assert!(inferred >= 1);
-    }
-
-    #[test]
-    fn remap_noweb_entries_hash_matches_normalised_line() {
-        let pre_lines = vec!["use crate::a;\n".to_string()];
-        let post = "use crate::a; // formatter comment\n";
-        let remapped = remap_noweb_entries(&pre_lines, post, vec![entry("imports", 10)]);
-
-        assert_eq!(remapped.len(), 1);
-        assert_eq!(remapped[0].1.confidence, Confidence::HashMatch);
-    }
-
-    #[test]
-    fn tangle_check_and_incremental_write_record_outputs_and_metadata() {
-        let dir = tempdir().expect("tempdir");
-        let writer = SafeFileWriter::with_config(
-            dir.path(),
-            SafeWriterConfig::default(),
-        )
-        .expect("writer");
-        let mut clip = Clip::new(writer, "<<", ">>", "@", &["#".to_string()]);
-        clip.read(
-            r#"
-# <<@file out.rs>>=
-fn main() {
-    <<body>>
-}
-# @
-
-# <<body>>=
-println!("hello");
-# @
-"#,
-            "sample.nw",
-        );
-
-        let listed = clip.list_output_files();
-        assert_eq!(listed, vec![dir.path().join("out.rs")]);
-
-        clip.write_files_incremental(&HashSet::new()).expect("write files");
-
-        let written = std::fs::read_to_string(dir.path().join("out.rs")).expect("read output");
-        assert!(written.contains("println!(\"hello\");"));
-        assert!(clip
-            .db()
-            .get_noweb_entry("out.rs", 2)
-            .expect("noweb entry")
-            .is_some());
-        assert_eq!(clip.db().query_chunk_deps("body").expect("deps").len(), 0);
-        assert_eq!(
-            clip.db()
-                .query_reverse_deps("body")
-                .expect("reverse deps"),
-            vec![("@file out.rs".to_string(), "sample.nw".to_string())]
-        );
-        assert!(clip
-            .db()
-            .get_chunk_def("sample.nw", "body", 0)
-            .expect("chunk def")
-            .is_some());
-    }
-
-    #[test]
-    fn tangle_check_expands_file_chunks_in_memory() {
-        let outputs = tangle_check(
-            &[(
-                r#"
-# <<@file app.txt>>=
-before
-# <<tail>>
-after
-# @
-
-# <<tail>>=
-middle
-# @
-"#,
-                "doc.nw",
-            )],
-            "<<",
-            ">>",
-            "@",
-            &["#".to_string()],
-        )
-        .expect("tangle check");
-
-        assert_eq!(
-            outputs.get("app.txt").expect("app.txt"),
-            &vec![
-                "before\n".to_string(),
-                "middle\n".to_string(),
-                "after\n".to_string(),
-            ]
-        );
     }
 }

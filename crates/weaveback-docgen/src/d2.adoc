@@ -31,9 +31,8 @@ pub enum D2Error {
 
 == Block collection
 
-Walk the parsed AsciiDoc document and collect all `[source,d2]` (i.e.
-`RawDelimited` blocks with block style `d2`), returning their byte offsets and
-source text.
+Walk the parsed AsciiDoc document and collect all D2 raw blocks, accepting both
+`[d2]` and `[source,d2]`, and returning their byte offsets and source text.
 
 [source,rust]
 ----
@@ -64,9 +63,7 @@ fn collect_from_blocks<'src>(
 
     for block in blocks {
         if let Block::RawDelimited(rdb) = block {
-            let is_d2 = rdb
-                .attrlist()
-                .and_then(|a| a.block_style())
+            let is_d2 = raw_block_language(rdb.attrlist())
                 .map(|s| s == "d2")
                 .unwrap_or(false);
             if is_d2 {
@@ -79,6 +76,19 @@ fn collect_from_blocks<'src>(
             }
         }
         collect_from_blocks(block.nested_blocks(), out);
+    }
+}
+
+fn raw_block_language<'src>(
+    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
+) -> Option<&'src str> {
+    let attrlist = attrlist?;
+    let mut attrs = attrlist.attributes();
+    let style = attrs.next()?.value();
+    if style == "source" {
+        attrs.next().map(|attr| attr.value())
+    } else {
+        Some(style)
     }
 }
 // @@

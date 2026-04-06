@@ -15,6 +15,21 @@ The first implemented rule is `chunk-body-outside-fence`.
 // <<lint-types>>=
 use std::fs;
 use std::path::{Path, PathBuf};
+use weaveback_tangle::NowebSyntax;
+
+#[derive(serde::Deserialize)]
+struct LintPassCfg {
+    open_delim: Option<String>,
+    close_delim: Option<String>,
+    chunk_end: Option<String>,
+    comment_markers: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct LintCfg {
+    #[serde(rename = "pass", default)]
+    passes: Vec<LintPassCfg>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LintRule {
@@ -85,6 +100,44 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
     }
     Ok(())
 }
+
+fn load_lint_syntaxes() -> Vec<NowebSyntax> {
+    let mut syntaxes = vec![NowebSyntax::new(
+        "<<",
+        ">>",
+        "@",
+        &["#".to_string(), "//".to_string()],
+    )];
+
+    let Ok(src) = fs::read_to_string("weaveback.toml") else {
+        return syntaxes;
+    };
+    let Ok(cfg) = toml::from_str::<LintCfg>(&src) else {
+        return syntaxes;
+    };
+
+    for pass in cfg.passes {
+        let open_delim = pass.open_delim.unwrap_or_else(|| "<<".to_string());
+        let close_delim = pass.close_delim.unwrap_or_else(|| ">>".to_string());
+        let chunk_end = pass.chunk_end.unwrap_or_else(|| "@".to_string());
+        let comment_markers = pass
+            .comment_markers
+            .as_deref()
+            .unwrap_or("#,//")
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+        syntaxes.push(NowebSyntax::new(
+            &open_delim,
+            &close_delim,
+            &chunk_end,
+            &comment_markers,
+        ));
+    }
+
+    syntaxes
+}
 // @
 ----
 
@@ -93,7 +146,20 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
 [source,rust]
 ----
 // <<lint-rules>>=
-fn lint_chunk_body_outside_fence(file: &Path, text: &str) -> Vec<LintViolation> {
+fn parse_chunk_definition_name(line: &str, syntaxes: &[NowebSyntax]) -> Option<String> {
+    for syntax in syntaxes {
+        if let Some(def_match) = syntax.parse_definition_line(line) {
+            return Some(def_match.base_name);
+        }
+    }
+    None
+}
+
+fn lint_chunk_body_outside_fence(
+    file: &Path,
+    text: &str,
+    syntaxes: &[NowebSyntax],
+) -> Vec<LintViolation> {
     let mut in_fence = false;
     let mut violations = Vec::new();
     for (idx, line) in text.lines().enumerate() {
@@ -102,12 +168,9 @@ fn lint_chunk_body_outside_fence(file: &Path, text: &str) -> Vec<LintViolation> 
             in_fence = !in_fence;
             continue;
         }
-        if trimmed.starts_with("// <<") && trimmed.ends_with(">>=") && !in_fence {
-            let chunk_name = trimmed
-                .strip_prefix("// <<")
-                .and_then(|s| s.strip_suffix(">>="))
-                .unwrap_or(trimmed)
-                .trim();
+        if let Some(chunk_name) =
+            parse_chunk_definition_name(trimmed, syntaxes).filter(|_| !in_fence)
+        {
             violations.push(LintViolation {
                 file: file.to_path_buf(),
                 line: idx + 1,
@@ -130,6 +193,7 @@ pub(crate) fn lint_paths(
     rule_filter: Option<LintRule>,
 ) -> Result<Vec<LintViolation>, String> {
     let mut adoc_files = Vec::new();
+    let syntaxes = load_lint_syntaxes();
     if paths.is_empty() {
         collect_adoc_files(Path::new("."), &mut adoc_files).map_err(|e| e.to_string())?;
     } else {
@@ -144,7 +208,7 @@ pub(crate) fn lint_paths(
     for file in adoc_files {
         let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         if rule_filter.is_none() || rule_filter == Some(LintRule::ChunkBodyOutsideFence) {
-            violations.extend(lint_chunk_body_outside_fence(&file, &text));
+            violations.extend(lint_chunk_body_outside_fence(&file, &text, &syntaxes));
         }
     }
     Ok(violations)
@@ -205,7 +269,13 @@ mod tests {
     #[test]
     fn lint_detects_chunk_outside_fence() {
         let text = "= Title\n\n// <<alpha>>=\nbody\n// @\n";
-        let violations = lint_chunk_body_outside_fence(Path::new("sample.adoc"), text);
+        let syntaxes = vec![NowebSyntax::new(
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
+        )];
+        let violations = lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].line, 3);
         assert_eq!(violations[0].rule, LintRule::ChunkBodyOutsideFence);
@@ -214,7 +284,63 @@ mod tests {
     #[test]
     fn lint_accepts_chunk_inside_fence() {
         let text = "= Title\n\n----\n// <<alpha>>=\nbody\n// @\n----\n";
-        assert!(lint_chunk_body_outside_fence(Path::new("sample.adoc"), text).is_empty());
+        let syntaxes = vec![NowebSyntax::new(
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
+        )];
+        assert!(lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes).is_empty());
+    }
+
+    #[test]
+    fn lint_detects_hash_prefixed_angle_bracket_chunks() {
+        let text = "= Title\n\n# <[alpha]>=\nbody\n# @@\n";
+        let syntaxes = vec![NowebSyntax::new(
+            "<[",
+            "]>",
+            "@@",
+            &["#".to_string(), "//".to_string()],
+        )];
+        let violations = lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].message.contains("alpha"));
+    }
+
+    #[test]
+    fn lint_detects_uncommented_triple_angle_chunks() {
+        let text = "= Title\n\n<<<alpha>>>=\nbody\n@@\n";
+        let syntaxes = vec![NowebSyntax::new("<<<", ">>>", "@@", &["//".to_string()])];
+        let violations = lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes);
+        assert_eq!(violations.len(), 1);
+        assert!(violations[0].message.contains("alpha"));
+    }
+
+    #[test]
+    fn load_lint_syntaxes_reads_pass_syntax_from_config() {
+        let temp = TempDir::new().unwrap();
+        fs::write(
+            temp.path().join("weaveback.toml"),
+            r#"
+[[pass]]
+dir = "demo/"
+open_delim = "<["
+close_delim = "]>"
+chunk_end = "@@"
+comment_markers = "//"
+"#,
+        )
+        .unwrap();
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(temp.path()).unwrap();
+        let syntaxes = load_lint_syntaxes();
+        std::env::set_current_dir(cwd).unwrap();
+
+        assert!(
+            parse_chunk_definition_name("// <[alpha]>=", &syntaxes)
+                .as_deref()
+                == Some("alpha")
+        );
     }
 
     #[test]

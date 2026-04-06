@@ -672,9 +672,91 @@ fn collect_cargo_attributions(
     records
 }
 
+fn collect_cargo_span_attributions(
+    diagnostic: &CargoDiagnostic,
+    db: Option<&weaveback_tangle::db::WeavebackDb>,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Vec<serde_json::Value> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    let mut records = Vec::new();
+    let mut seen = HashSet::new();
+
+    for span in &diagnostic.spans {
+        let trace = match lookup::perform_trace(
+            &span.file_name,
+            span.line_start,
+            span.column_start,
+            db,
+            resolver,
+            eval_config.clone(),
+        ) {
+            Ok(Some(value)) => value,
+            _ => continue,
+        };
+
+        let record = json!({
+            "generated_file": span.file_name,
+            "generated_line": span.line_start,
+            "generated_col": span.column_start,
+            "is_primary": span.is_primary,
+            "trace": trace,
+        });
+        let dedupe_key = serde_json::to_string(&record).unwrap_or_default();
+        if seen.insert(dedupe_key) {
+            records.push(record);
+        }
+    }
+
+    records
+}
+
+fn build_cargo_attribution_summary(
+    span_attributions: &[serde_json::Value],
+) -> serde_json::Value {
+    let mut grouped: std::collections::BTreeMap<String, (usize, std::collections::BTreeSet<String>)> =
+        std::collections::BTreeMap::new();
+
+    for record in span_attributions {
+        let Some(trace) = record.get("trace") else {
+            continue;
+        };
+        let Some(src_file) = trace.get("src_file").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let entry = grouped
+            .entry(src_file.to_string())
+            .or_insert_with(|| (0, std::collections::BTreeSet::new()));
+        entry.0 += 1;
+        if !chunk.is_empty() {
+            entry.1.insert(chunk);
+        }
+    }
+
+    json!({
+        "count": span_attributions.len(),
+        "sources": grouped
+            .into_iter()
+            .map(|(src_file, (count, chunks))| json!({
+                "src_file": src_file,
+                "count": count,
+                "chunks": chunks.into_iter().collect::<Vec<_>>(),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn emit_augmented_cargo_message(
     original_line: &str,
     attributions: Vec<serde_json::Value>,
+    span_attributions: Vec<serde_json::Value>,
     mut out: impl Write,
 ) -> std::io::Result<()> {
     let mut value: serde_json::Value = match serde_json::from_str(original_line) {
@@ -688,6 +770,14 @@ fn emit_augmented_cargo_message(
         obj.insert(
             "weaveback_attributions".to_string(),
             serde_json::Value::Array(attributions),
+        );
+        obj.insert(
+            "weaveback_span_attributions".to_string(),
+            serde_json::Value::Array(span_attributions.clone()),
+        );
+        obj.insert(
+            "weaveback_source_summary".to_string(),
+            build_cargo_attribution_summary(&span_attributions),
         );
     }
     serde_json::to_writer(&mut out, &value)?;
@@ -747,7 +837,14 @@ fn run_cargo_annotated(
         {
             let records =
                 collect_cargo_attributions(&diagnostic, db.as_ref(), &resolver, &eval_config);
-            emit_augmented_cargo_message(&line, records, &mut stdout_out).map_err(Error::Io)?;
+            let span_records = collect_cargo_span_attributions(
+                &diagnostic,
+                db.as_ref(),
+                &resolver,
+                &eval_config,
+            );
+            emit_augmented_cargo_message(&line, records, span_records, &mut stdout_out)
+                .map_err(Error::Io)?;
         } else {
             writeln!(stdout_out, "{line}").map_err(Error::Io)?;
         }
@@ -1294,14 +1391,25 @@ mod tests {
             "source_section_breadcrumb": ["Root", "Topic"],
             "source_section_prose": "Explain."
         })];
+        let span_records = vec![json!({
+            "generated_file": "gen/out.rs",
+            "generated_line": 17,
+            "generated_col": 9,
+            "is_primary": true,
+            "trace": records[0].clone(),
+        })];
         let mut out = Vec::new();
-        emit_augmented_cargo_message(line, records, &mut out).unwrap();
+        emit_augmented_cargo_message(line, records, span_records, &mut out).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
         let attrs = value["weaveback_attributions"].as_array().unwrap();
         assert_eq!(attrs.len(), 1);
         assert_eq!(attrs[0]["chunk"], "main");
         assert_eq!(attrs[0]["source_section_breadcrumb"], json!(["Root", "Topic"]));
         assert_eq!(attrs[0]["source_section_prose"], "Explain.");
+        let span_attrs = value["weaveback_span_attributions"].as_array().unwrap();
+        assert_eq!(span_attrs[0]["generated_file"], "gen/out.rs");
+        assert_eq!(span_attrs[0]["trace"]["chunk"], "main");
+        assert_eq!(value["weaveback_source_summary"]["sources"][0]["src_file"], "src/doc.adoc");
     }
 
     #[test]
@@ -1348,5 +1456,85 @@ mod tests {
         assert_eq!(records[0]["src_line"], 4);
         assert_eq!(records[0]["chunk"], "main");
         assert_eq!(records[0]["source_section_breadcrumb"], json!(["Root", "Topic"]));
+    }
+
+    #[test]
+    fn collect_cargo_span_attributions_keeps_generated_span_context() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Topic\nalpha\n")
+            .expect("snapshot");
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("gen"));
+        let diagnostic = CargoDiagnostic {
+            spans: vec![
+                CargoDiagnosticSpan {
+                    file_name: "out.rs".to_string(),
+                    line_start: 1,
+                    column_start: 1,
+                    is_primary: true,
+                },
+                CargoDiagnosticSpan {
+                    file_name: "out.rs".to_string(),
+                    line_start: 1,
+                    column_start: 5,
+                    is_primary: false,
+                },
+            ],
+        };
+
+        let records = collect_cargo_span_attributions(
+            &diagnostic,
+            Some(&db),
+            &resolver,
+            &EvalConfig::default(),
+        );
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["generated_file"], "out.rs");
+        assert_eq!(records[0]["trace"]["chunk"], "main");
+        assert_eq!(records[1]["is_primary"], false);
+    }
+
+    #[test]
+    fn build_cargo_attribution_summary_groups_by_source_file() {
+        let summary = build_cargo_attribution_summary(&[
+            json!({
+                "generated_file": "out.rs",
+                "generated_line": 1,
+                "generated_col": 1,
+                "is_primary": true,
+                "trace": {"src_file": "src/a.adoc", "chunk": "alpha"}
+            }),
+            json!({
+                "generated_file": "out.rs",
+                "generated_line": 2,
+                "generated_col": 1,
+                "is_primary": false,
+                "trace": {"src_file": "src/a.adoc", "chunk": "beta"}
+            }),
+            json!({
+                "generated_file": "out2.rs",
+                "generated_line": 1,
+                "generated_col": 1,
+                "is_primary": true,
+                "trace": {"src_file": "src/b.adoc", "chunk": "gamma"}
+            }),
+        ]);
+        assert_eq!(summary["count"], 3);
+        assert_eq!(summary["sources"][0]["src_file"], "src/a.adoc");
+        assert_eq!(summary["sources"][0]["count"], 2);
+        assert_eq!(summary["sources"][1]["src_file"], "src/b.adoc");
     }
 }

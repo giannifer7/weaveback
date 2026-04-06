@@ -80,6 +80,11 @@ test-python:
 coverage:
     cargo llvm-cov --workspace --lcov --output-path lcov.info
 
+# Regroup LCOV coverage by owning literate source and section
+coverage-source:
+    cargo llvm-cov --workspace --lcov --output-path lcov.info
+    cargo run --package weaveback -- coverage lcov.info > coverage_by_source.json
+
 # Generate an HTML Rust coverage report under coverage_report/
 coverage-html:
     cargo llvm-cov --workspace --html --output-dir coverage_report

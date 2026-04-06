@@ -216,6 +216,24 @@ pub(crate) enum Commands {
 
 
     },
+    /// Regroup LCOV line coverage by owning literate source and section
+    Coverage {
+
+
+        /// Print a concise human summary ranked by missed lines instead of full JSON
+    #[arg(long)]
+
+    summary: bool,
+
+
+
+        /// Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`
+
+    lcov_file: PathBuf,
+
+
+
+    },
     /// List LLM-generated tags for prose blocks
     Tags {
 

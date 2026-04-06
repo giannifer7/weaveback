@@ -504,6 +504,27 @@ doc_descr = %{Emit structured JSON instead of human-readable text.%},
 )
 %})
 
+%def(coverage_command_options, %{
+%emit_option(
+field = summary,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// Print a concise human summary ranked by missed lines instead of full JSON%},
+doc_flag = %{`--summary`%},
+doc_default = %{off%},
+doc_descr = %{Print a concise human summary ranked by missed lines instead of full JSON.%},
+)
+%emit_option(
+field = lcov_file,
+rust_type = PathBuf,
+arg_attr =,
+doc_block = %{        /// Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`%},
+doc_flag = %{`<LCOV>`%},
+doc_default = %{ %},
+doc_descr = %{Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.%},
+)
+%})
+
 %def(tags_command_options, %{
 %emit_option(
 field = file,
@@ -719,6 +740,10 @@ doc_descr = %(doc_descr),
     Lint {
 %lint_command_options()
     },
+    /// Regroup LCOV line coverage by owning literate source and section
+    Coverage {
+%coverage_command_options()
+    },
     /// List LLM-generated tags for prose blocks
     Tags {
 %tags_command_options()
@@ -882,6 +907,23 @@ doc_descr = %(doc_descr),
 // @
 %})
 %lint_command_options()
+----
+
+[source,adoc]
+----
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-coverage-rows>>=
+%render_doc_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+// @
+%})
+%coverage_command_options()
 ----
 
 [source,adoc]
@@ -1159,6 +1201,25 @@ weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
 |===
 | Flag | Default | Description
 <<@tight cli-doc-lint-rows>>
+|===
+
+'''
+
+==== `coverage`
+
+Regroups LCOV line coverage by owning literate source file and section using
+the same trace machinery as `attribute` and wrapped Cargo diagnostics.
+
+[source,bash]
+----
+just coverage
+weaveback coverage lcov.info
+----
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+<<@tight cli-doc-coverage-rows>>
 |===
 
 '''

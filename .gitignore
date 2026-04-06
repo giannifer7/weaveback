@@ -16,6 +16,7 @@ wheels/
 .coverage
 coverage_report/
 lcov.info
+coverage_by_source.json
 cobertura.xml
 codecov.json
 

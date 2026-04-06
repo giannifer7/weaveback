@@ -251,6 +251,26 @@ weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
 
 '''
 
+==== `coverage`
+
+Regroups LCOV line coverage by owning literate source file and section using
+the same trace machinery as `attribute` and wrapped Cargo diagnostics.
+
+[source,bash]
+----
+just coverage
+weaveback coverage lcov.info
+----
+
+[cols="3,1,4",options="header"]
+|===
+| Flag | Default | Description
+| `--summary` | off | Print a concise human summary ranked by missed lines instead of full JSON.
+| `<LCOV>` |   | Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.
+|===
+
+'''
+
 ==== `tags`
 
 Lists the LLM-generated prose tags stored in the database.

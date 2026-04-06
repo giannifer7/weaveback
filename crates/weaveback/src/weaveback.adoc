@@ -658,6 +658,10 @@ fn main() {
             lint::run_lint(paths, strict, rule, json)
                 .map_err(|e| Error::Io(std::io::Error::other(e)))
         }
+        Some(Commands::Coverage { summary, lcov_file }) => {
+            let eval_config = build_eval_config(&cli.args);
+            run_coverage(summary, lcov_file, cli.args.db, cli.args.gen_dir, eval_config)
+        }
         Some(Commands::Tags { file }) => {
             run_tags(file, cli.args.db)
         }
@@ -997,12 +1001,25 @@ fn parse_generated_location(spec: &str) -> Result<(String, u32, u32), Error> {
 }
 
 fn scan_generated_locations(text: &str) -> Vec<String> {
-    let pattern = regex::Regex::new(r"(?P<loc>[A-Za-z0-9_./\\-]+:\d+(?::\d+)?)")
+    fn normalize_scanned_location(token: &str) -> Option<String> {
+        let trimmed = token
+            .trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | ',' | ';'))
+            .trim_end_matches(['.', ':', '!', '?']);
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(trimmed.to_string())
+    }
+
+    let pattern = regex::Regex::new(r"(?P<loc>(?:[A-Za-z]:)?[^\s]+:\d+(?::\d+)?)")
         .expect("valid location regex");
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::new();
     for captures in pattern.captures_iter(text) {
-        let Some(loc) = captures.name("loc").map(|m| m.as_str().to_string()) else {
+        let Some(loc) = captures
+            .name("loc")
+            .and_then(|m| normalize_scanned_location(m.as_str()))
+        else {
             continue;
         };
         if parse_generated_location(&loc).is_ok() && seen.insert(loc.clone()) {
@@ -1091,6 +1108,301 @@ fn run_attribute(
     }
 
     println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    Ok(())
+}
+
+fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
+    let mut current_file: Option<String> = None;
+    let mut out = Vec::new();
+
+    for line in text.lines() {
+        if let Some(path) = line.strip_prefix("SF:") {
+            current_file = Some(path.to_string());
+            continue;
+        }
+        if line == "end_of_record" {
+            current_file = None;
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("DA:") else {
+            continue;
+        };
+        let Some(file) = current_file.as_ref() else {
+            continue;
+        };
+        let mut parts = rest.split(',');
+        let Some(line_no) = parts.next().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(hit_count) = parts.next().and_then(|s| s.parse::<u64>().ok()) else {
+            continue;
+        };
+        out.push((file.clone(), line_no, hit_count));
+    }
+
+    out
+}
+
+fn build_coverage_summary(
+    records: &[(String, u32, u64)],
+    db: &weaveback_tangle::db::WeavebackDb,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> serde_json::Value {
+    #[derive(Default)]
+    struct SectionSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        chunks: std::collections::BTreeSet<String>,
+        generated_lines: Vec<serde_json::Value>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+    let mut unattributed = Vec::new();
+    let mut attributed_count = 0usize;
+
+    for (file_name, line_no, hit_count) in records {
+        let Some(trace) = trace_generated_location(
+            file_name,
+            *line_no,
+            1,
+            db,
+            project_root,
+            resolver,
+            eval_config,
+        ) else {
+            unattributed.push(json!({
+                "generated_file": file_name,
+                "generated_line": line_no,
+                "hit_count": hit_count,
+            }));
+            continue;
+        };
+
+        attributed_count += 1;
+        let Some(src_file) = trace
+            .get("src_file")
+            .and_then(|v| v.as_str())
+            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
+        else {
+            continue;
+        };
+
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+        let covered = *hit_count > 0;
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let generated_line = json!({
+            "generated_file": file_name,
+            "generated_line": line_no,
+            "hit_count": hit_count,
+            "covered": covered,
+            "chunk": if chunk.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(chunk.clone()) },
+        });
+
+        let source = grouped.entry(src_file.to_string()).or_default();
+        source.total_lines += 1;
+        if covered {
+            source.covered_lines += 1;
+        } else {
+            source.missed_lines += 1;
+        }
+        if !chunk.is_empty() {
+            source.chunks.insert(chunk.clone());
+        }
+
+        let section = source.sections.entry(section_key).or_default();
+        section.total_lines += 1;
+        if covered {
+            section.covered_lines += 1;
+        } else {
+            section.missed_lines += 1;
+        }
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        section.generated_lines.push(generated_line);
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
+        }
+    }
+
+    let mut sources = grouped
+        .into_iter()
+        .map(|(src_file, source)| {
+            let mut sections = source
+                .sections
+                .into_values()
+                .map(|section| {
+                    json!({
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                        "total_lines": section.total_lines,
+                        "covered_lines": section.covered_lines,
+                        "missed_lines": section.missed_lines,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "generated_lines": section.generated_lines,
+                    })
+                })
+                .collect::<Vec<_>>();
+            sections.sort_by(|a, b| {
+                let am = a["missed_lines"].as_u64().unwrap_or(0);
+                let bm = b["missed_lines"].as_u64().unwrap_or(0);
+                bm.cmp(&am).then_with(|| {
+                    let an = a["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_default();
+                    let bn = b["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_default();
+                    an.cmp(&bn)
+                })
+            });
+
+            json!({
+                "src_file": src_file,
+                "total_lines": source.total_lines,
+                "covered_lines": source.covered_lines,
+                "missed_lines": source.missed_lines,
+                "chunks": source.chunks.into_iter().collect::<Vec<_>>(),
+                "sections": sections,
+            })
+        })
+        .collect::<Vec<_>>();
+    sources.sort_by(|a, b| {
+        let am = a["missed_lines"].as_u64().unwrap_or(0);
+        let bm = b["missed_lines"].as_u64().unwrap_or(0);
+        bm.cmp(&am).then_with(|| {
+            let af = a["src_file"].as_str().unwrap_or_default();
+            let bf = b["src_file"].as_str().unwrap_or_default();
+            af.cmp(bf)
+        })
+    });
+
+    json!({
+        "line_records": records.len(),
+        "attributed_records": attributed_count,
+        "unattributed_records": unattributed.len(),
+        "sources": sources,
+        "unattributed": unattributed,
+    })
+}
+
+fn print_coverage_summary(summary: &serde_json::Value) {
+    println!(
+        "Coverage by source: {} attributed / {} total line records",
+        summary["attributed_records"].as_u64().unwrap_or(0),
+        summary["line_records"].as_u64().unwrap_or(0)
+    );
+
+    if let Some(sources) = summary["sources"].as_array() {
+        for source in sources.iter().take(10) {
+            let src_file = source["src_file"].as_str().unwrap_or("<unknown>");
+            let covered = source["covered_lines"].as_u64().unwrap_or(0);
+            let missed = source["missed_lines"].as_u64().unwrap_or(0);
+            let total = source["total_lines"].as_u64().unwrap_or(0);
+            println!("{src_file}: {covered}/{total} covered, {missed} missed");
+            if let Some(sections) = source["sections"].as_array() {
+                for section in sections.iter().take(3) {
+                    let breadcrumb = section["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_else(|| "<unknown>".to_string());
+                    let covered = section["covered_lines"].as_u64().unwrap_or(0);
+                    let missed = section["missed_lines"].as_u64().unwrap_or(0);
+                    let total = section["total_lines"].as_u64().unwrap_or(0);
+                    println!("  {breadcrumb}: {covered}/{total} covered, {missed} missed");
+                }
+            }
+        }
+    }
+
+    let unattributed = summary["unattributed_records"].as_u64().unwrap_or(0);
+    if unattributed > 0 {
+        println!("Unattributed line records: {unattributed}");
+    }
+}
+
+fn run_coverage(
+    summary_only: bool,
+    lcov_file: PathBuf,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+) -> Result<(), Error> {
+    let text = std::fs::read_to_string(&lcov_file).map_err(Error::Io)?;
+    let records = parse_lcov_records(&text);
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root.clone(), gen_dir);
+    let summary = build_coverage_summary(&records, &db, &project_root, &resolver, &eval_config);
+    if summary_only {
+        print_coverage_summary(&summary);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+    }
     Ok(())
 }
 
@@ -1969,6 +2281,15 @@ mod tests {
     }
 
     #[test]
+    fn scan_generated_locations_trims_punctuation_and_supports_windows_paths() {
+        let text = r#"note: (src/generated.rs:1:27), "C:\tmp\gen\out.rs:17:9"."#;
+        assert_eq!(
+            scan_generated_locations(text),
+            vec!["src/generated.rs:1:27", r#"C:\tmp\gen\out.rs:17:9"#]
+        );
+    }
+
+    #[test]
     fn attribute_command_options_support_multiple_locations() {
         let cli = Cli::try_parse_from([
             "weaveback",
@@ -2006,6 +2327,24 @@ mod tests {
                 assert!(locations.is_empty());
             }
             _ => panic!("expected attribute command"),
+        }
+    }
+
+    #[test]
+    fn coverage_command_options_support_summary() {
+        let cli = Cli::try_parse_from([
+            "weaveback",
+            "coverage",
+            "--summary",
+            "lcov.info",
+        ])
+        .unwrap();
+        match cli.command.unwrap() {
+            Commands::Coverage { summary, lcov_file } => {
+                assert!(summary);
+                assert_eq!(lcov_file, PathBuf::from("lcov.info"));
+            }
+            _ => panic!("expected coverage command"),
         }
     }
 
@@ -2390,6 +2729,174 @@ build = "build.rs"
                     item["trace"]["source_section_breadcrumb"] == json!(["Root", "Generated"])
                 }))
         );
+    }
+
+    #[test]
+    fn parse_lcov_records_extracts_file_line_hits() {
+        let text = "TN:\nSF:src/generated.rs\nDA:1,3\nDA:2,0\nend_of_record\nSF:other.rs\nDA:4,1\nend_of_record\n";
+        assert_eq!(
+            parse_lcov_records(text),
+            vec![
+                ("src/generated.rs".to_string(), 1, 3),
+                ("src/generated.rs".to_string(), 2, 0),
+                ("other.rs".to_string(), 4, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_coverage_summary_groups_lines_by_source_section() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "src/generated.rs",
+            &[
+                (
+                    0,
+                    NowebMapEntry {
+                        src_file: "src/doc.adoc".to_string(),
+                        chunk_name: "generated".to_string(),
+                        src_line: 3,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+                (
+                    1,
+                    NowebMapEntry {
+                        src_file: "src/doc.adoc".to_string(),
+                        chunk_name: "generated".to_string(),
+                        src_line: 3,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+            ],
+        )
+        .expect("noweb");
+        db.set_src_snapshot(
+            "src/doc.adoc",
+            b"= Root\n\n== Generated\nThe generated body.\n",
+        )
+        .expect("snapshot");
+        let records = vec![
+            ("src/generated.rs".to_string(), 1, 1),
+            ("src/generated.rs".to_string(), 2, 0),
+            ("unmapped.rs".to_string(), 9, 0),
+        ];
+        let project_root = PathBuf::from(".");
+        let resolver = PathResolver::new(project_root.clone(), PathBuf::from("gen"));
+        let summary = build_coverage_summary(
+            &records,
+            &db,
+            &project_root,
+            &resolver,
+            &EvalConfig::default(),
+        );
+        assert_eq!(summary["line_records"], 3);
+        assert_eq!(summary["attributed_records"], 2);
+        assert_eq!(summary["unattributed_records"], 1);
+        assert!(
+            summary["sources"][0]["src_file"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("src/doc.adoc"))
+        );
+        assert_eq!(summary["sources"][0]["covered_lines"], 1);
+        assert_eq!(summary["sources"][0]["missed_lines"], 1);
+        assert_eq!(
+            summary["sources"][0]["sections"][0]["source_section_breadcrumb"],
+            json!(["Root", "Generated"])
+        );
+        assert_eq!(
+            summary["sources"][0]["sections"][0]["generated_lines"][0]["generated_file"],
+            "src/generated.rs"
+        );
+        assert_eq!(summary["unattributed"][0]["generated_file"], "unmapped.rs");
+    }
+
+    #[test]
+    fn build_coverage_summary_sorts_sources_and_sections_by_missed_lines() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "src/a_generated.rs",
+            &[
+                (
+                    0,
+                    NowebMapEntry {
+                        src_file: "src/a.adoc".to_string(),
+                        chunk_name: "alpha".to_string(),
+                        src_line: 3,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+                (
+                    1,
+                    NowebMapEntry {
+                        src_file: "src/a.adoc".to_string(),
+                        chunk_name: "alpha".to_string(),
+                        src_line: 6,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+            ],
+        )
+        .expect("a noweb");
+        db.set_noweb_entries(
+            "src/b_generated.rs",
+            &[
+                (
+                    0,
+                    NowebMapEntry {
+                        src_file: "src/b.adoc".to_string(),
+                        chunk_name: "beta".to_string(),
+                        src_line: 3,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+                (
+                    1,
+                    NowebMapEntry {
+                        src_file: "src/b.adoc".to_string(),
+                        chunk_name: "beta".to_string(),
+                        src_line: 3,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                ),
+            ],
+        )
+        .expect("b noweb");
+        db.set_src_snapshot("src/a.adoc", b"= Root\n\n== A1\none\n\n== A2\ntwo\n")
+            .expect("a snapshot");
+        db.set_src_snapshot("src/b.adoc", b"= Root\n\n== B\nbody\n")
+            .expect("b snapshot");
+        let records = vec![
+            ("src/a_generated.rs".to_string(), 1, 1),
+            ("src/a_generated.rs".to_string(), 2, 0),
+            ("src/b_generated.rs".to_string(), 1, 0),
+            ("src/b_generated.rs".to_string(), 2, 0),
+        ];
+        let project_root = PathBuf::from(".");
+        let resolver = PathResolver::new(project_root.clone(), PathBuf::from("gen"));
+        let summary = build_coverage_summary(
+            &records,
+            &db,
+            &project_root,
+            &resolver,
+            &EvalConfig::default(),
+        );
+        let sources = summary["sources"].as_array().expect("sources");
+        assert!(
+            sources[0]["src_file"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("src/b.adoc"))
+        );
+        let a_sections = sources[1]["sections"].as_array().expect("sections");
+        assert_eq!(a_sections[0]["source_section_breadcrumb"], json!(["Root", "A2"]));
+        assert_eq!(a_sections[0]["missed_lines"], 1);
+        assert_eq!(a_sections[1]["source_section_breadcrumb"], json!(["Root", "A1"]));
     }
 
     #[test]

@@ -1052,3 +1052,292 @@ fn run_lsp(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+    use weaveback_tangle::block_parser::SourceBlockEntry;
+    use weaveback_tangle::db::{ChunkDefEntry, WeavebackDb};
+
+    fn parse_blocks(path: &str, content: &str) -> Vec<SourceBlockEntry> {
+        let ext = Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        weaveback_tangle::parse_source_blocks(content, ext)
+    }
+
+    #[test]
+    fn find_files_and_depfile_helpers_work() {
+        let dir = tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join("sub")).expect("mkdir");
+        fs::write(dir.path().join("a.adoc"), "= A\n").expect("write a");
+        fs::write(dir.path().join("sub").join("b.md"), "# B\n").expect("write b");
+        fs::write(dir.path().join("sub").join("c.txt"), "C\n").expect("write c");
+
+        let mut out = Vec::new();
+        find_files(dir.path(), &["adoc".to_string(), "md".to_string()], &mut out)
+            .expect("find files");
+        out.sort();
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().any(|p| p.ends_with("a.adoc")));
+        assert!(out.iter().any(|p| p.ends_with("b.md")));
+
+        assert_eq!(depfile_escape(Path::new("a b.txt")), "a\\ b.txt");
+
+        let depfile = dir.path().join("deps.d");
+        write_depfile(
+            &depfile,
+            Path::new("stamp file"),
+            &[PathBuf::from("one file"), PathBuf::from("two")],
+        )
+        .expect("write depfile");
+        let text = fs::read_to_string(depfile).expect("read depfile");
+        assert_eq!(text, "stamp\\ file: one\\ file two\n");
+    }
+
+    #[test]
+    fn open_db_reports_missing_file() {
+        match open_db(Path::new("/definitely/missing/weaveback.db")) {
+            Err(err) => match err {
+            Error::Io(io) => assert_eq!(io.kind(), std::io::ErrorKind::NotFound),
+            other => panic!("expected io not found, got {other:?}"),
+            },
+            Ok(_) => panic!("expected missing db error"),
+        };
+    }
+
+    #[test]
+    fn compute_skip_set_skips_unchanged_generated_file() {
+        let dir = tempdir().expect("tempdir");
+        let gen_dir = dir.path().join("gen");
+        fs::create_dir_all(&gen_dir).expect("gen dir");
+        fs::write(gen_dir.join("out.txt"), "generated\n").expect("gen file");
+
+        let src_path = "src/doc.txt".to_string();
+        let src_text = "// <<@file out.txt>>=\nbody\n// @\n";
+        let blocks = parse_blocks(&src_path, src_text);
+
+        let mut prev_db = WeavebackDb::open_temp().expect("prev db");
+        prev_db.set_source_blocks(&src_path, &blocks).expect("source blocks");
+        prev_db
+            .set_chunk_defs(&[ChunkDefEntry {
+                src_file: src_path.clone(),
+                chunk_name: "@file out.txt".to_string(),
+                nth: 0,
+                def_start: 1,
+                def_end: 3,
+            }])
+            .expect("chunk defs");
+        prev_db.set_baseline("out.txt", b"generated\n").expect("baseline");
+
+        let mut current_db = WeavebackDb::open_temp().expect("current db");
+        let mut source_contents = HashMap::new();
+        source_contents.insert(src_path.clone(), src_text.to_string());
+
+        let skip = compute_skip_set(&source_contents, &Some(prev_db), &mut current_db, &gen_dir);
+        assert!(skip.contains("@file out.txt"));
+    }
+
+    #[test]
+    fn compute_skip_set_marks_reverse_dependencies_dirty() {
+        let dir = tempdir().expect("tempdir");
+        let gen_dir = dir.path().join("gen");
+        fs::create_dir_all(&gen_dir).expect("gen dir");
+        fs::write(gen_dir.join("out.txt"), "generated\n").expect("gen file");
+
+        let src_path = "src/doc.txt".to_string();
+        let old_src = "// <<alpha>>=\nold\n// @\n// <<@file out.txt>>=\n<<alpha>>\n// @\n";
+        let new_src = "// <<alpha>>=\nnew\n// @\n// <<@file out.txt>>=\n<<alpha>>\n// @\n";
+        let old_blocks = parse_blocks(&src_path, old_src);
+
+        let mut prev_db = WeavebackDb::open_temp().expect("prev db");
+        prev_db
+            .set_source_blocks(&src_path, &old_blocks)
+            .expect("source blocks");
+        prev_db
+            .set_chunk_defs(&[
+                ChunkDefEntry {
+                    src_file: src_path.clone(),
+                    chunk_name: "alpha".to_string(),
+                    nth: 0,
+                    def_start: 1,
+                    def_end: 3,
+                },
+                ChunkDefEntry {
+                    src_file: src_path.clone(),
+                    chunk_name: "@file out.txt".to_string(),
+                    nth: 0,
+                    def_start: 4,
+                    def_end: 6,
+                },
+            ])
+            .expect("chunk defs");
+        prev_db
+            .set_chunk_deps(&[(
+                "@file out.txt".to_string(),
+                "alpha".to_string(),
+                src_path.clone(),
+            )])
+            .expect("deps");
+        prev_db.set_baseline("out.txt", b"generated\n").expect("baseline");
+
+        let mut current_db = WeavebackDb::open_temp().expect("current db");
+        let mut source_contents = HashMap::new();
+        source_contents.insert(src_path.clone(), new_src.to_string());
+
+        let skip = compute_skip_set(&source_contents, &Some(prev_db), &mut current_db, &gen_dir);
+        assert!(!skip.contains("@file out.txt"));
+    }
+
+    #[test]
+    fn compute_skip_set_does_not_skip_deleted_generated_output() {
+        let dir = tempdir().expect("tempdir");
+        let gen_dir = dir.path().join("gen");
+        fs::create_dir_all(&gen_dir).expect("gen dir");
+
+        let src_path = "src/doc.txt".to_string();
+        let src_text = "// <<@file out.txt>>=\nbody\n// @\n";
+        let blocks = parse_blocks(&src_path, src_text);
+
+        let mut prev_db = WeavebackDb::open_temp().expect("prev db");
+        prev_db.set_source_blocks(&src_path, &blocks).expect("source blocks");
+        prev_db
+            .set_chunk_defs(&[ChunkDefEntry {
+                src_file: src_path.clone(),
+                chunk_name: "@file out.txt".to_string(),
+                nth: 0,
+                def_start: 1,
+                def_end: 3,
+            }])
+            .expect("chunk defs");
+        prev_db.set_baseline("out.txt", b"generated\n").expect("baseline");
+
+        let mut current_db = WeavebackDb::open_temp().expect("current db");
+        let mut source_contents = HashMap::new();
+        source_contents.insert(src_path.clone(), src_text.to_string());
+
+        let skip = compute_skip_set(&source_contents, &Some(prev_db), &mut current_db, &gen_dir);
+        assert!(!skip.contains("@file out.txt"));
+    }
+
+    #[test]
+    fn dot_id_escapes_quotes_and_backslashes() {
+        assert_eq!(dot_id("plain"), "\"plain\"");
+        assert_eq!(dot_id("a\\b\"c"), "\"a\\\\b\\\"c\"");
+    }
+
+    #[test]
+    fn build_eval_config_splits_include_paths_and_preserves_flags() {
+        let pathsep = default_pathsep();
+        let args = Args {
+            inputs: Vec::new(),
+            input_dir: PathBuf::from("."),
+            sigil: '^',
+            no_macros: false,
+            include: format!("one{pathsep}two"),
+            db: PathBuf::from("weaveback.db"),
+            dump_expanded: false,
+            gen_dir: PathBuf::from("gen"),
+            open_delim: "<[".to_string(),
+            close_delim: "]>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: "#,//".to_string(),
+            formatter: Vec::new(),
+            force_generated: false,
+            directory: None,
+            ext: vec!["md".to_string()],
+            depfile: None,
+            stamp: None,
+            no_fts: false,
+            allow_env: true,
+            allow_home: false,
+            strict: false,
+            dry_run: false,
+            warn_unused: false,
+        };
+
+        let cfg = build_eval_config(&args);
+        assert_eq!(cfg.sigil, '^');
+        assert_eq!(cfg.include_paths, vec![PathBuf::from("one"), PathBuf::from("two")]);
+        assert!(cfg.allow_env);
+        assert!(!cfg.discovery_mode);
+    }
+
+    #[test]
+    fn defaults_and_pass_command_include_expected_flags() {
+        assert_eq!(default_tags_backend(), "anthropic");
+        assert_eq!(default_tags_model(), "claude-haiku-4-5-20251001");
+        assert_eq!(default_batch_size(), 15);
+
+        let pass = TanglePassCfg {
+            dir: "docs".to_string(),
+            output_dir: Some("gen-docs".to_string()),
+            ext: Some("adoc".to_string()),
+            no_macros: true,
+            open_delim: Some("<<".to_string()),
+            close_delim: Some(">>".to_string()),
+            chunk_end: Some("@@".to_string()),
+            comment_markers: Some("//,#".to_string()),
+            sigil: vec!["%".to_string(), "^".to_string()],
+        };
+
+        let cmd = build_pass_cmd(Path::new("/tmp/weaveback"), &pass, "gen", true);
+        assert_eq!(cmd.get_program().to_string_lossy(), "/tmp/weaveback");
+
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "--dir",
+                "docs",
+                "--gen",
+                "gen-docs",
+                "--force-generated",
+                "--ext",
+                "adoc",
+                "--no-macros",
+                "--open-delim",
+                "<<",
+                "--close-delim",
+                ">>",
+                "--chunk-end",
+                "@@",
+                "--comment-markers",
+                "//,#",
+                "--sigil",
+                "%",
+                "--sigil",
+                "^",
+                "--no-fts",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_pass_command_uses_default_gen_when_pass_output_is_absent() {
+        let pass = TanglePassCfg {
+            dir: "src".to_string(),
+            output_dir: None,
+            ext: None,
+            no_macros: false,
+            open_delim: None,
+            close_delim: None,
+            chunk_end: None,
+            comment_markers: None,
+            sigil: Vec::new(),
+        };
+
+        let cmd = build_pass_cmd(Path::new("weaveback"), &pass, "gen", false);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["--dir", "src", "--gen", "gen", "--no-fts"]);
+    }
+}

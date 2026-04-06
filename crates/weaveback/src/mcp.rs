@@ -390,6 +390,90 @@ fn handle_search(
     serde_json::to_string_pretty(&search_results_value(&results)).map_err(|e| e.to_string())
 }
 
+fn handle_list_chunks(
+    file_filter: Option<&str>,
+    db_path: &std::path::Path,
+) -> Result<String, String> {
+    if !db_path.exists() {
+        return Err("Database not found. Run weaveback on your source files first.".to_string());
+    }
+    let db = WeavebackDb::open_read_only(db_path)
+        .map_err(|e| format!("Database error: {e:?}"))?;
+    let defs = db
+        .list_chunk_defs(file_filter)
+        .map_err(|e| format!("Query error: {e:?}"))?;
+    let arr: Vec<Value> = defs
+        .iter()
+        .map(|d| {
+            json!({
+                "file":      d.src_file,
+                "name":      d.chunk_name,
+                "nth":       d.nth,
+                "def_start": d.def_start,
+                "def_end":   d.def_end,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&arr).map_err(|e| e.to_string())
+}
+
+fn handle_find_chunk(
+    input: &serde_json::Map<String, Value>,
+    db_path: &std::path::Path,
+) -> Result<String, String> {
+    let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    if name.is_empty() {
+        return Err("name is required".to_string());
+    }
+    if !db_path.exists() {
+        return Err("Database not found. Run weaveback on your source files first.".to_string());
+    }
+    let db = WeavebackDb::open_read_only(db_path)
+        .map_err(|e| format!("Database error: {e:?}"))?;
+    let defs = db
+        .find_chunk_defs_by_name(name)
+        .map_err(|e| format!("Query error: {e:?}"))?;
+    let arr: Vec<Value> = defs
+        .iter()
+        .map(|d| {
+            json!({
+                "file":      d.src_file,
+                "nth":       d.nth,
+                "def_start": d.def_start,
+                "def_end":   d.def_end,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&arr).map_err(|e| e.to_string())
+}
+
+fn handle_list_tags(
+    file_filter: Option<&str>,
+    db_path: &std::path::Path,
+) -> Result<String, String> {
+    if !db_path.exists() {
+        return Err("Database not found. Run weaveback on your source files first.".to_string());
+    }
+    let db = WeavebackDb::open_read_only(db_path)
+        .map_err(|e| format!("Database error: {e:?}"))?;
+    let blocks = db
+        .list_block_tags(file_filter)
+        .map_err(|e| format!("Tag list error: {e:?}"))?;
+    let arr: Vec<Value> = blocks
+        .iter()
+        .map(|b| {
+            json!({
+                "src_file":    b.src_file,
+                "block_index": b.block_index,
+                "block_type":  b.block_type,
+                "line_start":  b.line_start,
+                "tags":        b.tags,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&arr).map_err(|e| e.to_string())
+}
+
 pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), crate::Error> {
     let stdin = io::stdin();
     let mut lsp_clients: HashMap<String, LspClient> = HashMap::new();
@@ -515,25 +599,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let file_filter = input
                             .and_then(|i| i.get("file"))
                             .and_then(|v| v.as_str());
-                        if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
-                            continue;
-                        }
-                        match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
-                            Ok(db) => match db.list_chunk_defs(file_filter) {
-                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
-                                Ok(defs) => {
-                                    let arr: Vec<Value> = defs.iter().map(|d| json!({
-                                        "file":      d.src_file,
-                                        "name":      d.chunk_name,
-                                        "nth":       d.nth,
-                                        "def_start": d.def_start,
-                                        "def_end":   d.def_end,
-                                    })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
-                                }
-                            },
+                        match handle_list_chunks(file_filter, &db_path) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -542,29 +610,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             send_error(id, "Missing arguments");
                             continue;
                         };
-                        let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                        if name.is_empty() {
-                            send_error(id, "name is required");
-                            continue;
-                        }
-                        if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
-                            continue;
-                        }
-                        match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
-                            Ok(db) => match db.find_chunk_defs_by_name(name) {
-                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
-                                Ok(defs) => {
-                                    let arr: Vec<Value> = defs.iter().map(|d| json!({
-                                        "file":      d.src_file,
-                                        "nth":       d.nth,
-                                        "def_start": d.def_start,
-                                        "def_end":   d.def_end,
-                                    })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
-                                }
-                            },
+                        match handle_find_chunk(input, &db_path) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -783,25 +831,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let file_filter = input.as_ref()
                             .and_then(|v| v.get("file"))
                             .and_then(|v| v.as_str());
-                        if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
-                            continue;
-                        }
-                        match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
-                            Ok(db) => match db.list_block_tags(file_filter) {
-                                Err(e) => send_error(id, &format!("Tag list error: {e:?}")),
-                                Ok(blocks) => {
-                                    let arr: Vec<Value> = blocks.iter().map(|b| json!({
-                                        "src_file":    b.src_file,
-                                        "block_index": b.block_index,
-                                        "block_type":  b.block_type,
-                                        "line_start":  b.line_start,
-                                        "tags":        b.tags,
-                                    })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
-                                }
-                            },
+                        match handle_list_tags(file_filter, &db_path) {
+                            Ok(text) => send_text(id, &text),
+                            Err(e) => send_error(id, &e),
                         }
                     }
 
@@ -830,8 +862,88 @@ fn send_error(id: Option<Value>, msg: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_apply_fix_plan, error_result, response_payload, text_result, tools_list_result};
-    use serde_json::json;
+    use super::{
+        build_apply_fix_plan, error_result, handle_apply_fix, handle_chunk_context,
+        handle_find_chunk, handle_list_chunks, handle_list_tags, handle_search,
+        response_payload, text_result, tools_list_result,
+    };
+    use serde_json::{json, Map, Value};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use weaveback_agent_core::{Workspace as AgentWorkspace, WorkspaceConfig as AgentWorkspaceConfig};
+    use weaveback_tangle::block_parser::SourceBlockEntry;
+    use weaveback_tangle::db::{ChunkDefEntry, Confidence, NowebMapEntry, TangleConfig, WeavebackDb};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TestWorkspace {
+        root: PathBuf,
+        db_path: PathBuf,
+        gen_dir: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let unique = format!(
+                "wb-mcp-tests-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("clock drifted backwards")
+                    .as_nanos()
+                    + u128::from(TEST_COUNTER.fetch_add(1, Ordering::Relaxed))
+            );
+            let root = std::env::temp_dir().join(unique);
+            let gen_dir = root.join("gen");
+            let db_path = root.join("weaveback.db");
+            fs::create_dir_all(&gen_dir).expect("create temp workspace");
+            Self { root, db_path, gen_dir }
+        }
+
+        fn agent_session(&self) -> weaveback_agent_core::Session {
+            AgentWorkspace::open(AgentWorkspaceConfig {
+                project_root: self.root.clone(),
+                db_path: self.db_path.clone(),
+                gen_dir: self.gen_dir.clone(),
+            })
+            .session()
+        }
+
+        fn write_source(&self, rel: &str, content: &str) -> PathBuf {
+            let path = self.root.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create source parent");
+            }
+            fs::write(&path, content).expect("write source");
+            path
+        }
+
+        fn read_source(&self, rel: &str) -> String {
+            fs::read_to_string(self.root.join(rel)).expect("read source")
+        }
+
+        fn open_db(&self) -> WeavebackDb {
+            WeavebackDb::open(&self.db_path).expect("open sqlite db")
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn block(index: u32, block_type: &str, line_start: u32, line_end: u32) -> SourceBlockEntry {
+        SourceBlockEntry {
+            block_index: index,
+            block_type: block_type.to_string(),
+            line_start,
+            line_end,
+            content_hash: [0u8; 32],
+        }
+    }
 
     #[test]
     fn tools_list_contains_expected_core_tools() {
@@ -881,5 +993,286 @@ mod tests {
         let err = response_payload(Some(json!("req-1")), error_result("boom"));
         assert_eq!(err["result"]["isError"], json!(true));
         assert_eq!(err["result"]["content"][0]["text"], json!("boom"));
+    }
+
+    #[test]
+    fn handle_search_returns_pretty_json_hits() {
+        let workspace = TestWorkspace::new();
+        let source = "= Intro\n\nLiterate search text.\n";
+        workspace.write_source("docs/search.adoc", source);
+
+        let mut db = workspace.open_db();
+        db.set_src_snapshot("docs/search.adoc", source.as_bytes()).unwrap();
+        db.set_source_blocks(
+            "docs/search.adoc",
+            &[block(0, "section", 1, 1), block(1, "para", 3, 3)],
+        )
+        .unwrap();
+        db.set_block_tags("docs/search.adoc", 1, &[1u8; 32], "search,docs")
+            .unwrap();
+        db.rebuild_prose_fts().unwrap();
+        drop(db);
+
+        let mut input = Map::new();
+        input.insert("query".to_string(), json!("literate"));
+        let text = handle_search(Some(&input), &workspace.db_path, &workspace.agent_session()).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        let hits = value.as_array().expect("search results array");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["src_file"], "docs/search.adoc");
+        assert_eq!(hits[0]["block_type"], "para");
+        assert_eq!(hits[0]["tags"], json!(["search", "docs"]));
+    }
+
+    #[test]
+    fn handle_chunk_context_returns_serialized_context() {
+        let workspace = TestWorkspace::new();
+        let source = [
+            "= Root",
+            "",
+            "== MCP",
+            "Context prose.",
+            "",
+            "// <<alpha>>=",
+            "alpha line",
+            "<<beta>>",
+            "// @",
+            "",
+            "// <<beta>>=",
+            "beta line",
+            "// @",
+        ]
+        .join("\n");
+        workspace.write_source("docs/mcp.adoc", &source);
+
+        let mut db = workspace.open_db();
+        db.set_chunk_defs(&[
+            ChunkDefEntry {
+                src_file: "docs/mcp.adoc".to_string(),
+                chunk_name: "alpha".to_string(),
+                nth: 0,
+                def_start: 6,
+                def_end: 9,
+            },
+            ChunkDefEntry {
+                src_file: "docs/mcp.adoc".to_string(),
+                chunk_name: "beta".to_string(),
+                nth: 0,
+                def_start: 11,
+                def_end: 13,
+            },
+        ])
+        .unwrap();
+        db.set_chunk_deps(&[(
+            "alpha".to_string(),
+            "beta".to_string(),
+            "docs/mcp.adoc".to_string(),
+        )])
+        .unwrap();
+        db.set_noweb_entries(
+            "gen/out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "docs/mcp.adoc".to_string(),
+                    chunk_name: "alpha".to_string(),
+                    src_line: 5,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+        drop(db);
+
+        let mut input = Map::new();
+        input.insert("file".to_string(), json!("docs/mcp.adoc"));
+        input.insert("name".to_string(), json!("alpha"));
+        let text = handle_chunk_context(&input, &workspace.agent_session()).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["file"], "docs/mcp.adoc");
+        assert_eq!(value["name"], "alpha");
+        assert_eq!(value["body"], "alpha line\n<<beta>>");
+        assert_eq!(value["section_title_chain"], json!(["Root", "MCP"]));
+        assert_eq!(value["section_prose"], "== MCP\nContext prose.");
+        assert_eq!(value["dependencies"], json!(["beta"]));
+        assert_eq!(value["output_files"], json!(["gen/out.rs"]));
+    }
+
+    #[test]
+    fn handle_apply_fix_applies_or_reports_validation_errors() {
+        let workspace = TestWorkspace::new();
+        let src_path = workspace.write_source("docs/fix.adoc", "before\n");
+
+        let mut db = workspace.open_db();
+        db.set_src_snapshot("docs/fix.adoc", b"before\n").unwrap();
+        db.set_source_config(
+            "docs/fix.adoc",
+            &TangleConfig {
+                sigil: '%',
+                open_delim: "<<".to_string(),
+                close_delim: ">>".to_string(),
+                chunk_end: "@".to_string(),
+                comment_markers: vec!["//".to_string()],
+            },
+        )
+        .unwrap();
+        db.set_noweb_entries(
+            "gen/out.txt",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "docs/fix.adoc".to_string(),
+                    chunk_name: "literal".to_string(),
+                    src_line: 0,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+        drop(db);
+
+        let mut ok_input = Map::new();
+        ok_input.insert("src_file".to_string(), json!(src_path.to_string_lossy()));
+        ok_input.insert("src_line".to_string(), json!(1));
+        ok_input.insert("new_src_line".to_string(), json!("after"));
+        ok_input.insert("out_file".to_string(), json!("gen/out.txt"));
+        ok_input.insert("out_line".to_string(), json!(1));
+        ok_input.insert("expected_output".to_string(), json!("after"));
+        let text = handle_apply_fix(&ok_input, &workspace.agent_session()).unwrap();
+        assert!(text.contains("Applied ChangePlan mcp-apply-fix"));
+        assert_eq!(workspace.read_source("docs/fix.adoc"), "after\n");
+
+        let mut bad_input = Map::new();
+        bad_input.insert("src_file".to_string(), json!(src_path.to_string_lossy()));
+        bad_input.insert("src_line".to_string(), json!(0));
+        bad_input.insert("out_file".to_string(), json!("gen/out.txt"));
+        bad_input.insert("out_line".to_string(), json!(1));
+        bad_input.insert("expected_output".to_string(), json!("after"));
+        let err = handle_apply_fix(&bad_input, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "src_line must be >= 1");
+    }
+
+    #[test]
+    fn handle_search_reports_missing_query_and_missing_db() {
+        let workspace = TestWorkspace::new();
+        let empty = Map::new();
+        let err = handle_search(Some(&empty), &workspace.db_path, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "query is required");
+
+        let mut input = Map::new();
+        input.insert("query".to_string(), json!("anything"));
+        let err = handle_search(Some(&input), &workspace.db_path, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "Database not found. Run weaveback on your source files first.");
+    }
+
+    #[test]
+    fn handle_chunk_context_reports_missing_or_unknown_chunk() {
+        let workspace = TestWorkspace::new();
+        let mut input = Map::new();
+        let err = handle_chunk_context(&input, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "file and name are required");
+
+        workspace.write_source("docs/empty.adoc", "= Empty\n");
+        let db = workspace.open_db();
+        db.set_src_snapshot("docs/empty.adoc", b"= Empty\n").unwrap();
+        drop(db);
+
+        input.insert("file".to_string(), json!("docs/empty.adoc"));
+        input.insert("name".to_string(), json!("missing"));
+        let err = handle_chunk_context(&input, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "Chunk not found: docs/empty.adoc#missing[0]");
+    }
+
+    #[test]
+    fn handle_apply_fix_reports_bad_range_order() {
+        let workspace = TestWorkspace::new();
+        let mut input = Map::new();
+        input.insert("src_file".to_string(), json!("/tmp/source.adoc"));
+        input.insert("src_line".to_string(), json!(3));
+        input.insert("src_line_end".to_string(), json!(2));
+        input.insert("out_file".to_string(), json!("gen/out.txt"));
+        input.insert("out_line".to_string(), json!(1));
+        input.insert("expected_output".to_string(), json!("x"));
+
+        let err = handle_apply_fix(&input, &workspace.agent_session()).unwrap_err();
+        assert_eq!(err, "src_line_end must be >= src_line");
+    }
+
+    #[test]
+    fn handle_list_chunks_and_find_chunk_return_serialized_results() {
+        let workspace = TestWorkspace::new();
+        workspace.write_source(
+            "docs/list.adoc",
+            "= List\n\n// <<alpha>>=\nbody\n// @\n\n// <<beta>>=\nmore\n// @\n",
+        );
+        let mut db = workspace.open_db();
+        db.set_chunk_defs(&[
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "docs/list.adoc".to_string(),
+                chunk_name: "alpha".to_string(),
+                nth: 0,
+                def_start: 3,
+                def_end: 5,
+            },
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "docs/list.adoc".to_string(),
+                chunk_name: "beta".to_string(),
+                nth: 0,
+                def_start: 7,
+                def_end: 9,
+            },
+        ])
+        .unwrap();
+        drop(db);
+
+        let listed = handle_list_chunks(Some("docs/list.adoc"), &workspace.db_path).unwrap();
+        let listed: Value = serde_json::from_str(&listed).unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 2);
+        assert_eq!(listed[0]["name"], "alpha");
+
+        let mut input = Map::new();
+        input.insert("name".to_string(), json!("beta"));
+        let found = handle_find_chunk(&input, &workspace.db_path).unwrap();
+        let found: Value = serde_json::from_str(&found).unwrap();
+        assert_eq!(found.as_array().unwrap().len(), 1);
+        assert_eq!(found[0]["file"], "docs/list.adoc");
+    }
+
+    #[test]
+    fn handle_list_chunks_find_chunk_and_tags_report_missing_data() {
+        let workspace = TestWorkspace::new();
+
+        let err = handle_list_chunks(None, &workspace.db_path).unwrap_err();
+        assert_eq!(err, "Database not found. Run weaveback on your source files first.");
+
+        let empty = Map::new();
+        let err = handle_find_chunk(&empty, &workspace.db_path).unwrap_err();
+        assert_eq!(err, "name is required");
+
+        let err = handle_list_tags(None, &workspace.db_path).unwrap_err();
+        assert_eq!(err, "Database not found. Run weaveback on your source files first.");
+    }
+
+    #[test]
+    fn handle_list_tags_returns_serialized_tag_rows() {
+        let workspace = TestWorkspace::new();
+        let mut db = workspace.open_db();
+        db.set_source_blocks(
+            "docs/tags.adoc",
+            &[block(0, "para", 1, 2)],
+        )
+        .unwrap();
+        db.set_block_tags("docs/tags.adoc", 0, &[1, 2, 3], "sqlite,fts")
+            .unwrap();
+        drop(db);
+
+        let text = handle_list_tags(Some("docs/tags.adoc"), &workspace.db_path).unwrap();
+        let value: Value = serde_json::from_str(&text).unwrap();
+        let arr = value.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["src_file"], "docs/tags.adoc");
+        assert_eq!(arr[0]["tags"], "sqlite,fts");
     }
 }

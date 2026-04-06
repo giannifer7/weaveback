@@ -1,0 +1,286 @@
+= Facts And Rules For Option Specs
+:toc: left
+
+This note explores a possible next step for the CLI option-spec work: treat
+option declarations as facts, then run declarative rules over them to check for
+drift, omission, and weak documentation.
+
+The immediate motivation is simple: an option declaration like
+
+[source,text]
+----
+option(
+    command = tangle,
+    id = force_generated,
+    long = force-generated,
+    value_kind = bool,
+    default = false,
+    help_short = "Overwrite drifted generated files.",
+    rationale = "Explicit regeneration when literate source is authoritative.",
+)
+----
+
+already looks much more like a fact in a logic program than like arbitrary
+procedural code.  Once we admit that, useful rule checks become easier to state
+and reason about.
+
+== Why Bother
+
+The value here is not abstract cleverness.  It is a practical attempt to catch:
+
+* options declared but not implemented
+* options implemented but not declared
+* options that exist but have weak explanation
+* safety-sensitive options with no rationale or tests
+* parser errors that fail to mention the offending option
+* examples and docs that silently drift away from reality
+
+This is especially aligned with weaveback's broader goal: preserve not only the
+surface syntax, but also intent, provenance, and constraints.
+
+== The Facts
+
+The option-spec declarations already carry several distinct facts:
+
+* which command the option belongs to
+* its long and short names
+* type and default
+* help text
+* rationale
+* examples
+* stability or safety sensitivity
+* whether the option requires validation
+
+That means we can think in terms of relations such as:
+
+[source,prolog]
+----
+option(tangle, force_generated).
+long_name(tangle, force_generated, "force-generated").
+value_kind(tangle, force_generated, bool).
+default_value(tangle, force_generated, false).
+help_short(tangle, force_generated,
+    "Overwrite drifted generated files.").
+rationale(tangle, force_generated,
+    "Explicit regeneration when literate source is authoritative.").
+safety_sensitive(tangle, force_generated).
+example(tangle, force_generated,
+    "weaveback tangle --force-generated").
+----
+
+This is only a different view of data we already have.  The gain comes from the
+rules we can state over it.
+
+== First Useful Rules
+
+The most useful first rules are the ones that catch drift and omission cheaply.
+
+* Every declared option must have an implementation projection.
+  Meaning: if the fact exists, generated Clap, argparse, or equivalent output
+  must exist.
+
+* Every implemented option must come from a declaration.
+  This catches hand-written escape hatches and silent drift.
+
+* Every option must belong to exactly one command surface.
+  Good for avoiding duplicates and half-moved declarations.
+
+* Every option must have short help, rationale, and at least one example.
+  This is a strong weaveback-style rule because it preserves the why, not just
+  the parser syntax.
+
+* Every option with nontrivial behavior must have a test.
+  "Nontrivial" here should not mean "everything".  It should mean options that
+  affect safety, mutation, or control flow materially.
+
+* Every option that can fail validation must define an error contract.
+  For example:
+  - invalid value diagnostic
+  - conflicting option diagnostic
+  - missing dependency diagnostic
+
+* Every option should have source provenance.
+  The generated CLI and docs should be able to point back to the declaration
+  site.
+
+== Stronger Rules Worth Considering
+
+These are more ambitious, but still grounded.
+
+* Safety-sensitive options must have rationale.
+  Examples include `--force-generated`, `--allow-home`, and any option that
+  bypasses checks or enables mutation.
+
+* Experimental options must declare stability.
+  Then docs can group them and tests can enforce visibility policy.
+
+* Hidden or deprecated options must not appear in normal docs.
+  But they may still belong in compatibility or migration docs.
+
+* Options affecting the same concept must have consistent names across surfaces.
+  For example, if the project settles on `sigil`, we should not keep one
+  surface on `special_char`.
+
+* Every documented example must parse.
+  This is often one of the cheapest and highest-value rules.
+
+== About Tests
+
+"Every option must have a test" is attractive, but too crude.  It tends to
+produce checkbox tests.
+
+A better formulation is:
+
+* every option must have at least one parseable example
+* every safety-sensitive option must have a behavior test
+* every validation-heavy option must have error-path tests
+
+That keeps the rule tied to risk rather than bureaucratic completeness.
+
+== About Errors
+
+One very worthwhile rule is:
+
+* every validation error must mention the offending option name
+
+When possible, it should also mention the bad value.  This is exactly the
+diagnostic lesson we keep relearning elsewhere in the project: an error without
+the actionable subject is mostly noise.
+
+So for options this suggests:
+
+* bad value diagnostics should name the option
+* conflicting option diagnostics should name both options
+* missing dependency diagnostics should name the required option or mode
+
+If the option-spec system is the source of truth, the rule engine can enforce
+this instead of relying on discipline.
+
+== A Useful Fact And Rule Split
+
+Facts:
+
+* option exists
+* option belongs to command
+* option kind/default/help/rationale/example
+* option is safety-sensitive
+* option is experimental
+* option requires parser validation
+* option has test id(s)
+* option has implementation id(s)
+
+Rules:
+
+* missing implementation
+* missing docs projection
+* missing rationale for safety-sensitive option
+* missing example
+* missing test for nontrivial option
+* inconsistent naming across surfaces
+* invalid example
+* undocumented implementation
+* option parser error does not mention the option name
+
+If we implement only a few rules first, the highest-value ones are probably:
+
+* declared option implies implementation exists
+* implemented option implies declaration exists
+* every option implies docs/help/example exist
+* safety-sensitive option implies rationale and test exist
+* every example parses successfully
+* every validation error mentions the option name
+
+== Prolog, SQL, Datalog
+
+I lean with the idea that this layer should be functionally distinct from the
+usual project database.  The point is not persistent storage first; the point is
+expressing checks cleanly.
+
+That makes a logic-oriented layer attractive.
+
+=== Prolog
+
+Pros:
+
+* natural fit for relations and rules
+* easy to read as "facts plus constraints"
+* clearly separated in purpose from SQLite build data
+* good for exploratory, declarative checks
+
+Cons:
+
+* another toolchain and language to carry
+* less familiar to many contributors
+* integration and diagnostics need care
+
+Prolog feels like the most direct conceptual fit if the main question is:
+"what rules do we want to express over our declarations?"
+
+=== SQL
+
+SQL can express a surprising amount of this, especially if facts are already
+materialized into SQLite.  For joins and anti-joins it is often enough.
+
+But SQL is less appealing here if:
+
+* the main goal is not storage
+* the rule language should feel clearly distinct from the build database
+* the project author does not particularly want to live in SQL
+
+So SQL is a valid implementation path, but not necessarily the best design fit.
+
+=== Datalog And Relatives
+
+Datalog is worth serious consideration.
+
+Compared with Prolog, it tends to be:
+
+* more constrained
+* more obviously data-oriented
+* often easier to analyze and reason about
+* a good fit for "facts plus monotonic rules" rather than full logic-programming
+
+That may actually suit weaveback better than general Prolog if the rule engine
+is mostly for consistency checking rather than arbitrary search.
+
+This is also where the Clojure ecosystem becomes relevant.  The family you are
+probably remembering includes Datalog-like systems such as:
+
+* Datomic
+* DataScript
+* Datalevin
+
+These make Datalog feel less like an academic side road and more like a
+practical query-and-rules layer over structured facts.
+
+So the rough comparison is:
+
+* Prolog:
+  good if we want the clearest "facts and rules" feel
+* Datalog:
+  good if we want a constrained, data-oriented rule system
+* SQL:
+  good if we want the cheapest implementation over existing SQLite data
+
+My current bias is:
+
+* Prolog or Datalog is a better conceptual fit than plain SQL
+* Datalog may be the better long-term engineering fit if we want the rule layer
+  to stay disciplined and analysis-friendly
+* Prolog may be the better thinking tool while the design is still exploratory
+
+== Suggested Next Step
+
+Do not start by building the whole engine.
+
+Start by choosing a tiny fact set for one bounded surface, probably
+`weaveback tangle`, then express a few high-value checks:
+
+* declared option has implementation
+* implementation has declaration
+* safety-sensitive option has rationale
+* every example parses
+* every validation error names the option
+
+If that already feels valuable and readable, the rule layer is earning its
+place.  If it starts feeling like another ornate abstraction, we should stop.

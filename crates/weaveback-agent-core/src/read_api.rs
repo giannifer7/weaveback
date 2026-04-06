@@ -175,14 +175,24 @@ fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
 fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;
+    let mut in_chunk = false;
     let mut out = Vec::new();
 
     for line in lines.iter().take(end).skip(start) {
-        if line.trim() == "----" {
+        let trimmed = line.trim();
+        if trimmed == "----" {
             in_fence = !in_fence;
             continue;
         }
-        if !in_fence {
+        if trimmed.starts_with("// <<") && trimmed.ends_with(">>=") {
+            in_chunk = true;
+            continue;
+        }
+        if trimmed == "// @" {
+            in_chunk = false;
+            continue;
+        }
+        if !in_fence && !in_chunk {
             out.push(*line);
         }
     }

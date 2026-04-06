@@ -828,9 +828,15 @@ pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
 }
 
 /// Extract all prose lines from `lines[start..end]`, skipping content inside
-/// `----` listing-block fences.  The result is the human-written narrative
-/// of the section — headings, paragraphs, admonitions, lists — without any
-/// code.
+/// `----` listing-block fences and noweb chunk bodies.  The result is the
+/// human-written narrative of the section — headings, paragraphs, admonitions,
+/// lists — without any code.
+///
+/// Skipping chunk bodies here is defensive.  In well-formed literate sources,
+/// chunk definitions should already live inside fenced code blocks.  If prose
+/// extraction still encounters raw chunk markers in section text, that is a
+/// source-structure problem and should eventually be reported by a linter
+/// rather than silently normalized by every downstream consumer.
 pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;

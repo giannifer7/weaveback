@@ -326,4 +326,43 @@ mod tests {
         assert_eq!(blocks[0].line_start, 1);
         assert_eq!(blocks[0].line_end, 2);
     }
+
+    #[test]
+    fn adoc_section_and_para_are_split() {
+        let src = "= Title\n\nIntro paragraph.\n\n== Next\n\nMore prose.\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+        assert!(types.contains(&"section"));
+        assert!(types.iter().filter(|t| **t == "para").count() >= 2);
+        assert!(blocks.iter().any(|b| b.block_type == "section" && b.line_start == 5 && b.line_end == 5));
+        assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 3 && b.line_end == 3));
+        assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 7 && b.line_end == 7));
+    }
+
+    #[test]
+    fn adoc_unclosed_fence_runs_to_end_of_file() {
+        let src = "= Title\n\n----\nfn main() {}\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+        assert_eq!(code.line_start, 3);
+        assert_eq!(code.line_end, 4);
+    }
+
+    #[test]
+    fn markdown_paragraphs_are_emitted() {
+        let src = "# Heading\n\nAlpha paragraph.\n\nBeta paragraph.\n";
+        let blocks = parse_source_blocks(src, "md");
+        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+        assert!(types.contains(&"section"));
+        assert_eq!(types.iter().filter(|t| **t == "para").count(), 2);
+    }
+
+    #[test]
+    fn empty_markdown_falls_back_to_text_block() {
+        let blocks = parse_source_blocks("", "md");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].block_type, "text");
+        assert_eq!(blocks[0].line_start, 1);
+        assert_eq!(blocks[0].line_end, 1);
+    }
 }

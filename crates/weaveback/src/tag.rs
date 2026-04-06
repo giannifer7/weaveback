@@ -277,6 +277,7 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use weaveback_tangle::block_parser::SourceBlockEntry;
 
     // ── parse_response ────────────────────────────────────────────────────────
 
@@ -363,5 +364,82 @@ mod tests {
     #[test]
     fn test_block_first_line_empty_source() {
         assert_eq!(block_first_line("", 1, 1), "");
+    }
+
+    // ── backend selection / orchestration ───────────────────────────────────
+
+    fn block(index: u32, block_type: &str, line_start: u32, line_end: u32) -> SourceBlockEntry {
+        SourceBlockEntry {
+            block_index: index,
+            block_type: block_type.to_string(),
+            line_start,
+            line_end,
+            content_hash: [0u8; 32],
+        }
+    }
+
+    #[test]
+    fn test_call_llm_propagates_backend_errors() {
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 1,
+        };
+        let err = call_llm(&cfg, "prompt").unwrap_err();
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn test_run_auto_tag_noop_when_no_blocks_need_tags() {
+        let mut db = WeavebackDb::open_temp().unwrap();
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 4,
+        };
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_run_auto_tag_skips_when_snapshot_missing() {
+        let mut db = WeavebackDb::open_temp().unwrap();
+        db.set_source_blocks(
+            "docs/tag.adoc",
+            &[block(0, "section", 1, 1), block(1, "para", 3, 3)],
+        )
+        .unwrap();
+
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 1,
+        };
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_run_auto_tag_skips_when_llm_call_fails() {
+        let mut db = WeavebackDb::open_temp().unwrap();
+        let source = "= Title\n\nParagraph.\n";
+        db.set_src_snapshot("docs/tag.adoc", source.as_bytes()).unwrap();
+        db.set_source_blocks(
+            "docs/tag.adoc",
+            &[block(0, "section", 1, 1), block(1, "para", 3, 3)],
+        )
+        .unwrap();
+
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 1,
+        };
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
     }
 }

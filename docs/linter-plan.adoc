@@ -1,0 +1,140 @@
+= Linter Planning Notes
+:toc: left
+:toclevels: 3
+
+This document is a planning note for a future structural linter.
+It is intentionally provisional.  The goal is not to freeze policy too early,
+but to record which invariants already matter in practice and which checks would
+pay for themselves.
+
+== Why a linter belongs here
+
+Weaveback already depends on structural conventions that are stronger than what
+plain AsciiDoc or noweb enforce by themselves.
+
+Some examples:
+
+* chunk definitions are expected to live inside fenced code blocks
+* prose sections are expected to contain prose, not raw chunk bodies
+* generated files are expected to remain derivable from literate sources
+* source-of-truth documents are expected to stay in sync with their generated
+  projections
+
+Right now some of these rules are only implicit.  When they are violated,
+downstream tools compensate defensively.  That is useful for robustness, but it
+is not enough.  The project also needs a place where structural violations are
+reported explicitly.
+
+That is the role of a future linter.
+
+== Immediate rule candidate
+
+The first concrete rule uncovered by recent work is:
+
+* `chunk-body-outside-fence`
+
+Meaning:
+
+* every noweb chunk definition body should be enclosed by a fenced code block
+* raw chunk bodies should not appear directly in narrative section prose
+
+Why this matters:
+
+* prose-extraction helpers should not have to guess whether code-looking lines
+  are actually prose
+* context builders such as the live server and MCP chunk-context handlers need
+  section prose to mean prose
+* violating this rule creates ambiguity and encourages downstream heuristics
+
+Recommended initial severity:
+
+* start as a warning
+* later consider making it an error for first-party project sources
+
+== Likely linter areas
+
+The linter probably wants to cover several families of checks.
+
+=== 1. Literate structure
+
+Examples:
+
+* chunk bodies outside fenced code blocks
+* unterminated chunk definitions
+* nested or overlapping chunk markers in invalid positions
+* duplicate file-chunk ownership where uniqueness is expected
+
+=== 2. Documentation drift
+
+Examples:
+
+* docs claim an endpoint, tool, or behavior that no longer exists
+* generated reference documents are stale relative to their source
+* architecture documents mention implementation details that no longer match
+
+This overlaps with the earlier facts-and-claims discussion and may eventually
+share infrastructure with a `docs-check` command.
+
+=== 3. Projection discipline
+
+Examples:
+
+* generated files edited directly when a literate source exists
+* known generated paths missing from expected tangle passes
+* source-of-truth notes present without discoverable links from served docs
+
+=== 4. Workflow hygiene
+
+Examples:
+
+* chunk definitions or generated references that violate formatting conventions
+* stale local caches accidentally checked in
+* project-owned generated files drifting from their `.adoc` sources
+
+== Desired design qualities
+
+The linter should be:
+
+* structural rather than stylistic by default
+* explicit about what is a warning versus an error
+* cheap enough to run regularly
+* precise about file and line locations
+* able to explain why a rule exists, not just that it fired
+
+It should avoid turning into a generic style enforcer unless there is a strong
+project-specific reason.
+
+== Possible command shape
+
+A plausible future interface could be:
+
+[source,bash]
+----
+weaveback lint
+weaveback lint --strict
+weaveback lint --rule chunk-body-outside-fence
+----
+
+Possible output style:
+
+* file path
+* line or chunk reference
+* rule id
+* short explanation
+* optional remediation hint
+
+Example:
+
+[source,text]
+----
+crates/weaveback/src/serve.adoc:712: chunk-body-outside-fence
+  chunk definition `extract-prose` is not fully enclosed by a fenced code block
+  prose/context tools assume section prose excludes chunk bodies
+----
+
+== Non-goal for now
+
+This document does not commit the project to implementing the linter
+immediately.  It records the invariants that are already shaping behavior, so
+they can be turned into explicit checks later instead of being rediscovered
+through bugs and defensive code.

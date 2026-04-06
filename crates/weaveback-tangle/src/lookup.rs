@@ -95,3 +95,133 @@ pub fn find_best_source_config(
 
     Ok(None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{find_best_noweb_entry, find_best_source_config, find_line_col};
+    use crate::db::{Confidence, NowebMapEntry, TangleConfig, WeavebackDb};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use weaveback_core::PathResolver;
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TestWorkspace {
+        root: PathBuf,
+        gen_dir: PathBuf,
+        db_path: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let unique = format!(
+                "wb-lookup-tests-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("clock drifted backwards")
+                    .as_nanos()
+                    + u128::from(TEST_COUNTER.fetch_add(1, Ordering::Relaxed))
+            );
+            let root = std::env::temp_dir().join(unique);
+            let gen_dir = root.join("gen");
+            let db_path = root.join("weaveback.db");
+            fs::create_dir_all(&gen_dir).expect("create temp workspace");
+            Self { root, gen_dir, db_path }
+        }
+
+        fn resolver(&self) -> PathResolver {
+            PathResolver::new(self.root.clone(), self.gen_dir.clone())
+        }
+
+        fn open_db(&self) -> WeavebackDb {
+            WeavebackDb::open(&self.db_path).expect("open sqlite db")
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn sample_config() -> TangleConfig {
+        TangleConfig {
+            sigil: '%',
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["//".to_string()],
+        }
+    }
+
+    #[test]
+    fn find_line_col_counts_utf8_columns() {
+        let text = "alpha\nbèta\n終";
+        assert_eq!(find_line_col(text, 0), (1, 1));
+        assert_eq!(find_line_col(text, 6), (2, 1));
+        assert_eq!(find_line_col(text, "alpha\nbè".len()), (2, 3));
+        assert_eq!(find_line_col(text, text.len()), (3, 2));
+    }
+
+    #[test]
+    fn find_best_noweb_entry_uses_exact_and_normalized_paths() {
+        let workspace = TestWorkspace::new();
+        let mut db = workspace.open_db();
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "docs/source.adoc".to_string(),
+                    chunk_name: "alpha".to_string(),
+                    src_line: 10,
+                    indent: "    ".to_string(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+
+        let resolver = workspace.resolver();
+        let exact = find_best_noweb_entry(&db, "out.rs", 0, &resolver).unwrap().unwrap();
+        assert_eq!(exact.chunk_name, "alpha");
+
+        let gen_path = workspace.gen_dir.join("out.rs");
+        let normalized = find_best_noweb_entry(&db, gen_path.to_string_lossy().as_ref(), 0, &resolver)
+            .unwrap()
+            .unwrap();
+        assert_eq!(normalized.src_file, "docs/source.adoc");
+    }
+
+    #[test]
+    fn find_best_source_config_handles_exact_dotslash_prefix_and_absolute_name() {
+        let workspace = TestWorkspace::new();
+        let db = workspace.open_db();
+        let cfg = sample_config();
+
+        db.set_source_config("docs/exact.adoc", &cfg).unwrap();
+        assert!(find_best_source_config(&db, "docs/exact.adoc").unwrap().is_some());
+        assert!(find_best_source_config(&db, "./docs/exact.adoc").unwrap().is_some());
+
+        db.set_source_config("./docs/dotted.adoc", &cfg).unwrap();
+        assert!(find_best_source_config(&db, "docs/dotted.adoc").unwrap().is_some());
+
+        db.set_source_config("lookup.adoc", &cfg).unwrap();
+        let abs = workspace.root.join("nested").join("lookup.adoc");
+        assert!(find_best_source_config(&db, abs.to_string_lossy().as_ref()).unwrap().is_some());
+    }
+
+    #[test]
+    fn find_best_source_config_strips_crates_prefix() {
+        let workspace = TestWorkspace::new();
+        let db = workspace.open_db();
+        let cfg = sample_config();
+
+        db.set_source_config("weaveback/src/main.adoc", &cfg).unwrap();
+        let found = find_best_source_config(&db, "crates/weaveback/src/main.adoc").unwrap();
+        assert!(found.is_some());
+    }
+}

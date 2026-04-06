@@ -1451,3 +1451,241 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use weaveback_tangle::db::{ChunkDefEntry, WeavebackDb};
+
+    #[test]
+    fn fuzzy_find_line_requires_unique_match() {
+        let lines = vec![
+            "alpha beta".to_string(),
+            "alpha beta".to_string(),
+            "gamma".to_string(),
+        ];
+
+        assert_eq!(fuzzy_find_line(&lines, 0, "alpha beta", 0), Some(0));
+        assert_eq!(fuzzy_find_line(&lines, 1, "alpha beta", 1), None);
+        assert_eq!(fuzzy_find_line(&lines, 2, "missing", 2), None);
+    }
+
+    #[test]
+    fn splice_line_and_token_helpers_behave_as_expected() {
+        let lines = vec!["one".to_string(), "two".to_string()];
+        assert_eq!(splice_line(&lines, 1, "changed", true), "one\nchanged\n");
+        assert!(token_overlap_score("alpha beta", "alpha", "gamma beta") > 0);
+        assert_eq!(
+            differing_token_pair("hello literate world", "hello illiterate world"),
+            Some(("literate".to_string(), "illiterate".to_string()))
+        );
+        assert_eq!(differing_token_pair("a b", "a c d"), None);
+    }
+
+    #[test]
+    fn macro_arg_patch_supports_exact_and_suffix_replacement() {
+        let lines = vec![
+            "value = old".to_string(),
+            r#"say("hello literate world")"#.to_string(),
+        ];
+
+        assert_eq!(
+            attempt_macro_arg_patch(&lines, 0, 8, "old", "new"),
+            Some("value = new".to_string())
+        );
+        assert_eq!(
+            attempt_macro_arg_patch(
+                &lines,
+                1,
+                0,
+                "hello literate world",
+                "hello illiterate world",
+            ),
+            Some(r#"say("hello illiterate world")"#.to_string())
+        );
+    }
+
+    #[test]
+    fn macro_body_fix_rewrites_literals_around_variables() {
+        assert_eq!(
+            attempt_macro_body_fix("hello %(name) world", "hello alice world", "ciao alice mondo", '%'),
+            Some("ciao %(name) mondo".to_string())
+        );
+        assert_eq!(
+            attempt_macro_body_fix("hello world", "hello world", "ciao mondo", '%'),
+            Some("ciao mondo".to_string())
+        );
+        assert_eq!(
+            attempt_macro_body_fix("%(a)%(b)", "xy", "zw", '%'),
+            None
+        );
+    }
+
+    #[test]
+    fn candidate_helpers_prefer_best_unique_match() {
+        let lines = vec![
+            "anchor".to_string(),
+            "old token".to_string(),
+            "neighbor".to_string(),
+        ];
+
+        let indices = candidate_line_indices(&lines, 1, Some("anchor"), "old token");
+        assert_eq!(indices[0], 1);
+        assert!(indices.contains(&0));
+        assert!(indices.contains(&2));
+
+        let best = choose_best_candidate(vec![
+            CandidateResolution {
+                line_idx: 2,
+                new_line: "b".to_string(),
+                score: 10,
+            },
+            CandidateResolution {
+                line_idx: 1,
+                new_line: "a".to_string(),
+                score: 15,
+            },
+        ])
+        .expect("best");
+        assert_eq!(best.line_idx, 1);
+
+        assert!(choose_best_candidate(vec![
+            CandidateResolution {
+                line_idx: 1,
+                new_line: "a".to_string(),
+                score: 15,
+            },
+            CandidateResolution {
+                line_idx: 2,
+                new_line: "b".to_string(),
+                score: 15,
+            },
+        ])
+        .is_none());
+
+        assert!(rank_candidate(1, 1, "old token", "old", "new token", 5) >
+            rank_candidate(1, 3, "other", "old", "new token", 0));
+    }
+
+    #[test]
+    fn patch_source_helpers_return_expected_priority_and_location() {
+        let arg = PatchSource::MacroArg {
+            src_file: "src/doc.adoc".to_string(),
+            src_line: 7,
+            src_col: 4,
+            macro_name: "emit".to_string(),
+            param_name: "text".to_string(),
+        };
+        let literal = PatchSource::Literal {
+            src_file: "src/doc.adoc".to_string(),
+            src_line: 5,
+            len: 1,
+        };
+
+        assert!(patch_source_rank(&arg) > patch_source_rank(&literal));
+        assert_eq!(patch_source_location(&arg), ("src/doc.adoc", 7));
+        assert_eq!(arg.src_file(), "src/doc.adoc");
+    }
+
+    #[test]
+    fn strip_indent_and_chunk_context_bonus_behave_as_expected() {
+        assert_eq!(strip_indent("    body", "    "), "body");
+        assert_eq!(strip_indent("\tbody", "    "), "\tbody");
+
+        let mut db = WeavebackDb::open_temp().expect("temp db");
+        db.set_chunk_defs(&[ChunkDefEntry {
+            src_file: "src/doc.adoc".to_string(),
+            chunk_name: "alpha".to_string(),
+            nth: 0,
+            def_start: 10,
+            def_end: 14,
+        }])
+        .expect("chunk defs");
+
+        assert_eq!(chunk_context_bonus(&db, "src/doc.adoc", 11, 10), 20);
+        assert_eq!(chunk_context_bonus(&db, "src/doc.adoc", 11, 20), 0);
+        assert_eq!(chunk_context_bonus(&db, "other.adoc", 11, 10), 0);
+    }
+
+    #[test]
+    fn resolve_patch_source_falls_back_to_noweb_without_trace_data() {
+        let dir = tempdir().expect("tempdir");
+        let db = WeavebackDb::open_temp().expect("temp db");
+        let resolver = PathResolver::new(dir.path().to_path_buf(), dir.path().join("gen"));
+        let eval_config = EvalConfig {
+            sigil: '%',
+            include_paths: Vec::new(),
+            discovery_mode: false,
+            allow_env: false,
+        };
+
+        let source = resolve_patch_source(
+            "out.rs",
+            0,
+            1,
+            &db,
+            &resolver,
+            &eval_config,
+            "src/doc.adoc",
+            10,
+            None,
+            '%',
+            2,
+        )
+        .expect("resolve patch source");
+
+        match source {
+            PatchSource::Noweb { src_file, src_line, len } => {
+                assert_eq!(src_file, "src/doc.adoc");
+                assert_eq!(src_line, 10);
+                assert_eq!(len, 2);
+            }
+            _ => panic!("expected noweb fallback"),
+        }
+    }
+
+    #[test]
+    fn resolve_best_patch_source_and_lsp_hint_handle_missing_context() {
+        let dir = tempdir().expect("tempdir");
+        let db = WeavebackDb::open_temp().expect("temp db");
+        let resolver = PathResolver::new(dir.path().to_path_buf(), dir.path().join("gen"));
+        let eval_config = EvalConfig {
+            sigil: '%',
+            include_paths: Vec::new(),
+            discovery_mode: false,
+            allow_env: false,
+        };
+
+        let best = resolve_best_patch_source(
+            "out.rs",
+            0,
+            "old",
+            "new",
+            0,
+            &db,
+            &resolver,
+            &eval_config,
+            "src/doc.adoc",
+            4,
+            None,
+            '%',
+            1,
+            None,
+        )
+        .expect("best patch source");
+        assert!(matches!(best, PatchSource::Noweb { .. }));
+
+        let mut clients = HashMap::new();
+        assert!(lsp_definition_hint(
+            "gen/file.unknown",
+            0,
+            1,
+            &resolver,
+            &db,
+            &eval_config,
+            &mut clients,
+        )
+        .is_none());
+    }
+}

@@ -220,3 +220,86 @@ pub fn preprocess_plantuml(
 
     Ok(Some(result))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn collect_plantuml_blocks_finds_nested_diagrams() {
+        let source = concat!(
+            "= Demo\n\n",
+            "[plantuml]\n----\n",
+            "@startuml\nAlice -> Bob\n@enduml\n",
+            "----\n\n",
+            "[example]\n====\n",
+            "[plantuml]\n----\n",
+            "@startuml\nBob -> Eve\n@enduml\n",
+            "----\n====\n"
+        );
+
+        let blocks = collect_plantuml_blocks(source, "demo.adoc");
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].2.contains("Alice -> Bob"));
+        assert!(blocks[1].2.contains("Bob -> Eve"));
+    }
+
+    #[test]
+    fn collect_uncached_plantuml_diagrams_skips_existing_cache_entries() {
+        let dir = tempdir().expect("tempdir");
+        let source = "[plantuml]\n----\n@startuml\nAlice -> Bob\n@enduml\n----\n";
+        let blocks = collect_plantuml_blocks(source, "demo.adoc");
+        assert_eq!(blocks.len(), 1);
+        let hash = blake3::hash(blocks[0].2.as_bytes());
+        let svg_name = format!("{}.svg", hash.to_hex());
+        fs::write(dir.path().join(&svg_name), "<svg/>").expect("cache");
+
+        let diagrams = collect_uncached_plantuml_diagrams(source, dir.path(), "demo.adoc");
+        assert!(diagrams.is_empty());
+    }
+
+    #[test]
+    fn preprocess_plantuml_returns_none_when_no_diagrams_exist() {
+        let dir = tempdir().expect("tempdir");
+        let result = preprocess_plantuml(
+            "= Plain\n\nNo diagrams.\n",
+            Path::new("/missing/plantuml.jar"),
+            dir.path(),
+            dir.path(),
+            "plain.adoc",
+        )
+        .expect("preprocess");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn preprocess_plantuml_uses_cached_svg_without_invoking_java() {
+        let dir = tempdir().expect("tempdir");
+        let images = dir.path().join("images");
+        let cache = dir.path().join("cache");
+        fs::create_dir_all(&images).expect("images dir");
+        fs::create_dir_all(&cache).expect("cache dir");
+
+        let source = "[plantuml]\n----\n@startuml\nAlice -> Bob\n@enduml\n----\n";
+        let blocks = collect_plantuml_blocks(source, "demo.adoc");
+        assert_eq!(blocks.len(), 1);
+        let hash = blake3::hash(blocks[0].2.as_bytes());
+        let svg_name = format!("{}.svg", hash.to_hex());
+        fs::write(cache.join(&svg_name), "<svg>uml</svg>").expect("cache svg");
+
+        let processed = preprocess_plantuml(
+            source,
+            Path::new("/missing/plantuml.jar"),
+            &images,
+            &cache,
+            "demo.adoc",
+        )
+        .expect("preprocess")
+        .expect("replacement");
+
+        assert_eq!(processed, format!("image::{svg_name}[PlantUML diagram]\n\n"));
+        assert_eq!(fs::read_to_string(images.join(&svg_name)).expect("copied svg"), "<svg>uml</svg>");
+    }
+}

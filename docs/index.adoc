@@ -152,6 +152,14 @@ integration features (MCP, LSP, Documentation Server).
 | `crates/weaveback/Cargo.toml`
 |===
 
+== Planning Notes
+
+Some project constraints and future directions are still exploratory.  These
+notes are meant to preserve them without pretending they are settled.
+
+* link:linter-plan.adoc[linter planning notes]
+* link:fact-rules-plan.adoc[facts and rules for option specs]
+
 == weaveback-tangle literate sources
 
 Start with link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback_tangle.adoc]

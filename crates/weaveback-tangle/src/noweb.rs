@@ -1130,3 +1130,175 @@ impl Clip {
         self.writer.finish(target).map_err(WeavebackError::SafeWriter)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::safe_writer::SafeWriterConfig;
+    use tempfile::tempdir;
+
+    fn entry(chunk_name: &str, src_line: u32) -> NowebMapEntry {
+        NowebMapEntry {
+            src_file: "src/doc.adoc".to_string(),
+            chunk_name: chunk_name.to_string(),
+            src_line,
+            indent: String::new(),
+            confidence: Confidence::Exact,
+        }
+    }
+
+    #[test]
+    fn helper_functions_trim_paths_and_hash_normalisation() {
+        assert_eq!(expand_tilde("plain/path"), "plain/path");
+        assert!(path_is_safe("gen/out.rs").is_ok());
+        assert!(path_is_safe("/abs/out.rs").is_err());
+        assert!(path_is_safe("../escape.rs").is_err());
+        assert!(path_is_safe("C:\\bad.rs").is_err());
+        assert_eq!(normalise_for_hash("  use foo; // trailing note  "), "use foo;");
+
+        let lines = vec![
+            ("   \n".to_string(), entry("main", 1)),
+            ("body\n".to_string(), entry("main", 2)),
+            ("\n".to_string(), entry("main", 3)),
+        ];
+        assert_eq!(trim_blank_edge_lines(lines.clone()).len(), 1);
+        assert_eq!(drop_blank_only_lines(lines).len(), 1);
+    }
+
+    #[test]
+    fn chunk_defs_skip_unclosed_defs_and_reset_clears_state() {
+        let mut store = ChunkStore::new("<<", ">>", "@", &["#".to_string()]);
+        let file_idx = store.add_file_name("sample.nw");
+        store.read(
+            r#"
+# <<closed>>=
+ok
+# @
+
+# <<open>>=
+still open
+"#,
+            file_idx,
+        );
+
+        let defs = store.chunk_defs();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].chunk_name, "closed");
+
+        store.reset();
+        assert!(!store.has_chunk("closed"));
+        assert!(store.get_file_chunks().is_empty());
+    }
+
+    #[test]
+    fn remap_noweb_entries_infers_inserted_lines() {
+        let pre_lines = vec![
+            "use crate::b;\n".to_string(),
+            "use crate::a;\n".to_string(),
+        ];
+        let post = "header\nuse crate::a; // sorted\nuse crate::b;\n";
+        let entries = vec![entry("imports", 10), entry("imports", 11)];
+
+        let remapped = remap_noweb_entries(&pre_lines, post, entries);
+        assert_eq!(remapped.len(), 3);
+        let inferred = remapped
+            .iter()
+            .filter(|(_, entry)| entry.confidence == Confidence::Inferred)
+            .count();
+        assert!(inferred >= 1);
+    }
+
+    #[test]
+    fn remap_noweb_entries_hash_matches_normalised_line() {
+        let pre_lines = vec!["use crate::a;\n".to_string()];
+        let post = "use crate::a; // formatter comment\n";
+        let remapped = remap_noweb_entries(&pre_lines, post, vec![entry("imports", 10)]);
+
+        assert_eq!(remapped.len(), 1);
+        assert_eq!(remapped[0].1.confidence, Confidence::HashMatch);
+    }
+
+    #[test]
+    fn tangle_check_and_incremental_write_record_outputs_and_metadata() {
+        let dir = tempdir().expect("tempdir");
+        let writer = SafeFileWriter::with_config(
+            dir.path(),
+            SafeWriterConfig::default(),
+        )
+        .expect("writer");
+        let mut clip = Clip::new(writer, "<<", ">>", "@", &["#".to_string()]);
+        clip.read(
+            r#"
+# <<@file out.rs>>=
+fn main() {
+    <<body>>
+}
+# @
+
+# <<body>>=
+println!("hello");
+# @
+"#,
+            "sample.nw",
+        );
+
+        let listed = clip.list_output_files();
+        assert_eq!(listed, vec![dir.path().join("out.rs")]);
+
+        clip.write_files_incremental(&HashSet::new()).expect("write files");
+
+        let written = std::fs::read_to_string(dir.path().join("out.rs")).expect("read output");
+        assert!(written.contains("println!(\"hello\");"));
+        assert!(clip
+            .db()
+            .get_noweb_entry("out.rs", 2)
+            .expect("noweb entry")
+            .is_some());
+        assert_eq!(clip.db().query_chunk_deps("body").expect("deps").len(), 0);
+        assert_eq!(
+            clip.db()
+                .query_reverse_deps("body")
+                .expect("reverse deps"),
+            vec![("@file out.rs".to_string(), "sample.nw".to_string())]
+        );
+        assert!(clip
+            .db()
+            .get_chunk_def("sample.nw", "body", 0)
+            .expect("chunk def")
+            .is_some());
+    }
+
+    #[test]
+    fn tangle_check_expands_file_chunks_in_memory() {
+        let outputs = tangle_check(
+            &[(
+                r#"
+# <<@file app.txt>>=
+before
+# <<tail>>
+after
+# @
+
+# <<tail>>=
+middle
+# @
+"#,
+                "doc.nw",
+            )],
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string()],
+        )
+        .expect("tangle check");
+
+        assert_eq!(
+            outputs.get("app.txt").expect("app.txt"),
+            &vec![
+                "before\n".to_string(),
+                "middle\n".to_string(),
+                "after\n".to_string(),
+            ]
+        );
+    }
+}

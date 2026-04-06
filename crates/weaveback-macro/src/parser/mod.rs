@@ -161,7 +161,7 @@ impl Parser {
             kind,
             src,
             token,
-            end_pos: 0,
+            end_pos: token.end(),
             parts: Vec::new(),
         };
         self.nodes.push(node);

@@ -105,11 +105,19 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
     let (start_idx, param_name) = match state {
         ParamState::Start => match first_not_skippable {
             None => {
-                // Completely empty param.  This occurs for a trailing comma
-                // (`%%f(a = x,)`) or doubled commas.  Treat it as absent rather
-                // than as an empty positional argument so the evaluator can
-                // support optional trailing commas cleanly.
-                return Ok(None);
+                // Completely empty param. Whether this should be kept depends on
+                // macro context: interior empties are meaningful
+                // (`%if(cond, , false_branch)`), while trailing empties created
+                // by optional trailing commas should be dropped later by the
+                // enclosing Macro node.
+                return Ok(Some(ASTNode {
+                    kind: NodeKind::Param,
+                    src: node.src,
+                    token: node.token,
+                    end_pos: node.end_pos,
+                    parts: vec![],
+                    name: None,
+                }));
             }
             Some(i) => (i, None), // positional: starts from first non-skip
         },
@@ -193,9 +201,24 @@ fn clean_node(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTEr
         src: node.src,
         token: node.token,
         end_pos: node.end_pos,
-        parts: child_nodes,
+        parts: if node.kind == NodeKind::Macro {
+            trim_trailing_empty_params(child_nodes)
+        } else {
+            child_nodes
+        },
         name: None,
     }))
+}
+
+fn is_empty_positional_param(node: &ASTNode) -> bool {
+    node.kind == NodeKind::Param && node.name.is_none() && node.parts.is_empty()
+}
+
+fn trim_trailing_empty_params(mut parts: Vec<ASTNode>) -> Vec<ASTNode> {
+    while parts.last().is_some_and(is_empty_positional_param) {
+        parts.pop();
+    }
+    parts
 }
 
 pub fn strip_space_before_comments(

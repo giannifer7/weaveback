@@ -128,3 +128,85 @@ impl TryFrom<i32> for NodeKind {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{NodeKind, Token, TokenKind};
+    use std::convert::TryFrom;
+
+    #[test]
+    fn token_end_and_synthetic_are_consistent() {
+        let token = Token {
+            kind: TokenKind::Macro,
+            src: 7,
+            pos: 11,
+            length: 5,
+        };
+        assert_eq!(token.end(), 16);
+
+        let synthetic = Token::synthetic(9, 23);
+        assert_eq!(synthetic.kind, TokenKind::Text);
+        assert_eq!(synthetic.src, 9);
+        assert_eq!(synthetic.pos, 23);
+        assert_eq!(synthetic.length, 0);
+        assert_eq!(synthetic.end(), 23);
+    }
+
+    #[test]
+    fn token_kind_try_from_accepts_full_range() {
+        let expected = [
+            TokenKind::Text,
+            TokenKind::Space,
+            TokenKind::Special,
+            TokenKind::BlockOpen,
+            TokenKind::BlockClose,
+            TokenKind::Macro,
+            TokenKind::Var,
+            TokenKind::Ident,
+            TokenKind::Comma,
+            TokenKind::CloseParen,
+            TokenKind::Equal,
+            TokenKind::LineComment,
+            TokenKind::CommentOpen,
+            TokenKind::CommentClose,
+            TokenKind::EOF,
+        ];
+        for (i, kind) in expected.into_iter().enumerate() {
+            assert_eq!(TokenKind::try_from(i as i32).unwrap(), kind);
+        }
+    }
+
+    #[test]
+    fn token_kind_try_from_rejects_invalid_values() {
+        assert!(TokenKind::try_from(-1).is_err());
+        assert!(TokenKind::try_from(15).is_err());
+        assert!(TokenKind::try_from(99).is_err());
+    }
+
+    #[test]
+    fn node_kind_try_from_accepts_full_range() {
+        let expected = [
+            NodeKind::NotUsed,
+            NodeKind::Text,
+            NodeKind::Space,
+            NodeKind::Ident,
+            NodeKind::LineComment,
+            NodeKind::BlockComment,
+            NodeKind::Var,
+            NodeKind::Equal,
+            NodeKind::Param,
+            NodeKind::Macro,
+            NodeKind::Block,
+        ];
+        for (i, kind) in expected.into_iter().enumerate() {
+            assert_eq!(NodeKind::try_from(i as i32).unwrap(), kind);
+        }
+    }
+
+    #[test]
+    fn node_kind_try_from_rejects_invalid_values() {
+        assert!(NodeKind::try_from(-1).is_err());
+        assert!(NodeKind::try_from(11).is_err());
+        assert!(NodeKind::try_from(99).is_err());
+    }
+}

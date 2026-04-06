@@ -2,6 +2,7 @@
 
 use crate::lexer::Lexer;
 use crate::types::{Token, TokenKind};
+use std::env;
 
 /// Collect tokens from the lexer (non-EOF tokens only).
 fn collect_tokens_with_timeout(input: &str) -> Result<Vec<Token>, String> {
@@ -79,6 +80,64 @@ fn assert_tokens_with_sigil(input: &str, sigil: char, expected: &[(TokenKind, &s
             i, exp_len, got_len, exp_text
         );
     }
+}
+
+fn assert_token_stream_invariants(input: &str, sigil: char) {
+    let (tokens, errors) = Lexer::new(input, sigil, 0).lex();
+    let mut prev_end = 0usize;
+
+    for token in &tokens {
+        assert!(token.pos <= input.len(), "token starts past input: {token:?}");
+        assert!(token.end() <= input.len(), "token ends past input: {token:?}");
+        if token.kind != TokenKind::EOF {
+            assert!(token.length > 0, "non-EOF token must have positive length: {token:?}");
+            assert_eq!(
+                token.pos, prev_end,
+                "token stream must be contiguous at {token:?} for input {input:?}"
+            );
+            prev_end = token.end();
+        } else {
+            assert_eq!(token.pos, input.len(), "EOF pos should equal input length");
+            assert_eq!(token.length, 0, "EOF token must be zero-length");
+        }
+    }
+
+    if !tokens.is_empty() {
+        assert_eq!(prev_end, input.len(), "token stream must cover the input");
+        assert_eq!(tokens.last().unwrap().kind, TokenKind::EOF, "lexer must emit EOF");
+    }
+
+    for err in &errors {
+        assert!(
+            err.pos <= input.len(),
+            "lexer error position must stay within input: {err:?} input={input:?}"
+        );
+    }
+}
+
+fn pseudo_fuzz_input(seed: u64, len: usize) -> String {
+    let alphabet = [
+        "a", "b", "x", "0", "_", " ", "\n", ",", "=", "(", ")", "{", "}", "/", "-", "#", "%",
+        "§", "α", "世", "界",
+    ];
+    let mut state = seed;
+    let mut out = String::new();
+    while out.len() < len {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let idx = (state % alphabet.len() as u64) as usize;
+        out.push_str(alphabet[idx]);
+    }
+    while out.len() > len {
+        out.pop();
+    }
+    out
+}
+
+fn stress_iterations() -> usize {
+    env::var("WB_MACRO_STRESS_ITERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5000)
 }
 
 //-------------------------------------------------------------------------
@@ -547,4 +606,110 @@ fn test_no_error() {
     assert!(tokens_res.is_ok());
     let tokens = tokens_res.unwrap();
     assert!(!tokens.is_empty());
+}
+
+#[test]
+fn test_unmatched_block_close_does_not_abort_lexing() {
+    let input = "%} trailing";
+    let (tokens, errors) = Lexer::new(input, '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("Unmatched block close")),
+        "expected unmatched-close error, got {errors:?}"
+    );
+    assert_eq!(tokens.last().unwrap().kind, TokenKind::EOF);
+    assert_eq!(tokens.last().unwrap().pos, input.len());
+    assert_token_stream_invariants(input, '%');
+}
+
+#[test]
+fn test_unmatched_named_block_close_does_not_abort_lexing() {
+    let input = "%foo} trailing";
+    let (tokens, errors) = Lexer::new(input, '%', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("Unmatched block close")),
+        "expected unmatched-close error, got {errors:?}"
+    );
+    assert_eq!(tokens.last().unwrap().kind, TokenKind::EOF);
+    assert_eq!(tokens.last().unwrap().pos, input.len());
+    assert_token_stream_invariants(input, '%');
+}
+
+#[test]
+fn test_unmatched_unicode_named_block_close_does_not_abort_lexing() {
+    let input = "§foo} trailing";
+    let (tokens, errors) = Lexer::new(input, '§', 0).lex();
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("Unmatched block close")),
+        "expected unmatched-close error, got {errors:?}"
+    );
+    assert_eq!(tokens.last().unwrap().kind, TokenKind::EOF);
+    assert_eq!(tokens.last().unwrap().pos, input.len());
+    assert_token_stream_invariants(input, '§');
+}
+
+#[test]
+fn test_token_stream_invariants_on_realistic_samples() {
+    let cases = [
+        "",
+        "plain text",
+        "%foo(bar, baz)",
+        "%{ body %}",
+        "%/* note %*/",
+        "%// line comment\nnext",
+        "%%escaped %(var) %block{ x %block}",
+        "§macro(名) §§ §/* note §*/",
+    ];
+
+    for input in &cases[..7] {
+        assert_token_stream_invariants(input, '%');
+    }
+    assert_token_stream_invariants(cases[7], '§');
+}
+
+#[test]
+fn test_token_stream_invariants_under_pseudo_fuzz() {
+    for seed in 0..200u64 {
+        let input = pseudo_fuzz_input(seed * 17 + 11, 96);
+        assert_token_stream_invariants(&input, '%');
+    }
+}
+
+#[test]
+#[ignore = "long-running deterministic stress harness"]
+fn stress_token_stream_invariants_many_inputs() {
+    let iterations = stress_iterations();
+    for seed in 0..iterations as u64 {
+        let len = ((seed as usize * 37) % 512) + 1;
+        let input = pseudo_fuzz_input(seed ^ 0x9E37_79B9_7F4A_7C15, len);
+        assert_token_stream_invariants(&input, '%');
+        assert_token_stream_invariants(&input, '§');
+    }
+}
+
+#[test]
+#[ignore = "long-running deterministic stress harness"]
+fn stress_token_stream_invariants_on_prefixed_inputs() {
+    let iterations = stress_iterations();
+    for seed in 0..iterations as u64 {
+        let len = ((seed as usize * 53) % 384) + 8;
+        let mut input = pseudo_fuzz_input(seed ^ 0xD1B5_4A32_D192_ED03, len);
+        input.insert_str(0, "%outer{");
+        input.push_str("%outer}");
+        assert_token_stream_invariants(&input, '%');
+    }
+}
+
+#[test]
+fn test_unicode_sigil_token_stream_invariants_under_pseudo_fuzz() {
+    for seed in 0..120u64 {
+        let mut input = pseudo_fuzz_input(seed * 23 + 7, 96);
+        input.push_str(" §macro(世界) §/*x§*/ §§");
+        assert_token_stream_invariants(&input, '§');
+    }
 }

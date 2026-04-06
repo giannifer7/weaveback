@@ -319,12 +319,17 @@ impl<'a> Lexer<'a> {
                 SpecialAction::Push
             }
             Some(b'}') => {
-                if self.state_stack.len() <= 1 {
+                let unmatched = self.state_stack.len() <= 1;
+                if unmatched {
                     self.error_at(pct_start, "Unmatched block close: no open block");
                 }
                 self.advance();
                 self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
-                SpecialAction::Pop
+                if unmatched {
+                    SpecialAction::Continue
+                } else {
+                    SpecialAction::Pop
+                }
             }
             Some(b'/') => {
                 self.advance();
@@ -402,12 +407,17 @@ impl<'a> Lexer<'a> {
                         SpecialAction::Push
                     }
                     Some(b'}') => {
-                        if self.state_stack.len() <= 1 {
+                        let unmatched = self.state_stack.len() <= 1;
+                        if unmatched {
                             self.error_at(pct_start, "Unmatched block close: no open block");
                         }
                         self.advance();
                         self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
-                        SpecialAction::Pop
+                        if unmatched {
+                            SpecialAction::Continue
+                        } else {
+                            SpecialAction::Pop
+                        }
                     }
                     _ => {
                         // %identifier not followed by ( { } — pass through as plain text.

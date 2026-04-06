@@ -1,8 +1,10 @@
 // src/ast/tests.rs
 use super::*;
+use crate::evaluator::lexer_parser::lex_parse_content;
 use crate::ParseNode;
 use crate::parser::Parser;
 use crate::types::{NodeKind, Token, TokenKind};
+use std::env;
 
 /// Helper to create a basic token
 fn t(kind: TokenKind, pos: usize, length: usize) -> Token {
@@ -94,6 +96,13 @@ fn check_node(node: &ASTNode, expected_kind: NodeKind, expected_parts: usize) {
     assert_eq!(node.parts.len(), expected_parts);
 }
 
+fn stress_iterations() -> usize {
+    env::var("WB_MACRO_STRESS_ITERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000)
+}
+
 #[test]
 fn test_param_identifier_only() {
     let mut parser = Parser::new();
@@ -113,8 +122,9 @@ fn test_empty_param() {
     let mut parser = Parser::new();
     let builder = NodeBuilder::new();
     let param_idx = builder.param(&mut parser);
-    let result = analyze_param(&parser, param_idx).unwrap();
-    assert!(result.is_none());
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    check_node(&result, NodeKind::Param, 0);
+    assert!(result.name.is_none());
 }
 
 #[test]
@@ -211,11 +221,445 @@ fn test_param_equals_only_comment() {
 
 #[test]
 fn test_trailing_comma_empty_param_is_ignored() {
+    let ast = lex_parse_content("%f(a,)", '%', 0).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 1);
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 1, "trailing empty param should be trimmed");
+    let param = &macro_node.parts[0];
+    assert_eq!(param.kind, NodeKind::Param);
+    assert_eq!(param.parts.len(), 1);
+}
+
+#[test]
+fn test_middle_empty_param_is_preserved() {
+    let ast = lex_parse_content("%if(cond, , false_branch)", '%', 0).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 1);
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 3, "intermediate empty param must survive");
+    assert_eq!(macro_node.parts[1].kind, NodeKind::Param);
+    assert!(macro_node.parts[1].name.is_none());
+    assert!(
+        macro_node.parts[1].parts.is_empty(),
+        "middle empty positional param should remain empty"
+    );
+}
+
+#[test]
+fn test_multiple_trailing_empty_params_are_trimmed() {
+    let ast = lex_parse_content("%f(a,,,)", '%', 0).unwrap();
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 1);
+}
+
+#[test]
+fn test_leading_empty_param_is_preserved() {
+    let ast = lex_parse_content("%f(,x)", '%', 0).unwrap();
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 2);
+    assert!(macro_node.parts[0].parts.is_empty());
+    assert!(macro_node.parts[0].name.is_none());
+}
+
+#[test]
+fn test_middle_comment_only_empty_param_is_preserved() {
+    let ast = lex_parse_content("%f(a, %/*gap%*/ , b)", '%', 0).unwrap();
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 3);
+    let middle = &macro_node.parts[1];
+    assert_eq!(middle.kind, NodeKind::Param);
+    assert!(middle.name.is_none());
+    assert!(
+        middle.parts.is_empty(),
+        "comment-only middle param should survive as empty positional param"
+    );
+}
+
+#[test]
+fn test_trailing_blank_named_param_is_not_trimmed() {
+    let ast = lex_parse_content("%f(a, flag =)", '%', 0).unwrap();
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 2);
+    let trailing = &macro_node.parts[1];
+    assert_eq!(trailing.kind, NodeKind::Param);
+    assert!(trailing.name.is_some(), "blank named param must remain present");
+    assert!(trailing.parts.is_empty());
+}
+
+#[test]
+fn test_middle_blank_named_param_is_preserved() {
+    let ast = lex_parse_content("%f(a, flag =, b)", '%', 0).unwrap();
+    let macro_node = &ast.parts[0];
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 3);
+    let middle = &macro_node.parts[1];
+    assert_eq!(middle.kind, NodeKind::Param);
+    assert!(middle.name.is_some());
+    assert!(middle.parts.is_empty());
+}
+
+#[test]
+fn test_special_token_becomes_text_in_ast() {
+    let ast = lex_parse_content("%%escaped", '%', 0).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 2);
+    assert_eq!(ast.parts[0].kind, NodeKind::Text);
+    assert_eq!(ast.parts[0].token.length, 2);
+    assert_eq!(ast.parts[1].kind, NodeKind::Text);
+}
+
+#[test]
+fn test_trim_trailing_empty_params_keeps_internal_and_named_params() {
+    let empty = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 0),
+        end_pos: 0,
+        parts: vec![],
+        name: None,
+    };
+    let named_empty = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 0),
+        end_pos: 0,
+        parts: vec![],
+        name: Some(t(TokenKind::Ident, 1, 4)),
+    };
+    let text = ASTNode {
+        kind: NodeKind::Text,
+        src: 0,
+        token: t(TokenKind::Text, 2, 3),
+        end_pos: 5,
+        parts: vec![],
+        name: None,
+    };
+
+    let trimmed = trim_trailing_empty_params(vec![
+        empty.clone(),
+        text.clone(),
+        named_empty.clone(),
+        empty.clone(),
+        empty,
+    ]);
+    assert_eq!(trimmed.len(), 3);
+    assert_eq!(trimmed[0].kind, NodeKind::Param);
+    assert_eq!(trimmed[1].kind, NodeKind::Text);
+    assert!(trimmed[2].name.is_some());
+}
+
+#[test]
+fn test_trim_trailing_empty_params_can_drop_everything() {
+    let empty = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 0),
+        end_pos: 0,
+        parts: vec![],
+        name: None,
+    };
+    let trimmed = trim_trailing_empty_params(vec![empty.clone(), empty]);
+    assert!(trimmed.is_empty());
+}
+
+#[test]
+fn test_clean_node_macro_trims_only_trailing_empty_params() {
     let mut parser = Parser::new();
-    let builder = NodeBuilder::new();
-    let param_idx = builder.param(&mut parser);
-    let result = analyze_param(&parser, param_idx).unwrap();
-    assert!(result.is_none());
+    let empty1 = n(&mut parser, NodeKind::Param, 0, 0, vec![]);
+    let text = n(&mut parser, NodeKind::Text, 1, 1, vec![]);
+    let value_param = n(&mut parser, NodeKind::Param, 1, 1, vec![text]);
+    let empty2 = n(&mut parser, NodeKind::Param, 2, 0, vec![]);
+    let empty3 = n(&mut parser, NodeKind::Param, 3, 0, vec![]);
+    let macro_idx = n(
+        &mut parser,
+        NodeKind::Macro,
+        0,
+        4,
+        vec![empty1, value_param, empty2, empty3],
+    );
+
+    let macro_node = clean_node(&parser, macro_idx).unwrap().unwrap();
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 2);
+    assert_eq!(macro_node.parts[0].kind, NodeKind::Param);
+    assert!(macro_node.parts[0].parts.is_empty());
+    assert_eq!(macro_node.parts[1].kind, NodeKind::Param);
+    assert_eq!(macro_node.parts[1].parts.len(), 1);
+}
+
+#[test]
+fn test_clean_node_macro_can_trim_all_empty_params() {
+    let mut parser = Parser::new();
+    let empty1 = n(&mut parser, NodeKind::Param, 0, 0, vec![]);
+    let empty2 = n(&mut parser, NodeKind::Param, 0, 0, vec![]);
+    let macro_idx = n(&mut parser, NodeKind::Macro, 0, 0, vec![empty1, empty2]);
+
+    let macro_node = clean_node(&parser, macro_idx).unwrap().unwrap();
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert!(macro_node.parts.is_empty());
+}
+
+#[test]
+fn test_clean_node_non_macro_does_not_trim_empty_param_children() {
+    let mut parser = Parser::new();
+    let empty1 = n(&mut parser, NodeKind::Param, 0, 0, vec![]);
+    let empty2 = n(&mut parser, NodeKind::Param, 0, 0, vec![]);
+    let block_idx = n(&mut parser, NodeKind::Block, 0, 0, vec![empty1, empty2]);
+
+    let block = clean_node(&parser, block_idx).unwrap().unwrap();
+    assert_eq!(block.kind, NodeKind::Block);
+    assert_eq!(block.parts.len(), 2);
+}
+
+#[test]
+fn test_clean_node_macro_keeps_trailing_blank_named_param() {
+    let mut parser = Parser::new();
+    let name = n(&mut parser, NodeKind::Ident, 0, 4, vec![]);
+    let eq = n(&mut parser, NodeKind::Equal, 4, 1, vec![]);
+    let named_empty = n(&mut parser, NodeKind::Param, 0, 5, vec![name, eq]);
+    let empty = n(&mut parser, NodeKind::Param, 5, 0, vec![]);
+    let macro_idx = n(&mut parser, NodeKind::Macro, 0, 5, vec![named_empty, empty]);
+
+    let macro_node = clean_node(&parser, macro_idx).unwrap().unwrap();
+    assert_eq!(macro_node.kind, NodeKind::Macro);
+    assert_eq!(macro_node.parts.len(), 1);
+    assert!(macro_node.parts[0].name.is_some());
+    assert!(macro_node.parts[0].parts.is_empty());
+}
+
+#[test]
+fn test_clean_node_strips_comment_children_from_non_param_nodes() {
+    let mut parser = Parser::new();
+    let text = n(&mut parser, NodeKind::Text, 0, 4, vec![]);
+    let comment = n(&mut parser, NodeKind::LineComment, 4, 5, vec![]);
+    let block = n(&mut parser, NodeKind::Block, 0, 9, vec![text, comment]);
+
+    let cleaned = clean_node(&parser, block).unwrap().unwrap();
+    assert_eq!(cleaned.kind, NodeKind::Block);
+    assert_eq!(cleaned.parts.len(), 1);
+    assert_eq!(cleaned.parts[0].kind, NodeKind::Text);
+}
+
+#[test]
+fn test_clean_node_returns_none_for_comment_nodes() {
+    let mut parser = Parser::new();
+    let comment = n(&mut parser, NodeKind::LineComment, 0, 4, vec![]);
+    assert!(clean_node(&parser, comment).unwrap().is_none());
+}
+
+#[test]
+fn test_clean_node_leaf_kinds_round_trip_without_children() {
+    let mut parser = Parser::new();
+    for kind in [
+        NodeKind::Text,
+        NodeKind::Space,
+        NodeKind::Ident,
+        NodeKind::Equal,
+        NodeKind::Var,
+    ] {
+        let idx = n(&mut parser, kind, 0, 1, vec![]);
+        let cleaned = clean_node(&parser, idx).unwrap().unwrap();
+        assert_eq!(cleaned.kind, kind);
+        assert!(cleaned.parts.is_empty());
+        assert_eq!(cleaned.token.pos, 0);
+        assert_eq!(cleaned.end_pos, 1);
+    }
+}
+
+#[test]
+fn test_build_ast_rejects_empty_parse_tree() {
+    let parser = Parser::new();
+    let err = build_ast(&parser).unwrap_err();
+    assert!(err.to_string().contains("Empty parse tree"));
+}
+
+#[test]
+fn test_build_ast_simple_success() {
+    use crate::line_index::LineIndex;
+    use crate::Lexer;
+
+    let src = "hello";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let mut parser = Parser::new();
+    let li = LineIndex::new(src);
+    parser.parse(&tokens, src.as_bytes(), &li).unwrap();
+
+    let ast = build_ast(&parser).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 1);
+    assert_eq!(ast.parts[0].kind, NodeKind::Text);
+    assert_eq!(ast.token.pos, 0);
+    assert_eq!(ast.end_pos, 5);
+}
+
+#[test]
+fn test_build_ast_macro_root_trims_trailing_empty_params() {
+    use crate::line_index::LineIndex;
+    use crate::Lexer;
+
+    let src = "%f(a,)";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let mut parser = Parser::new();
+    let li = LineIndex::new(src);
+    parser.parse(&tokens, src.as_bytes(), &li).unwrap();
+
+    let ast = build_ast(&parser).unwrap();
+    assert_eq!(ast.kind, NodeKind::Block);
+    assert_eq!(ast.parts.len(), 1);
+    assert_eq!(ast.parts[0].kind, NodeKind::Macro);
+    assert_eq!(ast.parts[0].parts.len(), 1);
+}
+
+#[test]
+fn test_analyze_param_reports_missing_node() {
+    let parser = Parser::new();
+    let err = analyze_param(&parser, 999).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_analyze_param_reports_missing_child_node() {
+    let mut parser = Parser::new();
+    let param_idx = n(&mut parser, NodeKind::Param, 0, 1, vec![999]);
+    let err = analyze_param(&parser, param_idx).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_clean_node_reports_missing_node() {
+    let parser = Parser::new();
+    let err = clean_node(&parser, 999).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_clean_node_reports_missing_recursive_child() {
+    let mut parser = Parser::new();
+    let block_idx = n(&mut parser, NodeKind::Block, 0, 1, vec![999]);
+    let err = clean_node(&parser, block_idx).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_build_ast_reports_root_skipped_when_root_is_comment() {
+    let mut parser = Parser::new();
+    parser.add_node(ParseNode {
+        kind: NodeKind::LineComment,
+        src: 0,
+        token: t(TokenKind::LineComment, 0, 4),
+        end_pos: 4,
+        parts: vec![],
+    });
+    let err = build_ast(&parser).unwrap_err();
+    assert!(err.to_string().contains("Root node was skipped"));
+}
+
+#[test]
+fn test_ast_error_from_string_becomes_other() {
+    let err = ASTError::from("boom".to_string());
+    assert!(matches!(err, ASTError::Other(_)));
+    assert_eq!(err.to_string(), "Processing error: boom");
+}
+
+#[test]
+fn test_is_skippable_matches_documented_kinds() {
+    assert!(is_skippable(NodeKind::Space));
+    assert!(is_skippable(NodeKind::LineComment));
+    assert!(is_skippable(NodeKind::BlockComment));
+    assert!(!is_skippable(NodeKind::Text));
+    assert!(!is_skippable(NodeKind::Ident));
+    assert!(!is_skippable(NodeKind::Param));
+}
+
+#[test]
+fn test_is_empty_positional_param_only_matches_plain_empty_positional_params() {
+    let empty_positional = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 0),
+        end_pos: 0,
+        parts: vec![],
+        name: None,
+    };
+    let named_empty = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 0),
+        end_pos: 0,
+        parts: vec![],
+        name: Some(t(TokenKind::Ident, 0, 1)),
+    };
+    let non_param = ASTNode {
+        kind: NodeKind::Text,
+        src: 0,
+        token: t(TokenKind::Text, 0, 1),
+        end_pos: 1,
+        parts: vec![],
+        name: None,
+    };
+    let non_empty_param = ASTNode {
+        kind: NodeKind::Param,
+        src: 0,
+        token: t(TokenKind::Text, 0, 1),
+        end_pos: 1,
+        parts: vec![non_param.clone()],
+        name: None,
+    };
+
+    assert!(is_empty_positional_param(&empty_positional));
+    assert!(!is_empty_positional_param(&named_empty));
+    assert!(!is_empty_positional_param(&non_param));
+    assert!(!is_empty_positional_param(&non_empty_param));
+}
+
+fn assert_ast_invariants(node: &ASTNode, source_len: usize, label: &str) {
+    assert!(
+        !matches!(node.kind, NodeKind::LineComment | NodeKind::BlockComment),
+        "{label}: comments must not survive AST cleaning"
+    );
+    assert!(
+        node.end_pos >= node.token.end(),
+        "{label}: node {:?} end_pos {} must cover token end {} (pos={}, len={})",
+        node.kind,
+        node.end_pos,
+        node.token.end(),
+        node.token.pos,
+        node.token.length
+    );
+    assert!(node.end_pos <= source_len, "{label}: node end_pos out of bounds");
+    if let Some(name) = node.name {
+        assert_eq!(node.kind, NodeKind::Param, "{label}: only Param nodes carry names");
+        assert!(name.end() <= source_len, "{label}: param name span out of bounds");
+    }
+    for child in &node.parts {
+        assert_ast_invariants(child, source_len, label);
+    }
+}
+
+fn count_ast_nodes(node: &ASTNode) -> usize {
+    1 + node.parts.iter().map(count_ast_nodes).sum::<usize>()
+}
+
+fn pseudo_fuzz_input(seed: u64, len: usize) -> String {
+    const TOKENS: &[&str] = &[
+        "a", "b", " ", "\n", "%", "%{", "%}", "%(", ")", ",", "=",
+        "%name(", "%(x)", "%// comment\n", "%/*c%*/", "§", "世界",
+    ];
+    let mut state = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+    let mut out = String::new();
+    for _ in 0..len {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let idx = (state as usize) % TOKENS.len();
+        out.push_str(TOKENS[idx]);
+    }
+    out
 }
 
 #[test]
@@ -237,6 +681,120 @@ fn test_param_complex_spacing() {
     check_node(&result, NodeKind::Param, 1);
     assert!(result.name.is_some());
     check_node(&result.parts[0], NodeKind::Text, 0);
+}
+
+#[test]
+fn test_named_param_value_can_start_with_var() {
+    let mut parser = Parser::new();
+    let name_idx = n(&mut parser, NodeKind::Ident, 0, 3, vec![]);
+    let equal_idx = n(&mut parser, NodeKind::Equal, 3, 1, vec![]);
+    let var_idx = n(&mut parser, NodeKind::Var, 4, 5, vec![]);
+    let param_idx = n(&mut parser, NodeKind::Param, 0, 9, vec![name_idx, equal_idx, var_idx]);
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert!(result.name.is_some());
+    assert_eq!(result.parts.len(), 1);
+    check_node(&result.parts[0], NodeKind::Var, 0);
+}
+
+#[test]
+fn test_named_param_value_can_start_with_block() {
+    let mut parser = Parser::new();
+    let name_idx = n(&mut parser, NodeKind::Ident, 0, 3, vec![]);
+    let equal_idx = n(&mut parser, NodeKind::Equal, 3, 1, vec![]);
+    let inner_idx = n(&mut parser, NodeKind::Text, 5, 2, vec![]);
+    let block_idx = n(&mut parser, NodeKind::Block, 4, 4, vec![inner_idx]);
+    let param_idx = n(&mut parser, NodeKind::Param, 0, 8, vec![name_idx, equal_idx, block_idx]);
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert!(result.name.is_some());
+    assert_eq!(result.parts.len(), 1);
+    check_node(&result.parts[0], NodeKind::Block, 1);
+}
+
+#[test]
+fn test_named_param_value_can_start_with_ident_after_skippables() {
+    let mut parser = Parser::new();
+    let name_idx = n(&mut parser, NodeKind::Ident, 0, 4, vec![]);
+    let equal_idx = n(&mut parser, NodeKind::Equal, 4, 1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 5, 3, vec![]);
+    let space_idx = n(&mut parser, NodeKind::Space, 8, 1, vec![]);
+    let value_idx = n(&mut parser, NodeKind::Ident, 9, 3, vec![]);
+    let param_idx = n(
+        &mut parser,
+        NodeKind::Param,
+        0,
+        12,
+        vec![name_idx, equal_idx, comment_idx, space_idx, value_idx],
+    );
+
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert_eq!(result.name.unwrap().length, 4);
+    assert_eq!(result.parts.len(), 1);
+    check_node(&result.parts[0], NodeKind::Ident, 0);
+}
+
+#[test]
+fn test_named_param_blank_after_equal_until_real_value() {
+    let mut parser = Parser::new();
+    let name_idx = n(&mut parser, NodeKind::Ident, 0, 1, vec![]);
+    let equal_idx = n(&mut parser, NodeKind::Equal, 1, 1, vec![]);
+    let space1_idx = n(&mut parser, NodeKind::Space, 2, 1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 3, 5, vec![]);
+    let space2_idx = n(&mut parser, NodeKind::Space, 8, 1, vec![]);
+    let value_idx = n(&mut parser, NodeKind::Text, 9, 2, vec![]);
+    let param_idx = n(
+        &mut parser,
+        NodeKind::Param,
+        0,
+        11,
+        vec![name_idx, equal_idx, space1_idx, comment_idx, space2_idx, value_idx],
+    );
+
+    let result = analyze_param(&parser, param_idx).unwrap().unwrap();
+    assert_eq!(result.name.unwrap().length, 1);
+    assert_eq!(result.parts.len(), 1);
+    check_node(&result.parts[0], NodeKind::Text, 0);
+}
+
+#[test]
+fn test_pipeline_pseudo_fuzz_ast_invariants() {
+    for seed in 0_u64..200 {
+        let input = pseudo_fuzz_input(seed, 24);
+        if let Ok(ast) = lex_parse_content(&input, '%', 0) {
+            assert_ast_invariants(&ast, input.len(), &format!("seed={seed} input={input:?}"));
+            let serialized = crate::ast::serialize_ast_nodes(&ast);
+            assert_eq!(serialized.len(), count_ast_nodes(&ast));
+        }
+    }
+}
+
+#[test]
+fn test_pipeline_pseudo_fuzz_with_unicode_sigil() {
+    for seed in 0_u64..120 {
+        let input = pseudo_fuzz_input(seed ^ 0x5eed, 18);
+        if let Ok(ast) = lex_parse_content(&input, '§', 0) {
+            assert_ast_invariants(&ast, input.len(), &format!("seed={} input={input:?}", seed ^ 0x5eed));
+        }
+    }
+}
+
+#[test]
+#[ignore = "long-running deterministic stress harness"]
+fn stress_ast_pipeline_many_inputs() {
+    let iterations = stress_iterations();
+    for seed in 0..iterations as u64 {
+        let len = ((seed as usize * 31) % 384) + 1;
+        let input = pseudo_fuzz_input(seed ^ 0xBF58_476D_1CE4_E5B9, len);
+        if let Ok(ast) = lex_parse_content(&input, '%', 0) {
+            assert_eq!(ast.kind, NodeKind::Block);
+            assert!(ast.token.pos <= input.len());
+            assert!(ast.end_pos <= input.len());
+        }
+        if let Ok(ast) = lex_parse_content(&input, '§', 0) {
+            assert_eq!(ast.kind, NodeKind::Block);
+            assert!(ast.token.pos <= input.len());
+            assert!(ast.end_pos <= input.len());
+        }
+    }
 }
 
 #[test]
@@ -656,6 +1214,157 @@ fn test_strip_removes_spaces_before_multiple_consecutive_comments() {
     assert_eq!(root.parts[0], text_idx);
     assert_eq!(root.parts[1], comment1_idx);
     assert_eq!(root.parts[2], comment2_idx);
+}
+
+#[test]
+fn test_strip_recurses_into_nested_blocks() {
+    let content = b" x %%// c\n";
+    let mut parser = Parser::new();
+    let text_idx = n(&mut parser, NodeKind::Text, 1, 1, vec![]);
+    let space_idx = n(&mut parser, NodeKind::Space, 2, 1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 3, 6, vec![]);
+    let child_block_idx = n(
+        &mut parser,
+        NodeKind::Block,
+        1,
+        8,
+        vec![text_idx, space_idx, comment_idx],
+    );
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 9, vec![child_block_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let child = parser.get_node(child_block_idx).unwrap();
+    assert_eq!(child.parts.len(), 2);
+    assert_eq!(child.parts[0], text_idx);
+    assert_eq!(child.parts[1], comment_idx);
+}
+
+#[test]
+fn test_strip_reports_missing_root_node() {
+    let mut parser = Parser::new();
+    let err = strip_space_before_comments(b"", &mut parser, 999).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_strip_reports_missing_child_node() {
+    let mut parser = Parser::new();
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 0, vec![999]);
+    let err = strip_space_before_comments(b"", &mut parser, root_idx).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_strip_comment_at_start_is_noop() {
+    let content = b"%//c\ntext";
+    let mut parser = Parser::new();
+    let comment_idx = n(&mut parser, NodeKind::LineComment, 0, 5, vec![]);
+    let text_idx = n(&mut parser, NodeKind::Text, 5, 4, vec![]);
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 9, vec![comment_idx, text_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts, vec![comment_idx, text_idx]);
+}
+
+#[test]
+fn test_strip_empty_block_is_noop() {
+    let mut parser = Parser::new();
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 0, vec![]);
+    strip_space_before_comments(b"", &mut parser, root_idx).unwrap();
+    let root = parser.get_node(root_idx).unwrap();
+    assert!(root.parts.is_empty());
+}
+
+#[test]
+fn test_strip_does_not_trim_before_newline_block_comment_when_prev_is_not_text_or_space() {
+    let content = b"x%/*c%*/\n";
+    let mut parser = Parser::new();
+    let child_text = n(&mut parser, NodeKind::Text, 1, 1, vec![]);
+    let prev_block = n(&mut parser, NodeKind::Block, 0, 1, vec![child_text]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 1, 7, vec![]);
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 8, vec![prev_block, comment_idx]);
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts, vec![prev_block, comment_idx]);
+}
+
+#[test]
+fn test_strip_does_not_trim_before_block_comment_at_eof() {
+    let content = b"text %/*c%*/";
+    let mut parser = Parser::new();
+    let text_idx = n(&mut parser, NodeKind::Text, 0, 4, vec![]);
+    let space_idx = n(&mut parser, NodeKind::Space, 4, 1, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 5, 7, vec![]);
+    let root_idx = n(
+        &mut parser,
+        NodeKind::Block,
+        0,
+        12,
+        vec![text_idx, space_idx, comment_idx],
+    );
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts, vec![text_idx, space_idx, comment_idx]);
+    assert_eq!(parser.get_node(text_idx).unwrap().token.length, 4);
+}
+
+#[test]
+fn test_strip_reports_missing_nested_child_on_recursion() {
+    let mut parser = Parser::new();
+    let child_block_idx = n(&mut parser, NodeKind::Block, 0, 0, vec![999]);
+    let root_idx = n(&mut parser, NodeKind::Block, 0, 0, vec![child_block_idx]);
+    let err = strip_space_before_comments(b"", &mut parser, root_idx).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_inline_block_comment_after_text_does_not_trim_text() {
+    let content = b"hello  %/* c %*/x";
+    let mut parser = Parser::new();
+    let text_idx = n(&mut parser, NodeKind::Text, 0, 7, vec![]);
+    let comment_idx = n(&mut parser, NodeKind::BlockComment, 7, 9, vec![]);
+    let trailing_idx = n(&mut parser, NodeKind::Text, 16, 1, vec![]);
+    let root_idx = n(
+        &mut parser,
+        NodeKind::Block,
+        0,
+        17,
+        vec![text_idx, comment_idx, trailing_idx],
+    );
+
+    strip_space_before_comments(content, &mut parser, root_idx).unwrap();
+
+    let text = parser.get_node(text_idx).unwrap();
+    assert_eq!(text.token.length, 7, "inline block comment should not trim text");
+    let root = parser.get_node(root_idx).unwrap();
+    assert_eq!(root.parts, vec![text_idx, comment_idx, trailing_idx]);
+}
+
+#[test]
+fn test_is_followed_by_newline_true_false_and_missing() {
+    let mut parser = Parser::new();
+    let newline_idx = n(&mut parser, NodeKind::BlockComment, 0, 4, vec![]);
+    let inline_idx = n(&mut parser, NodeKind::BlockComment, 0, 4, vec![]);
+
+    assert!(is_followed_by_newline(b"xxxx\n", &parser, newline_idx).unwrap());
+    assert!(!is_followed_by_newline(b"xxxxz", &parser, inline_idx).unwrap());
+
+    let err = is_followed_by_newline(b"", &parser, 999).unwrap_err();
+    assert!(matches!(err, ASTError::NodeNotFound(999)));
+}
+
+#[test]
+fn test_is_followed_by_newline_false_at_end_of_content() {
+    let mut parser = Parser::new();
+    let idx = n(&mut parser, NodeKind::BlockComment, 0, 4, vec![]);
+    assert!(!is_followed_by_newline(b"xxxx", &parser, idx).unwrap());
 }
 
 // ── Full pipeline ──────────────────────────────────────────────────────

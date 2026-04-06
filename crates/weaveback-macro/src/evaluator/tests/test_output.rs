@@ -1,7 +1,8 @@
 // crates/weaveback-macro/src/evaluator/tests/test_output.rs
 
-use crate::evaluator::output::{EvalOutput, PlainOutput, SourceSpan};
+use crate::evaluator::output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan};
 use crate::evaluator::{EvalConfig, Evaluator};
+use crate::evaluator::state::SourceManager;
 use crate::macro_api::process_string_defaults;
 use std::path::PathBuf;
 
@@ -11,7 +12,7 @@ fn eval_to_plain(source: &str) -> String {
     let mut eval = Evaluator::new(EvalConfig::default());
     let path = PathBuf::from("<test>");
     let ast = eval.parse_string(source, &path).unwrap();
-    let mut out = PlainOutput::new();
+    let mut out = PlainOutput::default();
     eval.evaluate_to(&ast, &mut out).unwrap();
     out.finish()
 }
@@ -199,6 +200,15 @@ fn spy_output_user_macro_is_tracked() {
 use crate::evaluator::output::SpanKind;
 use crate::evaluator::output::TracingOutput;
 
+fn test_span(kind: SpanKind) -> SourceSpan {
+    SourceSpan {
+        src: 0,
+        pos: 0,
+        length: 3,
+        kind,
+    }
+}
+
 #[test]
 fn tracing_output_single_line_gets_an_entry() {
     let src = "%def(wrap, x, %{[%(x)]%})%wrap(hi)";
@@ -246,4 +256,110 @@ fn test_macro_map_entries() {
     let (out_line_2, entry_2) = &entries[2];
     assert_eq!(*out_line_2, 2);
     assert_eq!(entry_2.src_line, 2);
+}
+
+#[test]
+fn tracing_output_multiline_literal_creates_entries_for_each_line() {
+    let mut out = TracingOutput::new();
+    out.push_str("aa\nbb", test_span(SpanKind::Literal));
+
+    let mut sources = SourceManager::new();
+    sources.add_source_bytes(b"aa\nbb".to_vec(), PathBuf::from("src.txt"));
+    let entries = out.into_macro_map_entries(&sources);
+
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].0, 0);
+    assert_eq!(entries[1].0, 1);
+    assert_eq!(entries[0].1.src_line, 0);
+    assert_eq!(entries[1].1.src_line, 0);
+}
+
+#[test]
+fn tracing_output_untracked_gap_does_not_create_entry() {
+    let mut out = TracingOutput::new();
+    out.push_str("a\n", test_span(SpanKind::Literal));
+    out.push_untracked("computed\n");
+    out.push_str("b", test_span(SpanKind::Literal));
+
+    let mut sources = SourceManager::new();
+    sources.add_source_bytes(b"ab".to_vec(), PathBuf::from("src.txt"));
+    let entries = out.into_macro_map_entries(&sources);
+
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].0, 0);
+    assert_eq!(entries[1].0, 2);
+}
+
+#[test]
+fn precise_tracing_merges_adjacent_equal_spans_and_keeps_gaps() {
+    let span = test_span(SpanKind::Literal);
+    let mut out = PreciseTracingOutput::new();
+    out.push_str("ab", span.clone());
+    out.push_str("cd", span.clone());
+    out.push_untracked("X");
+    out.push_str("ef", span.clone());
+
+    let (buf, ranges) = out.into_parts();
+    assert_eq!(buf, "abcdXef");
+    assert_eq!(ranges.len(), 2);
+    assert_eq!(ranges[0].start, 0);
+    assert_eq!(ranges[0].end, 4);
+    assert_eq!(ranges[1].start, 5);
+    assert_eq!(ranges[1].end, 7);
+}
+
+#[test]
+fn precise_span_at_byte_handles_hits_and_gaps() {
+    let span = test_span(SpanKind::Literal);
+    let mut out = PreciseTracingOutput::new();
+    out.push_str("abc", span.clone());
+    out.push_untracked("X");
+    out.push_str("yz", span.clone());
+    let (_buf, ranges) = out.into_parts();
+
+    assert!(PreciseTracingOutput::span_at_byte(&ranges, 0).is_some());
+    assert!(PreciseTracingOutput::span_at_byte(&ranges, 2).is_some());
+    assert!(PreciseTracingOutput::span_at_byte(&ranges, 3).is_none());
+    assert!(PreciseTracingOutput::span_at_byte(&ranges, 4).is_some());
+    assert!(PreciseTracingOutput::span_at_byte(&ranges, 99).is_none());
+}
+
+#[test]
+fn tracing_output_into_macro_map_entries_includes_final_open_line() {
+    let src = "abc";
+    let mut out = TracingOutput::default();
+    out.push_str(src, test_span(SpanKind::Literal));
+
+    let mut sm = SourceManager::new();
+    sm.add_source_bytes(src.as_bytes().to_vec(), PathBuf::from("inline.txt"));
+
+    let entries = out.into_macro_map_entries(&sm);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].0, 0);
+    assert_eq!(entries[0].1.src_file, "inline.txt");
+}
+
+#[test]
+fn tracing_output_into_macro_map_entries_skips_invalid_source_ids() {
+    let mut out = TracingOutput::new();
+    out.push_str(
+        "abc",
+        SourceSpan {
+            src: 99,
+            pos: 0,
+            length: 3,
+            kind: SpanKind::Literal,
+        },
+    );
+
+    let sm = SourceManager::new();
+    let entries = out.into_macro_map_entries(&sm);
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn precise_tracing_output_finish_flushes_pending_range() {
+    let mut out = PreciseTracingOutput::new();
+    out.push_str("abc", test_span(SpanKind::Literal));
+    assert_eq!(out.finish(), "abc");
 }

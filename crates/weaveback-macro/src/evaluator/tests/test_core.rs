@@ -1,0 +1,150 @@
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tempfile::TempDir;
+
+use crate::evaluator::core::Evaluator;
+use crate::evaluator::output::{EvalOutput, PlainOutput};
+use crate::evaluator::state::{EvalConfig, MacroDefinition, ScriptKind};
+
+#[test]
+fn test_core_accessors_and_early_exit() {
+    let config = EvalConfig {
+        sigil: '§',
+        allow_env: true,
+        ..EvalConfig::default()
+    };
+    let mut eval = Evaluator::new(config);
+    assert_eq!(eval.get_sigil(), "§".as_bytes());
+    assert!(eval.allow_env());
+    assert_eq!(eval.num_source_files(), 0);
+
+    let current = PathBuf::from("/tmp/current.adoc");
+    eval.set_current_file(current.clone());
+    assert_eq!(eval.get_current_file_path(), current);
+
+    let ast = eval
+        .parse_string("hello", &PathBuf::from("<inline>"))
+        .unwrap();
+    eval.set_early_exit();
+    assert_eq!(eval.evaluate(&ast).unwrap(), "");
+
+    let mut out = PlainOutput::new();
+    eval.evaluate_to(&ast, &mut out).unwrap();
+    assert_eq!(out.finish(), "");
+}
+
+#[test]
+fn test_core_store_helpers_round_trip() {
+    let mut eval = Evaluator::new(EvalConfig::default());
+
+    eval.rhaistore_set_str("int".into(), "42".into());
+    eval.rhaistore_set_str("float".into(), "3.25".into());
+    eval.rhaistore_set_str("text".into(), "hello".into());
+    eval.pystore_set("py".into(), "world".into());
+
+    assert_eq!(eval.rhaistore_get("int"), "42");
+    assert_eq!(eval.rhaistore_get("float"), "3.25");
+    assert_eq!(eval.rhaistore_get("text"), "hello");
+    assert_eq!(eval.pystore_get("py"), "world");
+    assert_eq!(eval.pystore_get("missing"), "");
+
+    eval.rhaistore_set_expr("arr".into(), "[1, 2, 3]").unwrap();
+    assert_eq!(eval.rhaistore_get("arr"), "[1, 2, 3]");
+
+    let err = eval.rhaistore_set_expr("broken".into(), "let =").unwrap_err();
+    assert!(err.contains("rhaiexpr:"));
+}
+
+#[test]
+fn test_core_record_and_drain_definition_helpers() {
+    let mut eval = Evaluator::new(EvalConfig::default());
+    eval.record_var_def("answer".into(), 1, 2, 3);
+    eval.record_macro_def("greet".into(), 4, 5, 6);
+
+    let var_defs = eval.drain_var_defs();
+    let macro_defs = eval.drain_macro_defs();
+    assert_eq!(var_defs.len(), 1);
+    assert_eq!(var_defs[0].var_name, "answer");
+    assert_eq!(macro_defs.len(), 1);
+    assert_eq!(macro_defs[0].macro_name, "greet");
+    assert!(eval.drain_var_defs().is_empty());
+    assert!(eval.drain_macro_defs().is_empty());
+}
+
+#[test]
+fn test_core_parse_string_real_file_and_source_wrappers() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("sample.adoc");
+    fs::write(&path, "content").unwrap();
+    let mut eval = Evaluator::new(EvalConfig::default());
+
+    let src1 = eval.add_source_if_not_present(path.clone()).unwrap();
+    let src2 = eval.add_source_if_not_present(path.clone()).unwrap();
+    assert_eq!(src1, src2);
+
+    let _ = eval.parse_string("content", &path).unwrap();
+    assert!(!eval.source_files().is_empty());
+
+    let extra = eval.add_source_bytes(b"inline".to_vec(), PathBuf::from("virt.txt"));
+    assert!(extra >= src1);
+    assert_eq!(
+        eval.sources().source_files().last().unwrap().to_string_lossy(),
+        "virt.txt"
+    );
+}
+
+#[test]
+fn test_core_do_include_discovery_mode_records_paths() {
+    let temp = TempDir::new().unwrap();
+    let include_path = temp.path().join("inc.txt");
+    fs::write(&include_path, "included").unwrap();
+
+    let config = EvalConfig {
+        include_paths: vec![temp.path().to_path_buf()],
+        discovery_mode: true,
+        ..EvalConfig::default()
+    };
+    let mut eval = Evaluator::new(config);
+
+    let result = eval.do_include("inc.txt").unwrap();
+    assert_eq!(result, "");
+
+    let discovered = eval.take_discovered_includes();
+    assert_eq!(discovered, vec![include_path]);
+    assert!(eval.take_discovered_includes().is_empty());
+}
+
+#[test]
+fn test_core_do_include_accepts_absolute_existing_path() {
+    let temp = TempDir::new().unwrap();
+    let include_path = temp.path().join("abs.txt");
+    fs::write(&include_path, "absolute include").unwrap();
+    let mut eval = Evaluator::new(EvalConfig::default());
+
+    let result = eval.do_include(include_path.to_str().unwrap()).unwrap();
+    assert_eq!(result, "absolute include");
+}
+
+#[test]
+fn test_core_freeze_macro_definition_captures_outer_vars_only() {
+    let mut eval = Evaluator::new(EvalConfig::default());
+    eval.set_variable("outer", "frozen");
+    eval.set_variable("param", "ambient");
+    let body = eval
+        .parse_string("%(outer)-%(param)", &PathBuf::from("<freeze>"))
+        .unwrap();
+    let mac = MacroDefinition {
+        name: "demo".into(),
+        params: vec!["param".into()],
+        body: Arc::new(body),
+        script_kind: ScriptKind::None,
+        frozen_args: HashMap::new(),
+    };
+
+    let frozen = eval.freeze_macro_definition(&mac);
+    assert_eq!(frozen.frozen_args.get("outer").unwrap(), "frozen");
+    assert!(!frozen.frozen_args.contains_key("param"));
+}

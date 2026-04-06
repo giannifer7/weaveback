@@ -105,3 +105,87 @@ pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalEr
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ASTNode, NodeKind, Token, TokenKind};
+    use tempfile::tempdir;
+
+    fn token(kind: TokenKind, pos: usize, length: usize) -> Token {
+        Token { src: 0, kind, pos, length }
+    }
+
+    fn sample_ast() -> ASTNode {
+        ASTNode {
+            kind: NodeKind::Block,
+            src: 0,
+            token: Token::synthetic(0, 0),
+            end_pos: 7,
+            name: None,
+            parts: vec![
+                ASTNode {
+                    kind: NodeKind::Text,
+                    src: 0,
+                    token: token(TokenKind::Text, 0, 3),
+                    end_pos: 3,
+                    name: None,
+                    parts: vec![],
+                },
+                ASTNode {
+                    kind: NodeKind::Macro,
+                    src: 0,
+                    token: token(TokenKind::Macro, 3, 4),
+                    end_pos: 7,
+                    name: None,
+                    parts: vec![ASTNode {
+                        kind: NodeKind::Param,
+                        src: 0,
+                        token: token(TokenKind::Ident, 4, 2),
+                        end_pos: 6,
+                        name: Some(token(TokenKind::Ident, 4, 1)),
+                        parts: vec![],
+                    }],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn serialize_ast_nodes_emits_breadth_first_indices() {
+        let lines = serialize_ast_nodes(&sample_ast());
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].ends_with("[1,2]]"));
+        assert!(lines[1].ends_with("[]]"));
+        assert!(lines[2].ends_with("[3]]"));
+        assert!(lines[3].ends_with("[]]"));
+    }
+
+    #[test]
+    fn write_ast_and_write_ast_to_file_emit_expected_content() {
+        let nodes = vec!["[10,0,0,0,[]]".to_string(), "[1,0,0,3,[]]".to_string()];
+        let mut out = Vec::new();
+        write_ast("# src:0=input", &nodes, &mut out).expect("write ast");
+        let text = String::from_utf8(out).expect("utf8");
+        assert_eq!(text, "# src:0=input\n[10,0,0,0,[]]\n[1,0,0,3,[]]\n");
+
+        let dir = tempdir().expect("tempdir");
+        let output = dir.path().join("sample.ast");
+        write_ast_to_file("# src:0=input", &nodes, &output).expect("write file");
+        assert_eq!(std::fs::read_to_string(output).expect("read file"), text);
+    }
+
+    #[test]
+    fn dump_macro_ast_writes_ast_file_next_to_input() {
+        let dir = tempdir().expect("tempdir");
+        let input = dir.path().join("sample.txt");
+        std::fs::write(&input, "hello %name(world)").expect("write input");
+
+        dump_macro_ast('%', std::slice::from_ref(&input)).expect("dump ast");
+
+        let output = input.with_extension("ast");
+        let text = std::fs::read_to_string(output).expect("read ast");
+        assert!(text.starts_with("# src:0="));
+        assert!(text.lines().count() > 1);
+    }
+}

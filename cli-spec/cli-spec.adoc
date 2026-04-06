@@ -435,6 +435,18 @@ doc_descr = %{Generated location in `FILE:LINE` or `FILE:LINE:COL` form.%},
 )
 %})
 
+%def(cargo_command_options, %{
+%emit_option(
+field = args,
+rust_type = Vec<String>,
+arg_attr = %{trailing_var_arg = true, allow_hyphen_values = true%},
+doc_block = %{        /// Cargo subcommand and arguments, passed through after `weaveback cargo`%},
+doc_flag = %{`[ARGS]...`%},
+doc_default = %{ %},
+doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback cargo`.%},
+)
+%})
+
 %def(lint_command_options, %{
 %emit_option(
 field = paths,
@@ -649,6 +661,10 @@ doc_descr = %(doc_descr),
     /// Parse FILE:LINE[:COL] and return structured source-of-truth attribution
     Attribute {
 %attribute_command_options()
+    },
+    /// Run cargo with JSON diagnostics and add source-of-truth attribution
+    Cargo {
+%cargo_command_options()
     },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
     Tag {
@@ -966,6 +982,7 @@ weaveback tangle [OPTIONS]           # run all configured tangle passes
 weaveback where <file> <line>        # trace output line to its noweb chunk
 weaveback trace <file> <line>        # full two-level trace (noweb + macro)
 weaveback attribute <location>       # parse FILE:LINE[:COL] and trace it
+weaveback cargo [ARGS]...            # run cargo and annotate generated-file diagnostics
 weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
 weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
@@ -1008,6 +1025,17 @@ weaveback attribute gen/out.rs:17:9
 ----
 
 '''
+
+==== `cargo`
+
+Runs `cargo` with JSON diagnostics enabled and augments compiler messages with
+source-of-truth attribution when a span maps back to a generated file.
+
+[source,bash]
+----
+weaveback cargo check
+weaveback cargo clippy --all-targets -- -D warnings
+----
 
 ==== `apply-back`
 

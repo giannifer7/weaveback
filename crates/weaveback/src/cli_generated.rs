@@ -64,6 +64,18 @@ pub(crate) enum Commands {
 
 
     },
+    /// Run cargo with JSON diagnostics and add source-of-truth attribution
+    Cargo {
+
+
+        /// Cargo subcommand and arguments, passed through after `weaveback cargo`
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+
+    args: Vec<String>,
+
+
+
+    },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
     Tag {
 

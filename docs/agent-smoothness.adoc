@@ -1,0 +1,150 @@
+= Agent Smoothness
+:toc: left
+:toclevels: 3
+
+This note records what seems to make weaveback smooth or rough for coding
+agents.
+
+The goal is not to optimize for agents at the expense of humans.  The goal is
+to reduce the mechanical translation cost that hurts both.
+
+== Core idea
+
+The smooth path for an agent is not "more intelligence".  It is less guessing.
+
+That means the project should make these questions answerable by deterministic
+tooling:
+
+* what file is the source of truth?
+* what chunk or section owns this generated line?
+* what prose or rationale surrounds it?
+* what is the smallest safe edit primitive here?
+* what exactly failed, and where?
+
+If those questions require reconstruction by habit, the system is rough.
+If they are answered mechanically, the system becomes much easier to use.
+
+== What helps most
+
+=== Machine-readable operations
+
+Important commands should have stable, structured forms:
+
+* JSON out where possible
+* stable field names
+* explicit error messages
+* typed Python bindings where composition matters
+
+This is more valuable to agents than clever human-oriented text output.
+
+=== Deterministic attribution
+
+Generated-file locations should map back to source-of-truth locations
+mechanically.
+
+The desired output is not just:
+
+* generated file
+* generated line
+
+but also:
+
+* owning `.adoc`
+* chunk
+* section breadcrumb
+* short prose context
+
+That removes repeated detective work.
+
+=== Safe edit primitives
+
+Agents work best when the repo offers small, verified operations rather than
+wide-open mutation.
+
+Examples:
+
+* trace a generated location
+* fetch full chunk context
+* replace a bounded source range
+* oracle-check the expected generated output
+* explain why the edit could not be applied
+
+That is much better than treating the whole workspace as an undifferentiated
+text blob.
+
+=== Explicit ownership
+
+An agent should not have to infer whether a file is:
+
+* generated
+* source of truth
+* safe to edit directly
+* likely to be overwritten
+
+Those answers should come from tooling, not convention.
+
+=== Strong diagnostics
+
+Diagnostics should always include the actionable subject:
+
+* path
+* line
+* chunk
+* option
+* bad value
+* rule id
+
+This matters for agents for exactly the same reason it matters for humans:
+vague errors turn simple work into search and guesswork.
+
+=== Structural linting
+
+Explicit invariants help agents because they remove tribal knowledge.
+
+A linter can say:
+
+* this chunk body is outside a fence
+* this generated file drifted from source
+* this claim no longer matches implementation
+
+That is far more useful than hoping the agent infers the rule from examples.
+
+== Recommended shape
+
+The architecture that seems most promising is:
+
+* Rust core logic
+* strong CLI for direct use and automation
+* typed Python layer for structured composition
+* MCP as an integration layer, not the center of gravity
+
+This keeps one authoritative implementation while serving different workflows.
+
+== Useful debug support
+
+An optional provenance-debug mode would also help.
+
+Examples:
+
+* generated comments marking source file, chunk, and line
+* sidecar provenance files
+
+This is especially useful when:
+
+* tracing data is missing or stale
+* plain text search fails because macro expansion changed the surface too much
+* a human or agent needs a coarse visible anchor quickly
+
+It should remain optional rather than cluttering normal generated outputs.
+
+== Working standard
+
+A good practical standard is:
+
+* make routine translation cost mechanical
+* prefer structured outputs over text parsing
+* make the safe edit path obvious
+* let agents use intelligence for interpretation, not for basic provenance
+
+That is the path by which weaveback is more likely to be a help than a burden
+for both humans and agents.

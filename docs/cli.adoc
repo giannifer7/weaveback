@@ -91,6 +91,7 @@ weaveback tangle [OPTIONS]           # run all configured tangle passes
 weaveback where <file> <line>        # trace output line to its noweb chunk
 weaveback trace <file> <line>        # full two-level trace (noweb + macro)
 weaveback attribute <location>       # parse FILE:LINE[:COL] and trace it
+weaveback cargo [ARGS]...            # run cargo and annotate generated-file diagnostics
 weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
 weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
@@ -134,6 +135,17 @@ weaveback attribute gen/out.rs:17:9
 ----
 
 '''
+
+==== `cargo`
+
+Runs `cargo` with JSON diagnostics enabled and augments compiler messages with
+source-of-truth attribution when a span maps back to a generated file.
+
+[source,bash]
+----
+weaveback cargo check
+weaveback cargo clippy --all-targets -- -D warnings
+----
 
 ==== `apply-back`
 

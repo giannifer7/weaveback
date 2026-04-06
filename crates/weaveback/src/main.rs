@@ -9,7 +9,9 @@ use clap::Parser;
 use rayon::prelude::*;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 mod apply_back;
 mod cli_generated;
@@ -458,6 +460,10 @@ fn main() {
             let eval_config = build_eval_config(&cli.args);
             run_attribute(location, cli.args.db, cli.args.gen_dir, eval_config)
         }
+        Some(Commands::Cargo { args }) => {
+            let eval_config = build_eval_config(&cli.args);
+            run_cargo_annotated(args, cli.args.db, cli.args.gen_dir, eval_config)
+        }
         Some(Commands::Where { out_file, line }) => {
             run_where(out_file, line, cli.args.db, cli.args.gen_dir)
         }
@@ -611,6 +617,150 @@ fn run_attribute(
 ) -> Result<(), Error> {
     let (out_file, line, col) = parse_generated_location(&location)?;
     run_trace(out_file, line, col, db_path, gen_dir, eval_config)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CargoMessageEnvelope {
+    reason: String,
+    message: Option<CargoDiagnostic>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CargoDiagnostic {
+    spans: Vec<CargoDiagnosticSpan>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CargoDiagnosticSpan {
+    file_name: String,
+    line_start: u32,
+    column_start: u32,
+    is_primary: bool,
+}
+
+fn collect_cargo_attributions(
+    diagnostic: &CargoDiagnostic,
+    db: Option<&weaveback_tangle::db::WeavebackDb>,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Vec<serde_json::Value> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    let mut records = Vec::new();
+    let mut seen = HashSet::new();
+
+    for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
+        let trace = match lookup::perform_trace(
+            &span.file_name,
+            span.line_start,
+            span.column_start,
+            db,
+            resolver,
+            eval_config.clone(),
+        ) {
+            Ok(Some(value)) => value,
+            _ => continue,
+        };
+
+        let dedupe_key = serde_json::to_string(&trace).unwrap_or_default();
+        if seen.insert(dedupe_key) {
+            records.push(trace);
+        }
+    }
+
+    records
+}
+
+fn emit_augmented_cargo_message(
+    original_line: &str,
+    attributions: Vec<serde_json::Value>,
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    let mut value: serde_json::Value = match serde_json::from_str(original_line) {
+        Ok(value) => value,
+        Err(_) => {
+            writeln!(out, "{original_line}")?;
+            return Ok(());
+        }
+    };
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "weaveback_attributions".to_string(),
+            serde_json::Value::Array(attributions),
+        );
+    }
+    serde_json::to_writer(&mut out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+fn run_cargo_annotated(
+    mut cargo_args: Vec<String>,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+) -> Result<(), Error> {
+    if cargo_args.is_empty() {
+        cargo_args.push("check".to_string());
+    }
+    if !cargo_args
+        .iter()
+        .any(|arg| arg.starts_with("--message-format"))
+    {
+        cargo_args.push("--message-format=json-diagnostic-rendered-ansi".to_string());
+    }
+
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root.clone(), gen_dir);
+    let db = if db_path.exists() {
+        Some(weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?)
+    } else {
+        None
+    };
+
+    let mut child = Command::new("cargo")
+        .args(&cargo_args)
+        .current_dir(&project_root)
+        .stdin(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(Error::Io)?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::Io(std::io::Error::other("failed to capture cargo stdout")))?;
+    let reader = BufReader::new(stdout);
+    let mut stdout_out = std::io::stdout().lock();
+
+    for line in reader.lines() {
+        let line = line.map_err(Error::Io)?;
+        let Ok(envelope) = serde_json::from_str::<CargoMessageEnvelope>(&line) else {
+            writeln!(stdout_out, "{line}").map_err(Error::Io)?;
+            continue;
+        };
+
+        if envelope.reason == "compiler-message"
+            && let Some(diagnostic) = envelope.message
+        {
+            let records =
+                collect_cargo_attributions(&diagnostic, db.as_ref(), &resolver, &eval_config);
+            emit_augmented_cargo_message(&line, records, &mut stdout_out).map_err(Error::Io)?;
+        } else {
+            writeln!(stdout_out, "{line}").map_err(Error::Io)?;
+        }
+    }
+
+    let status = child.wait().map_err(Error::Io)?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(Error::Io(std::io::Error::other(format!(
+            "cargo exited with status {status}"
+        ))))
+    }
 }
 
 /// Escape a chunk name for use as a DOT node identifier.
@@ -1110,4 +1260,93 @@ fn run_lsp(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use weaveback_tangle::db::{Confidence, NowebMapEntry, WeavebackDb};
+
+    #[test]
+    fn parse_generated_location_accepts_line_and_optional_col() {
+        assert_eq!(
+            parse_generated_location("gen/out.rs:17").unwrap(),
+            ("gen/out.rs".to_string(), 17, 1)
+        );
+        assert_eq!(
+            parse_generated_location("gen/out.rs:17:9").unwrap(),
+            ("gen/out.rs".to_string(), 17, 9)
+        );
+    }
+
+    #[test]
+    fn emit_augmented_cargo_message_attaches_full_trace_json() {
+        let line = r#"{"reason":"compiler-message","message":{"spans":[]}}"#;
+        let records = vec![json!({
+            "out_file": "gen/out.rs",
+            "out_line": 17,
+            "out_col": 9,
+            "src_file": "src/doc.adoc",
+            "src_line": 42,
+            "src_col": 3,
+            "chunk": "main",
+            "kind": "Literal",
+            "source_section_breadcrumb": ["Root", "Topic"],
+            "source_section_prose": "Explain."
+        })];
+        let mut out = Vec::new();
+        emit_augmented_cargo_message(line, records, &mut out).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        let attrs = value["weaveback_attributions"].as_array().unwrap();
+        assert_eq!(attrs.len(), 1);
+        assert_eq!(attrs[0]["chunk"], "main");
+        assert_eq!(attrs[0]["source_section_breadcrumb"], json!(["Root", "Topic"]));
+        assert_eq!(attrs[0]["source_section_prose"], "Explain.");
+    }
+
+    #[test]
+    fn collect_cargo_attributions_maps_generated_span_back_to_source() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Topic\nalpha\n")
+            .expect("snapshot");
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("gen"));
+        let diagnostic = CargoDiagnostic {
+            spans: vec![CargoDiagnosticSpan {
+                file_name: "out.rs".to_string(),
+                line_start: 1,
+                column_start: 1,
+                is_primary: true,
+            }],
+        };
+
+        let records = collect_cargo_attributions(
+            &diagnostic,
+            Some(&db),
+            &resolver,
+            &EvalConfig::default(),
+        );
+        assert_eq!(records.len(), 1);
+        assert!(
+            records[0]["src_file"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("src/doc.adoc"))
+        );
+        assert_eq!(records[0]["src_line"], 4);
+        assert_eq!(records[0]["chunk"], "main");
+        assert_eq!(records[0]["source_section_breadcrumb"], json!(["Root", "Topic"]));
+    }
 }

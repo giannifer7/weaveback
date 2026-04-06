@@ -57,6 +57,13 @@ pub(crate) enum Commands {
     Attribute {
 
 
+        /// Read plain text from stdin, extract FILE:LINE[:COL] locations, and attribute them
+    #[arg(long)]
+
+    scan_stdin: bool,
+
+
+
         /// One or more generated locations in FILE:LINE or FILE:LINE:COL form
 
     locations: Vec<String>,

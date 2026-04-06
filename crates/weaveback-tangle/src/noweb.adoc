@@ -227,7 +227,7 @@ impl NowebSyntax {
             .join("|");
 
         let open_pattern = format!(
-            r"^(?P<indent>\s*)(?:{})?[ \t]*{}(?P<replace>@replace[ \t]+)?(?P<file>@file[ \t]+)?(?P<name>.+?){}=",
+            r"^(?P<indent>\s*)(?:{})?[ \t]*{}(?P<replace>@replace[ \t]+)?(?P<file>@file[ \t]+)?(?P<name>.+?){}=[ \t]*$",
             escaped_comments, od, cd
         );
         let slot_pattern = format!(

@@ -1616,7 +1616,12 @@ fn run_cargo_annotated_to_writer(
         .iter()
         .any(|arg| arg.starts_with("--message-format"))
     {
-        cargo_args.push("--message-format=json-diagnostic-rendered-ansi".to_string());
+        let message_format = "--message-format=json-diagnostic-rendered-ansi".to_string();
+        if let Some(idx) = cargo_args.iter().position(|arg| arg == "--") {
+            cargo_args.insert(idx, message_format);
+        } else {
+            cargo_args.push(message_format);
+        }
     }
 
     let resolver = PathResolver::new(project_root.to_path_buf(), gen_dir);

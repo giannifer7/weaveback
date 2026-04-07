@@ -2,27 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use weaveback_tangle::NowebSyntax;
 
-#[derive(serde::Deserialize)]
-struct LintPassCfg {
-    dir: Option<String>,
-    open_delim: Option<String>,
-    close_delim: Option<String>,
-    chunk_end: Option<String>,
-    comment_markers: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct LintCfg {
-    #[serde(rename = "pass", default)]
-    passes: Vec<LintPassCfg>,
-}
-
-#[derive(Clone)]
-struct LintSyntaxEntry {
-    dir: Option<PathBuf>,
-    syntax: NowebSyntax,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub(crate) enum LintRule {
     ChunkBodyOutsideFence,
@@ -54,13 +33,12 @@ impl std::str::FromStr for LintRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct LintViolation {
-    pub(crate) file: PathBuf,
-    pub(crate) line: usize,
-    pub(crate) rule: LintRule,
+    pub(crate) file:    PathBuf,
+    pub(crate) line:    usize,
+    pub(crate) rule:    LintRule,
     pub(crate) message: String,
-    pub(crate) hint: Option<String>,
+    pub(crate) hint:    Option<String>,
 }
-
 fn should_skip_dir(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -95,15 +73,35 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
     }
     Ok(())
 }
+#[derive(serde::Deserialize)]
+struct LintPassCfg {
+    dir:             Option<String>,
+    open_delim:      Option<String>,
+    close_delim:     Option<String>,
+    chunk_end:       Option<String>,
+    comment_markers: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct LintCfg {
+    #[serde(rename = "pass", default)]
+    passes: Vec<LintPassCfg>,
+}
+
+#[derive(Clone)]
+struct LintSyntaxEntry {
+    dir:    Option<PathBuf>,
+    syntax: NowebSyntax,
+}
 
 fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     let mut syntaxes = vec![LintSyntaxEntry {
         dir: None,
         syntax: NowebSyntax::new(
-        "<<",
-        ">>",
-        "@",
-        &["#".to_string(), "//".to_string()],
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
         ),
     }];
 
@@ -115,9 +113,9 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     };
 
     for pass in cfg.passes {
-        let open_delim = pass.open_delim.unwrap_or_else(|| "<<".to_string());
-        let close_delim = pass.close_delim.unwrap_or_else(|| ">>".to_string());
-        let chunk_end = pass.chunk_end.unwrap_or_else(|| "@".to_string());
+        let open_delim      = pass.open_delim .unwrap_or_else(|| "<<".to_string());
+        let close_delim     = pass.close_delim.unwrap_or_else(|| ">>".to_string());
+        let chunk_end       = pass.chunk_end  .unwrap_or_else(|| "@".to_string());
         let comment_markers = pass
             .comment_markers
             .as_deref()
@@ -128,12 +126,7 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
             .collect::<Vec<_>>();
         syntaxes.push(LintSyntaxEntry {
             dir: pass.dir.map(PathBuf::from),
-            syntax: NowebSyntax::new(
-                &open_delim,
-                &close_delim,
-                &chunk_end,
-                &comment_markers,
-            ),
+            syntax: NowebSyntax::new(&open_delim, &close_delim, &chunk_end, &comment_markers),
         });
     }
 

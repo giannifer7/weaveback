@@ -61,23 +61,18 @@ pub fn find_best_noweb_entry(
     // Try 4: progressively strip leading path components and match by suffix.
     // This bridges current repo layouts like `crates/weaveback/src/main.rs`
     // to db keys like `weaveback/src/main.rs`.
-    let mut suffix = Path::new(out_file);
-    while let Some(parent) = suffix.parent() {
-        let next = match suffix.strip_prefix(parent) {
-            Ok(next) if next != suffix => next,
-            _ => break,
-        };
-        let next_str = next.to_string_lossy();
-        if !next_str.contains('/') {
+    let components: Vec<_> = Path::new(out_file).components().collect();
+    for i in 1..components.len() {
+        let sub: std::path::PathBuf = components[i..].iter().collect();
+        let sub_str = sub.to_string_lossy();
+        if !sub_str.contains('/') {
             break;
         }
-        if !next_str.is_empty()
-            && next_str != out_file
-            && next_str != norm
-            && let Some(entry) = db.get_noweb_entry_by_suffix(&next_str, out_line_0)? {
+        if sub_str != out_file
+            && sub_str != norm
+            && let Some(entry) = db.get_noweb_entry_by_suffix(&sub_str, out_line_0)? {
             return Ok(Some(entry));
         }
-        suffix = next;
     }
 
     Ok(None)

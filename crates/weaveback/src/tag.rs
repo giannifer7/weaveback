@@ -4,10 +4,7 @@
 //! whose BLAKE3 content hash has changed since the last run are sent to
 //! the LLM; results are cached in `block_tags` and included in the FTS
 //! index by `rebuild_prose_fts`.
-
 use weaveback_tangle::db::WeavebackDb;
-
-// ── config ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct TagConfig {
@@ -21,14 +18,25 @@ pub struct TagConfig {
     pub batch_size: usize,
 }
 
-// ── synchronous LLM callers ───────────────────────────────────────────────────
+// ── Anthropic ─────────────────────────────────────────────────────────────────
 
-fn call_anthropic(api_key: &str, model: &str, prompt: &str) -> Result<String, String> {
-    let body = serde_json::json!({
+fn build_anthropic_body(model: &str, prompt: &str) -> serde_json::Value {
+    serde_json::json!({
         "model": model,
         "max_tokens": 512,
         "messages": [{ "role": "user", "content": prompt }]
-    });
+    })
+}
+
+fn parse_anthropic_response(v: &serde_json::Value) -> Result<String, String> {
+    v["content"][0]["text"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("unexpected Anthropic response: {v}"))
+}
+
+fn call_anthropic(api_key: &str, model: &str, prompt: &str) -> Result<String, String> {
+    let body = build_anthropic_body(model, prompt);
     let resp = ureq::AgentBuilder::new()
         .build()
         .post("https://api.anthropic.com/v1/messages")
@@ -38,13 +46,12 @@ fn call_anthropic(api_key: &str, model: &str, prompt: &str) -> Result<String, St
         .send_json(&body)
         .map_err(|e| e.to_string())?;
     let v: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
-    v["content"][0]["text"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| format!("unexpected Anthropic response: {v}"))
+    parse_anthropic_response(&v)
 }
 
-fn call_gemini(api_key: &str, model: &str, prompt: &str) -> Result<String, String> {
+// ── Gemini ────────────────────────────────────────────────────────────────────
+
+fn build_gemini_request(api_key: &str, model: &str, prompt: &str) -> (String, serde_json::Value) {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
         model, api_key
@@ -53,6 +60,18 @@ fn call_gemini(api_key: &str, model: &str, prompt: &str) -> Result<String, Strin
         "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
         "generationConfig": { "maxOutputTokens": 512 }
     });
+    (url, body)
+}
+
+fn parse_gemini_response(v: &serde_json::Value) -> Result<String, String> {
+    v["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("unexpected Gemini response: {v}"))
+}
+
+fn call_gemini(api_key: &str, model: &str, prompt: &str) -> Result<String, String> {
+    let (url, body) = build_gemini_request(api_key, model, prompt);
     let resp = ureq::AgentBuilder::new()
         .build()
         .post(&url)
@@ -60,10 +79,26 @@ fn call_gemini(api_key: &str, model: &str, prompt: &str) -> Result<String, Strin
         .send_json(&body)
         .map_err(|e| e.to_string())?;
     let v: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
-    v["candidates"][0]["content"]["parts"][0]["text"]
+    parse_gemini_response(&v)
+}
+
+// ── OpenAI-compatible (also Ollama) ──────────────────────────────────────────
+
+fn build_openai_request(base_url: &str, model: &str, prompt: &str) -> (String, serde_json::Value) {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": prompt }],
+        "max_tokens": 512
+    });
+    (url, body)
+}
+
+fn parse_openai_response(v: &serde_json::Value) -> Result<String, String> {
+    v["choices"][0]["message"]["content"]
         .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| format!("unexpected Gemini response: {v}"))
+        .ok_or_else(|| format!("unexpected OpenAI response: {v}"))
 }
 
 fn call_openai_compat(
@@ -72,12 +107,7 @@ fn call_openai_compat(
     model: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [{ "role": "user", "content": prompt }],
-        "max_tokens": 512
-    });
+    let (url, body) = build_openai_request(base_url, model, prompt);
     let mut req = ureq::AgentBuilder::new()
         .build()
         .post(&url)
@@ -87,10 +117,7 @@ fn call_openai_compat(
     }
     let resp = req.send_json(&body).map_err(|e| e.to_string())?;
     let v: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
-    v["choices"][0]["message"]["content"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| format!("unexpected OpenAI response: {v}"))
+    parse_openai_response(&v)
 }
 
 fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
@@ -117,9 +144,6 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
         }
     }
 }
-
-// ── prompt helpers ────────────────────────────────────────────────────────────
-
 fn build_prompt(items: &[(usize, &str, &str)]) -> String {
     // items: (local_index, block_type, first_line_of_content)
     let mut s = String::from(
@@ -166,11 +190,11 @@ fn parse_response(response: &str) -> Vec<(usize, String)> {
         .collect()
 }
 
+/// Return the first non-empty line of a block given 1-based line numbers.
+/// `line_start` and `line_end` are 1-based; returns `""` when out of range.
 fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
     let lo = (line_start as usize).saturating_sub(1);
-    let hi = (line_end as usize).min(
-        source.lines().count()
-    );
+    let hi = (line_end as usize).min(source.lines().count());
     source
         .lines()
         .skip(lo)
@@ -179,9 +203,6 @@ fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
         .unwrap_or("")
         .to_string()
 }
-
-// ── orchestration ─────────────────────────────────────────────────────────────
-
 /// Tag all prose blocks that have no cached tag or whose content changed.
 /// Silently skips on API errors (just warns to stderr).
 pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
@@ -242,7 +263,9 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
                 }
             };
 
-            for (local_idx, tags) in parse_response(&response) {
+            // Accumulate results before writing to avoid partial commits on error.
+            let results = parse_response(&response);
+            for (local_idx, tags) in results {
                 if let Some(b) = chunk.get(local_idx) {
                     if let Err(e) = db.set_block_tags(
                         &b.src_file,
@@ -263,7 +286,6 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
         eprintln!("auto-tag: tagged {tagged} block(s)");
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +298,63 @@ mod tests {
         let db = WeavebackDb::open(&db_path).unwrap();
         (db, dir)
     }
+
+    // ── request builders ──────────────────────────────────────────────────────
+
+    #[test]
+    fn build_anthropic_body_contains_model_and_message() {
+        let body = build_anthropic_body("claude-haiku-4-5-20251001", "hello");
+        assert_eq!(body["model"], "claude-haiku-4-5-20251001");
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "hello");
+    }
+
+    #[test]
+    fn parse_anthropic_response_extracts_text() {
+        let v = serde_json::json!({
+            "content": [{ "type": "text", "text": "0:rust,async" }]
+        });
+        assert_eq!(parse_anthropic_response(&v).unwrap(), "0:rust,async");
+    }
+
+    #[test]
+    fn parse_anthropic_response_errors_on_bad_shape() {
+        let v = serde_json::json!({ "error": "bad request" });
+        assert!(parse_anthropic_response(&v).is_err());
+    }
+
+    #[test]
+    fn build_gemini_request_embeds_api_key_in_url() {
+        let (url, body) = build_gemini_request("key123", "gemini-pro", "hello");
+        assert!(url.contains("key123"));
+        assert!(url.contains("gemini-pro"));
+        assert_eq!(body["contents"][0]["parts"][0]["text"], "hello");
+    }
+
+    #[test]
+    fn parse_gemini_response_extracts_text() {
+        let v = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "1:db,sqlite" }] } }]
+        });
+        assert_eq!(parse_gemini_response(&v).unwrap(), "1:db,sqlite");
+    }
+
+    #[test]
+    fn build_openai_request_forms_correct_url() {
+        let (url, body) = build_openai_request("https://api.openai.com/v1", "gpt-4o-mini", "hello");
+        assert_eq!(url, "https://api.openai.com/v1/chat/completions");
+        assert_eq!(body["model"], "gpt-4o-mini");
+    }
+
+    #[test]
+    fn parse_openai_response_extracts_content() {
+        let v = serde_json::json!({
+            "choices": [{ "message": { "content": "0:parser,ast" } }]
+        });
+        assert_eq!(parse_openai_response(&v).unwrap(), "0:parser,ast");
+    }
+
+    // ── prompt helpers ────────────────────────────────────────────────────────
 
     #[test]
     fn test_build_prompt_contains_index_and_content() {
@@ -321,6 +400,8 @@ mod tests {
         let source = "only one line";
         assert_eq!(block_first_line(source, 10, 20), "");
     }
+
+    // ── orchestration ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_run_auto_tag_skips_when_no_blocks() {

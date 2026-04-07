@@ -2,41 +2,28 @@
 :toc: left
 :source-highlighter: syntect
 
-`lint.rs` is the beginning of a structural linter for literate sources.
+`lint.rs` is a structural linter for literate sources.
 The point is not generic style enforcement.  The point is to make project
 invariants explicit and cheap to check.
 
-The first implemented rule is `chunk-body-outside-fence`.
+Two rules are implemented:
 
-== Rule model and directory scanning
+`chunk-body-outside-fence`::
+  A chunk definition that appears outside an AsciiDoc listing block is likely
+  a mistake — it will not be extracted by the tangle pass.
+
+`unterminated-chunk-definition`::
+  A chunk whose opening `<[name]>=` marker is never followed by the configured
+  chunk-end marker (e.g. `// @`) will silently swallow content.
+
+== Core Types
 
 [source,rust]
 ----
-// <<lint-types>>=
+// <<lint-core-types>>=
 use std::fs;
 use std::path::{Path, PathBuf};
 use weaveback_tangle::NowebSyntax;
-
-#[derive(serde::Deserialize)]
-struct LintPassCfg {
-    dir: Option<String>,
-    open_delim: Option<String>,
-    close_delim: Option<String>,
-    chunk_end: Option<String>,
-    comment_markers: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct LintCfg {
-    #[serde(rename = "pass", default)]
-    passes: Vec<LintPassCfg>,
-}
-
-#[derive(Clone)]
-struct LintSyntaxEntry {
-    dir: Option<PathBuf>,
-    syntax: NowebSyntax,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub(crate) enum LintRule {
@@ -69,13 +56,24 @@ impl std::str::FromStr for LintRule {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct LintViolation {
-    pub(crate) file: PathBuf,
-    pub(crate) line: usize,
-    pub(crate) rule: LintRule,
+    pub(crate) file:    PathBuf,
+    pub(crate) line:    usize,
+    pub(crate) rule:    LintRule,
     pub(crate) message: String,
-    pub(crate) hint: Option<String>,
+    pub(crate) hint:    Option<String>,
 }
+// @
+----
 
+== Filesystem Scanning
+
+`collect_adoc_files` recursively walks a directory collecting `.adoc` files.
+`should_skip_dir` prunes well-known generated or dependency directories that
+should never be linted.
+
+[source,rust]
+----
+// <<lint-fs>>=
 fn should_skip_dir(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
@@ -110,15 +108,48 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
     }
     Ok(())
 }
+// @
+----
+
+== Configuration and Syntax Loading
+
+`load_lint_syntaxes_from` reads `weaveback.toml` and constructs one
+`LintSyntaxEntry` per `[[pass]]` section, plus a default entry for
+the standard `<<`/`>>` syntax.  `lint_syntaxes_for_file` selects the
+entries whose `dir` prefix matches a given file path.
+
+[source,rust]
+----
+// <<lint-config>>=
+#[derive(serde::Deserialize)]
+struct LintPassCfg {
+    dir:             Option<String>,
+    open_delim:      Option<String>,
+    close_delim:     Option<String>,
+    chunk_end:       Option<String>,
+    comment_markers: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct LintCfg {
+    #[serde(rename = "pass", default)]
+    passes: Vec<LintPassCfg>,
+}
+
+#[derive(Clone)]
+struct LintSyntaxEntry {
+    dir:    Option<PathBuf>,
+    syntax: NowebSyntax,
+}
 
 fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     let mut syntaxes = vec![LintSyntaxEntry {
         dir: None,
         syntax: NowebSyntax::new(
-        "<<",
-        ">>",
-        "@",
-        &["#".to_string(), "//".to_string()],
+            "<<",
+            ">>",
+            "@",
+            &["#".to_string(), "//".to_string()],
         ),
     }];
 
@@ -130,9 +161,9 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     };
 
     for pass in cfg.passes {
-        let open_delim = pass.open_delim.unwrap_or_else(|| "<<".to_string());
-        let close_delim = pass.close_delim.unwrap_or_else(|| ">>".to_string());
-        let chunk_end = pass.chunk_end.unwrap_or_else(|| "@".to_string());
+        let open_delim      = pass.open_delim .unwrap_or_else(|| "<<".to_string());
+        let close_delim     = pass.close_delim.unwrap_or_else(|| ">>".to_string());
+        let chunk_end       = pass.chunk_end  .unwrap_or_else(|| "@".to_string());
         let comment_markers = pass
             .comment_markers
             .as_deref()
@@ -143,12 +174,7 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
             .collect::<Vec<_>>();
         syntaxes.push(LintSyntaxEntry {
             dir: pass.dir.map(PathBuf::from),
-            syntax: NowebSyntax::new(
-                &open_delim,
-                &close_delim,
-                &chunk_end,
-                &comment_markers,
-            ),
+            syntax: NowebSyntax::new(&open_delim, &close_delim, &chunk_end, &comment_markers),
         });
     }
 
@@ -181,7 +207,7 @@ fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> V
 // @
 ----
 
-== Current rule
+== Rules
 
 [source,rust]
 ----
@@ -322,7 +348,7 @@ pub(crate) fn lint_paths(
 // @
 ----
 
-== Entry point
+== Entry Point
 
 [source,rust]
 ----
@@ -567,7 +593,9 @@ comment_markers = "//"
 [source,rust]
 ----
 // <<@file weaveback/src/lint.rs>>=
-// <<lint-types>>
+// <<lint-core-types>>
+// <<lint-fs>>
+// <<lint-config>>
 // <<lint-rules>>
 // <<lint-run>>
 // <<lint-tests>>

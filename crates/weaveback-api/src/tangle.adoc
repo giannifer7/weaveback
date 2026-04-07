@@ -1,0 +1,327 @@
+= Tangle Pipeline
+:toc: left
+:source-highlighter: syntect
+
+`tangle.rs` implements the multi-pass tangle orchestration driven by
+`weaveback.toml`.  It owns:
+
+* Config structs for deserialising `weaveback.toml` (`TangleCfg`,
+  `TanglePassCfg`, `TagsCfg`, `EmbeddingsCfg`)
+* `build_pass_cmd` — builds a `std::process::Command` for one pass
+* `run_tangle_all` — runs all passes in parallel, then FTS + tag + embed
+
+This is the core of `wb-tangle`; the single-pass CLI entry point (which
+handles `--dir`, `--gen`, etc.) stays in the binary layer.
+
+== Config Types
+
+[source,rust]
+----
+// <<tangle-cfg>>=
+/// Per-pass configuration from `[[pass]]` in `weaveback.toml`.
+#[derive(serde::Deserialize)]
+pub struct TanglePassCfg {
+    pub dir:             String,
+    #[serde(rename = "gen")]
+    pub output_dir:      Option<String>,
+    pub ext:             Option<String>,
+    #[serde(default)]
+    pub no_macros:       bool,
+    pub open_delim:      Option<String>,
+    pub close_delim:     Option<String>,
+    pub chunk_end:       Option<String>,
+    pub comment_markers: Option<String>,
+    #[serde(default)]
+    pub sigil:           Vec<String>,
+}
+
+/// `[tags]` section in `weaveback.toml`.
+#[derive(serde::Deserialize)]
+pub struct TagsCfg {
+    /// "anthropic" | "gemini" | "openai" | "ollama"
+    #[serde(default = "default_tags_backend")]
+    pub backend:    String,
+    /// Model name, e.g. "claude-haiku-4-5-20251001"
+    #[serde(default = "default_tags_model")]
+    pub model:      String,
+    /// Base URL for openai-compatible / ollama
+    pub endpoint:   Option<String>,
+    /// Blocks per LLM request (default: 15)
+    #[serde(default = "default_tags_batch_size")]
+    pub batch_size: usize,
+}
+
+pub fn default_tags_backend()    -> String { "anthropic".to_string() }
+pub fn default_tags_model()      -> String { "claude-haiku-4-5-20251001".to_string() }
+pub fn default_tags_batch_size() -> usize  { 15 }
+
+/// `[semantic]` section in `weaveback.toml` (embeddings backend config).
+#[derive(serde::Deserialize)]
+pub struct EmbeddingsCfg {
+    #[serde(default = "crate::semantic::default_embeddings_backend")]
+    pub backend:    String,
+    #[serde(default = "crate::semantic::default_embeddings_model")]
+    pub model:      String,
+    pub endpoint:   Option<String>,
+    #[serde(default = "crate::semantic::default_embeddings_batch_size")]
+    pub batch_size: usize,
+}
+
+/// Top-level `weaveback.toml` configuration.
+#[derive(serde::Deserialize)]
+pub struct TangleCfg {
+    #[serde(rename = "gen")]
+    pub default_gen: Option<String>,
+    #[serde(rename = "pass")]
+    pub passes:      Vec<TanglePassCfg>,
+    pub tags:        Option<TagsCfg>,
+    pub embeddings:  Option<EmbeddingsCfg>,
+}
+// @
+----
+
+== Command Builder
+
+`build_pass_cmd` translates a `TanglePassCfg` into the subprocess
+invocation.  It is kept separate from `run_tangle_all` so callers can
+inspect or override the command before running it.
+
+[source,rust]
+----
+// <<tangle-cmd>>=
+/// Build a `std::process::Command` for one tangle pass.
+///
+/// `exe` is the path to the weaveback binary to invoke.
+pub fn build_pass_cmd(
+    exe: &std::path::Path,
+    pass: &TanglePassCfg,
+    default_gen: &str,
+    force_generated: bool,
+) -> std::process::Command {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--dir").arg(&pass.dir);
+    cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
+    if force_generated {
+        cmd.arg("--force-generated");
+    }
+    if let Some(ext) = &pass.ext {
+        cmd.arg("--ext").arg(ext);
+    }
+    if pass.no_macros {
+        cmd.arg("--no-macros");
+    }
+    if let Some(od) = &pass.open_delim {
+        cmd.arg("--open-delim").arg(od);
+    }
+    if let Some(cd) = &pass.close_delim {
+        cmd.arg("--close-delim").arg(cd);
+    }
+    if let Some(ce) = &pass.chunk_end {
+        cmd.arg("--chunk-end").arg(ce);
+    }
+    if let Some(cm) = &pass.comment_markers {
+        cmd.arg("--comment-markers").arg(cm);
+    }
+    for s in &pass.sigil {
+        cmd.arg("--sigil").arg(s);
+    }
+    cmd.arg("--no-fts");
+    cmd
+}
+// @
+----
+
+== Orchestration
+
+`run_tangle_all` runs all passes from `config_path` in parallel via
+`rayon`, then rebuilds the FTS index and optionally runs the LLM tag
+and embedding passes.
+
+[source,rust]
+----
+// <<tangle-run>>=
+use rayon::prelude::*;
+
+/// Run every pass in `weaveback.toml` and, if a db exists, rebuild FTS /
+/// run LLM tagging / run embedding.
+///
+/// Returns `Err` if config cannot be read/parsed or if any pass fails.
+pub fn run_tangle_all(
+    config_path: &std::path::Path,
+    force_generated: bool,
+) -> Result<(), std::io::Error> {
+    let src = std::fs::read_to_string(config_path)
+        .map_err(|e| std::io::Error::new(e.kind(),
+            format!("{}: {e}", config_path.display())))?;
+    let cfg: TangleCfg = toml::from_str(&src)
+        .map_err(|e| std::io::Error::other(
+            format!("{}: {e}", config_path.display())))?;
+
+    let exe = std::env::current_exe()?;
+    let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
+
+    let errors: Vec<String> = cfg.passes
+        .par_iter()
+        .filter_map(|pass| {
+            let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
+            match cmd.status() {
+                Err(e)                => Some(format!("{}: {e}", pass.dir)),
+                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
+                _                     => None,
+            }
+        })
+        .collect();
+
+    if let Some(msg) = errors.into_iter().next() {
+        return Err(std::io::Error::other(msg));
+    }
+
+    let db_path = std::path::Path::new("weaveback.db");
+    if db_path.exists() {
+        match weaveback_tangle::db::WeavebackDb::open(db_path) {
+            Ok(mut db) => {
+                if let Some(tags_cfg) = &cfg.tags {
+                    crate::tag::run_auto_tag(&mut db, &crate::tag::TagConfig {
+                        backend:    tags_cfg.backend.clone(),
+                        model:      tags_cfg.model.clone(),
+                        endpoint:   tags_cfg.endpoint.clone(),
+                        batch_size: tags_cfg.batch_size,
+                    });
+                }
+                if let Some(embed_cfg) = &cfg.embeddings {
+                    crate::semantic::run_auto_embed(&mut db, &crate::semantic::EmbeddingConfig {
+                        backend:    embed_cfg.backend.clone(),
+                        model:      embed_cfg.model.clone(),
+                        endpoint:   embed_cfg.endpoint.clone(),
+                        batch_size: embed_cfg.batch_size,
+                    });
+                }
+                if let Err(e) = db.rebuild_prose_fts() {
+                    eprintln!("warning: FTS index rebuild failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("warning: could not open db for FTS rebuild: {e}"),
+        }
+    }
+    Ok(())
+}
+// @
+----
+
+== Tests
+
+[source,rust]
+----
+// <<tangle-tests>>=
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn build_pass_cmd_sets_dir_and_gen() {
+        let pass = TanglePassCfg {
+            dir:             "crates/foo/".to_string(),
+            output_dir:      None,
+            ext:             Some("adoc".to_string()),
+            no_macros:       false,
+            open_delim:      None,
+            close_delim:     None,
+            chunk_end:       None,
+            comment_markers: None,
+            sigil:           vec![],
+        };
+        let cmd = build_pass_cmd(
+            std::path::Path::new("weaveback"),
+            &pass,
+            "crates/",
+            false,
+        );
+        let args: Vec<_> = cmd.get_args().collect();
+        // --dir crates/foo/ --gen crates/ --ext adoc --no-fts
+        let args_str: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        assert!(args_str.contains(&"--dir"));
+        assert!(args_str.contains(&"crates/foo/"));
+        assert!(args_str.contains(&"--gen"));
+        assert!(args_str.contains(&"crates/"));
+        assert!(args_str.contains(&"--no-fts"));
+    }
+
+    #[test]
+    fn build_pass_cmd_adds_force_generated_flag() {
+        let pass = TanglePassCfg {
+            dir:             "src/".to_string(),
+            output_dir:      None,
+            ext:             None,
+            no_macros:       true,
+            open_delim:      Some("<<".to_string()),
+            close_delim:     Some(">>".to_string()),
+            chunk_end:       None,
+            comment_markers: None,
+            sigil:           vec![],
+        };
+        let cmd = build_pass_cmd(
+            std::path::Path::new("weaveback"),
+            &pass,
+            ".",
+            true,
+        );
+        let args: Vec<_> = cmd.get_args().collect();
+        let args_str: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        assert!(args_str.contains(&"--force-generated"));
+        assert!(args_str.contains(&"--no-macros"));
+        assert!(args_str.contains(&"--open-delim"));
+        assert!(args_str.contains(&"<<"));
+    }
+
+    #[test]
+    fn tangle_cfg_roundtrips_from_toml() {
+        let toml_src = r#"
+gen = "crates/"
+
+[[pass]]
+dir = "crates/foo/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+"#;
+        let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+        assert_eq!(cfg.default_gen.as_deref(), Some("crates/"));
+        assert_eq!(cfg.passes.len(), 1);
+        assert_eq!(cfg.passes[0].dir, "crates/foo/");
+        assert!(cfg.passes[0].no_macros);
+        assert_eq!(cfg.passes[0].open_delim.as_deref(), Some("<<"));
+    }
+
+    #[test]
+    fn run_tangle_all_errors_on_missing_config() {
+        let dir = TempDir::new().unwrap();
+        let cfg_path = dir.path().join("nonexistent.toml");
+        let result = run_tangle_all(&cfg_path, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_tangle_all_errors_on_bad_toml() {
+        let dir = TempDir::new().unwrap();
+        let cfg_path = dir.path().join("weaveback.toml");
+        std::fs::write(&cfg_path, "[[pass\nbad toml{{{{").unwrap();
+        let result = run_tangle_all(&cfg_path, false);
+        assert!(result.is_err());
+    }
+}
+// @
+----
+
+== Assembly
+
+[source,rust]
+----
+// <<@file weaveback-api/src/tangle.rs>>=
+// <<tangle-cfg>>
+// <<tangle-cmd>>
+// <<tangle-run>>
+// <<tangle-tests>>
+// @
+----

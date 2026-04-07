@@ -1,0 +1,19 @@
+[package]
+name        = "wb-tangle"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weaveback tangle build tool: single-pass and multi-pass literate tangling"
+
+[[bin]]
+name = "wb-tangle"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+thiserror.workspace = true
+weaveback-api.workspace = true
+weaveback-tangle.workspace = true
+weaveback-macro.workspace = true

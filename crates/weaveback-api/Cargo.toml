@@ -1,0 +1,28 @@
+[package]
+name        = "weaveback-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared business logic for the weaveback toolchain (no HTTP, no LLM)"
+
+[lib]
+name = "weaveback_api"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror.workspace = true
+weaveback-core.workspace = true
+weaveback-macro.workspace = true
+weaveback-tangle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+regex.workspace = true
+similar.workspace = true
+ureq.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

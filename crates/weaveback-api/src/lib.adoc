@@ -1,0 +1,32 @@
+= weaveback-api
+:toc: left
+
+Shared business logic for the weaveback toolchain.
+
+No HTTP, no LLM, no subprocess calls — pure query and analysis
+functions that can be called from any binary in the workspace,
+from Python via PyO3, and from MCP tool handlers.
+
+== Modules
+
+[source,rust]
+----
+// <<weaveback-api-lib>>=
+pub mod lint;
+pub mod lookup;
+pub mod process;
+pub mod query;
+pub mod semantic;
+pub mod tag;
+pub mod tangle;
+// @
+----
+
+== Assembly
+
+[source,rust]
+----
+// <<@file weaveback-api/src/lib.rs>>=
+// <<weaveback-api-lib>>
+// @
+----

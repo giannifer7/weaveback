@@ -1,0 +1,582 @@
+use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
+use weaveback_macro::evaluator::{EvalConfig, Evaluator};
+use weaveback_macro::macro_api::process_string_precise;
+use weaveback_tangle::db::WeavebackDb;
+use weaveback_tangle::lookup::{find_best_noweb_entry, find_best_source_config, find_line_col};
+use weaveback_core::PathResolver;
+use serde_json::{Value, json};
+
+#[derive(Debug, thiserror::Error)]
+pub enum LookupError {
+    #[error("{0}")]
+    Db(#[from] weaveback_tangle::db::DbError),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    InvalidInput(String),
+}
+pub fn perform_where(
+    out_file: &str,
+    line: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+) -> Result<Option<Value>, LookupError> {
+    if line == 0 {
+        return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
+    }
+    let out_line_0 = line - 1;
+
+    if let Some(entry) = find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
+        Ok(Some(json!({
+            "out_file": out_file,
+            "out_line": line,
+            "chunk": entry.chunk_name,
+            "expanded_file": entry.src_file,
+            "expanded_line": entry.src_line + 1,
+            "indent": entry.indent,
+            "confidence": entry.confidence.as_str(),
+        })))
+    } else {
+        Ok(None)
+    }
+}
+fn trace_warnings_enabled() -> bool {
+    std::env::var_os("WB_TRACE_WARNINGS").is_some()
+}
+
+pub fn load_source_text(
+    src_file: &str,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+) -> Result<String, LookupError> {
+    let src_path = resolver.resolve_src(src_file);
+    if let Ok(Some(bytes)) = db.get_src_snapshot(src_file) {
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        std::fs::read_to_string(&src_path).map_err(LookupError::Io)
+    }
+}
+
+pub fn build_source_context_value(src_content: &str, src_line_1: usize) -> Value {
+    let mut obj = serde_json::Map::new();
+    append_source_context(&mut obj, src_content, src_line_1);
+    Value::Object(obj)
+}
+
+pub fn perform_trace_coarse(
+    out_file: &str,
+    line: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+) -> Result<Option<Value>, LookupError> {
+    if line == 0 {
+        return Err(LookupError::InvalidInput("Line number must be >= 1".to_string()));
+    }
+    let out_line_0 = line - 1;
+
+    let nw_entry = match find_best_noweb_entry(db, out_file, out_line_0, resolver)? {
+        None => return Ok(None),
+        Some(e) => e,
+    };
+
+    let mut result = json!({
+        "out_file": out_file,
+        "out_line": line,
+        "chunk": nw_entry.chunk_name,
+        "expanded_file": nw_entry.src_file,
+        "expanded_line": nw_entry.src_line + 1,
+        "indent": nw_entry.indent,
+        "confidence": nw_entry.confidence.as_str(),
+    });
+
+    match load_source_text(&nw_entry.src_file, db, resolver) {
+        Ok(src_content) => {
+            let context = build_source_context_value(&src_content, (nw_entry.src_line + 1) as usize);
+            if let Some(ctx) = context.as_object() {
+                result.as_object_mut().unwrap().extend(ctx.clone());
+            }
+        }
+        Err(e) => {
+            if trace_warnings_enabled() {
+                eprintln!("Warning: cannot read {} for trace: {:?}", nw_entry.src_file, e);
+            }
+        }
+    }
+
+    Ok(Some(result))
+}
+
+pub fn perform_trace(
+    out_file: &str,
+    line: u32,
+    col: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+    eval_config: EvalConfig,
+) -> Result<Option<Value>, LookupError> {
+    let mut result = match perform_trace_coarse(out_file, line, db, resolver)? {
+        None => return Ok(None),
+        Some(value) => value,
+    };
+
+    let Some(nw_entry) = find_best_noweb_entry(db, out_file, line - 1, resolver)? else {
+        return Ok(Some(result));
+    };
+    let src_path = resolver.resolve_src(&nw_entry.src_file);
+    let src_content = match load_source_text(&nw_entry.src_file, db, resolver) {
+        Ok(s) => s,
+        Err(e) => {
+            if trace_warnings_enabled() {
+                eprintln!("Warning: cannot read {} for trace: {:?}", nw_entry.src_file, e);
+            }
+            return Ok(Some(result));
+        }
+    };
+    let mut effective_eval_config = eval_config.clone();
+    if let Ok(Some(cfg)) = find_best_source_config(db, &nw_entry.src_file) {
+        effective_eval_config.sigil = cfg.sigil;
+    }
+
+    let mut evaluator = Evaluator::new(effective_eval_config);
+    match process_string_precise(&src_content, Some(&src_path), &mut evaluator) {
+        Ok((expanded, ranges)) => {
+            let expanded_line_0 = nw_entry.src_line;
+            // `col` is a 1-indexed character position in the *output* file line,
+            // which has `nw_entry.indent` prepended by noweb.  Subtract the
+            // indent char count, then convert to 0-indexed before querying the
+            // span map.  col=0 is treated as col=1 (default: start of line).
+            let indent_char_len = nw_entry.indent.chars().count() as u32;
+            let col_1 = col.max(1);
+            if col_1 > indent_char_len {
+                let adjusted_col_0 = col_1 - 1 - indent_char_len;
+                if let Some(span) = span_at_line(&expanded, &ranges, expanded_line_0, adjusted_col_0) {
+                    append_span_fields(&mut result, span, &evaluator);
+                    let obj = result.as_object_mut().unwrap();
+                    match &span.kind {
+                        SpanKind::VarBinding { var_name } => {
+                            append_def_locations(obj, "set_locations", var_name, db, true);
+                        }
+                        SpanKind::MacroBody { macro_name } => {
+                            append_def_locations(obj, "def_locations", macro_name, db, false);
+                        }
+                        SpanKind::Computed => {}
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            if trace_warnings_enabled() {
+                eprintln!("Warning: re-evaluation for trace failed: {e}");
+            }
+        }
+    }
+
+    Ok(Some(result))
+}
+/// Find the `SourceSpan` covering `col_char_0` (0-indexed character position)
+/// of 0-indexed `line_0` in the given expanded text and span ranges.
+fn span_at_line<'a>(
+    expanded: &str,
+    ranges: &'a [SpanRange],
+    line_0: u32,
+    col_char_0: u32,
+) -> Option<&'a SourceSpan> {
+    let line_start = if line_0 == 0 {
+        0usize
+    } else {
+        let mut count = 0u32;
+        let mut found = None;
+        for (i, b) in expanded.bytes().enumerate() {
+            if b == b'\n' {
+                count += 1;
+                if count == line_0 {
+                    found = Some(i + 1);
+                    break;
+                }
+            }
+        }
+        found?
+    };
+    // Convert 0-indexed char position to byte offset within the line.
+    let line_text = &expanded[line_start..];
+    let byte_col = line_text
+        .char_indices()
+        .nth(col_char_0 as usize)
+        .map(|(i, _)| i)
+        .unwrap_or(line_text.len());
+    PreciseTracingOutput::span_at_byte(ranges, line_start + byte_col)
+}
+
+/// Append macro-level fields to `result` from `span`.
+fn append_span_fields(
+    result: &mut Value,
+    span: &SourceSpan,
+    sources: &Evaluator,
+) {
+    let src_manager = sources.sources();
+    let Some(src_path) = src_manager.source_files().get(span.src as usize) else {
+        return;
+    };
+    let Some(src_bytes) = src_manager.get_source(span.src) else {
+        return;
+    };
+    let src_content = String::from_utf8_lossy(src_bytes);
+    let (src_line_1, src_col_1) = find_line_col(&src_content, span.pos);
+
+    let obj = result.as_object_mut().unwrap();
+    obj.insert("src_file".into(), Value::String(src_path.to_string_lossy().into_owned()));
+    obj.insert("src_line".into(), Value::Number(src_line_1.into()));
+    obj.insert("src_col".into(), Value::Number(src_col_1.into()));
+    append_source_context(obj, &src_content, src_line_1 as usize);
+
+    let kind_str = match &span.kind {
+        SpanKind::Literal => "Literal",
+        SpanKind::MacroBody { .. } => "MacroBody",
+        SpanKind::MacroArg { .. } => "MacroArg",
+        SpanKind::VarBinding { .. } => "VarBinding",
+        SpanKind::Computed => "Computed",
+    };
+    obj.insert("kind".into(), Value::String(kind_str.to_string()));
+
+    match &span.kind {
+        SpanKind::MacroBody { macro_name } => {
+            obj.insert("macro_name".into(), Value::String(macro_name.clone()));
+        }
+        SpanKind::MacroArg { macro_name, param_name } => {
+            obj.insert("macro_name".into(), Value::String(macro_name.clone()));
+            obj.insert("param_name".into(), Value::String(param_name.clone()));
+        }
+        SpanKind::VarBinding { var_name } => {
+            obj.insert("var_name".into(), Value::String(var_name.clone()));
+        }
+        _ => {}
+    }
+}
+
+fn heading_level(line: &str) -> Option<usize> {
+    let trimmed = line.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let count = trimmed.bytes().take_while(|&byte| byte == b'=').count();
+    if count > 0 && trimmed.len() > count && trimmed.as_bytes()[count] == b' ' {
+        Some(count)
+    } else {
+        None
+    }
+}
+
+fn section_range(lines: &[&str], line_1: usize) -> (usize, usize) {
+    let anchor = line_1.saturating_sub(1).min(lines.len().saturating_sub(1));
+    let mut sec_start = 0usize;
+    let mut sec_level = 1usize;
+    for idx in (0..=anchor).rev() {
+        if let Some(level) = heading_level(lines[idx]) {
+            sec_start = idx;
+            sec_level = level;
+            break;
+        }
+    }
+
+    let sec_end = lines
+        .iter()
+        .enumerate()
+        .skip(anchor.saturating_add(1))
+        .find(|(_, line)| heading_level(line).is_some_and(|level| level <= sec_level))
+        .map(|(idx, _)| idx)
+        .unwrap_or(lines.len());
+
+    (sec_start, sec_end)
+}
+
+fn title_chain(lines: &[&str], line_1: usize) -> Vec<String> {
+    let anchor = line_1.saturating_sub(1).min(lines.len().saturating_sub(1));
+    let mut chain = Vec::new();
+    for line in lines.iter().take(anchor.saturating_add(1)) {
+        if let Some(level) = heading_level(line) {
+            let title = line[level + 1..].trim().to_string();
+            chain.retain(|(existing_level, _): &(usize, String)| *existing_level < level);
+            chain.push((level, title));
+        }
+    }
+    chain.into_iter().map(|(_, title)| title).collect()
+}
+
+fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
+    let end = end.min(lines.len());
+    let mut in_fence = false;
+    let mut in_chunk = false;
+    let mut out = Vec::new();
+
+    for line in lines.iter().take(end).skip(start) {
+        let trimmed = line.trim();
+        if trimmed == "----" {
+            in_fence = !in_fence;
+            continue;
+        }
+        if trimmed.starts_with("// <<") && trimmed.ends_with(">>=") {
+            in_chunk = true;
+            continue;
+        }
+        if trimmed == "// @" {
+            in_chunk = false;
+            continue;
+        }
+        if !in_fence && !in_chunk {
+            out.push(*line);
+        }
+    }
+
+    let mut collapsed = Vec::new();
+    let mut prev_blank = false;
+    for line in out {
+        let blank = line.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        prev_blank = blank;
+        collapsed.push(line);
+    }
+    while collapsed.first().is_some_and(|line| line.trim().is_empty()) {
+        collapsed.remove(0);
+    }
+    while collapsed.last().is_some_and(|line| line.trim().is_empty()) {
+        collapsed.pop();
+    }
+    collapsed.join("\n")
+}
+
+fn append_source_context(
+    obj: &mut serde_json::Map<String, Value>,
+    src_content: &str,
+    src_line_1: usize,
+) {
+    let lines: Vec<&str> = src_content.lines().collect();
+    if lines.is_empty() {
+        return;
+    }
+    let (sec_start, sec_end) = section_range(&lines, src_line_1);
+    let section_breadcrumb = title_chain(&lines, src_line_1);
+    let section_prose = extract_prose(&lines, sec_start, sec_end);
+    obj.insert(
+        "source_section_breadcrumb".into(),
+        Value::Array(section_breadcrumb.into_iter().map(Value::String).collect()),
+    );
+    obj.insert(
+        "source_section_range".into(),
+        json!({
+            "start_line": sec_start + 1,
+            "end_line": sec_end,
+        }),
+    );
+    obj.insert("source_section_prose".into(), Value::String(section_prose));
+}
+
+/// Look up definition sites from the db and append them to `obj` as a JSON array.
+/// Each entry has `file`, `line` (1-indexed), and `col` (1-indexed character position).
+/// `use_var_defs`: true → query VAR_DEFS, false → query MACRO_DEFS.
+fn append_def_locations(
+    obj: &mut serde_json::Map<String, Value>,
+    field: &str,
+    name: &str,
+    db: &WeavebackDb,
+    use_var_defs: bool,
+) {
+    let entries = if use_var_defs {
+        db.query_var_defs(name)
+    } else {
+        db.query_macro_defs(name)
+    };
+    let Ok(entries) = entries else { return };
+    if entries.is_empty() { return }
+    let locations: Vec<Value> = entries.into_iter().filter_map(|(src_file, pos, _length)| {
+        // Resolve position → (line, col) using the stored snapshot.
+        let bytes = db.get_src_snapshot(&src_file).ok()??;
+        let text = String::from_utf8_lossy(&bytes);
+        let (line_1, col_1) = find_line_col(&text, pos as usize);
+        Some(json!({
+            "file": src_file,
+            "line": line_1,
+            "col":  col_1,
+        }))
+    }).collect();
+    if !locations.is_empty() {
+        obj.insert(field.into(), Value::Array(locations));
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use weaveback_tangle::db::{Confidence, NowebMapEntry};
+
+    fn resolver() -> PathResolver {
+        PathResolver::new(PathBuf::from("."), PathBuf::from("gen"))
+    }
+
+    #[test]
+    fn perform_where_validates_line_and_returns_none_when_unmapped() {
+        let db = WeavebackDb::open_temp().expect("db");
+        let resolver = resolver();
+
+        let err = perform_where("out.rs", 0, &db, &resolver).expect_err("invalid line");
+        assert!(matches!(err, LookupError::InvalidInput(_)));
+        assert!(perform_where("out.rs", 1, &db, &resolver).expect("lookup").is_none());
+    }
+
+    #[test]
+    fn perform_where_returns_normalized_mapping() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 4,
+                    indent: "    ".to_string(),
+                    confidence: Confidence::HashMatch,
+                },
+            )],
+        )
+        .expect("noweb");
+
+        let value = perform_where("gen/out.rs", 1, &db, &resolver())
+            .expect("where")
+            .expect("mapped");
+        assert_eq!(value["chunk"], "main");
+        assert_eq!(value["expanded_file"], "src/doc.adoc");
+        assert_eq!(value["expanded_line"], 5);
+        assert_eq!(value["confidence"], "hash_match");
+    }
+
+    #[test]
+    fn append_def_locations_uses_snapshots_for_line_and_column() {
+        let db = WeavebackDb::open_temp().expect("db");
+        db.set_src_snapshot("src/doc.adoc", b"first\nlet answer = 42;\n")
+            .expect("snapshot");
+        db.record_var_def("answer", "src/doc.adoc", 10, 6)
+            .expect("var def");
+        db.record_macro_def("emit", "src/doc.adoc", 6, 3)
+            .expect("macro def");
+
+        let mut obj = serde_json::Map::new();
+        append_def_locations(&mut obj, "set_locations", "answer", &db, true);
+        append_def_locations(&mut obj, "def_locations", "emit", &db, false);
+
+        let set_locations = obj["set_locations"].as_array().expect("set locations");
+        assert_eq!(set_locations.len(), 1);
+        assert_eq!(set_locations[0]["file"], "src/doc.adoc");
+        assert_eq!(set_locations[0]["line"], 2);
+        assert_eq!(set_locations[0]["col"], 5);
+
+        let def_locations = obj["def_locations"].as_array().expect("def locations");
+        assert_eq!(def_locations.len(), 1);
+        assert_eq!(def_locations[0]["line"], 2);
+    }
+
+    #[test]
+    fn perform_trace_uses_snapshot_and_adds_literal_source_location() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
+            .expect("snapshot");
+
+        let traced = perform_trace("out.rs", 1, 1, &db, &resolver(), EvalConfig::default())
+            .expect("trace")
+            .expect("value");
+
+        assert_eq!(traced["chunk"], "main");
+        assert_eq!(traced["expanded_file"], "src/doc.adoc");
+        assert_eq!(traced["src_line"], 4);
+        assert_eq!(traced["src_col"], 1);
+        assert_eq!(traced["kind"], "Literal");
+        assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+        assert_eq!(
+            traced["source_section_range"],
+            json!({ "start_line": 3, "end_line": 4 })
+        );
+        assert_eq!(traced["source_section_prose"], "== Trace\nalpha");
+    }
+
+    #[test]
+    fn perform_trace_coarse_adds_context_without_precise_span_fields() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "out.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "main".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
+            .expect("snapshot");
+
+        let traced = perform_trace_coarse("out.rs", 1, &db, &resolver())
+            .expect("trace")
+            .expect("value");
+
+        assert_eq!(traced["chunk"], "main");
+        assert_eq!(traced["expanded_file"], "src/doc.adoc");
+        assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+        assert!(traced.get("src_line").is_none());
+        assert!(traced.get("src_col").is_none());
+        assert!(traced.get("kind").is_none());
+    }
+
+    #[test]
+    fn append_source_context_skips_chunk_bodies_and_fences() {
+        let src = [
+            "= Root",
+            "",
+            "== Topic",
+            "Intro.",
+            "",
+            "----",
+            "code",
+            "----",
+            "",
+            "// <<main>>=",
+            "generated-ish",
+            "// @",
+            "",
+            "Tail.",
+        ]
+        .join("\n");
+        let mut obj = serde_json::Map::new();
+        append_source_context(&mut obj, &src, 14);
+
+        assert_eq!(obj["source_section_breadcrumb"], json!(["Root", "Topic"]));
+        assert_eq!(obj["source_section_prose"], "== Topic\nIntro.\n\nTail.");
+    }
+
+    #[test]
+    fn perform_trace_validates_line_before_db_lookup() {
+        let db = WeavebackDb::open_temp().expect("db");
+        let err = perform_trace("out.rs", 0, 1, &db, &resolver(), EvalConfig::default())
+            .expect_err("invalid line");
+        assert!(matches!(err, LookupError::InvalidInput(_)));
+    }
+}

@@ -2852,6 +2852,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "wb-query"
+version = "0.10.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "thiserror",
+ "weaveback-api",
+ "weaveback-core",
+ "weaveback-macro",
+ "weaveback-tangle",
+]
+
+[[package]]
+name = "wb-tangle"
+version = "0.10.0"
+dependencies = [
+ "clap",
+ "thiserror",
+ "weaveback-api",
+ "weaveback-macro",
+ "weaveback-tangle",
+]
+
+[[package]]
 name = "weaveback"
 version = "0.10.0"
 dependencies = [
@@ -2870,6 +2894,7 @@ dependencies = [
  "toml",
  "ureq",
  "weaveback-agent-core",
+ "weaveback-api",
  "weaveback-core",
  "weaveback-lsp",
  "weaveback-macro",
@@ -2886,6 +2911,24 @@ dependencies = [
  "ureq",
  "weaveback-core",
  "weaveback-lsp",
+ "weaveback-macro",
+ "weaveback-tangle",
+]
+
+[[package]]
+name = "weaveback-api"
+version = "0.10.0"
+dependencies = [
+ "rayon",
+ "regex",
+ "serde",
+ "serde_json",
+ "similar",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "ureq",
+ "weaveback-core",
  "weaveback-macro",
  "weaveback-tangle",
 ]

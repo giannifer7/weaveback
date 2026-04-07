@@ -40,16 +40,12 @@ subprocess spawning, shared source maps, one database.
 ----
 // <<weaveback-root>>=
 use weaveback_agent_core::{Workspace as AgentWorkspace, WorkspaceConfig as AgentWorkspaceConfig};
-use weaveback_macro::{
-    evaluator::{EvalConfig, EvalError, Evaluator},
-    macro_api::process_string,
-};
-use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
+use weaveback_macro::evaluator::{EvalConfig, EvalError};
+use weaveback_tangle::WeavebackError;
 use weaveback_core::PathResolver;
 use clap::Parser;
-use rayon::prelude::*;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -61,7 +57,6 @@ mod cli_generated;
 mod lint;
 mod lookup;
 mod mcp;
-mod semantic;
 mod serve;
 mod tag;
 
@@ -145,6 +140,25 @@ impl From<weaveback_tangle::db::DbError> for Error {
         Error::Noweb(WeavebackError::Db(e))
     }
 }
+
+impl From<weaveback_api::query::ApiError> for Error {
+    fn from(e: weaveback_api::query::ApiError) -> Self {
+        match e {
+            weaveback_api::query::ApiError::Db(e) => Error::Noweb(WeavebackError::Db(e)),
+            weaveback_api::query::ApiError::Io(e) => Error::Io(e),
+        }
+    }
+}
+
+impl From<weaveback_api::process::ProcessError> for Error {
+    fn from(e: weaveback_api::process::ProcessError) -> Self {
+        match e {
+            weaveback_api::process::ProcessError::Tangle(e) => Error::Noweb(e),
+            weaveback_api::process::ProcessError::Macro(e)  => Error::Macro(e),
+            weaveback_api::process::ProcessError::Io(e)     => Error::Io(e),
+        }
+    }
+}
 // @
 ----
 
@@ -162,169 +176,7 @@ new file triggers a rebuild even if no existing file changed.
 [source,rust]
 ----
 // <<weaveback-fs>>=
-/// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
-fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            find_files(&path, exts, out)?;
-        } else if let Some(e) = path.extension().and_then(|e| e.to_str())
-            && exts.iter().any(|x| x == e)
-        {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
-
-/// Escape a path for use in a Makefile depfile (spaces → `\ `).
-fn depfile_escape(p: &Path) -> String {
-    p.to_string_lossy().replace(' ', "\\ ")
-}
-
-/// Write a Makefile depfile.  `target` is the stamp; `deps` are all inputs.
-fn write_depfile(path: &Path, target: &Path, deps: &[PathBuf]) -> std::io::Result<()> {
-    use std::fmt::Write as FmtWrite;
-    let mut out = String::new();
-    write!(out, "{}:", depfile_escape(target)).unwrap();
-    for dep in deps {
-        write!(out, " {}", depfile_escape(dep)).unwrap();
-    }
-    out.push('\n');
-    std::fs::write(path, out)
-}
-
-/// Compute the set of `@file …` chunk names that can be skipped this run.
-///
-/// A chunk is skippable when every source block that overlaps its definition
-/// line range has an unchanged BLAKE3 hash compared to the previous run's
-/// database.  We only skip chunks that already have a `gen_baseline` in the
-/// previous db (i.e., have been written at least once before) — that way a
-/// first-ever run always writes everything.
-///
-/// The algorithm:
-/// 1. For each driver file, parse its source into blocks and compare hashes
-///    against the previous run's `source_blocks` table.  Collect (file, block)
-///    pairs whose hash changed.
-/// 2. Store the new block hashes in the current-run db (always, so the next run
-///    has an up-to-date baseline).
-/// 3. For each changed block, find all chunk defs overlapping its line range
-///    (from the previous run's `chunk_defs` table), and mark those chunks dirty.
-/// 4. BFS backward through `chunk_deps` (reverse deps) to transitively mark
-///    any `@file` chunk that depends on a dirty chunk as dirty too.
-/// 5. Return the complement: all `@file` chunks not in the dirty set that also
-///    have a gen_baseline *and whose output file exists on disk*.  The existence
-///    check prevents a deleted (or never-written) output file from being silently
-///    skipped just because the database has a stale baseline for it.
-fn compute_skip_set(
-    source_contents: &HashMap<String, String>,
-    prev_db: &Option<weaveback_tangle::db::WeavebackDb>,
-    current_db: &mut weaveback_tangle::db::WeavebackDb,
-    gen_dir: &std::path::Path,
-) -> HashSet<String> {
-    use weaveback_tangle::parse_source_blocks;
-
-    // Step 1: parse all source blocks in parallel (pure, BLAKE3-heavy).
-    let parsed: Vec<(&String, Vec<_>)> = source_contents
-        .par_iter()
-        .map(|(path, content)| {
-            let ext = std::path::Path::new(path.as_str())
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
-            (path, parse_source_blocks(content, ext))
-        })
-        .collect();
-
-    // Step 2: store new hashes (sequential — requires &mut db) and collect
-    // dirty chunk names by comparing against the previous run's hashes.
-    let mut dirty_chunks: HashSet<String> = HashSet::new();
-
-    for (path, new_blocks) in &parsed {
-        // Store new block hashes into the current-run db (always).
-        if let Err(e) = current_db.set_source_blocks(path, new_blocks) {
-            eprintln!("warning: set_source_blocks failed for {path}: {e}");
-            // If we can't record blocks, treat the whole file as dirty.
-            dirty_chunks.insert("*".to_string());
-            continue;
-        }
-
-        let prev = prev_db.as_ref();
-        let prev_hashes: HashMap<u32, Vec<u8>> = prev
-            .and_then(|db| db.get_source_block_hashes(path).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-
-        for blk in new_blocks {
-            let changed = prev_hashes
-                .get(&blk.block_index)
-                .map(|old| old.as_slice() != blk.content_hash.as_slice())
-                .unwrap_or(true); // new block (no prior hash) ⇒ changed
-
-            if changed
-                && let Some(db) = prev
-                && let Ok(chunk_defs) = db.query_chunk_defs_overlapping(path, blk.line_start, blk.line_end) {
-                    for def in chunk_defs {
-                        dirty_chunks.insert(def.chunk_name.clone());
-                    }
-            }
-        }
-    }
-
-    // Step 4: BFS backward through chunk_deps to find transitively dirty chunks.
-    if let Some(db) = prev_db.as_ref() {
-        let mut queue: Vec<String> = dirty_chunks.iter().cloned().collect();
-        while let Some(chunk) = queue.pop() {
-            if let Ok(rev_deps) = db.query_reverse_deps(&chunk) {
-                for (from_chunk, _src_file) in rev_deps {
-                    if dirty_chunks.insert(from_chunk.clone()) {
-                        queue.push(from_chunk);
-                    }
-                }
-            }
-        }
-    }
-
-    // If any entry is "*" (failed to record blocks for some file), skip nothing.
-    if dirty_chunks.contains("*") {
-        return HashSet::new();
-    }
-
-    // Step 5: collect skippable @file chunks.
-    let Some(prev) = prev_db.as_ref() else {
-        return HashSet::new();
-    };
-
-    let all_file_chunks: Vec<String> = prev
-        .list_chunk_defs(None)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|e| e.chunk_name.starts_with("@file "))
-        .map(|e| e.chunk_name)
-        .collect::<std::collections::BTreeSet<_>>() // deduplicate
-        .into_iter()
-        .collect();
-
-    let mut skip: HashSet<String> = HashSet::new();
-    for name in all_file_chunks {
-        if dirty_chunks.contains(&name) {
-            continue;
-        }
-        // Only skip if the file was written before (has a baseline) AND still
-        // exists on disk.  Without the existence check, a deleted output file
-        // would never be regenerated because the stale db baseline makes it
-        // look up-to-date.
-        let out_file = name.strip_prefix("@file ").unwrap_or(&name).trim();
-        if prev.get_baseline(out_file).ok().flatten().is_some()
-            && gen_dir.join(out_file).exists()
-        {
-            skip.insert(name);
-        }
-    }
-    skip
-}
+use weaveback_api::process::SinglePassArgs;
 // @
 ----
 
@@ -356,216 +208,32 @@ fn run(args: Args) -> Result<(), Error> {
         std::process::exit(0);
     }
 
-    let pathsep = default_pathsep();
-    let include_paths: Vec<PathBuf> = args.include.split(&pathsep).map(PathBuf::from).collect();
-
-    let eval_config = EvalConfig {
-        sigil: args.sigil,
-        include_paths: include_paths.clone(),
-        discovery_mode: false,
-        allow_env: args.allow_env,
-    };
-    let mut evaluator = Evaluator::new(eval_config.clone());
-
-    let comment_markers: Vec<String> = args
-        .comment_markers
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
-
-    let formatters: HashMap<String, String> = args
-        .formatter
-        .iter()
-        .filter_map(|s| {
-            s.split_once('=')
-                .map(|(e, c)| (e.to_string(), c.to_string()))
-        })
-        .collect();
-
-    let safe_writer = SafeFileWriter::with_config(
-        &args.gen_dir,
-        SafeWriterConfig {
-            formatters,
-            allow_home: args.allow_home,
-            force_generated: args.force_generated,
-            ..SafeWriterConfig::default()
-        },
-    )
-    .map_err(|e| Error::Noweb(e.into()))?;
-    let mut clip = Clip::new(
-        safe_writer,
-        &args.open_delim,
-        &args.close_delim,
-        &args.chunk_end,
-        &comment_markers,
-    );
-    clip.set_strict_undefined(args.strict);
-    clip.set_warn_unused(args.warn_unused);
-
-    // Determine the set of driver files to process and all source files for the depfile.
-    let (drivers, all_adoc): (Vec<PathBuf>, Vec<PathBuf>) = if let Some(ref dir) = args.directory {
-        let mut all = Vec::new();
-        find_files(dir, &args.ext, &mut all).map_err(Error::Io)?;
-        all.sort();
-
-        // Discovery pass: evaluate each file with discovery_mode=true so that
-        // %include/%import resolve their path arguments fully (handling %if,
-        // computed paths, etc.) but do not recurse into the included file.
-        let discovery_config = EvalConfig {
-            discovery_mode: true,
-            ..eval_config.clone()
-        };
-        let mut included: HashSet<PathBuf> = HashSet::new();
-        for adoc in &all {
-            if let Ok(text) = std::fs::read_to_string(adoc) {
-                let mut disc = Evaluator::new(discovery_config.clone());
-                if process_string(&text, Some(adoc), &mut disc).is_ok() {
-                    for p in disc.take_discovered_includes() {
-                        included.insert(p.canonicalize().unwrap_or(p));
-                    }
-                }
-            }
-        }
-
-        let drivers = all
-            .iter()
-            .filter(|f| {
-                let canon = f.canonicalize().unwrap_or_else(|_| f.to_path_buf());
-                !included.contains(&canon)
-            })
-            .cloned()
-            .collect();
-
-        (drivers, all)
-    } else {
-        let drivers = args
-            .inputs
-            .iter()
-            .map(|p| args.input_dir.join(p))
-            .collect::<Vec<_>>();
-        (drivers.clone(), drivers)
-    };
-
-    // Open the previous run's db (read-only) so we can compare block hashes.
-    let prev_db = if args.db.exists() {
-        weaveback_tangle::db::WeavebackDb::open_read_only(&args.db).ok()
-    } else {
-        None
-    };
-
-    // Phase 1: process each driver and feed result to noweb.
-    // Collect original (pre-expansion) source content for block-hash comparison.
-    let mut source_contents: HashMap<String, String> = HashMap::new();
-    for full_path in &drivers {
-        let content = std::fs::read_to_string(full_path)?;
-        source_contents.insert(full_path.to_string_lossy().into_owned(), content.clone());
-        
-        // Record the configuration used for this source file.
-        let tangle_cfg = weaveback_tangle::db::TangleConfig {
-            sigil: args.sigil,
-            open_delim: args.open_delim.clone(),
-            close_delim: args.close_delim.clone(),
-            chunk_end: args.chunk_end.clone(),
-            comment_markers: comment_markers.clone(),
-        };
-        clip.db().set_source_config(&full_path.to_string_lossy(), &tangle_cfg)?;
-
-        if args.no_macros {
-            // Skip macro expansion: feed the raw file directly to the tangle pass.
-            clip.read(&content, &full_path.to_string_lossy());
-        } else {
-            let expanded = weaveback_macro::macro_api::process_string(
-                &content,
-                Some(full_path),
-                &mut evaluator,
-            )?;
-            let expanded_str = String::from_utf8_lossy(&expanded);
-            if args.dump_expanded {
-                eprintln!("=== expanded: {} ===", full_path.display());
-                eprintln!("{}", expanded_str);
-                eprintln!("=== end: {} ===", full_path.display());
-            }
-            clip.read(&expanded_str, &full_path.to_string_lossy());
-
-            // Record %set and %def positions into the db.
-            let src_files = evaluator.sources().source_files().to_vec();
-            let var_defs = evaluator.drain_var_defs();
-            let macro_defs = evaluator.drain_macro_defs();
-            (|| -> Result<(), weaveback_tangle::WeavebackError> {
-                for vd in var_defs {
-                    if let Some(path) = src_files.get(vd.src as usize) {
-                        clip.db().record_var_def(&vd.var_name, &path.to_string_lossy(), vd.pos, vd.length)?;
-                    }
-                }
-                for md in macro_defs {
-                    if let Some(path) = src_files.get(md.src as usize) {
-                        clip.db().record_macro_def(&md.macro_name, &path.to_string_lossy(), md.pos, md.length)?;
-                    }
-                }
-                Ok(())
-            })()?;
-        }
-    }
-
-    // Phase 2: write all @file chunks (or just list them if --dry-run).
-    if args.dry_run {
-        for path in clip.list_output_files() {
-            println!("{}", path.display());
-        }
-        return Ok(());
-    }
-
-    // Compute which @file chunks can be skipped because none of their source
-    // blocks changed since the last run.  Store the new block hashes first so
-    // the next run can compare against this run's content.
-    let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut(), &args.gen_dir);
-    clip.write_files_incremental(&skip_set)?;
-
-    // Phase 3: snapshot all source files read this run.
-    (|| -> Result<(), weaveback_tangle::WeavebackError> {
-        let paths: Vec<PathBuf> = if args.no_macros {
-            drivers.clone()
-        } else {
-            evaluator.source_files().to_vec()
-        };
-        for path in &paths {
-            if let Ok(content) = std::fs::read(path) {
-                let key = path.to_string_lossy();
-                clip.db().set_src_snapshot(key.as_ref(), &content)?;
-            }
-        }
-        Ok(())
-    })()?;
-
-    // Phase 4: merge temp db into the db file.
-    clip.finish(&args.db)?;
-
-    // Persist gen_dir and (unless suppressed) rebuild FTS on the final merged db.
-    if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
-        let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
-        if !args.no_fts && let Err(e) = db.rebuild_prose_fts() {
-            eprintln!("warning: FTS index rebuild failed: {e}");
-        }
-    }
-
-    // Write depfile if requested.
-    if let Some(ref depfile_path) = args.depfile {
-        let deps: Vec<PathBuf> = if args.directory.is_some() {
-            all_adoc
-        } else if args.no_macros {
-            drivers
-        } else {
-            evaluator.source_files().to_vec()
-        };
-        let stamp_path = args.stamp.clone().unwrap_or_else(|| depfile_path.clone());
-        write_depfile(depfile_path, &stamp_path, &deps).map_err(Error::Io)?;
-    }
-
-    // Touch stamp file if requested.
-    if let Some(ref stamp_path) = args.stamp {
-        std::fs::write(stamp_path, b"").map_err(Error::Io)?;
-    }
-
+    weaveback_api::process::run_single_pass(SinglePassArgs {
+        inputs:          args.inputs,
+        directory:       args.directory,
+        input_dir:       args.input_dir,
+        gen_dir:         args.gen_dir,
+        open_delim:      args.open_delim,
+        close_delim:     args.close_delim,
+        chunk_end:       args.chunk_end,
+        comment_markers: args.comment_markers,
+        ext:             args.ext,
+        no_macros:       args.no_macros,
+        dry_run:         args.dry_run,
+        db:              args.db,
+        depfile:         args.depfile,
+        stamp:           args.stamp,
+        strict:          args.strict,
+        warn_unused:     args.warn_unused,
+        allow_env:       args.allow_env,
+        allow_home:      args.allow_home,
+        force_generated: args.force_generated,
+        sigil:           args.sigil,
+        include:         args.include,
+        formatter:       args.formatter,
+        no_fts:          args.no_fts,
+        dump_expanded:   args.dump_expanded,
+    })?;
     Ok(())
 }
 // @
@@ -747,157 +415,11 @@ chunk_end = "@@"
 [source,rust]
 ----
 // <<weaveback-tangle-all>>=
-#[derive(serde::Deserialize)]
-struct TanglePassCfg {
-    dir:              String,
-    #[serde(rename = "gen")]
-    output_dir:       Option<String>,
-    ext:              Option<String>,
-    #[serde(default)]
-    no_macros:        bool,
-    open_delim:       Option<String>,
-    close_delim:      Option<String>,
-    chunk_end:        Option<String>,
-    comment_markers:  Option<String>,
-    #[serde(default)]
-    sigil:           Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct TagsCfg {
-    /// "anthropic" | "gemini" | "openai" | "ollama"
-    #[serde(default = "default_tags_backend")]
-    backend:    String,
-    /// Model name, e.g. "claude-haiku-4-5-20251001"
-    #[serde(default = "default_tags_model")]
-    model:      String,
-    /// Base URL for openai-compatible / ollama
-    endpoint:   Option<String>,
-    /// Blocks per LLM request (default: 15)
-    #[serde(default = "default_batch_size")]
-    batch_size: usize,
-}
-
-fn default_tags_backend() -> String { "anthropic".to_string() }
-fn default_tags_model()   -> String { "claude-haiku-4-5-20251001".to_string() }
-fn default_batch_size()   -> usize  { 15 }
-
-#[derive(serde::Deserialize)]
-struct EmbeddingsCfg {
-    #[serde(default = "semantic::default_embeddings_backend")]
-    backend: String,
-    #[serde(default = "semantic::default_embeddings_model")]
-    model: String,
-    endpoint: Option<String>,
-    #[serde(default = "semantic::default_embeddings_batch_size")]
-    batch_size: usize,
-}
-
-#[derive(serde::Deserialize)]
-struct TangleCfg {
-    #[serde(rename = "gen")]
-    default_gen: Option<String>,
-    #[serde(rename = "pass")]
-    passes:      Vec<TanglePassCfg>,
-        tags:        Option<TagsCfg>,
-        embeddings:  Option<EmbeddingsCfg>,
-}
-
-fn build_pass_cmd(
-    exe: &std::path::Path,
-    pass: &TanglePassCfg,
-    default_gen: &str,
-    force_generated: bool,
-) -> std::process::Command {
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("--dir").arg(&pass.dir);
-    cmd.arg("--gen").arg(pass.output_dir.as_deref().unwrap_or(default_gen));
-    if force_generated {
-        cmd.arg("--force-generated");
-    }
-    if let Some(ext) = &pass.ext {
-        cmd.arg("--ext").arg(ext);
-    }
-    if pass.no_macros {
-        cmd.arg("--no-macros");
-    }
-    if let Some(od) = &pass.open_delim {
-        cmd.arg("--open-delim").arg(od);
-    }
-    if let Some(cd) = &pass.close_delim {
-        cmd.arg("--close-delim").arg(cd);
-    }
-    if let Some(ce) = &pass.chunk_end {
-        cmd.arg("--chunk-end").arg(ce);
-    }
-    if let Some(cm) = &pass.comment_markers {
-        cmd.arg("--comment-markers").arg(cm);
-    }
-    for s in &pass.sigil {
-        cmd.arg("--sigil").arg(s);
-    }
-    cmd.arg("--no-fts");
-    cmd
-}
+use weaveback_api::tangle::{TangleCfg, TagsCfg};
+use weaveback_api::tangle::{default_tags_backend, default_tags_model, default_tags_batch_size};
 
 fn run_tangle_all(config_path: &std::path::Path, force_generated: bool) -> Result<(), Error> {
-    let src = std::fs::read_to_string(config_path)
-        .map_err(|e| Error::Io(std::io::Error::new(e.kind(),
-            format!("{}: {e}", config_path.display()))))?;
-    let cfg: TangleCfg = toml::from_str(&src)
-        .map_err(|e| Error::Io(std::io::Error::other(
-            format!("{}: {e}", config_path.display()))))?;
-
-    let exe = std::env::current_exe()
-        .map_err(Error::Io)?;
-    let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
-
-    let errors: Vec<String> = cfg.passes
-        .par_iter()
-        .filter_map(|pass| {
-            let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
-            match cmd.status() {
-                Err(e)                => Some(format!("{}: {e}", pass.dir)),
-                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
-                _                     => None,
-            }
-        })
-        .collect();
-
-    if let Some(msg) = errors.into_iter().next() {
-        return Err(Error::Io(std::io::Error::other(msg)));
-    }
-
-    // Rebuild the prose FTS index once after all passes have written their
-    // snapshots, so the index reflects the complete current state.
-    let db_path = std::path::Path::new("weaveback.db");
-    if db_path.exists() {
-        match weaveback_tangle::db::WeavebackDb::open(db_path) {
-            Ok(mut db) => {
-                                if let Some(tags_cfg) = &cfg.tags {
-                    tag::run_auto_tag(&mut db, &tag::TagConfig {
-                        backend:    tags_cfg.backend.clone(),
-                        model:      tags_cfg.model.clone(),
-                        endpoint:   tags_cfg.endpoint.clone(),
-                        batch_size: tags_cfg.batch_size,
-                    });
-                }
-                                if let Some(embed_cfg) = &cfg.embeddings {
-                    semantic::run_auto_embed(&mut db, &semantic::EmbeddingConfig {
-                        backend: embed_cfg.backend.clone(),
-                        model: embed_cfg.model.clone(),
-                        endpoint: embed_cfg.endpoint.clone(),
-                        batch_size: embed_cfg.batch_size,
-                    });
-                }
-                if let Err(e) = db.rebuild_prose_fts() {
-                    eprintln!("warning: FTS index rebuild failed: {e}");
-                }
-            }
-            Err(e) => eprintln!("warning: could not open db for FTS rebuild: {e}"),
-        }
-    }
-    Ok(())
+    weaveback_api::tangle::run_tangle_all(config_path, force_generated).map_err(Error::Io)
 }
 
 fn run_tag_only(
@@ -908,26 +430,22 @@ fn run_tag_only(
     batch_size_override: Option<usize>,
     db_path: PathBuf,
 ) -> Result<(), Error> {
-    // Build TagConfig: CLI flags override weaveback.toml [tags] section.
-    let tag_cfg: tag::TagConfig = {
-        // Try to read toml; if [tags] absent, CLI flags must supply backend+model.
-        let toml_tags: Option<TagsCfg> = std::fs::read_to_string(config_path).ok()
-            .and_then(|s| toml::from_str::<TangleCfg>(&s).ok())
-            .and_then(|c| c.tags);
+    let toml_tags: Option<TagsCfg> = std::fs::read_to_string(config_path).ok()
+        .and_then(|s| toml::from_str::<TangleCfg>(&s).ok())
+        .and_then(|c| c.tags);
 
-        let backend = backend_override
+    let tag_cfg = tag::TagConfig {
+        backend:    backend_override
             .or_else(|| toml_tags.as_ref().map(|t| t.backend.clone()))
-            .unwrap_or_else(default_tags_backend);
-        let model = model_override
+            .unwrap_or_else(default_tags_backend),
+        model:      model_override
             .or_else(|| toml_tags.as_ref().map(|t| t.model.clone()))
-            .unwrap_or_else(default_tags_model);
-        let endpoint = endpoint_override
-            .or_else(|| toml_tags.as_ref().and_then(|t| t.endpoint.clone()));
-        let batch_size = batch_size_override
+            .unwrap_or_else(default_tags_model),
+        endpoint:   endpoint_override
+            .or_else(|| toml_tags.as_ref().and_then(|t| t.endpoint.clone())),
+        batch_size: batch_size_override
             .or_else(|| toml_tags.as_ref().map(|t| t.batch_size))
-            .unwrap_or_else(default_batch_size);
-
-        tag::TagConfig { backend, model, endpoint, batch_size }
+            .unwrap_or_else(default_tags_batch_size),
     };
 
     if !db_path.exists() {
@@ -2431,76 +1949,15 @@ fn run_cargo_annotated_to_writer(
     }
 }
 
-/// Escape a chunk name for use as a DOT node identifier.
-fn dot_id(name: &str) -> String {
-    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
 fn run_impact(chunk: String, db_path: PathBuf) -> Result<(), Error> {
-    let db = open_db(&db_path)?;
-
-    // BFS forward through chunk_deps to collect all transitively reachable chunks.
-    let mut reachable: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    seen.insert(chunk.clone());
-    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
-    queue.push_back(chunk.clone());
-    while let Some(current) = queue.pop_front() {
-        for (child, _src_file) in db.query_chunk_deps(&current)? {
-            if seen.insert(child.clone()) {
-                reachable.push(child.clone());
-                queue.push_back(child);
-            }
-        }
-    }
-
-    // Find affected output files across the root chunk and all reachable chunks.
-    let mut affected_files: HashSet<String> = HashSet::new();
-    for c in std::iter::once(&chunk).chain(reachable.iter()) {
-        for f in db.query_chunk_output_files(c)? {
-            affected_files.insert(f);
-        }
-    }
-    let mut affected_files: Vec<String> = affected_files.into_iter().collect();
-    affected_files.sort();
-
-    let json = serde_json::json!({
-        "chunk": chunk,
-        "reachable_chunks": reachable,
-        "affected_files": affected_files,
-    });
+    let json = weaveback_api::query::impact_analysis(&chunk, &db_path)?;
     println!("{}", serde_json::to_string_pretty(&json).unwrap());
     Ok(())
 }
 
 fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), Error> {
-    let db = open_db(&db_path)?;
-
-    let edges: Vec<(String, String)> = if let Some(ref root) = chunk {
-        // BFS to collect only the edges in the subgraph reachable from root.
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
-        visited.insert(root.clone());
-        queue.push_back(root.clone());
-        let mut sub: Vec<(String, String)> = Vec::new();
-        while let Some(current) = queue.pop_front() {
-            for (child, _) in db.query_chunk_deps(&current)? {
-                sub.push((current.clone(), child.clone()));
-                if visited.insert(child.clone()) {
-                    queue.push_back(child);
-                }
-            }
-        }
-        sub
-    } else {
-        db.query_all_chunk_deps()?.into_iter().map(|(f, t, _)| (f, t)).collect()
-    };
-
-    println!("digraph chunk_deps {{");
-    for (from, to) in &edges {
-        println!("  {} -> {};", dot_id(from), dot_id(to));
-    }
-    println!("}}");
+    let dot = weaveback_api::query::chunk_graph_dot(chunk.as_deref(), &db_path)?;
+    println!("{dot}");
     Ok(())
 }
 
@@ -2553,16 +2010,7 @@ fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), Error
 }
 
 fn run_tags(file: Option<String>, db_path: PathBuf) -> Result<(), Error> {
-    if !db_path.exists() {
-        return Err(Error::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
-        )));
-    }
-    let db = weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)
-        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
-    let blocks = db.list_block_tags(file.as_deref())
-        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))?;
+    let blocks = weaveback_api::query::list_block_tags(file.as_deref(), &db_path)?;
     if blocks.is_empty() {
         println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run weaveback tangle.");
         return Ok(());

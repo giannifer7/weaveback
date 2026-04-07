@@ -1,0 +1,21 @@
+[package]
+name        = "wb-query"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weaveback query tool: read-only analysis of the literate programming database"
+
+[[bin]]
+name = "wb-query"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+weaveback-api.workspace = true
+weaveback-tangle.workspace = true
+weaveback-macro.workspace = true
+weaveback-core.workspace = true

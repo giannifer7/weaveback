@@ -5,6 +5,7 @@ resolver = "2"
 
 members = [
     "crates/weaveback",
+    "crates/weaveback-api",
     "crates/weaveback-macro",
     "crates/weaveback-tangle",
     "crates/weaveback-docgen",
@@ -12,6 +13,8 @@ members = [
     "crates/weaveback-lsp",
     "crates/weaveback-agent-core",
     "crates/weaveback-py",
+    "crates/wb-tangle",
+    "crates/wb-query",
 ]
 
 [workspace.package]
@@ -77,6 +80,7 @@ pyo3 = { version = "0.28", features = ["extension-module"] }
 pythonize = "0.28"
 
 # Internal crate dependencies (points to the sub-crate on disk)
+weaveback-api = { path = "crates/weaveback-api" }
 weaveback-core = { path = "crates/weaveback-core" }
 weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }

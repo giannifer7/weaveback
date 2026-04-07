@@ -1,0 +1,181 @@
+use thiserror::Error;
+use weaveback_tangle::WeavebackError;
+
+#[derive(Debug, Error)]
+enum Error {
+    #[error("{0}")]
+    Noweb(#[from] WeavebackError),
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Api(#[from] weaveback_api::query::ApiError),
+    #[error("{0}")]
+    Lookup(#[from] weaveback_api::lookup::LookupError),
+    #[error("{0}")]
+    Lint(String),
+}
+
+impl From<weaveback_tangle::db::DbError> for Error {
+    fn from(e: weaveback_tangle::db::DbError) -> Self {
+        Error::Noweb(WeavebackError::Db(e))
+    }
+}
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+/// Weaveback query: read-only analysis of the literate programming database.
+#[derive(Parser, Debug)]
+#[command(name = "wb-query", version)]
+struct Cli {
+    /// Path to the weaveback database.
+    #[arg(long, default_value = "weaveback.db", global = true)]
+    db: PathBuf,
+
+    /// Base directory for generated output files (used for path resolution).
+    #[arg(long = "gen", default_value = "gen", global = true)]
+    gen_dir: PathBuf,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Map a generated file location to its literate source (noweb level).
+    Where {
+        /// Generated file path.
+        out_file: String,
+        /// Line number (1-indexed).
+        line: u32,
+    },
+    /// Full trace: map a generated file location to its macro-level source.
+    Trace {
+        /// Generated file path.
+        out_file: String,
+        /// Line number (1-indexed).
+        line: u32,
+        /// Column number (1-indexed, 0 = start of line).
+        #[arg(default_value = "0")]
+        col: u32,
+        /// Macro sigil character.
+        #[arg(long, default_value = "%")]
+        sigil: char,
+        /// Include paths for macro expansion (colon-separated on Unix).
+        #[arg(long, default_value = ".")]
+        include: String,
+        /// Allow %env(NAME) builtins.
+        #[arg(long)]
+        allow_env: bool,
+    },
+    /// Compute transitive impact of changes to a chunk.
+    Impact {
+        /// Chunk name (e.g. "my-chunk" or "@file foo/bar.rs").
+        chunk: String,
+    },
+    /// Export chunk dependency graph as Graphviz DOT.
+    Graph {
+        /// Limit graph to dependencies of this chunk (default: all chunks).
+        chunk: Option<String>,
+    },
+    /// List tagged source blocks.
+    Tags {
+        /// Limit to blocks from this source file.
+        file: Option<String>,
+    },
+    /// Lint literate source files.
+    Lint {
+        /// Source files to lint (default: stdin list, or use --dir).
+        #[arg(required = false)]
+        files: Vec<PathBuf>,
+        /// Treat all violations as errors (exit 1).
+        #[arg(long)]
+        strict: bool,
+        /// Filter to a specific lint rule ID.
+        #[arg(long)]
+        rule: Option<String>,
+        /// Output as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+fn default_pathsep() -> String {
+    if cfg!(windows) { ";".to_string() } else { ":".to_string() }
+}
+
+fn run(cli: Cli) -> Result<(), Error> {
+    use weaveback_core::PathResolver;
+    use weaveback_tangle::db::WeavebackDb;
+
+    match cli.command {
+        Commands::Where { out_file, line } => {
+            let db = WeavebackDb::open_read_only(&cli.db)?;
+            let resolver = PathResolver::new(PathBuf::from("."), cli.gen_dir);
+            match weaveback_api::lookup::perform_where(&out_file, line, &db, &resolver)? {
+                Some(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
+                None    => println!("null"),
+            }
+        }
+
+        Commands::Trace { out_file, line, col, sigil, include, allow_env } => {
+            use weaveback_macro::evaluator::EvalConfig;
+            let pathsep = default_pathsep();
+            let include_paths: Vec<PathBuf> = include
+                .split(&pathsep)
+                .map(PathBuf::from)
+                .collect();
+            let eval_config = EvalConfig {
+                sigil,
+                include_paths,
+                discovery_mode: false,
+                allow_env,
+            };
+            let db = WeavebackDb::open_read_only(&cli.db)?;
+            let resolver = PathResolver::new(PathBuf::from("."), cli.gen_dir);
+            match weaveback_api::lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config)? {
+                Some(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap()),
+                None    => println!("null"),
+            }
+        }
+
+        Commands::Impact { chunk } => {
+            let v = weaveback_api::query::impact_analysis(&chunk, &cli.db)?;
+            println!("{}", serde_json::to_string_pretty(&v).unwrap());
+        }
+
+        Commands::Graph { chunk } => {
+            let dot = weaveback_api::query::chunk_graph_dot(chunk.as_deref(), &cli.db)?;
+            print!("{dot}");
+        }
+
+        Commands::Tags { file } => {
+            let blocks = weaveback_api::query::list_block_tags(file.as_deref(), &cli.db)?;
+            if blocks.is_empty() {
+                eprintln!("No tagged blocks found. Add a [tags] section to weaveback.toml and run wb-tangle.");
+            } else {
+                let block_values: Vec<serde_json::Value> = blocks.iter().map(|b| serde_json::json!({
+                    "src_file": b.src_file,
+                    "block_index": b.block_index,
+                    "block_type": b.block_type,
+                    "line_start": b.line_start,
+                    "tags": b.tags,
+                })).collect();
+                let v = serde_json::json!({ "tagged_blocks": block_values });
+                println!("{}", serde_json::to_string_pretty(&v).unwrap());
+            }
+        }
+
+        Commands::Lint { files, strict, rule, json } => {
+            weaveback_api::lint::run_lint(files, strict, rule, json)
+                .map_err(Error::Lint)?;
+        }
+    }
+    Ok(())
+}
+
+fn main() {
+    let cli = Cli::parse();
+    if let Err(e) = run(cli) {
+        eprintln!("wb-query: {e}");
+        std::process::exit(1);
+    }
+}

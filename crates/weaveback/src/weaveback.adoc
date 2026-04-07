@@ -670,12 +670,14 @@ fn main() {
             summary,
             top_sources,
             top_sections,
+            explain_unattributed,
             lcov_file,
         }) => {
             run_coverage(
                 summary,
                 top_sources,
                 top_sections,
+                explain_unattributed,
                 lcov_file,
                 cli.args.db,
                 cli.args.gen_dir,
@@ -1574,10 +1576,77 @@ fn find_noweb_entries_for_generated_file(
     None
 }
 
+/// Compute the unmapped line ranges from a file's `generated_lines` array
+/// (lines that had coverage data but no noweb entry).  Groups consecutive
+/// line numbers into `(start, end, missed_count)` tuples.
+fn unmapped_ranges(file: &serde_json::Value) -> Vec<(u64, u64, usize)> {
+    let mut lines: Vec<(u64, bool)> = file["generated_lines"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|r| {
+                    let ln = r["generated_line"].as_u64()?;
+                    let hit = r["hit_count"].as_u64().unwrap_or(0) > 0;
+                    Some((ln, hit))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    lines.sort_by_key(|(ln, _)| *ln);
+    lines.dedup_by_key(|(ln, _)| *ln);
+
+    let mut ranges: Vec<(u64, u64, usize)> = Vec::new();
+    for (ln, hit) in lines {
+        let missed = !hit;
+        if let Some(last) = ranges.last_mut()
+            && ln == last.1 + 1
+        {
+            last.1 = ln;
+            if missed { last.2 += 1; }
+        } else {
+            ranges.push((ln, ln, if missed { 1 } else { 0 }));
+        }
+    }
+    ranges
+}
+
+/// Print unmapped line ranges for one unattributed file, with source content
+/// when the file can be read from disk.
+fn explain_unattributed_file(
+    file: &serde_json::Value,
+    out: &mut impl Write,
+) -> std::io::Result<()> {
+    let ranges = unmapped_ranges(file);
+    if ranges.is_empty() {
+        return Ok(());
+    }
+    writeln!(out, "    unmapped ranges:")?;
+
+    let path = file["generated_file"].as_str().unwrap_or("");
+    let file_lines: Option<Vec<String>> = std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.lines().map(str::to_owned).collect());
+
+    for (start, end, missed) in &ranges {
+        let count = end - start + 1;
+        writeln!(out, "      {start}-{end} ({count} line(s), {missed} missed):")?;
+        if let Some(lines) = &file_lines {
+            let lo = (*start as usize).saturating_sub(1);
+            let hi = (*end as usize).min(lines.len());
+            for (i, line) in lines[lo..hi].iter().enumerate() {
+                let ln = *start + i as u64;
+                writeln!(out, "        {ln}: {line}")?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn print_coverage_summary_to_writer(
     summary: &serde_json::Value,
     top_sources: usize,
     top_sections: usize,
+    explain_unattributed: bool,
     mut out: impl Write,
 ) -> std::io::Result<()> {
     writeln!(
@@ -1653,6 +1722,9 @@ fn print_coverage_summary_to_writer(
                 } else {
                     writeln!(out, "    no noweb mapping recorded for this file")?;
                 }
+                if explain_unattributed {
+                    explain_unattributed_file(file, &mut out)?;
+                }
             }
         }
     }
@@ -1716,6 +1788,7 @@ fn run_coverage(
     summary_only: bool,
     top_sources: usize,
     top_sections: usize,
+    explain_unattributed: bool,
     lcov_file: PathBuf,
     db_path: PathBuf,
     gen_dir: PathBuf,
@@ -1726,8 +1799,8 @@ fn run_coverage(
     let project_root = std::env::current_dir().unwrap_or_default();
     let resolver = PathResolver::new(project_root.clone(), gen_dir);
     let summary = build_coverage_summary(&records, &db, &project_root, &resolver);
-    if summary_only {
-        print_coverage_summary_to_writer(&summary, top_sources, top_sections, &mut std::io::stdout())
+    if summary_only || explain_unattributed {
+        print_coverage_summary_to_writer(&summary, top_sources, top_sections, explain_unattributed, &mut std::io::stdout())
             .map_err(Error::Io)?;
     } else {
         let value = build_coverage_summary_view(&summary, top_sources, top_sections);
@@ -2823,9 +2896,11 @@ mod tests {
                 summary,
                 top_sources,
                 top_sections,
+                explain_unattributed,
                 lcov_file,
             } => {
                 assert!(summary);
+                assert!(!explain_unattributed);
                 assert_eq!(top_sources, 10);
                 assert_eq!(top_sections, 3);
                 assert_eq!(lcov_file, PathBuf::from("lcov.info"));

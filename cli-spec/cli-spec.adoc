@@ -542,6 +542,15 @@ doc_default = %{`3`%},
 doc_descr = %{Maximum number of sections to show per source file in summary mode.%},
 )
 %emit_option(
+field = explain_unattributed,
+rust_type = bool,
+arg_attr = %{long%},
+doc_block = %{        /// For each unattributed file show the unmapped line ranges with source content%},
+doc_flag = %{`--explain-unattributed`%},
+doc_default = %{off%},
+doc_descr = %{For each unattributed file, print the unmapped line ranges with the actual source content so you can see which code lacks noweb entries.%},
+)
+%emit_option(
 field = lcov_file,
 rust_type = PathBuf,
 arg_attr =,

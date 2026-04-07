@@ -248,6 +248,13 @@ pub(crate) enum Commands {
 
 
 
+        /// For each unattributed file show the unmapped line ranges with source content
+    #[arg(long)]
+
+    explain_unattributed: bool,
+
+
+
         /// Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`
 
     lcov_file: PathBuf,

@@ -1506,6 +1506,7 @@ fn build_coverage_summary(
     let mut unattributed_files = unattributed_grouped
         .into_iter()
         .map(|(generated_file, summary)| {
+            let unmapped_ranges = compute_unmapped_ranges(&summary.generated_lines);
             json!({
                 "generated_file": generated_file,
                 "total_lines": summary.total_lines,
@@ -1514,6 +1515,7 @@ fn build_coverage_summary(
                 "has_noweb_entries": summary.has_noweb_entries,
                 "mapped_line_start": summary.mapped_line_start,
                 "mapped_line_end": summary.mapped_line_end,
+                "unmapped_ranges": unmapped_ranges,
                 "generated_lines": summary.generated_lines,
             })
         })
@@ -1576,65 +1578,79 @@ fn find_noweb_entries_for_generated_file(
     None
 }
 
-/// Compute the unmapped line ranges from a file's `generated_lines` array
-/// (lines that had coverage data but no noweb entry).  Groups consecutive
-/// line numbers into `(start, end, missed_count)` tuples.
-fn unmapped_ranges(file: &serde_json::Value) -> Vec<(u64, u64, usize)> {
-    let mut lines: Vec<(u64, bool)> = file["generated_lines"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|r| {
-                    let ln = r["generated_line"].as_u64()?;
-                    let hit = r["hit_count"].as_u64().unwrap_or(0) > 0;
-                    Some((ln, hit))
-                })
-                .collect()
+/// Group a `generated_lines` slice into consecutive ranges.
+/// Returns a JSON array of `{start, end, missed_count}` objects so the
+/// result can be embedded directly in the summary JSON and consumed by
+/// both agents (via JSON output) and humans (via `--summary`).
+fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
+    let mut lines: Vec<(u64, bool)> = generated_lines
+        .iter()
+        .filter_map(|r| {
+            let ln = r["generated_line"].as_u64()?;
+            let hit = r["hit_count"].as_u64().unwrap_or(0) > 0;
+            Some((ln, hit))
         })
-        .unwrap_or_default();
+        .collect();
     lines.sort_by_key(|(ln, _)| *ln);
     lines.dedup_by_key(|(ln, _)| *ln);
 
-    let mut ranges: Vec<(u64, u64, usize)> = Vec::new();
+    let mut ranges: Vec<serde_json::Value> = Vec::new();
     for (ln, hit) in lines {
         let missed = !hit;
-        if let Some(last) = ranges.last_mut()
-            && ln == last.1 + 1
-        {
-            last.1 = ln;
-            if missed { last.2 += 1; }
-        } else {
-            ranges.push((ln, ln, if missed { 1 } else { 0 }));
+        if let Some(last) = ranges.last_mut() {
+            let last_end = last["end"].as_u64().unwrap();
+            if ln == last_end + 1 {
+                *last.get_mut("end").unwrap() = json!(ln);
+                if missed {
+                    let mc = last["missed_count"].as_u64().unwrap_or(0);
+                    *last.get_mut("missed_count").unwrap() = json!(mc + 1);
+                }
+                continue;
+            }
         }
+        ranges.push(json!({
+            "start": ln,
+            "end":   ln,
+            "missed_count": if missed { 1u64 } else { 0u64 },
+        }));
     }
-    ranges
+    json!(ranges)
 }
 
-/// Print unmapped line ranges for one unattributed file, with source content
-/// when the file can be read from disk.
+/// Print unmapped line ranges for one unattributed file.
+/// Reads `unmapped_ranges` from the pre-computed JSON field.
+/// When `show_content` is true and the file is readable, prints source lines.
 fn explain_unattributed_file(
     file: &serde_json::Value,
+    show_content: bool,
     out: &mut impl Write,
 ) -> std::io::Result<()> {
-    let ranges = unmapped_ranges(file);
-    if ranges.is_empty() {
-        return Ok(());
-    }
+    let ranges = match file["unmapped_ranges"].as_array() {
+        Some(r) if !r.is_empty() => r,
+        _ => return Ok(()),
+    };
     writeln!(out, "    unmapped ranges:")?;
 
-    let path = file["generated_file"].as_str().unwrap_or("");
-    let file_lines: Option<Vec<String>> = std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.lines().map(str::to_owned).collect());
+    let file_lines: Option<Vec<String>> = if show_content {
+        let path = file["generated_file"].as_str().unwrap_or("");
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.lines().map(str::to_owned).collect())
+    } else {
+        None
+    };
 
-    for (start, end, missed) in &ranges {
-        let count = end - start + 1;
+    for range in ranges {
+        let start  = range["start"].as_u64().unwrap_or(0);
+        let end    = range["end"].as_u64().unwrap_or(0);
+        let missed = range["missed_count"].as_u64().unwrap_or(0);
+        let count  = end - start + 1;
         writeln!(out, "      {start}-{end} ({count} line(s), {missed} missed):")?;
         if let Some(lines) = &file_lines {
-            let lo = (*start as usize).saturating_sub(1);
-            let hi = (*end as usize).min(lines.len());
+            let lo = (start as usize).saturating_sub(1);
+            let hi = (end as usize).min(lines.len());
             for (i, line) in lines[lo..hi].iter().enumerate() {
-                let ln = *start + i as u64;
+                let ln = start + i as u64;
                 writeln!(out, "        {ln}: {line}")?;
             }
         }
@@ -1723,7 +1739,7 @@ fn print_coverage_summary_to_writer(
                     writeln!(out, "    no noweb mapping recorded for this file")?;
                 }
                 if explain_unattributed {
-                    explain_unattributed_file(file, &mut out)?;
+                    explain_unattributed_file(file, true, &mut out)?;
                 }
             }
         }
@@ -1799,7 +1815,7 @@ fn run_coverage(
     let project_root = std::env::current_dir().unwrap_or_default();
     let resolver = PathResolver::new(project_root.clone(), gen_dir);
     let summary = build_coverage_summary(&records, &db, &project_root, &resolver);
-    if summary_only || explain_unattributed {
+    if summary_only {
         print_coverage_summary_to_writer(&summary, top_sources, top_sections, explain_unattributed, &mut std::io::stdout())
             .map_err(Error::Io)?;
     } else {

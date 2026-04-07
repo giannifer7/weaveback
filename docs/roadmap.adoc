@@ -22,6 +22,35 @@ The main objective is to make weaveback cheaper to use in the ordinary loop of:
 If that loop remains expensive, the project becomes burden.  If that loop
 becomes routine and mostly mechanical, the project becomes help.
 
+== Current dogfood status
+
+The current state is better than when this plan was first written.
+
+What now works in ordinary use:
+
+* `weaveback lint --json` is quiet on the current tree
+* `weaveback cargo --diagnostics-only clippy ...` preserves structured output
+  and completes cleanly
+* coverage can now be regrouped by owning `.adoc` at useful scale instead of
+  only as a proof of concept
+* custom-sigil trace and `apply-back` paths are working again
+
+Current concrete numbers from dogfooding:
+
+* coverage attribution is roughly `15195 / 15672` line records
+* the remaining unattributed tail is now small enough to inspect directly
+* that tail is now split more clearly between genuinely non-literate or
+  unmapped files and partially mapped files where only some generated regions
+  remain outside the current source map
+
+That changes the next priority slightly.  The most useful work is no longer
+basic enablement.  It is:
+
+* tightening the remaining unattributed coverage tail
+* improving weakly-covered outer surfaces such as `serve` and some docgen areas
+* continuing to remove special-case path and config handling from user-visible
+  workflows
+
 == Workstreams
 
 === 1. Shared syntax and structure

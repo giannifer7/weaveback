@@ -1204,7 +1204,20 @@ fn build_coverage_summary(
         sections: std::collections::BTreeMap<String, SectionSummary>,
     }
 
+    #[derive(Default)]
+    struct UnattributedSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        has_noweb_entries: bool,
+        mapped_line_start: Option<u32>,
+        mapped_line_end: Option<u32>,
+        generated_lines: Vec<serde_json::Value>,
+    }
+
     let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+    let mut unattributed_grouped: std::collections::BTreeMap<String, UnattributedSummary> =
         std::collections::BTreeMap::new();
     let mut unattributed = Vec::new();
     let mut attributed_count = 0usize;
@@ -1232,11 +1245,38 @@ fn build_coverage_summary(
             .checked_sub(1)
             .and_then(|line_0| noweb_map.get(&line_0))
         else {
-            unattributed.push(json!({
+            let covered = *hit_count > 0;
+            let mapped_line_start = noweb_map.keys().min().copied().map(|line_0| line_0 + 1);
+            let mapped_line_end = noweb_map.keys().max().copied().map(|line_0| line_0 + 1);
+            let generated_line = json!({
                 "generated_file": file_name,
                 "generated_line": line_no,
                 "hit_count": hit_count,
-            }));
+                "covered": covered,
+                "has_noweb_entries": !noweb_map.is_empty(),
+                "mapped_line_start": mapped_line_start,
+                "mapped_line_end": mapped_line_end,
+            });
+            unattributed.push(generated_line.clone());
+            let file = unattributed_grouped.entry(file_name.clone()).or_default();
+            file.total_lines += 1;
+            if covered {
+                file.covered_lines += 1;
+            } else {
+                file.missed_lines += 1;
+            }
+            file.has_noweb_entries |= !noweb_map.is_empty();
+            file.mapped_line_start = match (file.mapped_line_start, mapped_line_start) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, b) => b,
+                (a, None) => a,
+            };
+            file.mapped_line_end = match (file.mapped_line_end, mapped_line_end) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (None, b) => b,
+                (a, None) => a,
+            };
+            file.generated_lines.push(generated_line);
             continue;
         };
 
@@ -1260,11 +1300,38 @@ fn build_coverage_summary(
                 text.clone()
             } else {
                 let Ok(text) = lookup::load_source_text(&src_file, db, resolver) else {
-                    unattributed.push(json!({
+                    let covered = *hit_count > 0;
+                    let mapped_line_start = noweb_map.keys().min().copied().map(|line_0| line_0 + 1);
+                    let mapped_line_end = noweb_map.keys().max().copied().map(|line_0| line_0 + 1);
+                    let generated_line = json!({
                         "generated_file": file_name,
                         "generated_line": line_no,
                         "hit_count": hit_count,
-                    }));
+                        "covered": covered,
+                        "has_noweb_entries": !noweb_map.is_empty(),
+                        "mapped_line_start": mapped_line_start,
+                        "mapped_line_end": mapped_line_end,
+                    });
+                    unattributed.push(generated_line.clone());
+                    let file = unattributed_grouped.entry(file_name.clone()).or_default();
+                    file.total_lines += 1;
+                    if covered {
+                        file.covered_lines += 1;
+                    } else {
+                        file.missed_lines += 1;
+                    }
+                    file.has_noweb_entries |= !noweb_map.is_empty();
+                    file.mapped_line_start = match (file.mapped_line_start, mapped_line_start) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (None, b) => b,
+                        (a, None) => a,
+                    };
+                    file.mapped_line_end = match (file.mapped_line_end, mapped_line_end) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (None, b) => b,
+                        (a, None) => a,
+                    };
+                    file.generated_lines.push(generated_line);
                     continue;
                 };
                 source_cache.insert(src_file.clone(), text.clone());
@@ -1434,12 +1501,38 @@ fn build_coverage_summary(
         })
     });
 
+    let mut unattributed_files = unattributed_grouped
+        .into_iter()
+        .map(|(generated_file, summary)| {
+            json!({
+                "generated_file": generated_file,
+                "total_lines": summary.total_lines,
+                "covered_lines": summary.covered_lines,
+                "missed_lines": summary.missed_lines,
+                "has_noweb_entries": summary.has_noweb_entries,
+                "mapped_line_start": summary.mapped_line_start,
+                "mapped_line_end": summary.mapped_line_end,
+                "generated_lines": summary.generated_lines,
+            })
+        })
+        .collect::<Vec<_>>();
+    unattributed_files.sort_by(|a, b| {
+        let am = a["missed_lines"].as_u64().unwrap_or(0);
+        let bm = b["missed_lines"].as_u64().unwrap_or(0);
+        bm.cmp(&am).then_with(|| {
+            let af = a["generated_file"].as_str().unwrap_or_default();
+            let bf = b["generated_file"].as_str().unwrap_or_default();
+            af.cmp(bf)
+        })
+    });
+
     json!({
         "line_records": records.len(),
         "attributed_records": attributed_count,
         "unattributed_records": unattributed.len(),
         "sources": sources,
         "unattributed": unattributed,
+        "unattributed_files": unattributed_files,
     })
 }
 
@@ -1535,6 +1628,30 @@ fn print_coverage_summary_to_writer(
     let unattributed = summary["unattributed_records"].as_u64().unwrap_or(0);
     if unattributed > 0 {
         writeln!(out, "Unattributed line records: {unattributed}")?;
+        if let Some(files) = summary["unattributed_files"].as_array() {
+            for file in files.iter().take(top_sources) {
+                let generated_file = file["generated_file"].as_str().unwrap_or("<unknown>");
+                let covered = file["covered_lines"].as_u64().unwrap_or(0);
+                let missed = file["missed_lines"].as_u64().unwrap_or(0);
+                let total = file["total_lines"].as_u64().unwrap_or(0);
+                let pct = if total == 0 {
+                    0.0
+                } else {
+                    100.0 * covered as f64 / total as f64
+                };
+                writeln!(
+                    out,
+                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                )?;
+                if file["has_noweb_entries"].as_bool().unwrap_or(false) {
+                    let start = file["mapped_line_start"].as_u64().unwrap_or(0);
+                    let end = file["mapped_line_end"].as_u64().unwrap_or(0);
+                    writeln!(out, "    partial mapping: mapped lines {start}-{end}")?;
+                } else {
+                    writeln!(out, "    no noweb mapping recorded for this file")?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1580,6 +1697,10 @@ fn build_coverage_summary_view(
                 "top_sections": top_sections,
                 "sources": top_sources_value,
                 "unattributed_records": summary["unattributed_records"].clone(),
+                "unattributed_files": summary["unattributed_files"]
+                    .as_array()
+                    .map(|files| serde_json::Value::Array(files.iter().take(top_sources).cloned().collect()))
+                    .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
                 "line_records": summary["line_records"].clone(),
                 "attributed_records": summary["attributed_records"].clone(),
             }),
@@ -3203,6 +3324,44 @@ build = "build.rs"
             "src/generated.rs"
         );
         assert_eq!(summary["unattributed"][0]["generated_file"], "unmapped.rs");
+        assert_eq!(summary["unattributed_files"][0]["generated_file"], "unmapped.rs");
+        assert_eq!(summary["unattributed_files"][0]["missed_lines"], 1);
+        assert_eq!(summary["unattributed_files"][0]["has_noweb_entries"], false);
+    }
+
+    #[test]
+    fn build_coverage_summary_marks_partial_unattributed_files() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "src/generated.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "src/doc.adoc".to_string(),
+                    chunk_name: "generated".to_string(),
+                    src_line: 3,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("noweb");
+        db.set_src_snapshot(
+            "src/doc.adoc",
+            b"= Root\n\n== Generated\nThe generated body.\n",
+        )
+        .expect("snapshot");
+        let records = vec![
+            ("src/generated.rs".to_string(), 2, 0),
+        ];
+        let project_root = PathBuf::from(".");
+        let resolver = PathResolver::new(project_root.clone(), PathBuf::from("gen"));
+        let summary = build_coverage_summary(&records, &db, &project_root, &resolver);
+        assert_eq!(summary["unattributed_records"], 1);
+        assert_eq!(summary["unattributed_files"][0]["generated_file"], "src/generated.rs");
+        assert_eq!(summary["unattributed_files"][0]["has_noweb_entries"], true);
+        assert_eq!(summary["unattributed_files"][0]["mapped_line_start"], 1);
+        assert_eq!(summary["unattributed_files"][0]["mapped_line_end"], 1);
     }
 
     #[test]
@@ -3296,6 +3455,16 @@ build = "build.rs"
             "line_records": 3,
             "attributed_records": 3,
             "unattributed_records": 0,
+            "unattributed_files": [
+                {
+                    "generated_file": "gen/a.rs",
+                    "missed_lines": 3
+                },
+                {
+                    "generated_file": "gen/b.rs",
+                    "missed_lines": 1
+                }
+            ],
             "sources": [
                 {
                     "src_file": "src/a.adoc",
@@ -3316,6 +3485,8 @@ build = "build.rs"
         assert_eq!(view["summary_view"]["top_sources"], 1);
         assert_eq!(view["summary_view"]["top_sections"], 1);
         assert_eq!(view["summary_view"]["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(view["summary_view"]["unattributed_files"].as_array().unwrap().len(), 1);
+        assert_eq!(view["summary_view"]["unattributed_files"][0]["generated_file"], "gen/a.rs");
         assert_eq!(
             view["summary_view"]["sources"][0]["sections"].as_array().unwrap().len(),
             1

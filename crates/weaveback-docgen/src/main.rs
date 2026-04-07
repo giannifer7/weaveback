@@ -255,7 +255,6 @@ fn main() {
     literate_index::generate_and_inject_all(&out_dir);
     inject::inject_chunk_ids(&out_dir);
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

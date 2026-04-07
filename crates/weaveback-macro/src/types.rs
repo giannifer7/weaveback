@@ -128,7 +128,6 @@ impl TryFrom<i32> for NodeKind {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::{NodeKind, Token, TokenKind};

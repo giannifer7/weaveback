@@ -299,7 +299,6 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
     files.sort();
     files
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

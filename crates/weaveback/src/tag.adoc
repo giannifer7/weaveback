@@ -38,7 +38,7 @@ the step is silently skipped — no behaviour change for existing setups.
 
 [source,rust]
 ----
-// <[@file weaveback/src/tag.rs]>=
+// <<@file weaveback/src/tag.rs>>=
 //! Automatic LLM-based tagging of literate source blocks.
 //!
 //! Runs as an optional post-step after `weaveback tangle`.  Only blocks
@@ -304,5 +304,91 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
         eprintln!("auto-tag: tagged {tagged} block(s)");
     }
 }
-// @@
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use weaveback_tangle::WeavebackDb;
+    use tempfile::tempdir;
+
+    fn make_db() -> (WeavebackDb, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = WeavebackDb::open(&db_path).unwrap();
+        (db, dir)
+    }
+
+    #[test]
+    fn test_build_prompt_contains_index_and_content() {
+        let items = vec![(0usize, "prose", "SQLite is a database.")];
+        let prompt = build_prompt(&items);
+        assert!(prompt.contains("[0]"));
+        assert!(prompt.contains("SQLite is a database."));
+    }
+
+    #[test]
+    fn test_parse_response_basic() {
+        let response = "0:sqlite,database\n1:rust,error-handling";
+        let parsed = parse_response(response);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], (0, "sqlite,database".to_string()));
+        assert_eq!(parsed[1], (1, "rust,error-handling".to_string()));
+    }
+
+    #[test]
+    fn test_parse_response_sanitises_punctuation() {
+        let response = "0:Tag With Spaces!,io";
+        let parsed = parse_response(response);
+        // Spaces and punctuation are filtered out (not converted to hyphens).
+        assert_eq!(parsed[0].1, "tagwithspaces,io");
+    }
+
+    #[test]
+    fn test_parse_response_skips_invalid_lines() {
+        let response = "not-a-number:tags\n0:valid";
+        let parsed = parse_response(response);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], (0, "valid".to_string()));
+    }
+
+    #[test]
+    fn test_block_first_line_returns_first_line() {
+        let source = "line one\nline two\nline three";
+        assert_eq!(block_first_line(source, 0, 2), "line one");
+    }
+
+    #[test]
+    fn test_block_first_line_out_of_range() {
+        let source = "only one line";
+        assert_eq!(block_first_line(source, 10, 20), "");
+    }
+
+    #[test]
+    fn test_run_auto_tag_skips_when_no_blocks() {
+        let (mut db, _dir) = make_db();
+        let cfg = TagConfig {
+            backend: "anthropic".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
+            endpoint: None,
+            batch_size: 15,
+        };
+        // No blocks in db → should complete without error and tag nothing.
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_run_auto_tag_skips_unreachable_endpoint() {
+        let (mut db, _dir) = make_db();
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 1,
+        };
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
+}
+// @
 ----

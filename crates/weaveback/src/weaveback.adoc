@@ -1560,6 +1560,9 @@ fn find_noweb_entries_for_generated_file(
         let parts: Vec<&str> = candidate.split('/').filter(|part| !part.is_empty()).collect();
         for start in 1..parts.len() {
             let suffix = parts[start..].join("/");
+            if !suffix.contains('/') {
+                break;
+            }
             if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&suffix)
                 && !entries.is_empty()
             {

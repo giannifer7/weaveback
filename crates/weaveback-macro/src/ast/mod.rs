@@ -28,6 +28,11 @@ fn is_skippable(kind: NodeKind) -> bool {
     matches!(kind, NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment)
 }
 
+#[inline]
+fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
+    end_pos.max(token.end())
+}
+
 #[derive(Error, Debug)]
 pub enum ASTError {
     #[error("Parser error: {0}")]
@@ -42,11 +47,6 @@ impl From<String> for ASTError {
     fn from(error: String) -> Self {
         ASTError::Other(error)
     }
-}
-
-#[inline]
-fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
-    end_pos.max(token.end())
 }
 
 /// Main entry point that unwraps the Option
@@ -112,7 +112,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
             None => {
                 // Completely empty param. Whether this should be kept depends on
                 // macro context: interior empties are meaningful
-                // (`%if(cond, , false_branch)`), while trailing empties created
+                // (`%%if(cond, , false_branch)`), while trailing empties created
                 // by optional trailing commas should be dropped later by the
                 // enclosing Macro node.
                 return Ok(Some(ASTNode {

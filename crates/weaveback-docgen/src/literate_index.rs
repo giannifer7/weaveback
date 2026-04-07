@@ -171,7 +171,6 @@ fn strip_existing(content: &str) -> String {
     }
     s
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

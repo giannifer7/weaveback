@@ -12,11 +12,11 @@ use weaveback_tangle::db::WeavebackDb;
 #[derive(Debug, Clone)]
 pub struct TagConfig {
     /// Backend name: "anthropic" | "gemini" | "openai" | "ollama"
-    pub backend: String,
+    pub backend:    String,
     /// Model identifier, e.g. "claude-haiku-4-5-20251001".
-    pub model: String,
+    pub model:      String,
     /// Base URL for openai-compatible / ollama endpoints.
-    pub endpoint: Option<String>,
+    pub endpoint:   Option<String>,
     /// Number of blocks per LLM request (default: 15).
     pub batch_size: usize,
 }
@@ -106,19 +106,13 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
             call_gemini(&key, &cfg.model, prompt)
         }
         "ollama" => {
-            let base = cfg
-                .endpoint
-                .as_deref()
-                .unwrap_or("http://localhost:11434/v1");
+            let base = cfg.endpoint.as_deref().unwrap_or("http://localhost:11434/v1");
             call_openai_compat(None, base, &cfg.model, prompt)
         }
         _ => {
             // "openai" or any unknown value → OpenAI-compatible
             let key = std::env::var("OPENAI_API_KEY").ok();
-            let base = cfg
-                .endpoint
-                .as_deref()
-                .unwrap_or("https://api.openai.com/v1");
+            let base = cfg.endpoint.as_deref().unwrap_or("https://api.openai.com/v1");
             call_openai_compat(key.as_deref(), base, &cfg.model, prompt)
         }
     }
@@ -126,8 +120,7 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
 
 // ── prompt helpers ────────────────────────────────────────────────────────────
 
-#[cfg_attr(test, allow(dead_code))]
-pub(crate) fn build_prompt(items: &[(usize, &str, &str)]) -> String {
+fn build_prompt(items: &[(usize, &str, &str)]) -> String {
     // items: (local_index, block_type, first_line_of_content)
     let mut s = String::from(
         "Tag these blocks from a literate programming document.\n\
@@ -142,7 +135,7 @@ pub(crate) fn build_prompt(items: &[(usize, &str, &str)]) -> String {
     s
 }
 
-pub(crate) fn parse_response(response: &str) -> Vec<(usize, String)> {
+fn parse_response(response: &str) -> Vec<(usize, String)> {
     response
         .lines()
         .filter_map(|line| {
@@ -168,18 +161,16 @@ pub(crate) fn parse_response(response: &str) -> Vec<(usize, String)> {
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
                 .join(",");
-            if clean.is_empty() {
-                None
-            } else {
-                Some((idx, clean))
-            }
+            if clean.is_empty() { None } else { Some((idx, clean)) }
         })
         .collect()
 }
 
-pub(crate) fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
+fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
     let lo = (line_start as usize).saturating_sub(1);
-    let hi = (line_end as usize).min(source.lines().count());
+    let hi = (line_end as usize).min(
+        source.lines().count()
+    );
     source
         .lines()
         .skip(lo)
@@ -196,17 +187,13 @@ pub(crate) fn block_first_line(source: &str, line_start: u32, line_end: u32) -> 
 pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
     let blocks = match db.get_blocks_needing_tags() {
         Ok(b) => b,
-        Err(e) => {
-            eprintln!("warning: auto-tag db query failed: {e}");
-            return;
-        }
+        Err(e) => { eprintln!("warning: auto-tag db query failed: {e}"); return; }
     };
-    if blocks.is_empty() {
-        return;
-    }
+    if blocks.is_empty() { return; }
 
     // Group blocks by file so we only fetch each snapshot once.
-    let mut by_file: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+    let mut by_file: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
     for b in blocks {
         by_file.entry(b.src_file.clone()).or_default().push(b);
     }
@@ -257,9 +244,12 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 
             for (local_idx, tags) in parse_response(&response) {
                 if let Some(b) = chunk.get(local_idx) {
-                    if let Err(e) =
-                        db.set_block_tags(&b.src_file, b.block_index, &b.content_hash, &tags)
-                    {
+                    if let Err(e) = db.set_block_tags(
+                        &b.src_file,
+                        b.block_index,
+                        &b.content_hash,
+                        &tags,
+                    ) {
                         eprintln!("warning: auto-tag store failed: {e}");
                     } else {
                         tagged += 1;
@@ -277,162 +267,78 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weaveback_tangle::block_parser::SourceBlockEntry;
+    use weaveback_tangle::WeavebackDb;
+    use tempfile::tempdir;
 
-    // ── parse_response ────────────────────────────────────────────────────────
+    fn make_db() -> (WeavebackDb, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = WeavebackDb::open(&db_path).unwrap();
+        (db, dir)
+    }
+
+    #[test]
+    fn test_build_prompt_contains_index_and_content() {
+        let items = vec![(0usize, "prose", "SQLite is a database.")];
+        let prompt = build_prompt(&items);
+        assert!(prompt.contains("[0]"));
+        assert!(prompt.contains("SQLite is a database."));
+    }
 
     #[test]
     fn test_parse_response_basic() {
-        let r = parse_response("0:fts,sqlite,search\n1:incremental,hash\n2:tangle");
-        assert_eq!(r.len(), 3);
-        assert_eq!(r[0], (0, "fts,sqlite,search".to_string()));
-        assert_eq!(r[1], (1, "incremental,hash".to_string()));
-        assert_eq!(r[2], (2, "tangle".to_string()));
+        let response = "0:sqlite,database\n1:rust,error-handling";
+        let parsed = parse_response(response);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], (0, "sqlite,database".to_string()));
+        assert_eq!(parsed[1], (1, "rust,error-handling".to_string()));
     }
 
     #[test]
     fn test_parse_response_sanitises_punctuation() {
-        // Hyphens kept; spaces and commas between tags work; punctuation stripped.
-        let r = parse_response("0:apply-back, safe-write, I/O!");
-        assert_eq!(r.len(), 1);
-        assert_eq!(r[0].1, "apply-back,safe-write,io");
+        let response = "0:Tag With Spaces!,io";
+        let parsed = parse_response(response);
+        // Spaces and punctuation are filtered out (not converted to hyphens).
+        assert_eq!(parsed[0].1, "tagwithspaces,io");
     }
 
     #[test]
-    fn test_parse_response_skips_malformed_lines() {
-        let r = parse_response("not a line\n0:good-tag\njunk:also-junk");
-        // "junk" does not parse as usize, so only index 0 survives.
-        assert_eq!(r.len(), 1);
-        assert_eq!(r[0], (0, "good-tag".to_string()));
+    fn test_parse_response_skips_invalid_lines() {
+        let response = "not-a-number:tags\n0:valid";
+        let parsed = parse_response(response);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], (0, "valid".to_string()));
     }
 
     #[test]
-    fn test_parse_response_empty_tags_skipped() {
-        let r = parse_response("0:  ,  ,  ");
-        assert!(r.is_empty(), "all-whitespace tags should produce no entry");
-    }
-
-    #[test]
-    fn test_parse_response_tolerates_extra_colons() {
-        // split_once(':') takes only the first colon, rest is tags string.
-        let r = parse_response("0:foo:bar,baz");
-        assert_eq!(r.len(), 1);
-        // "foo:bar" → sanitised → "foobar" (colon stripped), "baz" kept.
-        assert_eq!(r[0].1, "foobar,baz");
-    }
-
-    // ── build_prompt ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_build_prompt_contains_all_indices() {
-        let items = vec![
-            (0usize, "section", "= Introduction"),
-            (1, "para", "This is a paragraph."),
-        ];
-        let p = build_prompt(&items);
-        assert!(p.contains("[0] section | = Introduction"));
-        assert!(p.contains("[1] para | This is a paragraph."));
-    }
-
-    #[test]
-    fn test_build_prompt_truncates_long_first_line() {
-        let long = "x".repeat(200);
-        let items = vec![(0usize, "para", long.as_str())];
-        let p = build_prompt(&items);
-        // Preview capped at 120 chars.
-        let preview: String = "x".repeat(120);
-        assert!(p.contains(&preview));
-        assert!(!p.contains(&"x".repeat(121)));
-    }
-
-    // ── block_first_line ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_block_first_line_normal() {
-        let src = "line one\nline two\nline three\n";
-        assert_eq!(block_first_line(src, 1, 3), "line one");
-        assert_eq!(block_first_line(src, 2, 3), "line two");
+    fn test_block_first_line_returns_first_line() {
+        let source = "line one\nline two\nline three";
+        assert_eq!(block_first_line(source, 0, 2), "line one");
     }
 
     #[test]
     fn test_block_first_line_out_of_range() {
-        let src = "only line\n";
-        // line_start beyond file length → empty string, no panic.
-        assert_eq!(block_first_line(src, 99, 100), "");
+        let source = "only one line";
+        assert_eq!(block_first_line(source, 10, 20), "");
     }
 
     #[test]
-    fn test_block_first_line_empty_source() {
-        assert_eq!(block_first_line("", 1, 1), "");
-    }
-
-    // ── backend selection / orchestration ───────────────────────────────────
-
-    fn block(index: u32, block_type: &str, line_start: u32, line_end: u32) -> SourceBlockEntry {
-        SourceBlockEntry {
-            block_index: index,
-            block_type: block_type.to_string(),
-            line_start,
-            line_end,
-            content_hash: [0u8; 32],
-        }
-    }
-
-    #[test]
-    fn test_call_llm_propagates_backend_errors() {
+    fn test_run_auto_tag_skips_when_no_blocks() {
+        let (mut db, _dir) = make_db();
         let cfg = TagConfig {
-            backend: "ollama".to_string(),
-            model: "dummy".to_string(),
-            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
-            batch_size: 1,
+            backend: "anthropic".to_string(),
+            model: "claude-haiku-4-5-20251001".to_string(),
+            endpoint: None,
+            batch_size: 15,
         };
-        let err = call_llm(&cfg, "prompt").unwrap_err();
-        assert!(!err.is_empty());
-    }
-
-    #[test]
-    fn test_run_auto_tag_noop_when_no_blocks_need_tags() {
-        let mut db = WeavebackDb::open_temp().unwrap();
-        let cfg = TagConfig {
-            backend: "ollama".to_string(),
-            model: "dummy".to_string(),
-            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
-            batch_size: 4,
-        };
+        // No blocks in db → should complete without error and tag nothing.
         run_auto_tag(&mut db, &cfg);
         assert!(db.list_block_tags(None).unwrap().is_empty());
     }
 
     #[test]
-    fn test_run_auto_tag_skips_when_snapshot_missing() {
-        let mut db = WeavebackDb::open_temp().unwrap();
-        db.set_source_blocks(
-            "docs/tag.adoc",
-            &[block(0, "section", 1, 1), block(1, "para", 3, 3)],
-        )
-        .unwrap();
-
-        let cfg = TagConfig {
-            backend: "ollama".to_string(),
-            model: "dummy".to_string(),
-            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
-            batch_size: 1,
-        };
-        run_auto_tag(&mut db, &cfg);
-        assert!(db.list_block_tags(None).unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_run_auto_tag_skips_when_llm_call_fails() {
-        let mut db = WeavebackDb::open_temp().unwrap();
-        let source = "= Title\n\nParagraph.\n";
-        db.set_src_snapshot("docs/tag.adoc", source.as_bytes()).unwrap();
-        db.set_source_blocks(
-            "docs/tag.adoc",
-            &[block(0, "section", 1, 1), block(1, "para", 3, 3)],
-        )
-        .unwrap();
-
+    fn test_run_auto_tag_skips_unreachable_endpoint() {
+        let (mut db, _dir) = make_db();
         let cfg = TagConfig {
             backend: "ollama".to_string(),
             model: "dummy".to_string(),

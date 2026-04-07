@@ -14,7 +14,7 @@ pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
 
 /// Attempt to find a noweb-map entry for `out_file`.  Tries the raw path,
 /// then the normalized path, then a canonical absolute path when the file
-/// exists on disk, then suffix matches for multi-root workspaces.
+/// exists on disk.
 pub fn find_best_noweb_entry(
     db: &WeavebackDb,
     out_file: &str,
@@ -32,6 +32,8 @@ pub fn find_best_noweb_entry(
         return Ok(Some(entry));
     }
 
+    // Try 3: Canonical on-disk path. This helps external tools like cargo and
+    // llvm-cov that often report absolute paths.
     let path = Path::new(out_file);
     let abs = if path.is_absolute() {
         Some(path.to_path_buf())
@@ -47,6 +49,9 @@ pub fn find_best_noweb_entry(
         }
     }
 
+    // Try 4: progressively strip leading path components and match by suffix.
+    // This bridges current repo layouts like `crates/weaveback/src/main.rs`
+    // to db keys like `weaveback/src/main.rs`.
     let mut suffix = Path::new(out_file);
     while let Some(parent) = suffix.parent() {
         let next = match suffix.strip_prefix(parent) {
@@ -54,6 +59,9 @@ pub fn find_best_noweb_entry(
             _ => break,
         };
         let next_str = next.to_string_lossy();
+        if !next_str.contains('/') {
+            break;
+        }
         if !next_str.is_empty()
             && next_str != out_file
             && next_str != norm
@@ -127,7 +135,6 @@ pub fn find_best_source_config(
 
     Ok(None)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

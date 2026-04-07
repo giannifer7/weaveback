@@ -417,7 +417,6 @@ fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     let col_1 = prefix[line_start..].chars().count() as u32 + 1;
     (line_1, col_1)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

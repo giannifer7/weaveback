@@ -51,6 +51,21 @@ fn test_unmodified_file_update() -> Result<(), WeavebackError> {
 }
 
 #[test]
+fn test_shorter_regeneration_truncates_old_suffix() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "line one\nline two\nline three\n")?;
+    write_file(&mut writer, &test_file, "short\n")?;
+
+    let content = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert_eq!(content, "short\n");
+    assert!(!content.contains("line two"));
+    assert!(!content.contains("line three"));
+    Ok(())
+}
+
+#[test]
 fn test_backup_creation() -> Result<(), WeavebackError> {
     let (_temp, mut writer) = create_test_writer();
     let test_file = PathBuf::from("test.txt");

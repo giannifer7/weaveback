@@ -1,6 +1,7 @@
 pub mod apply_back;
 pub mod coverage;
 pub mod lint;
+pub mod lsp_runner;
 pub mod lookup;
 pub mod mcp;
 pub mod process;

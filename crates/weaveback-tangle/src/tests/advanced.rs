@@ -525,7 +525,7 @@ fn test_tilde_expansion_blocked_without_allow_home() {
 
 // ── warn_unused ───────────────────────────────────────────────────────────────
 
-/// Unused named chunks produce no warnings by default — `check_unused_chunks`
+/// Unused named chunks produce no warnings by default -- `check_unused_chunks`
 /// is never called when `warn_unused` is false, but the API itself is always
 /// available.  Here we verify that the helper correctly identifies unused chunks.
 #[test]
@@ -729,7 +729,7 @@ fn list_output_files_multiple() {
 #[test]
 fn chunk_defs_records_definition_line_ranges() {
     let mut setup = TestSetup::new(&["#"]);
-    // Define a named chunk — def_start/def_end are 1-indexed line numbers
+    // Define a named chunk -- def_start/def_end are 1-indexed line numbers
     setup.clip.read(
         "# <<greet>>=\nhello\n# @\n",
         "src.nw",
@@ -770,4 +770,112 @@ fn file_chunk_with_parent_dir_traversal_blocked() {
         !setup.clip.get_file_chunks().contains(&"@file ../../escape.txt".to_string()),
         "path-traversal @file chunk should be rejected"
     );
+}
+
+// ── Windows-style path in @file ───────────────────────────────────────────────
+
+#[test]
+fn file_chunk_with_windows_path_blocked() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file C:\\evil.txt>>=\nbad\n# @\n",
+        "src.nw",
+    );
+    assert!(
+        !setup.clip.get_file_chunks().contains(&"@file C:\\evil.txt".to_string()),
+        "windows-style @file chunk should be rejected"
+    );
+}
+
+// ── Clip::reset ────────────────────────────────────────────────────────────────
+
+#[test]
+fn clip_reset_clears_chunks() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read("# <<@file out.txt>>=\nhello\n# @\n", "src.nw");
+    assert!(setup.clip.has_chunk("@file out.txt"));
+    setup.clip.reset();
+    assert!(
+        !setup.clip.has_chunk("@file out.txt"),
+        "reset should clear chunks"
+    );
+    assert!(
+        setup.clip.get_file_chunks().is_empty(),
+        "reset should clear file chunks list"
+    );
+}
+
+// ── Clip::get_chunk ────────────────────────────────────────────────────────────
+
+#[test]
+fn clip_get_chunk_writes_content_to_writer() {
+    use std::io::BufWriter;
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read("# <<my-chunk>>=\nfoo\nbar\n# @\n", "src.nw");
+    let mut buf = BufWriter::new(Vec::new());
+    setup.clip.get_chunk("my-chunk", &mut buf).unwrap();
+    let output = String::from_utf8(buf.into_inner().unwrap()).unwrap();
+    assert!(output.contains("foo"));
+    assert!(output.contains("bar"));
+}
+
+// ── Clip::read_files ──────────────────────────────────────────────────────────
+
+#[test]
+fn clip_read_files_reads_multiple_inputs() {
+    use std::io::Write;
+    let temp = tempfile::TempDir::new().unwrap();
+    let a_path = temp.path().join("a.nw");
+    let b_path = temp.path().join("b.nw");
+    std::fs::File::create(&a_path).unwrap().write_all(b"# <<@file a.txt>>=\nalpha\n# @\n").unwrap();
+    std::fs::File::create(&b_path).unwrap().write_all(b"# <<@file b.txt>>=\nbeta\n# @\n").unwrap();
+
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read_files(&[&a_path, &b_path]).unwrap();
+    assert!(setup.clip.has_chunk("@file a.txt"));
+    assert!(setup.clip.has_chunk("@file b.txt"));
+}
+
+// ── Clip::db / db_mut ─────────────────────────────────────────────────────────
+
+#[test]
+fn clip_db_and_db_mut_are_accessible() {
+    let mut setup = TestSetup::new(&["#"]);
+    let _ = setup.clip.db();
+    let _ = setup.clip.db_mut();
+}
+
+// ── write_files strict mode rejects parse errors ──────────────────────────────
+
+#[test]
+fn write_files_strict_rejects_file_chunk_redefinition() {
+    // strict_undefined must be set BEFORE read() so the error is captured
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.set_strict_undefined(true);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nfirst\n# @\n\n# <<@file out.txt>>=\nsecond\n# @\n",
+        "src.nw",
+    );
+    let err = setup.clip.write_files().unwrap_err();
+    match err {
+        WeavebackError::Chunk(ChunkError::FileChunkRedefinition { .. }) => {}
+        other => panic!("expected FileChunkRedefinition, got: {:?}", other),
+    }
+}
+
+#[test]
+fn write_files_incremental_strict_rejects_parse_errors() {
+    // strict_undefined must be set BEFORE read() so the error is captured
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.set_strict_undefined(true);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nfirst\n# @\n\n# <<@file out.txt>>=\nsecond\n# @\n",
+        "src.nw",
+    );
+    let skip = std::collections::HashSet::new();
+    let err = setup.clip.write_files_incremental(&skip).unwrap_err();
+    match err {
+        WeavebackError::Chunk(ChunkError::FileChunkRedefinition { .. }) => {}
+        other => panic!("expected FileChunkRedefinition, got: {:?}", other),
+    }
 }

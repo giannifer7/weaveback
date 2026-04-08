@@ -208,4 +208,143 @@ mod tests {
         assert_eq!(entry.chunk_name, "short");
         assert_eq!(entry.src_file, "a.adoc");
     }
+
+    // ── find_line_col ──────────────────────────────────────────────────────
+
+    #[test]
+    fn find_line_col_start_of_file() {
+        let (line, col) = find_line_col("hello\nworld", 0);
+        assert_eq!((line, col), (1, 1));
+    }
+
+    #[test]
+    fn find_line_col_end_of_first_line() {
+        let text = "hello\nworld";
+        let (line, col) = find_line_col(text, 5); // byte offset of '\n'
+        assert_eq!((line, col), (1, 6));
+    }
+
+    #[test]
+    fn find_line_col_start_of_second_line() {
+        let text = "hello\nworld";
+        let (line, col) = find_line_col(text, 6); // after '\n'
+        assert_eq!((line, col), (2, 1));
+    }
+
+    #[test]
+    fn find_line_col_clamps_to_text_length() {
+        let text = "abc";
+        let (line, col) = find_line_col(text, 999);
+        assert_eq!((line, col), (1, 4)); // offset clamped to len(3), col=4
+    }
+
+    #[test]
+    fn find_line_col_empty_text() {
+        let (line, col) = find_line_col("", 0);
+        assert_eq!((line, col), (1, 1));
+    }
+
+    // ── find_best_source_config ────────────────────────────────────────────
+
+    #[test]
+    fn find_best_source_config_exact_match() {
+        use crate::db::TangleConfig;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = TangleConfig {
+            sigil: '%',
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["#".to_string()],
+        };
+        db.set_source_config("src/foo.adoc", &cfg).unwrap();
+        let got = find_best_source_config(&db, "src/foo.adoc").unwrap();
+        assert!(got.is_some());
+        assert_eq!(got.unwrap().open_delim, "<<");
+    }
+
+    #[test]
+    fn find_best_source_config_strips_dot_slash() {
+        use crate::db::TangleConfig;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = TangleConfig {
+            sigil: '%',
+            open_delim: "<[".to_string(),
+            close_delim: "]>".to_string(),
+            chunk_end: "@@".to_string(),
+            comment_markers: vec!["//".to_string()],
+        };
+        db.set_source_config("bar.adoc", &cfg).unwrap();
+        // Lookup with ./ prefix — try 2 strips it
+        let got = find_best_source_config(&db, "./bar.adoc").unwrap();
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn find_best_source_config_adds_dot_slash() {
+        use crate::db::TangleConfig;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = TangleConfig {
+            sigil: '%',
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["#".to_string()],
+        };
+        db.set_source_config("./baz.adoc", &cfg).unwrap();
+        // Lookup without ./ prefix — try 3 prepends it
+        let got = find_best_source_config(&db, "baz.adoc").unwrap();
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn find_best_source_config_strips_crates_prefix() {
+        use crate::db::TangleConfig;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = TangleConfig {
+            sigil: '%',
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["//".to_string()],
+        };
+        db.set_source_config("weaveback/src/lib.adoc", &cfg).unwrap();
+        // Lookup with crates/ prefix — try 4 strips it
+        let got = find_best_source_config(&db, "crates/weaveback/src/lib.adoc").unwrap();
+        assert!(got.is_some());
+    }
+
+    #[test]
+    fn find_best_source_config_missing_returns_none() {
+        let db = WeavebackDb::open_temp().unwrap();
+        let got = find_best_source_config(&db, "nonexistent.adoc").unwrap();
+        assert!(got.is_none());
+    }
+
+    // ── find_best_noweb_entry: exact and missing ───────────────────────────
+
+    #[test]
+    fn find_best_noweb_entry_exact_match() {
+        let mut db = WeavebackDb::open_temp().unwrap();
+        let entry = NowebMapEntry {
+            src_file: "s.adoc".to_string(),
+            chunk_name: "my-chunk".to_string(),
+            src_line: 5,
+            indent: String::new(),
+            confidence: Confidence::Exact,
+        };
+        db.set_noweb_entries("gen/out.rs", &[(3, entry)]).unwrap();
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("."));
+        let got = find_best_noweb_entry(&db, "gen/out.rs", 3, &resolver).unwrap();
+        assert!(got.is_some());
+        assert_eq!(got.unwrap().chunk_name, "my-chunk");
+    }
+
+    #[test]
+    fn find_best_noweb_entry_missing_returns_none() {
+        let db = WeavebackDb::open_temp().unwrap();
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("."));
+        let got = find_best_noweb_entry(&db, "gen/out.rs", 99, &resolver).unwrap();
+        assert!(got.is_none());
+    }
 }

@@ -36,11 +36,6 @@ pub fn eval_file(
     output_file: &Path,
     evaluator: &mut Evaluator,
 ) -> EvalResult<()> {
-    if let Some(parent) = output_file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
-    }
-
     // Guard: refuse to overwrite the input file.
     let canon_in = input_file.canonicalize().map_err(|e| {
         EvalError::Runtime(format!("Cannot resolve input path {input_file:?}: {e}"))
@@ -58,6 +53,11 @@ pub fn eval_file(
         .map_err(|e| EvalError::Runtime(format!("Cannot read {input_file:?}: {e}")))?;
 
     let expanded = eval_string(&content, Some(input_file), evaluator)?;
+
+    if let Some(parent) = output_file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| EvalError::Runtime(format!("Cannot create dir {parent:?}: {e}")))?;
+    }
 
     fs::write(output_file, expanded.as_bytes())
         .map_err(|e| EvalError::Runtime(format!("Cannot write {output_file:?}: {e}")))?;

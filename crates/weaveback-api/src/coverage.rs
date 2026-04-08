@@ -1,0 +1,1613 @@
+use weaveback_tangle::WeavebackError;
+use weaveback_core::PathResolver;
+use weaveback_macro::evaluator::EvalConfig;
+use weaveback_agent_core::{Workspace as AgentWorkspace, WorkspaceConfig as AgentWorkspaceConfig};
+use serde_json::json;
+use std::collections::HashSet;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use crate::lookup;
+
+#[derive(Debug, thiserror::Error)]
+pub enum CoverageError {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Noweb(#[from] WeavebackError),
+}
+
+impl From<weaveback_tangle::db::DbError> for CoverageError {
+    fn from(e: weaveback_tangle::db::DbError) -> Self {
+        CoverageError::Noweb(WeavebackError::Db(e))
+    }
+}
+
+impl From<lookup::LookupError> for CoverageError {
+    fn from(e: lookup::LookupError) -> Self {
+        match e {
+            lookup::LookupError::Db(e) => CoverageError::Noweb(WeavebackError::Db(e)),
+            lookup::LookupError::Io(e) => CoverageError::Io(e),
+            lookup::LookupError::InvalidInput(s) => CoverageError::Io(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, s),
+            ),
+        }
+    }
+}
+
+impl From<crate::query::ApiError> for CoverageError {
+    fn from(e: crate::query::ApiError) -> Self {
+        match e {
+            crate::query::ApiError::Db(e) => CoverageError::Noweb(WeavebackError::Db(e)),
+            crate::query::ApiError::Io(e) => CoverageError::Io(e),
+        }
+    }
+}
+pub fn open_db(db_path: &Path) -> Result<weaveback_tangle::db::WeavebackDb, CoverageError> {
+    if !db_path.exists() {
+        return Err(CoverageError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    Ok(weaveback_tangle::db::WeavebackDb::open_read_only(db_path)?)
+}
+
+pub fn parse_generated_location(spec: &str) -> Result<(String, u32, u32), CoverageError> {
+    let mut parts = spec.rsplitn(3, ':');
+    let last = parts.next().ok_or_else(|| {
+        CoverageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "location must be FILE:LINE or FILE:LINE:COL",
+        ))
+    })?;
+    let middle = parts.next().ok_or_else(|| {
+        CoverageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "location must be FILE:LINE or FILE:LINE:COL",
+        ))
+    })?;
+
+    if let Some(file) = parts.next() {
+        let line = middle.parse::<u32>().map_err(|e| {
+            CoverageError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid line in location `{spec}`: {e}"),
+            ))
+        })?;
+        let col = last.parse::<u32>().map_err(|e| {
+            CoverageError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid column in location `{spec}`: {e}"),
+            ))
+        })?;
+        Ok((file.to_string(), line, col))
+    } else {
+        let line = last.parse::<u32>().map_err(|e| {
+            CoverageError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid line in location `{spec}`: {e}"),
+            ))
+        })?;
+        Ok((middle.to_string(), line, 1))
+    }
+}
+
+pub fn scan_generated_locations(text: &str) -> Vec<String> {
+    fn normalize_scanned_location(token: &str) -> Option<String> {
+        let trimmed = token
+            .trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | ',' | ';'))
+            .trim_end_matches(['.', ':', '!', '?']);
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(trimmed.to_string())
+    }
+
+    let pattern = regex::Regex::new(r"(?P<loc>(?:[A-Za-z]:)?[^\s]+:\d+(?::\d+)?)")
+        .expect("valid location regex");
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for captures in pattern.captures_iter(text) {
+        let Some(loc) = captures
+            .name("loc")
+            .and_then(|m| normalize_scanned_location(m.as_str()))
+        else {
+            continue;
+        };
+        if parse_generated_location(&loc).is_ok() && seen.insert(loc.clone()) {
+            out.push(loc);
+        }
+    }
+    out
+}
+
+pub fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), CoverageError> {
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+
+    match lookup::perform_where(&out_file, line, &db, &resolver) {
+        Ok(Some(json)) => {
+            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            Ok(())
+        }
+        Ok(None) => {
+            eprintln!("No mapping found for {}:{}", out_file, line);
+            Ok(())
+        }
+        Err(lookup::LookupError::InvalidInput(msg)) => {
+            Err(CoverageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)))
+        }
+        Err(lookup::LookupError::Db(e)) => Err(CoverageError::Noweb(WeavebackError::Db(e))),
+        Err(lookup::LookupError::Io(e)) => Err(CoverageError::Io(e)),
+    }
+}
+
+pub fn run_attribute(
+    scan_stdin: bool,
+    summary: bool,
+    mut locations: Vec<String>,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: weaveback_macro::evaluator::EvalConfig,
+) -> Result<(), CoverageError> {
+    if scan_stdin {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .map_err(CoverageError::Io)?;
+        locations.extend(scan_generated_locations(&input));
+        locations.sort();
+        locations.dedup();
+    }
+    if locations.is_empty() {
+        return Err(CoverageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "at least one location is required (or use --scan-stdin)",
+        )));
+    }
+    if !summary && !scan_stdin && locations.len() == 1 {
+        let (out_file, line, col) = parse_generated_location(&locations[0])?;
+        return run_trace(out_file, line, col, db_path, gen_dir, eval_config);
+    }
+
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+    let mut results = Vec::new();
+
+    for location in locations {
+        let (out_file, line, col) = parse_generated_location(&location)?;
+        match lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config.clone()) {
+            Ok(Some(json)) => results.push(json!({
+                "location": location,
+                "ok": true,
+                "trace": json,
+            })),
+            Ok(None) => results.push(json!({
+                "location": location,
+                "ok": false,
+                "trace": serde_json::Value::Null,
+            })),
+            Err(lookup::LookupError::InvalidInput(msg)) => {
+                return Err(CoverageError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    msg,
+                )));
+            }
+            Err(lookup::LookupError::Db(e)) => return Err(CoverageError::Noweb(WeavebackError::Db(e))),
+            Err(lookup::LookupError::Io(e)) => return Err(CoverageError::Io(e)),
+        }
+    }
+
+    if summary {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "count": results.len(),
+                "ok_count": results.iter().filter(|r| r["ok"].as_bool() == Some(true)).count(),
+                "miss_count": results.iter().filter(|r| r["ok"].as_bool() != Some(true)).count(),
+                "results": results,
+                "weaveback_source_summary": build_location_attribution_summary(&results),
+            }))
+            .unwrap()
+        );
+    } else {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    }
+    Ok(())
+}
+
+pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
+    let mut current_file: Option<String> = None;
+    let mut out = Vec::new();
+
+    for line in text.lines() {
+        if let Some(path) = line.strip_prefix("SF:") {
+            current_file = Some(path.to_string());
+            continue;
+        }
+        if line == "end_of_record" {
+            current_file = None;
+            continue;
+        }
+        let Some(rest) = line.strip_prefix("DA:") else {
+            continue;
+        };
+        let Some(file) = current_file.as_ref() else {
+            continue;
+        };
+        let mut parts = rest.split(',');
+        let Some(line_no) = parts.next().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(hit_count) = parts.next().and_then(|s| s.parse::<u64>().ok()) else {
+            continue;
+        };
+        out.push((file.clone(), line_no, hit_count));
+    }
+
+    out
+}
+
+pub fn build_coverage_summary(
+    records: &[(String, u32, u64)],
+    db: &weaveback_tangle::db::WeavebackDb,
+    project_root: &Path,
+    resolver: &PathResolver,
+) -> serde_json::Value {
+    #[derive(Default)]
+    struct SectionSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        chunks: std::collections::BTreeSet<String>,
+        generated_lines: Vec<serde_json::Value>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    #[derive(Default)]
+    struct UnattributedSummary {
+        total_lines: usize,
+        covered_lines: usize,
+        missed_lines: usize,
+        has_noweb_entries: bool,
+        mapped_line_start: Option<u32>,
+        mapped_line_end: Option<u32>,
+        generated_lines: Vec<serde_json::Value>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+    let mut unattributed_grouped: std::collections::BTreeMap<String, UnattributedSummary> =
+        std::collections::BTreeMap::new();
+    let mut unattributed = Vec::new();
+    let mut attributed_count = 0usize;
+    let mut noweb_cache: std::collections::HashMap<
+        String,
+        std::collections::HashMap<u32, weaveback_tangle::db::NowebMapEntry>,
+    > = std::collections::HashMap::new();
+    let mut source_cache: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut section_cache: std::collections::HashMap<String, Vec<(u32, u32, serde_json::Value)>> =
+        std::collections::HashMap::new();
+
+    for (file_name, line_no, hit_count) in records {
+        let noweb_map = if let Some(entries) = noweb_cache.get(file_name) {
+            entries
+        } else {
+            let loaded = find_noweb_entries_for_generated_file(db, file_name, project_root)
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<std::collections::HashMap<_, _>>();
+            noweb_cache.entry(file_name.clone()).or_insert(loaded)
+        };
+
+        let Some(entry) = line_no
+            .checked_sub(1)
+            .and_then(|line_0| noweb_map.get(&line_0))
+        else {
+            let covered = *hit_count > 0;
+            let mapped_line_start = noweb_map.keys().min().copied().map(|line_0| line_0 + 1);
+            let mapped_line_end = noweb_map.keys().max().copied().map(|line_0| line_0 + 1);
+            let generated_line = json!({
+                "generated_file": file_name,
+                "generated_line": line_no,
+                "hit_count": hit_count,
+                "covered": covered,
+                "has_noweb_entries": !noweb_map.is_empty(),
+                "mapped_line_start": mapped_line_start,
+                "mapped_line_end": mapped_line_end,
+            });
+            unattributed.push(generated_line.clone());
+            let file = unattributed_grouped.entry(file_name.clone()).or_default();
+            file.total_lines += 1;
+            if covered {
+                file.covered_lines += 1;
+            } else {
+                file.missed_lines += 1;
+            }
+            file.has_noweb_entries |= !noweb_map.is_empty();
+            file.mapped_line_start = match (file.mapped_line_start, mapped_line_start) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, b) => b,
+                (a, None) => a,
+            };
+            file.mapped_line_end = match (file.mapped_line_end, mapped_line_end) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (None, b) => b,
+                (a, None) => a,
+            };
+            file.generated_lines.push(generated_line);
+            continue;
+        };
+
+        let src_file = entry.src_file.clone();
+        let src_line = (entry.src_line + 1) as u64;
+
+        let context = if let Some(cached) = section_cache
+            .get(&src_file)
+            .and_then(|sections| {
+                sections.iter().find_map(|(start, end, value)| {
+                    if src_line >= *start as u64 && src_line <= *end as u64 {
+                        Some(value.clone())
+                    } else {
+                        None
+                    }
+                })
+            }) {
+            cached
+        } else {
+            let src_content = if let Some(text) = source_cache.get(&src_file) {
+                text.clone()
+            } else {
+                let Ok(text) = lookup::load_source_text(&src_file, db, resolver) else {
+                    let covered = *hit_count > 0;
+                    let mapped_line_start = noweb_map.keys().min().copied().map(|line_0| line_0 + 1);
+                    let mapped_line_end = noweb_map.keys().max().copied().map(|line_0| line_0 + 1);
+                    let generated_line = json!({
+                        "generated_file": file_name,
+                        "generated_line": line_no,
+                        "hit_count": hit_count,
+                        "covered": covered,
+                        "has_noweb_entries": !noweb_map.is_empty(),
+                        "mapped_line_start": mapped_line_start,
+                        "mapped_line_end": mapped_line_end,
+                    });
+                    unattributed.push(generated_line.clone());
+                    let file = unattributed_grouped.entry(file_name.clone()).or_default();
+                    file.total_lines += 1;
+                    if covered {
+                        file.covered_lines += 1;
+                    } else {
+                        file.missed_lines += 1;
+                    }
+                    file.has_noweb_entries |= !noweb_map.is_empty();
+                    file.mapped_line_start = match (file.mapped_line_start, mapped_line_start) {
+                        (Some(a), Some(b)) => Some(a.min(b)),
+                        (None, b) => b,
+                        (a, None) => a,
+                    };
+                    file.mapped_line_end = match (file.mapped_line_end, mapped_line_end) {
+                        (Some(a), Some(b)) => Some(a.max(b)),
+                        (None, b) => b,
+                        (a, None) => a,
+                    };
+                    file.generated_lines.push(generated_line);
+                    continue;
+                };
+                source_cache.insert(src_file.clone(), text.clone());
+                text
+            };
+            let value = lookup::build_source_context_value(&src_content, src_line as usize);
+            let start = value
+                .get("source_section_range")
+                .and_then(|v| v.get("start_line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(src_line) as u32;
+            let end = value
+                .get("source_section_range")
+                .and_then(|v| v.get("end_line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(src_line) as u32;
+            section_cache
+                .entry(src_file.clone())
+                .or_default()
+                .push((start, end, value.clone()));
+            value
+        };
+
+        attributed_count += 1;
+        let mut trace = json!({
+            "generated_file": file_name,
+            "generated_line": line_no,
+            "chunk": entry.chunk_name,
+            "expanded_file": src_file,
+            "expanded_line": src_line,
+            "indent": entry.indent,
+            "confidence": entry.confidence.as_str(),
+        });
+        if let (Some(trace_obj), Some(ctx_obj)) = (trace.as_object_mut(), context.as_object()) {
+            trace_obj.extend(ctx_obj.clone());
+        }
+
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+        let covered = *hit_count > 0;
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let generated_line = json!({
+            "generated_file": file_name,
+            "generated_line": line_no,
+            "hit_count": hit_count,
+            "covered": covered,
+            "chunk": if chunk.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(chunk.clone()) },
+        });
+
+        let source = grouped.entry(src_file).or_default();
+        source.total_lines += 1;
+        if covered {
+            source.covered_lines += 1;
+        } else {
+            source.missed_lines += 1;
+        }
+        if !chunk.is_empty() {
+            source.chunks.insert(chunk.clone());
+        }
+
+        let section = source.sections.entry(section_key).or_default();
+        section.total_lines += 1;
+        if covered {
+            section.covered_lines += 1;
+        } else {
+            section.missed_lines += 1;
+        }
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        section.generated_lines.push(generated_line);
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
+        }
+    }
+
+    let mut sources = grouped
+        .into_iter()
+        .map(|(src_file, source)| {
+            let mut sections = source
+                .sections
+                .into_values()
+                .map(|section| {
+                    json!({
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                        "total_lines": section.total_lines,
+                        "covered_lines": section.covered_lines,
+                        "missed_lines": section.missed_lines,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "generated_lines": section.generated_lines,
+                    })
+                })
+                .collect::<Vec<_>>();
+            sections.sort_by(|a, b| {
+                let am = a["missed_lines"].as_u64().unwrap_or(0);
+                let bm = b["missed_lines"].as_u64().unwrap_or(0);
+                bm.cmp(&am).then_with(|| {
+                    let an = a["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_default();
+                    let bn = b["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_default();
+                    an.cmp(&bn)
+                })
+            });
+
+            json!({
+                "src_file": src_file,
+                "total_lines": source.total_lines,
+                "covered_lines": source.covered_lines,
+                "missed_lines": source.missed_lines,
+                "chunks": source.chunks.into_iter().collect::<Vec<_>>(),
+                "sections": sections,
+            })
+        })
+        .collect::<Vec<_>>();
+    sources.sort_by(|a, b| {
+        let am = a["missed_lines"].as_u64().unwrap_or(0);
+        let bm = b["missed_lines"].as_u64().unwrap_or(0);
+        bm.cmp(&am).then_with(|| {
+            let af = a["src_file"].as_str().unwrap_or_default();
+            let bf = b["src_file"].as_str().unwrap_or_default();
+            af.cmp(bf)
+        })
+    });
+
+    let mut unattributed_files = unattributed_grouped
+        .into_iter()
+        .map(|(generated_file, summary)| {
+            let unmapped_ranges = compute_unmapped_ranges(&summary.generated_lines);
+            json!({
+                "generated_file": generated_file,
+                "total_lines": summary.total_lines,
+                "covered_lines": summary.covered_lines,
+                "missed_lines": summary.missed_lines,
+                "has_noweb_entries": summary.has_noweb_entries,
+                "mapped_line_start": summary.mapped_line_start,
+                "mapped_line_end": summary.mapped_line_end,
+                "unmapped_ranges": unmapped_ranges,
+                "generated_lines": summary.generated_lines,
+            })
+        })
+        .collect::<Vec<_>>();
+    unattributed_files.sort_by(|a, b| {
+        let am = a["missed_lines"].as_u64().unwrap_or(0);
+        let bm = b["missed_lines"].as_u64().unwrap_or(0);
+        bm.cmp(&am).then_with(|| {
+            let af = a["generated_file"].as_str().unwrap_or_default();
+            let bf = b["generated_file"].as_str().unwrap_or_default();
+            af.cmp(bf)
+        })
+    });
+
+    json!({
+        "line_records": records.len(),
+        "attributed_records": attributed_count,
+        "unattributed_records": unattributed.len(),
+        "sources": sources,
+        "unattributed": unattributed,
+        "unattributed_files": unattributed_files,
+    })
+}
+
+fn find_noweb_entries_for_generated_file(
+    db: &weaveback_tangle::db::WeavebackDb,
+    file_name: &str,
+    project_root: &Path,
+) -> Option<Vec<(u32, weaveback_tangle::db::NowebMapEntry)>> {
+    let mut candidates = Vec::new();
+    candidates.push(file_name.to_string());
+    let file_path = Path::new(file_name);
+    if let Ok(rel) = file_path.strip_prefix(project_root) {
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if !candidates.contains(&rel) {
+            candidates.push(rel);
+        }
+    }
+
+    for candidate in candidates {
+        if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&candidate)
+            && !entries.is_empty()
+        {
+            return Some(entries);
+        }
+        let parts: Vec<&str> = candidate.split('/').filter(|part| !part.is_empty()).collect();
+        for start in 1..parts.len() {
+            let suffix = parts[start..].join("/");
+            if !suffix.contains('/') {
+                break;
+            }
+            if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&suffix)
+                && !entries.is_empty()
+            {
+                return Some(entries);
+            }
+        }
+    }
+
+    None
+}
+
+/// Group a `generated_lines` slice into consecutive ranges.
+/// Returns a JSON array of `{start, end, missed_count}` objects so the
+/// result can be embedded directly in the summary JSON and consumed by
+/// both agents (via JSON output) and humans (via `--summary`).
+fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
+    let mut lines: Vec<(u64, bool)> = generated_lines
+        .iter()
+        .filter_map(|r| {
+            let ln = r["generated_line"].as_u64()?;
+            let hit = r["hit_count"].as_u64().unwrap_or(0) > 0;
+            Some((ln, hit))
+        })
+        .collect();
+    lines.sort_by_key(|(ln, _)| *ln);
+    lines.dedup_by_key(|(ln, _)| *ln);
+
+    let mut ranges: Vec<serde_json::Value> = Vec::new();
+    for (ln, hit) in lines {
+        let missed = !hit;
+        if let Some(last) = ranges.last_mut() {
+            let last_end = last["end"].as_u64().unwrap();
+            if ln == last_end + 1 {
+                *last.get_mut("end").unwrap() = json!(ln);
+                if missed {
+                    let mc = last["missed_count"].as_u64().unwrap_or(0);
+                    *last.get_mut("missed_count").unwrap() = json!(mc + 1);
+                }
+                continue;
+            }
+        }
+        ranges.push(json!({
+            "start": ln,
+            "end":   ln,
+            "missed_count": if missed { 1u64 } else { 0u64 },
+        }));
+    }
+    json!(ranges)
+}
+
+/// Print unmapped line ranges for one unattributed file.
+/// Reads `unmapped_ranges` from the pre-computed JSON field.
+/// When `show_content` is true and the file is readable, prints source lines.
+fn explain_unattributed_file(
+    file: &serde_json::Value,
+    show_content: bool,
+    out: &mut impl Write,
+) -> std::io::Result<()> {
+    let ranges = match file["unmapped_ranges"].as_array() {
+        Some(r) if !r.is_empty() => r,
+        _ => return Ok(()),
+    };
+    writeln!(out, "    unmapped ranges:")?;
+
+    let file_lines: Option<Vec<String>> = if show_content {
+        let path = file["generated_file"].as_str().unwrap_or("");
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.lines().map(str::to_owned).collect())
+    } else {
+        None
+    };
+
+    for range in ranges {
+        let start  = range["start"].as_u64().unwrap_or(0);
+        let end    = range["end"].as_u64().unwrap_or(0);
+        let missed = range["missed_count"].as_u64().unwrap_or(0);
+        let count  = end - start + 1;
+        writeln!(out, "      {start}-{end} ({count} line(s), {missed} missed):")?;
+        if let Some(lines) = &file_lines {
+            let lo = (start as usize).saturating_sub(1);
+            let hi = (end as usize).min(lines.len());
+            for (i, line) in lines[lo..hi].iter().enumerate() {
+                let ln = start + i as u64;
+                writeln!(out, "        {ln}: {line}")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_coverage_summary_to_writer(
+    summary: &serde_json::Value,
+    top_sources: usize,
+    top_sections: usize,
+    explain_unattributed: bool,
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    writeln!(
+        out,
+        "Coverage by source: {} attributed / {} total line records",
+        summary["attributed_records"].as_u64().unwrap_or(0),
+        summary["line_records"].as_u64().unwrap_or(0)
+    )?;
+
+    if let Some(sources) = summary["sources"].as_array() {
+        for source in sources.iter().take(top_sources) {
+            let src_file = source["src_file"].as_str().unwrap_or("<unknown>");
+            let covered = source["covered_lines"].as_u64().unwrap_or(0);
+            let missed = source["missed_lines"].as_u64().unwrap_or(0);
+            let total = source["total_lines"].as_u64().unwrap_or(0);
+            let pct = if total == 0 {
+                0.0
+            } else {
+                100.0 * covered as f64 / total as f64
+            };
+            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed")?;
+            if let Some(sections) = source["sections"].as_array() {
+                for section in sections.iter().take(top_sections) {
+                    let breadcrumb = section["source_section_breadcrumb"]
+                        .as_array()
+                        .map(|parts| {
+                            parts
+                                .iter()
+                                .filter_map(|part| part.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        })
+                        .unwrap_or_else(|| "<unknown>".to_string());
+                    let covered = section["covered_lines"].as_u64().unwrap_or(0);
+                    let missed = section["missed_lines"].as_u64().unwrap_or(0);
+                    let total = section["total_lines"].as_u64().unwrap_or(0);
+                    let pct = if total == 0 {
+                        0.0
+                    } else {
+                        100.0 * covered as f64 / total as f64
+                    };
+                    writeln!(
+                        out,
+                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                    )?;
+                }
+            }
+        }
+    }
+
+    let unattributed = summary["unattributed_records"].as_u64().unwrap_or(0);
+    if unattributed > 0 {
+        writeln!(out, "Unattributed line records: {unattributed}")?;
+        if let Some(files) = summary["unattributed_files"].as_array() {
+            for file in files.iter().take(top_sources) {
+                let generated_file = file["generated_file"].as_str().unwrap_or("<unknown>");
+                let covered = file["covered_lines"].as_u64().unwrap_or(0);
+                let missed = file["missed_lines"].as_u64().unwrap_or(0);
+                let total = file["total_lines"].as_u64().unwrap_or(0);
+                let pct = if total == 0 {
+                    0.0
+                } else {
+                    100.0 * covered as f64 / total as f64
+                };
+                writeln!(
+                    out,
+                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                )?;
+                if file["has_noweb_entries"].as_bool().unwrap_or(false) {
+                    let start = file["mapped_line_start"].as_u64().unwrap_or(0);
+                    let end = file["mapped_line_end"].as_u64().unwrap_or(0);
+                    writeln!(out, "    partial mapping: mapped lines {start}-{end}")?;
+                } else {
+                    writeln!(out, "    no noweb mapping recorded for this file")?;
+                }
+                if explain_unattributed {
+                    explain_unattributed_file(file, true, &mut out)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn build_coverage_summary_view(
+    summary: &serde_json::Value,
+    top_sources: usize,
+    top_sections: usize,
+) -> serde_json::Value {
+    let mut value = summary.clone();
+    let top_sources_value = summary["sources"]
+        .as_array()
+        .map(|sources| {
+            serde_json::Value::Array(
+                sources
+                    .iter()
+                    .take(top_sources)
+                    .map(|source| {
+                        let mut source = source.clone();
+                        if let Some(obj) = source.as_object_mut()
+                            && let Some(sections) =
+                                obj.get("sections").and_then(|v| v.as_array()).cloned()
+                        {
+                            obj.insert(
+                                "sections".to_string(),
+                                serde_json::Value::Array(
+                                    sections.into_iter().take(top_sections).collect(),
+                                ),
+                            );
+                        }
+                        source
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "summary_view".to_string(),
+            json!({
+                "top_sources": top_sources,
+                "top_sections": top_sections,
+                "sources": top_sources_value,
+                "unattributed_records": summary["unattributed_records"].clone(),
+                "unattributed_files": summary["unattributed_files"]
+                    .as_array()
+                    .map(|files| serde_json::Value::Array(files.iter().take(top_sources).cloned().collect()))
+                    .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
+                "line_records": summary["line_records"].clone(),
+                "attributed_records": summary["attributed_records"].clone(),
+            }),
+        );
+    }
+    value
+}
+
+pub fn run_coverage(
+    summary_only: bool,
+    top_sources: usize,
+    top_sections: usize,
+    explain_unattributed: bool,
+    lcov_file: PathBuf,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+) -> Result<(), CoverageError> {
+    let text = std::fs::read_to_string(&lcov_file).map_err(CoverageError::Io)?;
+    let records = parse_lcov_records(&text);
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root.clone(), gen_dir);
+    let summary = build_coverage_summary(&records, &db, &project_root, &resolver);
+    if summary_only {
+        print_coverage_summary_to_writer(&summary, top_sources, top_sections, explain_unattributed, &mut std::io::stdout())
+            .map_err(CoverageError::Io)?;
+    } else {
+        let value = build_coverage_summary_view(&summary, top_sources, top_sections);
+        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+    }
+    Ok(())
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CargoMessageEnvelope {
+    reason: String,
+    message: Option<CargoDiagnostic>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CargoDiagnostic {
+    pub spans: Vec<CargoDiagnosticSpan>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct CargoDiagnosticSpan {
+    pub file_name: String,
+    pub line_start: u32,
+    pub column_start: u32,
+    pub is_primary: bool,
+}
+
+pub fn collect_cargo_attributions(
+    diagnostic: &CargoDiagnostic,
+    db: Option<&weaveback_tangle::db::WeavebackDb>,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Vec<serde_json::Value> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    let mut records = Vec::new();
+    let mut seen = HashSet::new();
+
+    for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
+        let Some(trace) = trace_generated_location(
+            &span.file_name,
+            span.line_start,
+            span.column_start,
+            db,
+            project_root,
+            resolver,
+            eval_config,
+        ) else {
+            continue;
+        };
+
+        let dedupe_key = serde_json::to_string(&trace).unwrap_or_default();
+        if seen.insert(dedupe_key) {
+            records.push(trace);
+        }
+    }
+
+    records
+}
+
+pub fn collect_cargo_span_attributions(
+    diagnostic: &CargoDiagnostic,
+    db: Option<&weaveback_tangle::db::WeavebackDb>,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Vec<serde_json::Value> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    let mut records = Vec::new();
+    let mut seen = HashSet::new();
+
+    for span in &diagnostic.spans {
+        let Some(trace) = trace_generated_location(
+            &span.file_name,
+            span.line_start,
+            span.column_start,
+            db,
+            project_root,
+            resolver,
+            eval_config,
+        ) else {
+            continue;
+        };
+
+        let record = json!({
+            "generated_file": span.file_name,
+            "generated_line": span.line_start,
+            "generated_col": span.column_start,
+            "is_primary": span.is_primary,
+            "trace": trace,
+        });
+        let dedupe_key = serde_json::to_string(&record).unwrap_or_default();
+        if seen.insert(dedupe_key) {
+            records.push(record);
+        }
+    }
+
+    records
+}
+
+fn trace_generated_location(
+    file_name: &str,
+    line: u32,
+    col: u32,
+    db: &weaveback_tangle::db::WeavebackDb,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Option<serde_json::Value> {
+    if let Ok(Some(value)) =
+        lookup::perform_trace(file_name, line, col, db, resolver, eval_config.clone())
+    {
+        return Some(value);
+    }
+
+    let file_path = Path::new(file_name);
+    let rel = file_path
+        .strip_prefix(project_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))?;
+    lookup::perform_trace(&rel, line, col, db, resolver, eval_config.clone())
+        .ok()
+        .flatten()
+}
+
+pub fn build_cargo_attribution_summary(
+    span_attributions: &[serde_json::Value],
+) -> serde_json::Value {
+    #[derive(Default)]
+    struct SectionSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        generated_spans: Vec<serde_json::Value>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+
+    for record in span_attributions {
+        let Some(trace) = record.get("trace") else {
+            continue;
+        };
+        let Some(src_file) = trace
+            .get("src_file")
+            .and_then(|v| v.as_str())
+            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
+        else {
+            continue;
+        };
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+        let generated_span = json!({
+            "generated_file": record.get("generated_file").cloned().unwrap_or(serde_json::Value::Null),
+            "generated_line": record.get("generated_line").cloned().unwrap_or(serde_json::Value::Null),
+            "generated_col": record.get("generated_col").cloned().unwrap_or(serde_json::Value::Null),
+            "is_primary": record.get("is_primary").cloned().unwrap_or(serde_json::Value::Bool(false)),
+            "chunk": if chunk.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(chunk.clone()) },
+        });
+        let entry = grouped
+            .entry(src_file.to_string())
+            .or_default();
+        entry.count += 1;
+        if !chunk.is_empty() {
+            entry.chunks.insert(chunk.clone());
+        }
+        let section = entry.sections.entry(section_key).or_default();
+        section.count += 1;
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        section.generated_spans.push(generated_span);
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
+        }
+    }
+
+    json!({
+        "count": span_attributions.len(),
+        "sources": grouped
+            .into_iter()
+            .map(|(src_file, summary)| json!({
+                "src_file": src_file,
+                "count": summary.count,
+                "chunks": summary.chunks.into_iter().collect::<Vec<_>>(),
+                "sections": summary
+                    .sections
+                    .into_values()
+                    .map(|section| json!({
+                        "count": section.count,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "generated_spans": section.generated_spans,
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                    }))
+                    .collect::<Vec<_>>(),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+pub fn build_location_attribution_summary(records: &[serde_json::Value]) -> serde_json::Value {
+    #[derive(Default)]
+    struct SectionSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        locations: Vec<String>,
+        prose: Option<String>,
+        range: Option<serde_json::Value>,
+        breadcrumb: Vec<String>,
+    }
+
+    #[derive(Default)]
+    struct SourceSummary {
+        count: usize,
+        chunks: std::collections::BTreeSet<String>,
+        sections: std::collections::BTreeMap<String, SectionSummary>,
+    }
+
+    let mut grouped: std::collections::BTreeMap<String, SourceSummary> =
+        std::collections::BTreeMap::new();
+
+    for record in records.iter().filter(|record| record["ok"].as_bool() == Some(true)) {
+        let Some(trace) = record.get("trace") else {
+            continue;
+        };
+        let Some(src_file) = trace
+            .get("src_file")
+            .and_then(|v| v.as_str())
+            .or_else(|| trace.get("expanded_file").and_then(|v| v.as_str()))
+        else {
+            continue;
+        };
+        let chunk = trace
+            .get("chunk")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let breadcrumb = trace
+            .get("source_section_breadcrumb")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(ToOwned::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let section_key = if breadcrumb.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            breadcrumb.join(" / ")
+        };
+
+        let source = grouped.entry(src_file.to_string()).or_default();
+        source.count += 1;
+        if !chunk.is_empty() {
+            source.chunks.insert(chunk.clone());
+        }
+
+        let section = source.sections.entry(section_key).or_default();
+        section.count += 1;
+        if !chunk.is_empty() {
+            section.chunks.insert(chunk);
+        }
+        if let Some(location) = record.get("location").and_then(|v| v.as_str()) {
+            section.locations.push(location.to_string());
+        }
+        if section.prose.is_none() {
+            section.prose = trace
+                .get("source_section_prose")
+                .and_then(|v| v.as_str())
+                .map(ToOwned::to_owned);
+        }
+        if section.range.is_none() {
+            section.range = trace.get("source_section_range").cloned();
+        }
+        if section.breadcrumb.is_empty() {
+            section.breadcrumb = breadcrumb;
+        }
+    }
+
+    json!({
+        "count": records.iter().filter(|record| record["ok"].as_bool() == Some(true)).count(),
+        "sources": grouped
+            .into_iter()
+            .map(|(src_file, summary)| {
+                let mut sections = summary
+                    .sections
+                    .into_values()
+                    .map(|section| json!({
+                        "count": section.count,
+                        "chunks": section.chunks.into_iter().collect::<Vec<_>>(),
+                        "locations": section.locations,
+                        "source_section_breadcrumb": section.breadcrumb,
+                        "source_section_range": section.range.unwrap_or(serde_json::Value::Null),
+                        "source_section_prose": section.prose.unwrap_or_default(),
+                    }))
+                    .collect::<Vec<_>>();
+                sections.sort_by(|a, b| {
+                    let ac = a["count"].as_u64().unwrap_or(0);
+                    let bc = b["count"].as_u64().unwrap_or(0);
+                    bc.cmp(&ac)
+                });
+                json!({
+                    "src_file": src_file,
+                    "count": summary.count,
+                    "chunks": summary.chunks.into_iter().collect::<Vec<_>>(),
+                    "sections": sections,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+pub fn emit_augmented_cargo_message(
+    original_line: &str,
+    attributions: Vec<serde_json::Value>,
+    span_attributions: Vec<serde_json::Value>,
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    let mut value: serde_json::Value = match serde_json::from_str(original_line) {
+        Ok(value) => value,
+        Err(_) => {
+            writeln!(out, "{original_line}")?;
+            return Ok(());
+        }
+    };
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "weaveback_attributions".to_string(),
+            serde_json::Value::Array(attributions),
+        );
+        obj.insert(
+            "weaveback_span_attributions".to_string(),
+            serde_json::Value::Array(span_attributions.clone()),
+        );
+        obj.insert(
+            "weaveback_source_summary".to_string(),
+            build_cargo_attribution_summary(&span_attributions),
+        );
+    }
+    serde_json::to_writer(&mut out, &value)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+pub fn emit_cargo_summary_message(
+    compiler_message_count: usize,
+    span_attributions: &[serde_json::Value],
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    serde_json::to_writer(
+        &mut out,
+        &json!({
+            "reason": "weaveback-summary",
+            "compiler_message_count": compiler_message_count,
+            "generated_span_count": span_attributions.len(),
+            "weaveback_source_summary": build_cargo_attribution_summary(span_attributions),
+        }),
+    )?;
+    writeln!(out)?;
+    Ok(())
+}
+
+pub fn collect_text_attributions(
+    text: &str,
+    db: Option<&weaveback_tangle::db::WeavebackDb>,
+    project_root: &Path,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+) -> Vec<serde_json::Value> {
+    let Some(db) = db else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for location in scan_generated_locations(text) {
+        let Ok((out_file, line, col)) = parse_generated_location(&location) else {
+            continue;
+        };
+        let Some(trace) = trace_generated_location(
+            &out_file,
+            line,
+            col,
+            db,
+            project_root,
+            resolver,
+            eval_config,
+        ) else {
+            out.push(json!({
+                "location": location,
+                "ok": false,
+                "trace": serde_json::Value::Null,
+            }));
+            continue;
+        };
+        out.push(json!({
+            "location": location,
+            "ok": true,
+            "trace": trace,
+        }));
+    }
+    out
+}
+
+pub fn emit_text_attribution_message(
+    stream: &str,
+    line: &str,
+    attributions: Vec<serde_json::Value>,
+    mut out: impl Write,
+) -> std::io::Result<()> {
+    serde_json::to_writer(
+        &mut out,
+        &json!({
+            "reason": "weaveback-text-attribution",
+            "stream": stream,
+            "text": line,
+            "weaveback_attributions": attributions,
+            "weaveback_source_summary": build_location_attribution_summary(
+                &attributions
+            ),
+        }),
+    )?;
+    writeln!(out)?;
+    Ok(())
+}
+
+pub fn run_cargo_annotated(
+    cargo_args: Vec<String>,
+    diagnostics_only: bool,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+) -> Result<(), CoverageError> {
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let mut stdout_out = std::io::stdout().lock();
+    run_cargo_annotated_to_writer(
+        cargo_args,
+        diagnostics_only,
+        db_path,
+        gen_dir,
+        eval_config,
+        &project_root,
+        &mut stdout_out,
+    )
+}
+
+pub fn run_cargo_annotated_to_writer(
+    mut cargo_args: Vec<String>,
+    diagnostics_only: bool,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: EvalConfig,
+    project_root: &Path,
+    mut out: impl Write,
+) -> Result<(), CoverageError> {
+    if cargo_args.is_empty() {
+        cargo_args.push("check".to_string());
+    }
+    if !cargo_args
+        .iter()
+        .any(|arg| arg.starts_with("--message-format"))
+    {
+        let message_format = "--message-format=json-diagnostic-rendered-ansi".to_string();
+        if let Some(idx) = cargo_args.iter().position(|arg| arg == "--") {
+            cargo_args.insert(idx, message_format);
+        } else {
+            cargo_args.push(message_format);
+        }
+    }
+
+    let resolver = PathResolver::new(project_root.to_path_buf(), gen_dir);
+    let db = if db_path.exists() {
+        Some(weaveback_tangle::db::WeavebackDb::open_read_only(&db_path)?)
+    } else {
+        None
+    };
+
+    let mut child = Command::new("cargo")
+        .args(&cargo_args)
+        .current_dir(project_root)
+        .stdin(Stdio::inherit())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(CoverageError::Io)?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| CoverageError::Io(std::io::Error::other("failed to capture cargo stdout")))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| CoverageError::Io(std::io::Error::other("failed to capture cargo stderr")))?;
+    let reader = BufReader::new(stdout);
+    let err_reader = BufReader::new(stderr);
+    let mut compiler_message_count = 0usize;
+    let mut all_span_records = Vec::new();
+    let (stderr_tx, stderr_rx) = mpsc::channel::<Result<String, std::io::Error>>();
+
+    thread::spawn(move || {
+        for line in err_reader.lines() {
+            let _ = stderr_tx.send(line);
+        }
+    });
+
+    for line in reader.lines() {
+        let line = line.map_err(CoverageError::Io)?;
+        let Ok(envelope) = serde_json::from_str::<CargoMessageEnvelope>(&line) else {
+            let attributions =
+                collect_text_attributions(&line, db.as_ref(), project_root, &resolver, &eval_config);
+            if !attributions.is_empty() {
+                emit_text_attribution_message("stdout", &line, attributions, &mut out)
+                    .map_err(CoverageError::Io)?;
+            } else if !diagnostics_only {
+                writeln!(out, "{line}").map_err(CoverageError::Io)?;
+            }
+            continue;
+        };
+
+        if envelope.reason == "compiler-message"
+            && let Some(diagnostic) = envelope.message
+        {
+            compiler_message_count += 1;
+            let records =
+                collect_cargo_attributions(
+                    &diagnostic,
+                    db.as_ref(),
+                    project_root,
+                    &resolver,
+                    &eval_config,
+                );
+            let span_records = collect_cargo_span_attributions(
+                &diagnostic,
+                db.as_ref(),
+                project_root,
+                &resolver,
+                &eval_config,
+            );
+            all_span_records.extend(span_records.iter().cloned());
+            emit_augmented_cargo_message(&line, records, span_records, &mut out)
+                .map_err(CoverageError::Io)?;
+        } else if !diagnostics_only || envelope.reason == "build-finished" {
+            writeln!(out, "{line}").map_err(CoverageError::Io)?;
+        }
+    }
+
+    for line in stderr_rx {
+        let line = line.map_err(CoverageError::Io)?;
+        let attributions =
+            collect_text_attributions(&line, db.as_ref(), project_root, &resolver, &eval_config);
+        if !attributions.is_empty() {
+            emit_text_attribution_message("stderr", &line, attributions, &mut out)
+                .map_err(CoverageError::Io)?;
+        } else if !diagnostics_only {
+            writeln!(out, "{line}").map_err(CoverageError::Io)?;
+        }
+    }
+
+    emit_cargo_summary_message(compiler_message_count, &all_span_records, &mut out)
+        .map_err(CoverageError::Io)?;
+
+    let status = child.wait().map_err(CoverageError::Io)?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(CoverageError::Io(std::io::Error::other(format!(
+            "cargo exited with status {status}"
+        ))))
+    }
+}
+
+pub fn run_impact(chunk: String, db_path: PathBuf) -> Result<(), CoverageError> {
+    let json = crate::query::impact_analysis(&chunk, &db_path)?;
+    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+    Ok(())
+}
+
+pub fn run_graph(chunk: Option<String>, db_path: PathBuf) -> Result<(), CoverageError> {
+    let dot = crate::query::chunk_graph_dot(chunk.as_deref(), &db_path)?;
+    println!("{dot}");
+    Ok(())
+}
+
+pub fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), CoverageError> {
+    if !db_path.exists() {
+        return Err(CoverageError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    let workspace = AgentWorkspace::open(AgentWorkspaceConfig {
+        project_root: std::env::current_dir()?,
+        db_path,
+        gen_dir: PathBuf::from("gen"),
+    });
+    let results = workspace.session().search(&query, limit)
+        .map_err(|e| CoverageError::Io(std::io::Error::other(e)))?;
+    if results.is_empty() {
+        println!("No results for {:?}", query);
+        return Ok(());
+    }
+    for r in &results {
+        let channels = if r.channels.is_empty() {
+            String::new()
+        } else {
+            format!(" via {}", r.channels.join("+"))
+        };
+        if r.tags.is_empty() {
+            println!(
+                "{}:{}-{} [{}]{channels}",
+                r.src_file,
+                r.line_start,
+                r.line_end,
+                r.block_type,
+            );
+        } else {
+            println!(
+                "{}:{}-{} [{}]{channels}  #{}",
+                r.src_file,
+                r.line_start,
+                r.line_end,
+                r.block_type,
+                r.tags.join(","),
+            );
+        }
+        println!("  {}", r.snippet);
+        println!();
+    }
+    Ok(())
+}
+
+pub fn run_tags(file: Option<String>, db_path: PathBuf) -> Result<(), CoverageError> {
+    let blocks = crate::query::list_block_tags(file.as_deref(), &db_path)?;
+    if blocks.is_empty() {
+        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run weaveback tangle.");
+        return Ok(());
+    }
+    let mut current_file = String::new();
+    for b in &blocks {
+        if b.src_file != current_file {
+            println!("\n{}", b.src_file);
+            current_file = b.src_file.clone();
+        }
+        println!("  :{} [{}]  #{}", b.line_start, b.block_type, b.tags);
+    }
+    println!();
+    Ok(())
+}
+
+pub fn run_trace(
+    out_file: String,
+    line: u32,
+    col: u32,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: weaveback_macro::evaluator::EvalConfig
+) -> Result<(), CoverageError> {
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+
+    match lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config) {
+        Ok(Some(json)) => {
+            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            Ok(())
+        }
+        Ok(None) => {
+            eprintln!("No mapping found for {}:{}", out_file, line);
+            Ok(())
+        }
+        Err(lookup::LookupError::InvalidInput(msg)) => {
+            Err(CoverageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)))
+        }
+        Err(lookup::LookupError::Db(e)) => Err(CoverageError::Noweb(WeavebackError::Db(e))),
+        Err(lookup::LookupError::Io(e)) => Err(CoverageError::Io(e)),
+    }
+}

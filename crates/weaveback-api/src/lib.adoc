@@ -13,6 +13,7 @@ from Python via PyO3, and from MCP tool handlers.
 ----
 // <<weaveback-api-lib>>=
 pub mod apply_back;
+pub mod coverage;
 pub mod lint;
 pub mod lookup;
 pub mod mcp;

@@ -1,4 +1,5 @@
 pub mod apply_back;
+pub mod coverage;
 pub mod lint;
 pub mod lookup;
 pub mod mcp;

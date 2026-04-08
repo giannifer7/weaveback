@@ -1,0 +1,73 @@
+use clap::Parser;
+use std::path::PathBuf;
+
+/// Weaveback serve: live-reload documentation server with AI panel.
+#[derive(Parser, Debug)]
+#[command(name = "wb-serve", version)]
+struct Cli {
+    /// TCP port to listen on.
+    #[arg(long, default_value = "7779")]
+    port: u16,
+
+    /// Directory to serve (default: <project-root>/docs/html).
+    #[arg(long)]
+    html: Option<PathBuf>,
+
+    /// Chunk open delimiter for the tangle oracle.
+    #[arg(long, default_value = "<[")]
+    open_delim: String,
+
+    /// Chunk close delimiter for the tangle oracle.
+    #[arg(long, default_value = "]>")]
+    close_delim: String,
+
+    /// Chunk-end marker for the tangle oracle.
+    #[arg(long, default_value = "@@")]
+    chunk_end: String,
+
+    /// Comment markers for the tangle oracle (comma-separated).
+    #[arg(long, default_value = "//")]
+    comment_markers: String,
+
+    /// AI backend: "claude-cli" (default), "anthropic", "gemini", "ollama", "openai".
+    #[arg(long, default_value = "claude-cli")]
+    ai_backend: String,
+
+    /// AI model name (e.g. "claude-opus-4-6", "gemini-1.5-pro", "llama3").
+    #[arg(long)]
+    ai_model: Option<String>,
+
+    /// AI API endpoint / base URL (for ollama or openai-compatible backends).
+    #[arg(long)]
+    ai_endpoint: Option<String>,
+
+    /// Watch .adoc and theme sources; tangle + re-render docs on each change.
+    #[arg(long)]
+    watch: bool,
+}
+fn main() {
+    let cli = Cli::parse();
+
+    let backend = match cli.ai_backend.as_str() {
+        "anthropic" => weaveback_serve::AiBackend::Anthropic,
+        "gemini"    => weaveback_serve::AiBackend::Gemini,
+        "ollama"    => weaveback_serve::AiBackend::Ollama,
+        "openai"    => weaveback_serve::AiBackend::OpenAi,
+        _           => weaveback_serve::AiBackend::ClaudeCli,
+    };
+
+    let tangle_cfg = weaveback_serve::TangleConfig {
+        open_delim:      cli.open_delim,
+        close_delim:     cli.close_delim,
+        chunk_end:       cli.chunk_end,
+        comment_markers: cli.comment_markers.split(',').map(|s| s.trim().to_string()).collect(),
+        ai_backend:      backend,
+        ai_model:        cli.ai_model,
+        ai_endpoint:     cli.ai_endpoint,
+    };
+
+    if let Err(e) = weaveback_serve::run_serve(cli.port, cli.html, tangle_cfg, cli.watch) {
+        eprintln!("wb-serve: {e}");
+        std::process::exit(1);
+    }
+}

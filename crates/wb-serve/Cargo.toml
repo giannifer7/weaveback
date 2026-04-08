@@ -1,0 +1,16 @@
+[package]
+name        = "wb-serve"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weaveback serve: HTTP doc viewer with live reload and AI panel"
+
+[[bin]]
+name = "wb-serve"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+weaveback-serve.workspace = true

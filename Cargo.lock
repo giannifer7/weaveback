@@ -2865,6 +2865,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wb-serve"
+version = "0.10.0"
+dependencies = [
+ "clap",
+ "weaveback-serve",
+]
+
+[[package]]
 name = "wb-tangle"
 version = "0.10.0"
 dependencies = [
@@ -2898,6 +2906,7 @@ dependencies = [
  "weaveback-core",
  "weaveback-lsp",
  "weaveback-macro",
+ "weaveback-serve",
  "weaveback-tangle",
 ]
 
@@ -3003,6 +3012,22 @@ dependencies = [
  "serde",
  "serde_json",
  "weaveback-agent-core",
+]
+
+[[package]]
+name = "weaveback-serve"
+version = "0.10.0"
+dependencies = [
+ "notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tiny_http",
+ "ureq",
+ "weaveback-api",
+ "weaveback-core",
+ "weaveback-tangle",
 ]
 
 [[package]]

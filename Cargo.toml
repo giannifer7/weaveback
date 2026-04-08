@@ -15,6 +15,8 @@ members = [
     "crates/weaveback-py",
     "crates/wb-tangle",
     "crates/wb-query",
+    "crates/weaveback-serve",
+    "crates/wb-serve",
 ]
 
 [workspace.package]
@@ -81,6 +83,7 @@ pythonize = "0.28"
 
 # Internal crate dependencies (points to the sub-crate on disk)
 weaveback-api = { path = "crates/weaveback-api" }
+weaveback-serve = { path = "crates/weaveback-serve" }
 weaveback-core = { path = "crates/weaveback-core" }
 weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }

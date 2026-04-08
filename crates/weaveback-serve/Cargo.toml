@@ -1,0 +1,22 @@
+[package]
+name        = "weaveback-serve"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weaveback HTTP server: live-reload doc viewer with AI panel and apply-back"
+
+[dependencies]
+thiserror.workspace = true
+weaveback-api.workspace = true
+weaveback-core.workspace = true
+weaveback-tangle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tiny_http.workspace = true
+notify.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

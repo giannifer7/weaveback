@@ -59,6 +59,20 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/weaveback-serve/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/wb-serve/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/wb-tangle/src/"
 ext = "adoc"
 no_macros = true

@@ -310,6 +310,120 @@ close_delim = ">>"
         let result = run_tangle_all(&cfg_path, false);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn build_pass_cmd_includes_comment_markers() {
+        let pass = TanglePassCfg {
+            dir:             "src/".to_string(),
+            output_dir:      None,
+            ext:             None,
+            no_macros:       false,
+            open_delim:      None,
+            close_delim:     None,
+            chunk_end:       None,
+            comment_markers: Some("#,//".to_string()),
+            sigil:           vec![],
+        };
+        let cmd = build_pass_cmd(std::path::Path::new("weaveback"), &pass, ".", false);
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        assert!(args.windows(2).any(|w| w[0] == "--comment-markers" && w[1] == "#,//"));
+    }
+
+    #[test]
+    fn build_pass_cmd_includes_chunk_end() {
+        let pass = TanglePassCfg {
+            dir:             "src/".to_string(),
+            output_dir:      None,
+            ext:             None,
+            no_macros:       false,
+            open_delim:      None,
+            close_delim:     None,
+            chunk_end:       Some("@@".to_string()),
+            comment_markers: None,
+            sigil:           vec![],
+        };
+        let cmd = build_pass_cmd(std::path::Path::new("weaveback"), &pass, ".", false);
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        assert!(args.windows(2).any(|w| w[0] == "--chunk-end" && w[1] == "@@"));
+    }
+
+    #[test]
+    fn build_pass_cmd_includes_multiple_sigils() {
+        let pass = TanglePassCfg {
+            dir:             "src/".to_string(),
+            output_dir:      None,
+            ext:             None,
+            no_macros:       false,
+            open_delim:      None,
+            close_delim:     None,
+            chunk_end:       None,
+            comment_markers: None,
+            sigil:           vec!["%".to_string(), "^".to_string()],
+        };
+        let cmd = build_pass_cmd(std::path::Path::new("weaveback"), &pass, ".", false);
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        let sigil_vals: Vec<_> = args.windows(2)
+            .filter(|w| w[0] == "--sigil")
+            .map(|w| w[1].clone())
+            .collect();
+        assert!(sigil_vals.contains(&"%".to_string()));
+        assert!(sigil_vals.contains(&"^".to_string()));
+    }
+
+    #[test]
+    fn build_pass_cmd_uses_output_dir_when_set() {
+        let pass = TanglePassCfg {
+            dir:             "src/".to_string(),
+            output_dir:      Some("out/".to_string()),
+            ext:             None,
+            no_macros:       false,
+            open_delim:      None,
+            close_delim:     None,
+            chunk_end:       None,
+            comment_markers: None,
+            sigil:           vec![],
+        };
+        let cmd = build_pass_cmd(std::path::Path::new("weaveback"), &pass, "default/", false);
+        let args: Vec<_> = cmd.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
+        // output_dir overrides default_gen
+        assert!(args.windows(2).any(|w| w[0] == "--gen" && w[1] == "out/"));
+        assert!(!args.windows(2).any(|w| w[0] == "--gen" && w[1] == "default/"));
+    }
+
+    #[test]
+    fn default_tags_values_are_sensible() {
+        assert!(!default_tags_backend().is_empty());
+        assert!(!default_tags_model().is_empty());
+        assert!(default_tags_batch_size() > 0);
+    }
+
+    #[test]
+    fn tangle_cfg_parses_tags_section() {
+        let toml_src = r#"
+[[pass]]
+dir = "src/"
+
+[tags]
+backend = "gemini"
+model = "gemini-1.5-pro"
+batch_size = 5
+"#;
+        let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+        let tags = cfg.tags.unwrap();
+        assert_eq!(tags.backend, "gemini");
+        assert_eq!(tags.model, "gemini-1.5-pro");
+        assert_eq!(tags.batch_size, 5);
+    }
+
+    #[test]
+    fn tangle_cfg_tags_uses_defaults_when_absent() {
+        let toml_src = "[[pass]]\ndir = \"src/\"\n[tags]\n";
+        let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+        let tags = cfg.tags.unwrap();
+        assert_eq!(tags.backend, default_tags_backend());
+        assert_eq!(tags.model, default_tags_model());
+        assert_eq!(tags.batch_size, default_tags_batch_size());
+    }
 }
 // @
 ----

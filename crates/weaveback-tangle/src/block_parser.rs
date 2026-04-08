@@ -365,4 +365,91 @@ mod tests {
         assert_eq!(blocks[0].line_start, 1);
         assert_eq!(blocks[0].line_end, 1);
     }
+
+    // ---- new coverage tests ----
+
+    #[test]
+    fn asciidoc_extension_alias_works() {
+        // ".asciidoc" should behave identically to ".adoc"
+        let src = "----\nhello\n----\n";
+        let blocks = parse_source_blocks(src, "asciidoc");
+        assert!(blocks.iter().any(|b| b.block_type == "code"));
+    }
+
+    #[test]
+    fn markdown_extension_alias_works() {
+        // ".markdown" should behave identically to ".md"
+        let src = "# Heading\n\nProse.\n";
+        let blocks = parse_source_blocks(src, "markdown");
+        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+        assert!(types.contains(&"section"));
+    }
+
+    #[test]
+    fn fallback_empty_source_single_block() {
+        let blocks = parse_source_blocks("", "rs");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].line_start, 1);
+        assert_eq!(blocks[0].line_end, 1);
+    }
+
+    #[test]
+    fn is_adoc_fence_dot_fence() {
+        assert!(is_adoc_fence("...."));
+        assert!(is_adoc_fence("........"));
+        assert!(!is_adoc_fence("...x"));
+    }
+
+    #[test]
+    fn is_adoc_fence_plus_fence() {
+        assert!(is_adoc_fence("++++"));
+        assert!(!is_adoc_fence("+++-"));
+    }
+
+    #[test]
+    fn is_adoc_fence_dash_fence() {
+        assert!(is_adoc_fence("----"));
+        assert!(is_adoc_fence("--------"));
+        assert!(!is_adoc_fence("---x"));
+    }
+
+    #[test]
+    fn is_adoc_section_header_various() {
+        assert!(is_adoc_section_header("= Title"));
+        assert!(is_adoc_section_header("== Section"));
+        assert!(is_adoc_section_header("=== Sub"));
+        assert!(is_adoc_section_header("="));
+        assert!(!is_adoc_section_header("not a header"));
+        assert!(!is_adoc_section_header("=x no space"));
+    }
+
+    #[test]
+    fn adoc_dot_fence_parsed_as_code() {
+        let src = "....\nsome listing\n....\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        assert!(blocks.iter().any(|b| b.block_type == "code"));
+    }
+
+    #[test]
+    fn adoc_plus_fence_parsed_as_code() {
+        let src = "++++\npassthrough\n++++\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        assert!(blocks.iter().any(|b| b.block_type == "code"));
+    }
+
+    #[test]
+    fn adoc_empty_source_produces_block() {
+        let blocks = parse_source_blocks("", "adoc");
+        assert!(!blocks.is_empty());
+        assert_eq!(blocks[0].line_start, 1);
+    }
+
+    #[test]
+    fn block_index_is_sequential() {
+        let src = "# H\n\nPara one.\n\nPara two.\n";
+        let blocks = parse_source_blocks(src, "md");
+        for (i, b) in blocks.iter().enumerate() {
+            assert_eq!(b.block_index, i as u32);
+        }
+    }
 }

@@ -441,6 +441,56 @@ mod tests {
         let err = embed_texts(&cfg, &["hello".to_string()]).unwrap_err();
         assert!(err.contains("Anthropic"));
     }
+
+    // ── default config values ────────────────────────────────────────────────
+
+    #[test]
+    fn default_embeddings_backend_is_nonempty() {
+        assert!(!default_embeddings_backend().is_empty());
+    }
+
+    #[test]
+    fn default_embeddings_model_is_nonempty() {
+        assert!(!default_embeddings_model().is_empty());
+    }
+
+    #[test]
+    fn default_embeddings_batch_size_is_positive() {
+        assert!(default_embeddings_batch_size() > 0);
+    }
+
+    // ── persist_embedding_config ─────────────────────────────────────────────
+
+    #[test]
+    fn persist_embedding_config_stores_all_fields() {
+        use weaveback_tangle::db::WeavebackDb;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = EmbeddingConfig {
+            backend:    "gemini".to_string(),
+            model:      "embed-v2".to_string(),
+            endpoint:   Some("https://example.com".to_string()),
+            batch_size: 8,
+        };
+        persist_embedding_config(&db, &cfg).unwrap();
+        assert_eq!(db.get_run_config("semantic.backend").unwrap().as_deref(), Some("gemini"));
+        assert_eq!(db.get_run_config("semantic.model").unwrap().as_deref(),   Some("embed-v2"));
+        assert_eq!(db.get_run_config("semantic.batch_size").unwrap().as_deref(), Some("8"));
+        assert_eq!(db.get_run_config("semantic.endpoint").unwrap().as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn persist_embedding_config_stores_empty_endpoint_when_none() {
+        use weaveback_tangle::db::WeavebackDb;
+        let db = WeavebackDb::open_temp().unwrap();
+        let cfg = EmbeddingConfig {
+            backend:    "openai".to_string(),
+            model:      "text-embedding-3-small".to_string(),
+            endpoint:   None,
+            batch_size: 24,
+        };
+        persist_embedding_config(&db, &cfg).unwrap();
+        assert_eq!(db.get_run_config("semantic.endpoint").unwrap().as_deref(), Some(""));
+    }
 }
 // @
 ----

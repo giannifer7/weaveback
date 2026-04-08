@@ -5,6 +5,20 @@
 `wb-query` is the weaveback read-only analysis tool.  All subcommands open the
 database in read-only mode and print results to stdout.
 
+== CLI
+
+Generated from `cli-spec/wb-query-cli.adoc`.
+
+[source,rust]
+----
+// <<wb-query-cli>>=
+mod cli_generated;
+use cli_generated::{Cli, Commands};
+use clap::Parser;
+use std::path::PathBuf;
+// @
+----
+
 == Error Type
 
 [source,rust]
@@ -25,98 +39,14 @@ enum Error {
     Lookup(#[from] weaveback_api::lookup::LookupError),
     #[error("{0}")]
     Lint(String),
+    #[error("{0}")]
+    Coverage(#[from] weaveback_api::coverage::CoverageError),
 }
 
 impl From<weaveback_tangle::db::DbError> for Error {
     fn from(e: weaveback_tangle::db::DbError) -> Self {
         Error::Noweb(WeavebackError::Db(e))
     }
-}
-// @
-----
-
-== CLI
-
-[source,rust]
-----
-// <<wb-query-cli>>=
-use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-
-/// Weaveback query: read-only analysis of the literate programming database.
-#[derive(Parser, Debug)]
-#[command(name = "wb-query", version)]
-struct Cli {
-    /// Path to the weaveback database.
-    #[arg(long, default_value = "weaveback.db", global = true)]
-    db: PathBuf,
-
-    /// Base directory for generated output files (used for path resolution).
-    #[arg(long = "gen", default_value = "gen", global = true)]
-    gen_dir: PathBuf,
-
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Map a generated file location to its literate source (noweb level).
-    Where {
-        /// Generated file path.
-        out_file: String,
-        /// Line number (1-indexed).
-        line: u32,
-    },
-    /// Full trace: map a generated file location to its macro-level source.
-    Trace {
-        /// Generated file path.
-        out_file: String,
-        /// Line number (1-indexed).
-        line: u32,
-        /// Column number (1-indexed, 0 = start of line).
-        #[arg(default_value = "0")]
-        col: u32,
-        /// Macro sigil character.
-        #[arg(long, default_value = "%")]
-        sigil: char,
-        /// Include paths for macro expansion (colon-separated on Unix).
-        #[arg(long, default_value = ".")]
-        include: String,
-        /// Allow %env(NAME) builtins.
-        #[arg(long)]
-        allow_env: bool,
-    },
-    /// Compute transitive impact of changes to a chunk.
-    Impact {
-        /// Chunk name (e.g. "my-chunk" or "@file foo/bar.rs").
-        chunk: String,
-    },
-    /// Export chunk dependency graph as Graphviz DOT.
-    Graph {
-        /// Limit graph to dependencies of this chunk (default: all chunks).
-        chunk: Option<String>,
-    },
-    /// List tagged source blocks.
-    Tags {
-        /// Limit to blocks from this source file.
-        file: Option<String>,
-    },
-    /// Lint literate source files.
-    Lint {
-        /// Source files to lint (default: stdin list, or use --dir).
-        #[arg(required = false)]
-        files: Vec<PathBuf>,
-        /// Treat all violations as errors (exit 1).
-        #[arg(long)]
-        strict: bool,
-        /// Filter to a specific lint rule ID.
-        #[arg(long)]
-        rule: Option<String>,
-        /// Output as JSON.
-        #[arg(long)]
-        json: bool,
-    },
 }
 // @
 ----
@@ -192,9 +122,56 @@ fn run(cli: Cli) -> Result<(), Error> {
             }
         }
 
-        Commands::Lint { files, strict, rule, json } => {
-            weaveback_api::lint::run_lint(files, strict, rule, json)
+        Commands::Lint { paths, strict, rule, json } => {
+            weaveback_api::lint::run_lint(paths, strict, rule, json)
                 .map_err(Error::Lint)?;
+        }
+
+        Commands::Attribute { scan_stdin, summary, locations, sigil, include, allow_env } => {
+            use weaveback_macro::evaluator::EvalConfig;
+            let pathsep = default_pathsep();
+            let include_paths: Vec<PathBuf> = include
+                .split(&pathsep)
+                .map(PathBuf::from)
+                .collect();
+            let eval_config = EvalConfig {
+                sigil,
+                include_paths,
+                discovery_mode: false,
+                allow_env,
+            };
+            weaveback_api::coverage::run_attribute(
+                scan_stdin, summary, locations, cli.db, cli.gen_dir, eval_config,
+            )?;
+        }
+
+        Commands::Coverage { summary, top_sources, top_sections, explain_unattributed, lcov_file } => {
+            weaveback_api::coverage::run_coverage(
+                summary, top_sources, top_sections, explain_unattributed, lcov_file,
+                cli.db, cli.gen_dir,
+            )?;
+        }
+
+        Commands::Cargo { diagnostics_only, args, sigil, include, allow_env } => {
+            use weaveback_macro::evaluator::EvalConfig;
+            let pathsep = default_pathsep();
+            let include_paths: Vec<PathBuf> = include
+                .split(&pathsep)
+                .map(PathBuf::from)
+                .collect();
+            let eval_config = EvalConfig {
+                sigil,
+                include_paths,
+                discovery_mode: false,
+                allow_env,
+            };
+            weaveback_api::coverage::run_cargo_annotated(
+                args, diagnostics_only, cli.db, cli.gen_dir, eval_config,
+            )?;
+        }
+
+        Commands::Search { query, limit } => {
+            weaveback_api::coverage::run_search(query, limit, cli.db)?;
         }
     }
     Ok(())
@@ -215,8 +192,8 @@ fn main() {
 [source,rust]
 ----
 // <<@file wb-query/src/main.rs>>=
-// <<wb-query-error>>
 // <<wb-query-cli>>
+// <<wb-query-error>>
 // <<wb-query-dispatch>>
 // @
 ----

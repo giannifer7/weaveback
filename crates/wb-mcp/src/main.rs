@@ -1,33 +1,6 @@
+mod cli_generated;
+use cli_generated::Cli;
 use clap::Parser;
-use std::path::PathBuf;
-
-/// Weaveback MCP server: JSON-RPC bridge for AI agent tooling.
-///
-/// Reads JSON-RPC 2.0 requests from stdin, writes responses to stdout.
-/// Intended for use as a stdio-based MCP server.
-#[derive(Parser, Debug)]
-#[command(name = "wb-mcp", version)]
-struct Cli {
-    /// Path to the weaveback database.
-    #[arg(long, default_value = "weaveback.db")]
-    db: PathBuf,
-
-    /// Base directory for generated output files.
-    #[arg(long = "gen", default_value = "gen")]
-    gen_dir: PathBuf,
-
-    /// Macro sigil character.
-    #[arg(long, default_value = "%")]
-    sigil: char,
-
-    /// Include paths for macro expansion (colon-separated on Unix).
-    #[arg(long, default_value = ".")]
-    include: String,
-
-    /// Allow %env(NAME) builtins.
-    #[arg(long)]
-    allow_env: bool,
-}
 fn default_pathsep() -> String {
     if cfg!(windows) { ";".to_string() } else { ":".to_string() }
 }

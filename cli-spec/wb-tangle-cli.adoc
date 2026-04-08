@@ -1,0 +1,48 @@
+= wb-tangle CLI spec
+
+%import(cli-spec/macros.adoc)
+
+[source,rust]
+----
+// <<@file crates/wb-tangle/src/cli_generated.rs>>=
+use clap::{Parser, Args};
+use std::path::PathBuf;
+
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%render_rust_struct_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+%})
+
+/// Weaveback tangle: literate programming build tool.
+///
+/// With no --dir flag: reads weaveback.toml and runs all [[pass]] entries.
+/// With --dir DIR: single-pass mode — processes one directory of .adoc files.
+#[derive(Parser, Debug)]
+#[command(name = "wb-tangle", version)]
+pub(crate) struct Cli {
+%tangle_command_options()
+
+    #[command(flatten)]
+    pub(crate) single: SinglePassCli,
+}
+
+/// All single-pass flags (used when --dir is present).
+#[derive(Args, Debug)]
+pub(crate) struct SinglePassCli {
+%macro_arg_options()
+%debug_arg_options()
+%directory_arg_options()
+%tangle_delim_options()
+%build_arg_options()
+%hidden_arg_options()
+%security_arg_options()
+}
+// @
+----

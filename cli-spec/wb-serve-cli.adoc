@@ -1,0 +1,30 @@
+= wb-serve CLI spec
+
+%import(cli-spec/macros.adoc)
+
+[source,rust]
+----
+// <<@file crates/wb-serve/src/cli_generated.rs>>=
+use clap::Parser;
+use std::path::PathBuf;
+
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%render_rust_struct_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+%})
+
+/// Weaveback serve: live-reload documentation server with AI panel.
+#[derive(Parser, Debug)]
+#[command(name = "wb-serve", version)]
+pub(crate) struct Cli {
+%serve_command_options()
+}
+// @
+----

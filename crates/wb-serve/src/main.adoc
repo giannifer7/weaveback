@@ -8,56 +8,14 @@ and apply-back for propagating edits back to literate sources.
 
 == CLI
 
+Generated from `cli-spec/wb-serve-cli.adoc`.
+
 [source,rust]
 ----
 // <<wb-serve-cli>>=
+mod cli_generated;
+use cli_generated::Cli;
 use clap::Parser;
-use std::path::PathBuf;
-
-/// Weaveback serve: live-reload documentation server with AI panel.
-#[derive(Parser, Debug)]
-#[command(name = "wb-serve", version)]
-struct Cli {
-    /// TCP port to listen on.
-    #[arg(long, default_value = "7779")]
-    port: u16,
-
-    /// Directory to serve (default: <project-root>/docs/html).
-    #[arg(long)]
-    html: Option<PathBuf>,
-
-    /// Chunk open delimiter for the tangle oracle.
-    #[arg(long, default_value = "<[")]
-    open_delim: String,
-
-    /// Chunk close delimiter for the tangle oracle.
-    #[arg(long, default_value = "]>")]
-    close_delim: String,
-
-    /// Chunk-end marker for the tangle oracle.
-    #[arg(long, default_value = "@@")]
-    chunk_end: String,
-
-    /// Comment markers for the tangle oracle (comma-separated).
-    #[arg(long, default_value = "//")]
-    comment_markers: String,
-
-    /// AI backend: "claude-cli" (default), "anthropic", "gemini", "ollama", "openai".
-    #[arg(long, default_value = "claude-cli")]
-    ai_backend: String,
-
-    /// AI model name (e.g. "claude-opus-4-6", "gemini-1.5-pro", "llama3").
-    #[arg(long)]
-    ai_model: Option<String>,
-
-    /// AI API endpoint / base URL (for ollama or openai-compatible backends).
-    #[arg(long)]
-    ai_endpoint: Option<String>,
-
-    /// Watch .adoc and theme sources; tangle + re-render docs on each change.
-    #[arg(long)]
-    watch: bool,
-}
 // @
 ----
 

@@ -1,0 +1,41 @@
+= wb-mcp CLI spec
+
+%import(cli-spec/macros.adoc)
+
+[source,rust]
+----
+// <<@file crates/wb-mcp/src/cli_generated.rs>>=
+use clap::Parser;
+use std::path::PathBuf;
+
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%render_rust_struct_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+%})
+
+/// Weaveback MCP server: JSON-RPC bridge for AI agent tooling.
+///
+/// Reads JSON-RPC 2.0 requests from stdin, writes responses to stdout.
+/// Intended for use as a stdio-based MCP server.
+#[derive(Parser, Debug)]
+#[command(name = "wb-mcp", version)]
+pub(crate) struct Cli {
+    /// Path to the weaveback database.
+    #[arg(long, default_value = "weaveback.db")]
+    pub(crate) db: PathBuf,
+
+    /// Base directory for generated output files.
+    #[arg(long = "gen", default_value = "gen")]
+    pub(crate) gen_dir: PathBuf,
+
+%eval_options()
+}
+// @
+----

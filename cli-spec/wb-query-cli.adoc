@@ -1,0 +1,95 @@
+= wb-query CLI spec
+
+%import(cli-spec/macros.adoc)
+
+[source,rust]
+----
+// <<@file crates/wb-query/src/cli_generated.rs>>=
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+/// Weaveback query: read-only analysis of the literate programming database.
+#[derive(Parser, Debug)]
+#[command(name = "wb-query", version)]
+pub(crate) struct Cli {
+    /// Path to the weaveback database.
+    #[arg(long, default_value = "weaveback.db", global = true)]
+    pub(crate) db: PathBuf,
+
+    /// Base directory for generated output files (used for path resolution).
+    #[arg(long = "gen", default_value = "gen", global = true)]
+    pub(crate) gen_dir: PathBuf,
+
+    #[command(subcommand)]
+    pub(crate) command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum Commands {
+    /// Map a generated file location to its literate source (noweb level).
+    Where {
+        /// Generated file path.
+        out_file: String,
+        /// Line number (1-indexed).
+        line: u32,
+    },
+    /// Full trace: map a generated file location to its macro-level source.
+    Trace {
+        /// Generated file path.
+        out_file: String,
+        /// Line number (1-indexed).
+        line: u32,
+        /// Column number (1-indexed, 0 = start of line).
+        #[arg(default_value = "0")]
+        col: u32,
+%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%render_rust_enum_option(
+field = %(field),
+rust_type = %(rust_type),
+arg_attr = %(arg_attr),
+doc_block = %(doc_block),
+doc_flag = %(doc_flag),
+doc_default = %(doc_default),
+doc_descr = %(doc_descr),
+)
+%})
+%eval_options()
+    },
+    /// Compute transitive impact of changes to a chunk.
+    Impact {
+        /// Chunk name (e.g. "my-chunk" or "@file foo/bar.rs").
+        chunk: String,
+    },
+    /// Export chunk dependency graph as Graphviz DOT.
+    Graph {
+%graph_command_options()
+    },
+    /// List tagged source blocks.
+    Tags {
+%tags_command_options()
+    },
+    /// Lint literate source files.
+    Lint {
+%lint_command_options()
+    },
+    /// Map generated locations to their literate source (bulk mode).
+    Attribute {
+%attribute_command_options()
+%eval_options()
+    },
+    /// Report source coverage from an lcov file.
+    Coverage {
+%coverage_command_options()
+    },
+    /// Run cargo and annotate diagnostics with literate source locations.
+    Cargo {
+%cargo_command_options()
+%eval_options()
+    },
+    /// Full-text search over tangled source content.
+    Search {
+%search_command_options()
+    },
+}
+// @
+----

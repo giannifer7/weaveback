@@ -429,4 +429,59 @@ mod tests {
         run_auto_tag(&mut db, &cfg);
         assert!(db.list_block_tags(None).unwrap().is_empty());
     }
+
+    #[test]
+    fn test_parse_response_empty_colon_skipped() {
+        // "0:" has no tags after the colon → filter_map returns None → skipped
+        let parsed = parse_response("0:\n1:valid");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], (1, "valid".to_string()));
+    }
+
+    #[test]
+    fn test_parse_response_all_punctuation_tags_skipped() {
+        // "0:!@#" sanitises to empty string → filter_map returns None → skipped
+        let parsed = parse_response("0:!@#\n1:good");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], (1, "good".to_string()));
+    }
+
+    #[test]
+    fn test_run_auto_tag_processes_blocks_with_snapshot() {
+        // With blocks + snapshot in db, run_auto_tag reaches the LLM call path.
+        // Port 9 on 127.0.0.1 is unused → connection refused → graceful skip.
+        use weaveback_tangle::parse_source_blocks;
+        let (mut db, _dir) = make_db();
+        let src = "= Section\n\nSome prose here.\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        db.set_source_blocks("doc.adoc", &blocks).unwrap();
+        db.set_src_snapshot("doc.adoc", src.as_bytes()).unwrap();
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 10,
+        };
+        // Should not panic; endpoint unreachable → graceful skip, no tags stored.
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_run_auto_tag_skips_file_without_snapshot() {
+        // Blocks in db but no snapshot → file is skipped gracefully.
+        use weaveback_tangle::parse_source_blocks;
+        let (mut db, _dir) = make_db();
+        let src = "= Section\n\nSome prose here.\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        db.set_source_blocks("missing.adoc", &blocks).unwrap();
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 10,
+        };
+        run_auto_tag(&mut db, &cfg);
+        assert!(db.list_block_tags(None).unwrap().is_empty());
+    }
 }

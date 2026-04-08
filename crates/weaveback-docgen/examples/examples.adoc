@@ -1,0 +1,168 @@
+= weaveback-docgen examples
+:toc: left
+
+Developer utilities for debugging the `asciidoc-parser` crate.
+Both are binary examples runnable with `cargo run --example <name>`.
+
+== `bisect_panic` — binary-search for parse-panicking prefix
+
+Bisects an AsciiDoc file to find the shortest prefix that triggers
+a panic in `asciidoc_parser::Parser`.  Useful for isolating regressions.
+
+[source,rust]
+----
+// <<@file crates/weaveback-docgen/examples/bisect_panic.rs>>=
+// Run with: rustc bisect_panic.rs -L target/debug/deps --edition 2024 \
+//   $(cargo build 2>&1 >/dev/null; find target/debug/deps -name 'libasciidoc_parser*.rlib' | head -1 | xargs -I{} echo --extern asciidoc_parser={})
+// Simpler: just use `cargo script` or run as a test.
+//
+// Usage: cargo run --example bisect_panic -- <file>
+
+fn try_parse(s: &str) -> bool {
+    std::panic::catch_unwind(|| asciidoc_parser::Parser::default().parse(s)).is_err()
+}
+
+fn main() {
+    let path = std::env::args().nth(1).expect("usage: bisect_panic <file>");
+    let content = std::fs::read_to_string(&path).expect("cannot read file");
+    let lines: Vec<&str> = content.lines().collect();
+    let n = lines.len();
+
+    println!("File: {path}  ({n} lines)");
+
+    if !try_parse(&content) {
+        println!("No panic detected in full file -- nothing to bisect.");
+        return;
+    }
+    println!("Full file panics. Bisecting...\n");
+
+    // Find first line that, when included, causes a panic (prefix bisect).
+    let mut lo = 1usize;
+    let mut hi = n;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let candidate = lines[..mid].join("\n");
+        if try_parse(&candidate) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    let prefix_end = lo;
+    println!("Panic first appears with prefix of {prefix_end} lines.");
+    println!("Trigger line ({prefix_end}): {:?}", lines[prefix_end - 1]);
+
+    // Now try to shrink further: remove lines from the start of the prefix.
+    let trigger_prefix = lines[..prefix_end].join("\n");
+    let mut start = 0usize;
+    let mut end = prefix_end;
+    while start < end.saturating_sub(1) {
+        let mid = (start + end) / 2;
+        let candidate = lines[mid..prefix_end].join("\n");
+        if try_parse(&candidate) {
+            end = mid;
+        } else {
+            start = mid + 1;
+        }
+    }
+
+    let minimal = lines[start..prefix_end].join("\n");
+    println!(
+        "\nMinimal reproducer ({} lines, lines {}-{} of original):",
+        prefix_end - start,
+        start + 1,
+        prefix_end
+    );
+    println!("---");
+    println!("{minimal}");
+    println!("---");
+
+    // Verify
+    if try_parse(&minimal) {
+        println!("\nConfirmed: this snippet alone triggers the panic.");
+    } else {
+        println!("\nSnippet alone does not panic -- context may be needed.");
+        println!("Full prefix (lines 1-{prefix_end}) triggers it:");
+        println!("---");
+        println!("{trigger_prefix}");
+        println!("---");
+    }
+}
+// @
+----
+
+== `minimize_panic` — fixed reproducer catalog
+
+Runs a curated set of AsciiDoc snippets through `asciidoc_parser::Parser`
+and reports which ones trigger a panic.  Used to verify known-bad inputs
+after parser fixes.
+
+[source,rust]
+----
+// <<@file crates/weaveback-docgen/examples/minimize_panic.rs>>=
+fn panics(s: &str) -> bool {
+    std::panic::catch_unwind(|| asciidoc_parser::Parser::default().parse(s)).is_err()
+}
+
+fn check(desc: &str, src: &str) {
+    let p = panics(src);
+    println!("[{}] {desc}", if p { "PANIC" } else { "ok   " });
+    if p {
+        println!("       ---\n{src}\n       ---\n");
+    }
+}
+
+fn main() {
+    println!("=== Bug 1: final minimization ===\n");
+    let cell_text = "| `clean_node` returns `None` for `LineComment` and `BlockComment` nodes;\ncallers in `clean_node`'s own recursion skip `None` results.  The root";
+    check(
+        "confirmed base",
+        &format!("[cols=\"1,3\",options=\"header\"]\n|===\n| A | B\n\n| foo\n{cell_text}"),
+    );
+    // Can the cell text be simpler?
+    check(
+        "simpler: multi-line cell with backtick",
+        "[cols=\"1,3\"]\n|===\n| A | B\n\n| foo\n| `x` bar\nnext line",
+    );
+    check(
+        "no cols, multi-line cell with backtick",
+        "|===\n| A | B\n\n| foo\n| `x` bar\nnext line",
+    );
+    check(
+        "cols=1,3 + single-row multi-line cell",
+        "[cols=\"1,3\"]\n|===\n| A | B\n\n| `x` bar\nnext line",
+    );
+    check(
+        "cols=1,3 + multi-line cell without backtick",
+        "[cols=\"1,3\"]\n|===\n| A | B\n\n| foo\n| bar baz\nnext line",
+    );
+    // Is it the semicolon?
+    check(
+        "cols=1,3 + cell ending with semicolon + continuation",
+        "[cols=\"1,3\"]\n|===\n| A | B\n\n| foo\n| `x` bar;\nnext line",
+    );
+
+    println!("\n=== Bug 2: final minimization ===\n");
+    check(
+        "confirmed: backtick URI with <port>",
+        "`http://127.0.0.1:<port>/`",
+    );
+    // Is it the URI scheme?
+    check("ftp:// with <port>", "`ftp://host:<port>/`");
+    check("any scheme with angle bracket", "`foo://bar:<x>/`");
+    check("no scheme, just angle bracket in backtick", "`bar:<x>`");
+    check("URI without angle bracket", "`http://127.0.0.1:8080/`");
+    // Is the slash after > needed?
+    check("URI scheme + colon + angle bracket", "`http://host:<x>`");
+    check(
+        "scheme + angle bracket no colon before",
+        "`http://host/<x>`",
+    );
+    // Minimal: just ://  + angle bracket pattern?
+    check("`a://b:<c>`", "`a://b:<c>`");
+    check("`a://b<c>`", "`a://b<c>`");
+    check("`a://<b>`", "`a://<b>`");
+    check("`a://<b>c`", "`a://<b>c`");
+}
+// @
+----

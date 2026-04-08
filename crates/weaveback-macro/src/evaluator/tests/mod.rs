@@ -1,7 +1,10 @@
 // crates/weaveback-macro/src/evaluator/tests/mod.rs
+mod test_builtins_misc;
 mod test_case_conversion;
 mod test_case_modifiers;
+mod test_core;
 mod test_def;
+mod test_env;
 mod test_equal;
 mod test_eval;
 mod test_export;
@@ -11,10 +14,14 @@ mod test_import;
 mod test_include;
 mod test_macro_api;
 mod test_macros;
+mod test_monty_eval;
 mod test_pydef;
+mod test_rhai_eval;
 mod test_rhaidef;
 mod test_set;
 mod test_skill_examples;
+mod test_source_utils;
+mod test_state;
 mod test_utils;
 mod test_var;
 mod test_output;

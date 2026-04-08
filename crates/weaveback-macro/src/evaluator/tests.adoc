@@ -8,11 +8,12 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 == Focused test pages
 
-* link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, variable substitution, test helpers
+* link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
 * link:tests-control.adoc[tests-control.adoc] — `%if`, `%equal`, `%include`, `%import`, `%export`, `%eval`, `%here`
 * link:tests-case.adoc[tests-case.adoc] — case conversion module + case-modifier builtins
-* link:tests-scripting.adoc[tests-scripting.adoc] — Rhai (`%rhaidef`, `%rhaiset`, …) and Python (`%pydef`, `%pyset`, …) scripting
+* link:tests-scripting.adoc[tests-scripting.adoc] — Rhai (`%rhaidef`, `%rhaiset`, …) and Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
 * link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
+* link:tests-core.adoc[tests-core.adoc] — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
 
 == Test organisation
 
@@ -181,6 +182,34 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // <<@file weaveback-macro/src/evaluator/tests/test_lexer_parser.rs>>=
 // <<test lexer parser>>
 // @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_core.rs>>=
+// <<test core>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_state.rs>>=
+// <<test state>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_source_utils.rs>>=
+// <<test source utils>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_env.rs>>=
+// <<test env>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_builtins_misc.rs>>=
+// <<test builtins misc>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_monty_eval.rs>>=
+// <<test monty eval>>
+// @
+
+// <<@file weaveback-macro/src/evaluator/tests/test_rhai_eval.rs>>=
+// <<test rhai eval>>
+// @
 ----
 
 == `tests/mod.rs` — module registry
@@ -189,9 +218,12 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 ----
 // <<tests mod>>=
 // crates/weaveback-macro/src/evaluator/tests/mod.rs
+mod test_builtins_misc;
 mod test_case_conversion;
 mod test_case_modifiers;
+mod test_core;
 mod test_def;
+mod test_env;
 mod test_equal;
 mod test_eval;
 mod test_export;
@@ -201,10 +233,14 @@ mod test_import;
 mod test_include;
 mod test_macro_api;
 mod test_macros;
+mod test_monty_eval;
 mod test_pydef;
+mod test_rhai_eval;
 mod test_rhaidef;
 mod test_set;
 mod test_skill_examples;
+mod test_source_utils;
+mod test_state;
 mod test_utils;
 mod test_var;
 mod test_output;

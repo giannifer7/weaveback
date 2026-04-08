@@ -110,7 +110,7 @@ fn test_fts_rebuild_is_idempotent() {
 fn test_fts_empty_source_no_panic() {
     let mut db = WeavebackDb::open_temp().unwrap();
     db.set_src_snapshot("empty.adoc", b"").unwrap();
-    // No source_blocks for this file — must not panic or error.
+    // No source_blocks for this file -- must not panic or error.
     db.rebuild_prose_fts().unwrap();
     let r = db.search_prose("anything", 10).unwrap();
     assert!(r.is_empty());
@@ -295,7 +295,7 @@ fn test_search_result_includes_tags() {
 fn test_search_finds_block_by_tag_word() {
     let mut db = WeavebackDb::open_temp().unwrap();
 
-    // Prose does NOT contain the word "incremental" — it's only in the tag.
+    // Prose does NOT contain the word "incremental" -- it's only in the tag.
     let source = "= Build System\n\nThis section describes how building works.\n";
     db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
     db.set_source_blocks("a.adoc", &[
@@ -576,11 +576,11 @@ fn db_query_chunk_defs_overlapping() {
         ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "alpha".into(), nth: 0, def_start: 1,  def_end: 10 },
         ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "beta".into(),  nth: 0, def_start: 20, def_end: 30 },
     ]).unwrap();
-    // Query overlapping [5, 15] — should hit alpha but not beta
+    // Query overlapping [5, 15] -- should hit alpha but not beta
     let hits = db.query_chunk_defs_overlapping("s.adoc", 5, 15).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk_name, "alpha");
-    // Query overlapping [25, 25] — should hit beta
+    // Query overlapping [25, 25] -- should hit beta
     let hits = db.query_chunk_defs_overlapping("s.adoc", 25, 25).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].chunk_name, "beta");

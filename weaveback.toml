@@ -52,6 +52,22 @@ comment_markers = "//"
 chunk_end = "@@"
 
 [[pass]]
+dir = "crates/weaveback-docgen/examples/"
+gen = "crates/weaveback-docgen/examples/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-py/src/"
+gen = "crates/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/weaveback-api/src/"
 ext = "adoc"
 no_macros = true

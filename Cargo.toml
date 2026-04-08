@@ -17,6 +17,7 @@ members = [
     "crates/wb-query",
     "crates/weaveback-serve",
     "crates/wb-serve",
+    "crates/wb-mcp",
 ]
 
 [workspace.package]

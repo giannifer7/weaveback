@@ -2852,6 +2852,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wb-mcp"
+version = "0.10.0"
+dependencies = [
+ "clap",
+ "weaveback-api",
+ "weaveback-macro",
+]
+
+[[package]]
 name = "wb-query"
 version = "0.10.0"
 dependencies = [
@@ -2937,7 +2946,9 @@ dependencies = [
  "thiserror",
  "toml",
  "ureq",
+ "weaveback-agent-core",
  "weaveback-core",
+ "weaveback-lsp",
  "weaveback-macro",
  "weaveback-tangle",
 ]

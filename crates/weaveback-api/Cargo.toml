@@ -23,6 +23,8 @@ regex.workspace = true
 similar.workspace = true
 ureq.workspace = true
 rayon.workspace = true
+weaveback-lsp.workspace = true
+weaveback-agent-core.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

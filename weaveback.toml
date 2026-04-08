@@ -73,6 +73,13 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/wb-mcp/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/wb-tangle/src/"
 ext = "adoc"
 no_macros = true

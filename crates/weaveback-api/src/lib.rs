@@ -1,5 +1,7 @@
+pub mod apply_back;
 pub mod lint;
 pub mod lookup;
+pub mod mcp;
 pub mod process;
 pub mod query;
 pub mod semantic;

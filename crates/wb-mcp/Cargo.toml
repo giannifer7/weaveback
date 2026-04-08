@@ -1,0 +1,17 @@
+[package]
+name        = "wb-mcp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weaveback MCP server: JSON-RPC bridge for AI agent tooling"
+
+[[bin]]
+name = "wb-mcp"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+weaveback-api.workspace = true
+weaveback-macro.workspace = true

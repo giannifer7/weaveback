@@ -308,7 +308,7 @@ fn main() {
         }
         Some(Commands::Mcp) => {
             let eval_config = build_eval_config(&cli.args);
-            mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config)
+            mcp::run_mcp(cli.args.db, cli.args.gen_dir, eval_config).map_err(Error::Io)
         }
         Some(Commands::ApplyBack { files, dry_run }) => {
             let eval_config = build_eval_config(&cli.args);

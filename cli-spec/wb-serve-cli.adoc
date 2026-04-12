@@ -8,7 +8,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%redef(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
 %render_rust_struct_option(
 field = %(field),
 rust_type = %(rust_type),

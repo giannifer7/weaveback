@@ -111,7 +111,10 @@ about chunk composition rather than macro evaluation.
 | 
 
 | `%def(name, [p1, …,] body)`
-| Define a text-substitution macro.
+| Define a constant text-substitution macro.
+
+| `%redef(name, [p1, …,] body)`
+| Define or replace a rebindable text-substitution macro.
 
 | `%rhaidef(name, [p1, …,] body)`
 | Define a Rhai-scripted macro.  Body is evaluated as Rhai code at call time.
@@ -190,6 +193,7 @@ about chunk composition rather than macro evaluation.
 // <<builtins rhai store builtins>>
 // <<builtins py store builtins>>
 // <<builtins env>>
+// <<builtins predicates>>
 // @
 
 // <<@file weaveback-macro/src/evaluator/case_conversion.rs>>=
@@ -219,7 +223,7 @@ use std::sync::Arc;
 use super::case_conversion::convert_case_str;
 use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
-use super::state::ScriptKind;
+use super::state::{MacroBindingKind, ScriptKind};
 use crate::types::{ASTNode, NodeKind};
 // @
 ----
@@ -236,6 +240,7 @@ pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
 pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     let mut map = HashMap::new();
     map.insert("def".to_string(), builtin_def as BuiltinFn);
+    map.insert("redef".to_string(), builtin_redef as BuiltinFn);
     map.insert("rhaidef".to_string(), builtin_rhaidef as BuiltinFn);
     map.insert("rhaiset".to_string(), builtin_rhaiset as BuiltinFn);
     map.insert("rhaiget".to_string(), builtin_rhaiget as BuiltinFn);
@@ -300,6 +305,8 @@ struct DefMacroConfig {
     formal_param_context: String,
     duplicate_param_error: String,
     script_kind: ScriptKind,
+    binding_kind: MacroBindingKind,
+    redefine: bool,
 }
 // @
 ----
@@ -370,11 +377,11 @@ fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> Eva
 // @
 ----
 
-== `define_macro` — shared helper for `%def` / `%rhaidef` / `%pydef`
+== `define_macro` — shared helper for `%def` / `%redef` / `%rhaidef` / `%pydef`
 
 Extracts `(name, [p1, p2, …,] body)` from the node's parts, validates each
 identifier, records the call site for tracing, and stores the
-`MacroDefinition`.
+`MacroDefinition` with either constant or rebindable binding semantics.
 
 [source,rust]
 ----
@@ -420,9 +427,14 @@ fn define_macro(
         params: param_list,
         body: Arc::new(body_node),
         script_kind: config.script_kind,
+        binding_kind: config.binding_kind,
         frozen_args: HashMap::new(),
     };
-    eval.define_macro(mac);
+    if config.redefine {
+        eval.redefine_macro(mac)?;
+    } else {
+        eval.define_macro(mac)?;
+    }
     eval.record_macro_def(
         macro_name,
         node.token.src,
@@ -434,7 +446,7 @@ fn define_macro(
 // @
 ----
 
-== `%def`, `%rhaidef`, `%pydef`
+== `%def`, `%redef`, `%rhaidef`, `%pydef`
 
 [source,rust]
 ----
@@ -449,6 +461,24 @@ pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
             formal_param_context: "formal parameter".into(),
             duplicate_param_error: "def".into(),
             script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
+        },
+    )
+}
+
+pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "redef requires at least (name, body)".into(),
+            name_param_context: "macro name".into(),
+            formal_param_context: "formal parameter".into(),
+            duplicate_param_error: "redef".into(),
+            script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Rebindable,
+            redefine: true,
         },
     )
 }
@@ -463,6 +493,8 @@ pub fn builtin_rhaidef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Strin
             formal_param_context: "rhaidef parameter".into(),
             duplicate_param_error: "rhaidef".into(),
             script_kind: ScriptKind::Rhai,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -477,6 +509,8 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
             formal_param_context: "pydef parameter".into(),
             duplicate_param_error: "pydef".into(),
             script_kind: ScriptKind::Python,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -491,6 +525,8 @@ pub fn builtin_rhaidef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<S
             formal_param_context: "rhaidef_raw parameter".into(),
             duplicate_param_error: "rhaidef_raw".into(),
             script_kind: ScriptKind::RhaiRaw,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -505,6 +541,8 @@ pub fn builtin_pydef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Str
             formal_param_context: "pydef_raw parameter".into(),
             duplicate_param_error: "pydef_raw".into(),
             script_kind: ScriptKind::PythonRaw,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -520,6 +558,11 @@ has already executed the file's side effects (macro and variable definitions).
 registers every newly-defined macro under a `prefix_name` alias.  The
 originals remain so that internal cross-references inside the file continue
 to resolve.  The prefix must be a valid identifier.
+
+`%alias` itself creates a *rebindable* target name.  That is deliberate:
+alias targets are often used as a dispatch slot in spec-generation patterns
+(`emit_option`, etc.), so repeating `%alias(slot, ...)` in the same frame
+should replace the slot instead of tripping the `%def` constant-binding rule.
 
 [source,rust]
 ----
@@ -674,6 +717,7 @@ pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
             format!("alias: macro '{source_name}' is not defined"),
         ))?;
     mac.name = new_name.clone();
+    mac.binding_kind = MacroBindingKind::Rebindable;
     for part in &parts[2..] {
         let key = match part.name.as_ref() {
             Some(tok) => eval.extract_name_value(tok),
@@ -684,7 +728,7 @@ pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         let val = eval.evaluate(part)?;
         mac.frozen_args.insert(key, val);
     }
-    eval.define_macro(mac);
+    eval.redefine_macro(mac)?;
     eval.record_macro_def(
         new_name,
         node.token.src,

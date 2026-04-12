@@ -14,7 +14,7 @@ Python objects via `pythonize`.
 
 [source,rust]
 ----
-// <<@file crates/weaveback-py/src/lib.rs>>=
+// <<@file weaveback-py/src/lib.rs>>=
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pythonize::{depythonize, pythonize};

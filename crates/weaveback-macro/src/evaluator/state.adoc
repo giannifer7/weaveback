@@ -86,6 +86,7 @@ class MacroDefinition {
   +params: Vec<String>
   +body: Arc<ASTNode>
   +script_kind: ScriptKind
+  +binding_kind: MacroBindingKind
   +frozen_args: HashMap<String, String>
 }
 
@@ -124,6 +125,7 @@ ScopeFrame o-- MacroDefinition
 // <<state preamble>>
 // <<eval config>>
 // <<script kind>>
+// <<macro binding kind>>
 // <<macro definition>>
 // <<tracked value>>
 // <<scope frame>>
@@ -142,6 +144,7 @@ ScopeFrame o-- MacroDefinition
 // <<state preamble>>=
 // crates/weaveback-macro/src/evaluator/state.rs
 
+use crate::evaluator::errors::{EvalError, EvalResult};
 use crate::evaluator::output::{SourceSpan, SpanRange};
 use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
@@ -223,6 +226,26 @@ pub enum ScriptKind {
 // @
 ----
 
+== `MacroBindingKind` — constant vs rebindable names
+
+Macro bindings carry their rebinding policy explicitly.
+
+* `Constant` is the normal `%def` case: once bound in a frame, the same name
+  cannot be bound again in that frame.
+* `Rebindable` is the `%redef` case: later `%redef` calls in the same frame may
+  replace it.
+
+[source,rust]
+----
+// <<macro binding kind>>=
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroBindingKind {
+    Constant,
+    Rebindable,
+}
+// @
+----
+
 == `MacroDefinition` — stored macro
 
 `MacroDefinition` is cloned out of the scope stack at every call site.
@@ -233,6 +256,9 @@ pub enum ScriptKind {
 `frozen_args`, pinning those free variables for all future calls to the alias.
 This is the sole explicit capture mechanism; `%export` now does a plain copy.
 
+`binding_kind` records whether the current-frame binding was introduced as a
+constant (`%def`) or explicitly rebindable (`%redef`).
+
 [source,rust]
 ----
 // <<macro definition>>=
@@ -242,6 +268,7 @@ pub struct MacroDefinition {
     pub params: Vec<String>,
     pub body: Arc<ASTNode>,
     pub script_kind: ScriptKind,
+    pub binding_kind: MacroBindingKind,
     pub frozen_args: HashMap<String, String>,
 }
 // @
@@ -268,7 +295,7 @@ pub struct TrackedValue {
 
 Each macro call creates a new `ScopeFrame`.  A frame holds the variables bound
 by that call's parameter list (and by `%set` calls within the macro body) and
-any macros defined inside the call body via `%def`.
+any macros defined inside the call body via `%def` / `%redef`.
 
 [source,rust]
 ----
@@ -518,10 +545,34 @@ impl EvaluatorState {
         None
     }
 
-    pub fn define_macro(&mut self, mac: MacroDefinition) {
-        self.current_scope_mut()
-            .macros
-            .insert(mac.name.clone(), mac);
+    pub fn define_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
+        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
+            return match existing.binding_kind {
+                MacroBindingKind::Constant => Err(EvalError::InvalidUsage(format!(
+                    "cannot define macro '{}': constant binding already exists in current scope",
+                    mac.name
+                ))),
+                MacroBindingKind::Rebindable => Err(EvalError::InvalidUsage(format!(
+                    "cannot define macro '{}': rebindable binding already exists in current scope; use %redef",
+                    mac.name
+                ))),
+            };
+        }
+        self.current_scope_mut().macros.insert(mac.name.clone(), mac);
+        Ok(())
+    }
+
+    pub fn redefine_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
+        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
+            if existing.binding_kind == MacroBindingKind::Constant {
+                return Err(EvalError::InvalidUsage(format!(
+                    "cannot redefine macro '{}': constant binding already exists in current scope",
+                    mac.name
+                )));
+            }
+        }
+        self.current_scope_mut().macros.insert(mac.name.clone(), mac);
+        Ok(())
     }
 
     pub fn get_macro(&self, name: &str) -> Option<MacroDefinition> {

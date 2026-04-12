@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::case_conversion::convert_case_str;
 use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
-use super::state::ScriptKind;
+use super::state::{MacroBindingKind, ScriptKind};
 use crate::types::{ASTNode, NodeKind};
 /// Type for a builtin macro function: (Evaluator, node) -> String
 pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
@@ -16,6 +16,7 @@ pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
 pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     let mut map = HashMap::new();
     map.insert("def".to_string(), builtin_def as BuiltinFn);
+    map.insert("redef".to_string(), builtin_redef as BuiltinFn);
     map.insert("rhaidef".to_string(), builtin_rhaidef as BuiltinFn);
     map.insert("rhaiset".to_string(), builtin_rhaiset as BuiltinFn);
     map.insert("rhaiget".to_string(), builtin_rhaiget as BuiltinFn);
@@ -72,6 +73,8 @@ struct DefMacroConfig {
     formal_param_context: String,
     duplicate_param_error: String,
     script_kind: ScriptKind,
+    binding_kind: MacroBindingKind,
+    redefine: bool,
 }
 /// Helper: Checks that a Param node contains exactly one identifier child
 fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> EvalResult<String> {
@@ -168,9 +171,14 @@ fn define_macro(
         params: param_list,
         body: Arc::new(body_node),
         script_kind: config.script_kind,
+        binding_kind: config.binding_kind,
         frozen_args: HashMap::new(),
     };
-    eval.define_macro(mac);
+    if config.redefine {
+        eval.redefine_macro(mac)?;
+    } else {
+        eval.define_macro(mac)?;
+    }
     eval.record_macro_def(
         macro_name,
         node.token.src,
@@ -189,6 +197,24 @@ pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
             formal_param_context: "formal parameter".into(),
             duplicate_param_error: "def".into(),
             script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
+        },
+    )
+}
+
+pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "redef requires at least (name, body)".into(),
+            name_param_context: "macro name".into(),
+            formal_param_context: "formal parameter".into(),
+            duplicate_param_error: "redef".into(),
+            script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Rebindable,
+            redefine: true,
         },
     )
 }
@@ -203,6 +229,8 @@ pub fn builtin_rhaidef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Strin
             formal_param_context: "rhaidef parameter".into(),
             duplicate_param_error: "rhaidef".into(),
             script_kind: ScriptKind::Rhai,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -217,6 +245,8 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
             formal_param_context: "pydef parameter".into(),
             duplicate_param_error: "pydef".into(),
             script_kind: ScriptKind::Python,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -231,6 +261,8 @@ pub fn builtin_rhaidef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<S
             formal_param_context: "rhaidef_raw parameter".into(),
             duplicate_param_error: "rhaidef_raw".into(),
             script_kind: ScriptKind::RhaiRaw,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
@@ -245,10 +277,11 @@ pub fn builtin_pydef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Str
             formal_param_context: "pydef_raw parameter".into(),
             duplicate_param_error: "pydef_raw".into(),
             script_kind: ScriptKind::PythonRaw,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
         },
     )
 }
-
 fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -283,7 +316,6 @@ pub fn builtin_importas(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Stri
     }
     eval.do_include_prefixed(&path, &prefix)
 }
-
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
@@ -332,10 +364,18 @@ pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     Ok("".into())
 }
 
-/// `%alias(new_name, source_name)` — define `new_name` as a copy of the macro
-/// currently bound to `source_name`.  Both arguments must be plain identifiers.
-/// Errors if `source_name` is not defined.  The body `Arc` is shared, so the
-/// copy is cheap.
+/// `%alias(new_name, source_name[, key = val, …])` — define `new_name` as a
+/// snapshot copy of the macro currently bound to `source_name`.  The first two
+/// arguments must be positional plain identifiers.  Any additional arguments
+/// must be named (`key = val`); their values are evaluated at alias-definition
+/// time and merged into the copy's `frozen_args`, so they are in scope whenever
+/// the alias is called regardless of what the enclosing scope contains at call
+/// time.
+///
+/// This is partial application for free-variable bindings: if `source_name`
+/// references `%(chunk_name)` in its body but does not declare `chunk_name` as
+/// a parameter, `%alias(emit_option, source_name, chunk_name = tangle-rows)`
+/// pins that free variable for the lifetime of the alias.
 pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() < 2 {
@@ -364,6 +404,7 @@ pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
             format!("alias: macro '{source_name}' is not defined"),
         ))?;
     mac.name = new_name.clone();
+    mac.binding_kind = MacroBindingKind::Rebindable;
     for part in &parts[2..] {
         let key = match part.name.as_ref() {
             Some(tok) => eval.extract_name_value(tok),
@@ -374,7 +415,7 @@ pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         let val = eval.evaluate(part)?;
         mac.frozen_args.insert(key, val);
     }
-    eval.define_macro(mac);
+    eval.redefine_macro(mac)?;
     eval.record_macro_def(
         new_name,
         node.token.src,
@@ -571,7 +612,6 @@ pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let name = eval.evaluate(&node.parts[0])?;
     Ok(std::env::var(name.trim()).unwrap_or_default())
 }
-
 /// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
 /// Canonical boolean predicate; always returns `1` or `""`, never an operand.
 pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {

@@ -42,7 +42,7 @@ pub(crate) enum Commands {
         /// Column number (1-indexed, 0 = start of line).
         #[arg(default_value = "0")]
         col: u32,
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+%redef(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
 %render_rust_enum_option(
 field = %(field),
 rust_type = %(rust_type),

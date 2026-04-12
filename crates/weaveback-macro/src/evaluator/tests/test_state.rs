@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::evaluator::output::{SourceSpan, SpanKind, SpanRange};
 use crate::evaluator::state::{
-    EvalConfig, EvaluatorState, MacroDefinition, ScriptKind, SourceManager,
+    EvalConfig, EvaluatorState, MacroBindingKind, MacroDefinition, ScriptKind, SourceManager,
 };
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 use tempfile::TempDir;
@@ -109,8 +109,10 @@ fn test_state_define_macro_and_lookup_shadowing() {
         params: vec!["x".into()],
         body: dummy_ast(),
         script_kind: ScriptKind::None,
+        binding_kind: MacroBindingKind::Constant,
         frozen_args: HashMap::new(),
-    });
+    })
+    .unwrap();
     assert_eq!(st.get_macro("m").unwrap().params, vec!["x"]);
 
     st.push_scope();
@@ -119,8 +121,10 @@ fn test_state_define_macro_and_lookup_shadowing() {
         params: vec!["y".into()],
         body: dummy_ast(),
         script_kind: ScriptKind::Python,
+        binding_kind: MacroBindingKind::Constant,
         frozen_args: HashMap::new(),
-    });
+    })
+    .unwrap();
     let inner = st.get_macro("m").unwrap();
     assert_eq!(inner.params, vec!["y"]);
     assert_eq!(inner.script_kind, ScriptKind::Python);
@@ -129,6 +133,62 @@ fn test_state_define_macro_and_lookup_shadowing() {
     let outer = st.get_macro("m").unwrap();
     assert_eq!(outer.params, vec!["x"]);
     assert_eq!(outer.script_kind, ScriptKind::None);
+}
+
+#[test]
+fn test_state_rejects_same_frame_constant_redefinition() {
+    let mut st = EvaluatorState::new(EvalConfig::default());
+    st.define_macro(MacroDefinition {
+        name: "m".into(),
+        params: vec![],
+        body: dummy_ast(),
+        script_kind: ScriptKind::None,
+        binding_kind: MacroBindingKind::Constant,
+        frozen_args: HashMap::new(),
+    })
+    .unwrap();
+
+    let err = st
+        .define_macro(MacroDefinition {
+            name: "m".into(),
+            params: vec!["x".into()],
+            body: dummy_ast(),
+            script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Constant,
+            frozen_args: HashMap::new(),
+        })
+        .unwrap_err();
+
+    assert!(err.to_string().contains("constant binding"));
+}
+
+#[test]
+fn test_state_rebindable_macro_can_be_replaced() {
+    let mut st = EvaluatorState::new(EvalConfig::default());
+    st.redefine_macro(MacroDefinition {
+        name: "m".into(),
+        params: vec![],
+        body: dummy_ast(),
+        script_kind: ScriptKind::None,
+        binding_kind: MacroBindingKind::Rebindable,
+        frozen_args: HashMap::new(),
+    })
+    .unwrap();
+
+    st.redefine_macro(MacroDefinition {
+        name: "m".into(),
+        params: vec!["x".into()],
+        body: dummy_ast(),
+        script_kind: ScriptKind::Python,
+        binding_kind: MacroBindingKind::Rebindable,
+        frozen_args: HashMap::new(),
+    })
+    .unwrap();
+
+    let mac = st.get_macro("m").unwrap();
+    assert_eq!(mac.params, vec!["x"]);
+    assert_eq!(mac.script_kind, ScriptKind::Python);
+    assert_eq!(mac.binding_kind, MacroBindingKind::Rebindable);
 }
 
 #[test]

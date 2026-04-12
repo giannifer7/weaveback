@@ -25,9 +25,9 @@ mod tests {
     #[test]
     fn test_alias_independent_after_redef() {
         // Re-defining `greet` after the alias should not affect `say_hi`.
-        let source = "%def(greet, name, %{Hello %(name)!%})\
+        let source = "%redef(greet, name, %{Hello %(name)!%})\
                       %alias(say_hi, greet)\
-                      %def(greet, name, %{Bye %(name)!%})\
+                      %redef(greet, name, %{Bye %(name)!%})\
                       %say_hi(world) %greet(world)";
         let result = process_string_defaults(source).unwrap();
         assert_eq!(String::from_utf8(result).unwrap(), "Hello world! Bye world!");

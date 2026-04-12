@@ -9,19 +9,19 @@ produce no output themselves.
 
 [source]
 ----
-%def(render_rust_struct_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
+%redef(render_rust_struct_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
 %if(%(arg_attr), %{    #[arg(%(arg_attr))]
 %})
     pub(crate) %(field): %(rust_type),
 %})
 
-%def(render_rust_enum_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
+%redef(render_rust_enum_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
 %if(%(arg_attr), %{    #[arg(%(arg_attr))]
 %})
     %(field): %(rust_type),
 %})
 
-%def(render_doc_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{| %(doc_flag) | %(doc_default) | %(doc_descr)
+%redef(render_doc_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{| %(doc_flag) | %(doc_default) | %(doc_descr)
 %})
 ----
 
@@ -29,7 +29,7 @@ produce no output themselves.
 
 [source]
 ----
-%def(macro_arg_options, %{
+%redef(macro_arg_options, %{
 %emit_option(
 field = inputs,
 rust_type = Vec<PathBuf>,
@@ -88,7 +88,7 @@ doc_descr = %{Path to the source-map database.%}
 )
 %})
 
-%def(debug_arg_options, %{
+%redef(debug_arg_options, %{
 %emit_option(
 field = dump_expanded,
 rust_type = bool,
@@ -100,7 +100,7 @@ doc_descr = %{Print macro-expanded text to stderr before noweb processing.%}
 )
 %})
 
-%def(tangle_arg_options, %{
+%redef(tangle_arg_options, %{
 %emit_option(
 field = gen_dir,
 rust_type = PathBuf,
@@ -167,7 +167,7 @@ doc_descr = %{Overwrite generated files even if they differ from the stored base
 )
 %})
 
-%def(directory_arg_options, %{
+%redef(directory_arg_options, %{
 %emit_option(
 field = directory,
 rust_type = Option<PathBuf>,
@@ -191,7 +191,7 @@ doc_descr = %{File extension to scan in `--dir` mode; repeatable.%}
 )
 %})
 
-%def(build_arg_options, %{
+%redef(build_arg_options, %{
 %emit_option(
 field = depfile,
 rust_type = Option<PathBuf>,
@@ -214,7 +214,7 @@ doc_descr = %{Touch this file on success (build-system stamp).%}
 )
 %})
 
-%def(hidden_arg_options, %{
+%redef(hidden_arg_options, %{
 %emit_option(
 field = no_fts,
 rust_type = bool,
@@ -228,7 +228,7 @@ doc_descr = %{hidden%}
 )
 %})
 
-%def(security_arg_options, %{
+%redef(security_arg_options, %{
 %emit_option(
 field = allow_env,
 rust_type = bool,
@@ -284,7 +284,7 @@ doc_descr = %{Warn about named chunks that are defined but never referenced by a
 
 [source]
 ----
-%def(tangle_command_options, %{
+%redef(tangle_command_options, %{
 %emit_option(
 field = files,
 rust_type = Vec<String>,
@@ -315,7 +315,7 @@ doc_descr = %{Overwrite generated files even if they differ from the stored base
 )
 %})
 
-%def(tag_command_options, %{
+%redef(tag_command_options, %{
 %emit_option(
 field = config,
 rust_type = std::path::PathBuf,
@@ -363,7 +363,7 @@ doc_descr = %{Override blocks per LLM request.%}
 )
 %})
 
-%def(apply_back_command_options, %{
+%redef(apply_back_command_options, %{
 %emit_option(
 field = files,
 rust_type = Vec<String>,
@@ -384,7 +384,7 @@ doc_descr = %{Show what would change without writing anything.%}
 )
 %})
 
-%def(graph_command_options, %{
+%redef(graph_command_options, %{
 %emit_option(
 field = chunk,
 rust_type = Option<String>,
@@ -396,7 +396,7 @@ doc_descr = %{Restrict to the subgraph reachable from this chunk.%}
 )
 %})
 
-%def(search_command_options, %{
+%redef(search_command_options, %{
 %emit_option(
 field = query,
 rust_type = String,
@@ -417,7 +417,7 @@ doc_descr = %{Maximum number of results to show.%}
 )
 %})
 
-%def(attribute_command_options, %{
+%redef(attribute_command_options, %{
 %emit_option(
 field = scan_stdin,
 rust_type = bool,
@@ -447,7 +447,7 @@ doc_descr = %{One or more generated locations in `FILE:LINE` or `FILE:LINE:COL` 
 )
 %})
 
-%def(cargo_command_options, %{
+%redef(cargo_command_options, %{
 %emit_option(
 field = diagnostics_only,
 rust_type = bool,
@@ -468,7 +468,7 @@ doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback ca
 )
 %})
 
-%def(lint_command_options, %{
+%redef(lint_command_options, %{
 %emit_option(
 field = paths,
 rust_type = Vec<PathBuf>,
@@ -507,7 +507,7 @@ doc_descr = %{Emit structured JSON instead of human-readable text.%}
 )
 %})
 
-%def(coverage_command_options, %{
+%redef(coverage_command_options, %{
 %emit_option(
 field = summary,
 rust_type = bool,
@@ -555,7 +555,7 @@ doc_descr = %{Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-
 )
 %})
 
-%def(tags_command_options, %{
+%redef(tags_command_options, %{
 %emit_option(
 field = file,
 rust_type = Option<String>,
@@ -567,7 +567,7 @@ doc_descr = %{Filter to a single source file (plain relative path).%}
 )
 %})
 
-%def(lsp_command_options, %{
+%redef(lsp_command_options, %{
 %emit_option(
 field = lsp_cmd,
 rust_type = Option<String>,
@@ -588,7 +588,7 @@ doc_descr = %{Manual override for language ID (e.g. `nim`).%}
 )
 %})
 
-%def(serve_command_options, %{
+%redef(serve_command_options, %{
 %emit_option(
 field = port,
 rust_type = u16,
@@ -688,7 +688,7 @@ Reusable groups for standalone binaries that lack a global `Args` struct.
 
 [source]
 ----
-%def(eval_options, %{
+%redef(eval_options, %{
 %emit_option(
 field = sigil,
 rust_type = char,
@@ -718,7 +718,7 @@ doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%}
 )
 %})
 
-%def(tangle_delim_options, %{
+%redef(tangle_delim_options, %{
 %emit_option(
 field = gen_dir,
 rust_type = PathBuf,

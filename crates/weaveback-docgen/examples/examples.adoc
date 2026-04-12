@@ -11,7 +11,7 @@ a panic in `asciidoc_parser::Parser`.  Useful for isolating regressions.
 
 [source,rust]
 ----
-// <<@file crates/weaveback-docgen/examples/bisect_panic.rs>>=
+// <<@file bisect_panic.rs>>=
 // Run with: rustc bisect_panic.rs -L target/debug/deps --edition 2024 \
 //   $(cargo build 2>&1 >/dev/null; find target/debug/deps -name 'libasciidoc_parser*.rlib' | head -1 | xargs -I{} echo --extern asciidoc_parser={})
 // Simpler: just use `cargo script` or run as a test.
@@ -99,7 +99,7 @@ after parser fixes.
 
 [source,rust]
 ----
-// <<@file crates/weaveback-docgen/examples/minimize_panic.rs>>=
+// <<@file minimize_panic.rs>>=
 fn panics(s: &str) -> bool {
     std::panic::catch_unwind(|| asciidoc_parser::Parser::default().parse(s)).is_err()
 }

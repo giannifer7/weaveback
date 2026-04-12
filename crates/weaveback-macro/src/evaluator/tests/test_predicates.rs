@@ -110,4 +110,8 @@ fn test_builtin_name_guard_rejects_eq_redefinition() {
         process_string_defaults("%def(not, x, %(x))"),
         Err(EvalError::InvalidUsage(_))
     ));
+    assert!(matches!(
+        process_string_defaults("%redef(eq, a, b, %(a))"),
+        Err(EvalError::InvalidUsage(_))
+    ));
 }

@@ -188,8 +188,12 @@ impl Evaluator {
     pub fn pystore_get(&self, key: &str) -> String {
         self.py_store.get(key).cloned().unwrap_or_default()
     }
-    pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) {
-        self.state.define_macro(mac);
+    pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
+        self.state.define_macro(mac)
+    }
+
+    pub fn redefine_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
+        self.state.redefine_macro(mac)
     }
 
     pub fn get_macro(&self, name: &str) -> Option<crate::evaluator::state::MacroDefinition> {
@@ -658,7 +662,7 @@ impl Evaluator {
             let prefixed_name = format!("{prefix}_{}", mac.name);
             let mut prefixed = mac;
             prefixed.name = prefixed_name;
-            self.state.define_macro(prefixed);
+            self.state.define_macro(prefixed)?;
         }
 
         Ok("".into())

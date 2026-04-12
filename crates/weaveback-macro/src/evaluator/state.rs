@@ -1,5 +1,6 @@
 // crates/weaveback-macro/src/evaluator/state.rs
 
+use crate::evaluator::errors::{EvalError, EvalResult};
 use crate::evaluator::output::{SourceSpan, SpanRange};
 use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
@@ -40,12 +41,18 @@ pub enum ScriptKind {
     /// Raw Python: body is literal script source; params injected as Python variables.
     PythonRaw,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacroBindingKind {
+    Constant,
+    Rebindable,
+}
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
     pub name: String,
     pub params: Vec<String>,
     pub body: Arc<ASTNode>,
     pub script_kind: ScriptKind,
+    pub binding_kind: MacroBindingKind,
     pub frozen_args: HashMap<String, String>,
 }
 #[derive(Debug, Clone)]
@@ -249,10 +256,34 @@ impl EvaluatorState {
         None
     }
 
-    pub fn define_macro(&mut self, mac: MacroDefinition) {
-        self.current_scope_mut()
-            .macros
-            .insert(mac.name.clone(), mac);
+    pub fn define_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
+        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
+            return match existing.binding_kind {
+                MacroBindingKind::Constant => Err(EvalError::InvalidUsage(format!(
+                    "cannot define macro '{}': constant binding already exists in current scope",
+                    mac.name
+                ))),
+                MacroBindingKind::Rebindable => Err(EvalError::InvalidUsage(format!(
+                    "cannot define macro '{}': rebindable binding already exists in current scope; use %redef",
+                    mac.name
+                ))),
+            };
+        }
+        self.current_scope_mut().macros.insert(mac.name.clone(), mac);
+        Ok(())
+    }
+
+    pub fn redefine_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
+        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
+            if existing.binding_kind == MacroBindingKind::Constant {
+                return Err(EvalError::InvalidUsage(format!(
+                    "cannot redefine macro '{}': constant binding already exists in current scope",
+                    mac.name
+                )));
+            }
+        }
+        self.current_scope_mut().macros.insert(mac.name.clone(), mac);
+        Ok(())
     }
 
     pub fn get_macro(&self, name: &str) -> Option<MacroDefinition> {

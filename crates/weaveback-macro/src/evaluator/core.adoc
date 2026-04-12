@@ -380,8 +380,12 @@ recording for the tracing maps.
 [source,rust]
 ----
 // <<evaluator macro and var>>=
-    pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) {
-        self.state.define_macro(mac);
+    pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
+        self.state.define_macro(mac)
+    }
+
+    pub fn redefine_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
+        self.state.redefine_macro(mac)
     }
 
     pub fn get_macro(&self, name: &str) -> Option<crate::evaluator::state::MacroDefinition> {
@@ -947,7 +951,7 @@ fails — to prevent a failed include from permanently blocking re-includes.
             let prefixed_name = format!("{prefix}_{}", mac.name);
             let mut prefixed = mac;
             prefixed.name = prefixed_name;
-            self.state.define_macro(prefixed);
+            self.state.define_macro(prefixed)?;
         }
 
         Ok("".into())

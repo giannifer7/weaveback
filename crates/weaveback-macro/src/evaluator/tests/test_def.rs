@@ -142,14 +142,33 @@ fn test_mutual_recursion_depth_limit() {
 }
 
 #[test]
-fn test_redefine_macro_with_different_script_kind() {
-    // Redefining a macro with a different ScriptKind (def → rhaidef) should
-    // silently replace it; the second definition wins.
-    let src = "%def(compute, x, %(x))\n%rhaidef(compute, x, x + \"!\")\n%compute(hello)";
+fn test_def_rejects_same_frame_redefinition() {
+    let result = process_string_defaults("%def(compute, x, %(x))\n%def(compute, x, %(x))");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("constant binding"));
+}
+
+#[test]
+fn test_def_rejects_rebinding_rebindable_name() {
+    let result = process_string_defaults("%redef(compute, x, %(x))\n%def(compute, x, %(x))");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("rebindable binding"));
+    assert!(err.contains("%redef"));
+}
+
+#[test]
+fn test_redef_creates_and_replaces_rebindable_macro() {
+    let src = "%redef(compute, x, %(x))\n%redef(compute, x, %(x)!)\n%compute(hello)";
     let result = process_string_defaults(src).unwrap();
     let output = String::from_utf8(result).unwrap();
-    // The rhaidef version appends "!" to its argument.
-    assert_eq!(output.trim(), "hello!", "rhaidef should shadow earlier %def");
+    assert_eq!(output.trim(), "hello!");
+}
+
+#[test]
+fn test_redef_rejects_constant_name() {
+    let result = process_string_defaults("%def(compute, x, %(x))\n%redef(compute, x, %(x)!)");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("constant binding"));
 }
 
 #[test]

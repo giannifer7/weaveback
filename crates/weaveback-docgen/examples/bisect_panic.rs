@@ -17,7 +17,7 @@ fn main() {
     println!("File: {path}  ({n} lines)");
 
     if !try_parse(&content) {
-        println!("No panic detected in full file — nothing to bisect.");
+        println!("No panic detected in full file -- nothing to bisect.");
         return;
     }
     println!("Full file panics. Bisecting...\n");
@@ -65,9 +65,9 @@ fn main() {
 
     // Verify
     if try_parse(&minimal) {
-        println!("\n✓ Confirmed: this snippet alone triggers the panic.");
+        println!("\nConfirmed: this snippet alone triggers the panic.");
     } else {
-        println!("\n⚠ Snippet alone does not panic — context may be needed.");
+        println!("\nSnippet alone does not panic -- context may be needed.");
         println!("Full prefix (lines 1-{prefix_end}) triggers it:");
         println!("---");
         println!("{trigger_prefix}");

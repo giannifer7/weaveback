@@ -395,8 +395,16 @@ lcov.info
 coverage_by_source.json
 cobertura.xml
 codecov.json
+*.profraw
+all_coverage.log
+new_coverage.log
+summary.log
+tangle_output.txt
+big_chunks.txt
 
 *.db
+*.db-shm
+*.db-wal
 
 tarpaulin-report.html
 
@@ -410,12 +418,15 @@ gemini-resume.txt
 .codex
 .gemini/
 docs/.plantuml-cache/
+asciidoc-parser/
 
 chats
 python/*
 !python/weaveback-agent/
 !python/weaveback-agent/**
 resume.txt
+
+gen/
 
 examples/**/*.db
 examples/**/*.html

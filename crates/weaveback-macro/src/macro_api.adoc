@@ -43,12 +43,12 @@ the same semantics as `eval_files`.
 
 Dependency discovery still needs macro evaluation because `%include(...)` and
 `%import(...)` paths may be built from variables, `%if`, or helper macros.
-But "discover dependencies" is not the same public operation as "produce final
-expanded output".
+But "discover dependency edges" is not the same public operation as "produce
+final expanded output".
 
 This module therefore exposes explicit discovery entry points that reuse the
 same evaluator and builtin path-resolution machinery while flipping an internal
-discovery switch only for the duration of that call.
+dependency-discovery switch only for the duration of that call.
 
 === File context on failures
 
@@ -309,10 +309,10 @@ pub fn discover_includes_in_string(
     real_path: Option<&Path>,
     evaluator: &mut Evaluator,
 ) -> Result<Vec<PathBuf>, EvalError> {
-    evaluator.set_discovery_mode(true);
+    evaluator.set_dependency_discovery_active(true);
     let result = process_string(source, real_path, evaluator);
-    let includes = evaluator.take_discovered_includes();
-    evaluator.set_discovery_mode(false);
+    let includes = evaluator.take_discovered_dependency_paths();
+    evaluator.set_dependency_discovery_active(false);
     result.map(|_| includes)
 }
 // @

@@ -8,7 +8,7 @@ parser, uses explicit dependency-discovery APIs for `--dir`, and exposes
 
 == Design rationale
 
-=== `--dir` discovery mode
+=== `--dir` dependency discovery
 
 When `--dir` is given, the binary:
 

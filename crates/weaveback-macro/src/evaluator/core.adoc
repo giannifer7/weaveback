@@ -822,8 +822,8 @@ fails — to prevent a failed include from permanently blocking re-includes.
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;
 
-        if self.state.discovery_mode {
-            self.state.discovered_includes.push(path);
+        if self.state.dependency_discovery_active {
+            self.state.discovered_dependency_paths.push(path);
             return Ok("".into());
         }
 
@@ -843,13 +843,13 @@ fails — to prevent a failed include from permanently blocking re-includes.
         result
     }
 
-    /// Return (and clear) the list of paths recorded during a discovery-mode run.
-    pub fn take_discovered_includes(&mut self) -> Vec<PathBuf> {
-        std::mem::take(&mut self.state.discovered_includes)
+    /// Return (and clear) the list of paths recorded during dependency discovery.
+    pub fn take_discovered_dependency_paths(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.state.discovered_dependency_paths)
     }
 
-    pub(crate) fn set_discovery_mode(&mut self, enabled: bool) {
-        self.state.discovery_mode = enabled;
+    pub(crate) fn set_dependency_discovery_active(&mut self, enabled: bool) {
+        self.state.dependency_discovery_active = enabled;
     }
 
     /// Like `do_include`, but registers every newly-defined macro under an

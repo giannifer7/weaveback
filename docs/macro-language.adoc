@@ -584,8 +584,8 @@ Like `%include` but discards the text output.  Side effects (macro definitions,
 %render_doc(...)
 ----
 
-In discovery mode, `%include` / `%import` still evaluate their path argument
-first. Only the target-file evaluation is skipped after a real path is
+During dependency discovery, `%include` / `%import` still evaluate their path
+argument first. Only the target-file evaluation is skipped after a real path is
 resolved and recorded.
 
 == Python integration

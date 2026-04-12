@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::evaluator::{EvalConfig, Evaluator};
-    use crate::macro_api::{process_string, process_string_defaults};
+    use crate::macro_api::process_string_defaults;
 
     #[test]
     fn test_builtin_set() {

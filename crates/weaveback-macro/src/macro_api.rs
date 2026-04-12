@@ -125,10 +125,10 @@ pub fn discover_includes_in_string(
     real_path: Option<&Path>,
     evaluator: &mut Evaluator,
 ) -> Result<Vec<PathBuf>, EvalError> {
-    evaluator.set_discovery_mode(true);
+    evaluator.set_dependency_discovery_active(true);
     let result = process_string(source, real_path, evaluator);
-    let includes = evaluator.take_discovered_includes();
-    evaluator.set_discovery_mode(false);
+    let includes = evaluator.take_discovered_dependency_paths();
+    evaluator.set_dependency_discovery_active(false);
     result.map(|_| includes)
 }
 pub fn discover_includes_in_file(

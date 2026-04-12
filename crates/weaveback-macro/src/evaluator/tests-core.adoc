@@ -110,7 +110,7 @@ fn test_discover_includes_in_string_records_paths() {
         crate::macro_api::discover_includes_in_string("%include(inc.txt)", None, &mut eval)
             .unwrap();
     assert_eq!(discovered, vec![include_path]);
-    assert!(eval.take_discovered_includes().is_empty());
+    assert!(eval.take_discovered_dependency_paths().is_empty());
 }
 
 #[test]

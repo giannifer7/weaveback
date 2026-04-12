@@ -134,7 +134,7 @@ pub struct MacroDefRaw {
 }
 pub struct EvaluatorState {
     pub config: EvalConfig,
-    pub(crate) discovery_mode: bool,
+    pub(crate) dependency_discovery_active: bool,
     pub scope_stack: Vec<ScopeFrame>,
     pub open_includes: HashSet<PathBuf>,
     pub current_file: PathBuf,
@@ -142,8 +142,8 @@ pub struct EvaluatorState {
     pub call_depth: usize,
     /// Set by `%here` to stop further evaluation cleanly (not an error).
     pub early_exit: bool,
-    /// Populated during discovery mode: every path resolved by `%include`/`%import`.
-    pub discovered_includes: Vec<PathBuf>,
+    /// Populated during dependency discovery: every path resolved by `%include`/`%import`.
+    pub discovered_dependency_paths: Vec<PathBuf>,
     /// Accumulated `%set` call sites for the var_defs_map.
     pub var_defs: Vec<VarDefRaw>,
     /// Accumulated `%def/%pydef` call sites for the macro_defs_map.
@@ -156,14 +156,14 @@ impl EvaluatorState {
     pub fn new(config: EvalConfig) -> Self {
         Self {
             config,
-            discovery_mode: false,
+            dependency_discovery_active: false,
             scope_stack: vec![ScopeFrame::default()],
             open_includes: HashSet::new(),
             current_file: PathBuf::from(""),
             source_manager: SourceManager::new(),
             call_depth: 0,
             early_exit: false,
-            discovered_includes: Vec::new(),
+            discovered_dependency_paths: Vec::new(),
             var_defs: Vec::new(),
             macro_defs: Vec::new(),
             warnings: Vec::new(),

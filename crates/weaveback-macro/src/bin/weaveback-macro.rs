@@ -88,6 +88,10 @@ struct Args {
     #[arg(long)]
     env_prefix: Option<String>,
 
+    /// Maximum macro recursion depth for this run.
+    #[arg(long = "recursion-limit", default_value_t = weaveback_core::MAX_RECURSION_DEPTH)]
+    recursion_limit: usize,
+
     /// Allow `%(name)` to expand to empty string when the variable is undefined.
     #[arg(long)]
     no_strict_vars: bool,
@@ -134,6 +138,7 @@ fn run(args: Args) -> Result<(), EvalError> {
         discovery_mode: false,
         allow_env: args.allow_env,
         env_prefix: args.env_prefix.clone(),
+        recursion_limit: args.recursion_limit,
         strict_undefined_vars: !args.no_strict_vars,
         strict_unbound_params: !args.no_strict_params,
     };

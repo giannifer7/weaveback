@@ -9,12 +9,14 @@ This document is the normative specification of the weaveback macro language.
 == Overview
 
 The macro language is a **strict, eager, string-valued expansion system**.
-Every macro call reduces to a string.  There are no first-class booleans,
+Every macro call reduces to a string. There are no first-class booleans,
 numbers, or lists outside of the Python escape hatch.
 
-A weaveback run processes one or more _driver_ files.  Each file is parsed
-into an AST and then _evaluated_: text nodes pass through unchanged, macro
-calls are dispatched and their results are spliced in.
+A weaveback run processes one or more _driver_ files. Each file is parsed into
+an AST and then _evaluated_: text nodes pass through unchanged, macro calls are
+dispatched and their results are spliced in. `%set(name, value)` creates normal
+string variables; `%env(NAME)` is a builtin that reads the process environment
+only when explicitly enabled.
 
 === Sigil
 
@@ -295,6 +297,22 @@ The natural forms are:
 * `%pydef(name, ..., %{ ... %})` only when macro preprocessing of the script
   source is intentional
 
+[source]
+----
+%pydef(add_prefix, name, %[ "wb_" + name %])
+%add_prefix(agent)        ← wb_agent
+----
+
+[source]
+----
+%set(prefix, wb_)
+%pydef(add_prefix, name, %{ "%(prefix)" + name %})
+%add_prefix(agent)        ← wb_agent
+----
+
+In the first form, the Python body is taken literally. In the second form, the
+body text is macro-expanded first, then executed as Python.
+
 === `%alias(new_name, source_name [, key = val, …])` — Macro aliasing
 
 Creates a new macro definition that is a copy of `source_name` at the moment
@@ -323,6 +341,10 @@ calls to `emit_tangle_row`.
 A frozen binding on a formal parameter name is shadowed by the call-site
 value (parameter wins over frozen default).
 
+`%alias` is the explicit way to specialize a macro while keeping later call
+sites simple. It is also the only supported capture mechanism; `%export` does
+not freeze free variables for you.
+
 === `%export(name)` — Propagate to parent scope
 
 Copies the binding for `name` one level up the scope stack (to the parent
@@ -335,6 +357,16 @@ frame).
 
 To create a macro that carries frozen bindings into the parent scope, use
 `%alias` to create the frozen copy first, then `%export` it.
+
+[source]
+----
+%def(make_row, text, %{| %(text) | %(chunk_name) |%})
+%alias(make_cli_row, make_row, chunk_name = cli-doc)
+%export(make_cli_row)
+----
+
+After export, the parent scope sees `%make_cli_row(...)` with `chunk_name`
+already pinned to `cli-doc`.
 
 ---
 
@@ -473,10 +505,25 @@ transformation.  Word boundaries are:
 | `%to_camel_case(s)` | Lower first word, upper rest | `foo_bar` → `fooBar`
 | `%to_pascal_case(s)` | Upper every word | `foo_bar` → `FooBar`
 | `%to_screaming_case(s)` | Upper, underscore-separated | `FooBar` → `FOO_BAR`
-| `%convert_case(s, style)` | Dispatch by `style` string (`snake`, `camel`, `pascal`, `screaming`) | —
+| `%convert_case(s, style)` | Dispatch by `style` string (`lower`, `upper`, `snake`, `screaming`, `kebab`, `screaming-kebab`, `camel`, `pascal`, `ada`) | —
 |===
 
 All return empty string if input is empty.
+
+Accepted `style` values for `%convert_case(s, style)` are:
+
+* `lower`, `lowercase` → `foobar`
+* `upper`, `uppercase` → `FOOBAR`
+* `snake` → `foo_bar`
+* `snake_case` → `foo_bar`
+* `screaming`, `screaming_snake`, `screaming_snake_case` → `FOO_BAR`
+* `kebab`, `kebab-case`, `kebab_case` → `foo-bar`
+* `screaming-kebab`, `screaming-kebab-case`, `screaming_kebab`, `screaming_kebab_case` → `FOO-BAR`
+* `camel`, `camelcase`, `camel_case` → `fooBar`
+* `pascal`, `pascalcase`, `pascal_case` → `FooBar`
+* `ada`, `ada_case` → `Foo_Bar`
+
+Invalid style strings are `InvalidUsage`.
 
 ---
 
@@ -494,6 +541,16 @@ An included file runs in the caller's current scope frame.  `%set` and `%def`
 inside the included file land in that frame.  At top level this means global;
 inside a macro body, definitions are local and disappear on pop.
 
+The `path` argument is evaluated normally before resolution, so conditional
+include idioms work:
+
+[source]
+----
+%include(%if(%eq(%(target), linux), linux.adoc, %{%}))
+----
+
+If the expanded path is empty, the include is skipped.
+
 === `%import(path)` — Include without output
 
 Like `%include` but discards the text output.  Side effects (macro definitions,
@@ -504,6 +561,10 @@ Like `%include` but discards the text output.  Side effects (macro definitions,
 %import(macros.adoc)   ← load definitions, produce no output
 %render_doc(...)
 ----
+
+In discovery mode, `%include` / `%import` still evaluate their path argument
+first. Only the target-file evaluation is skipped after a real path is
+resolved and recorded.
 
 == Python integration
 
@@ -533,12 +594,26 @@ Reads `NAME` from the process environment. Requires `--allow-env`.
 If `EvalConfig.env_prefix = Some("WB_".into())` or the CLI is run with
 `--env-prefix WB_`, then `%env(PATH)` reads `WB_PATH`.
 
+The prefix is prepended only for the external environment lookup. Inside the
+macro source you still write the stripped logical name:
+
+[source]
+----
+%env(PATH)         ← reads WB_PATH when --env-prefix WB_ is active
+%env(HOME)         ← reads WB_HOME when --env-prefix WB_ is active
+----
+
+This keeps macro source uncluttered while letting real environment variables
+stay namespaced.
+
 ---
 
 == Recursion limit
 
 The evaluator tracks call depth.  Exceeding `MAX_RECURSION_DEPTH` (defined in
-`weaveback_core`) produces `EvalError::Runtime`.  There is no tail-call
+`weaveback_core`) is the default behaviour, but callers may override it with
+`EvalConfig.recursion_limit` or the CLI `--recursion-limit`.  Exceeding the
+active limit produces `EvalError::Runtime`.  There is no tail-call
 optimisation; every call frame occupies stack space.
 
 ---
@@ -555,15 +630,16 @@ pub struct EvalConfig {
     pub discovery_mode: bool,         // default: false
     pub allow_env: bool,              // default: false
     pub env_prefix: Option<String>,   // default: None
+    pub recursion_limit: usize,       // default: MAX_RECURSION_DEPTH
     pub strict_undefined_vars: bool,  // default: true
     pub strict_unbound_params: bool,  // default: true
 }
 ----
 
 **Discovery mode**: `%include` / `%import` still evaluate their path argument.
-If that path expands to empty, the include is skipped normally. If it expands
-to a real path, the resolved path is recorded in `discovered_includes` and the
-target file is not evaluated.
+If that path expands to empty or whitespace, the include/import is a no-op.
+If it expands to a real path, the resolved path is recorded in
+`discovered_includes` and the target file is not evaluated.
 
 ---
 
@@ -620,6 +696,3 @@ The following behaviours are known limitations and candidates for future work:
 . **`%here` remains operationally special** — it rewrites the source file and
   aborts further evaluation via `early_exit`.  This is intentional, but it
   still sits outside the calm core of the language.
-
-. **`MAX_RECURSION_DEPTH` not user-configurable** — value is a compiled-in
-  constant, not surfaced in config or error messages.

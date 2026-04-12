@@ -500,3 +500,38 @@ fn test_env_prefix_cli() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn test_recursion_limit_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "recursion_limit.txt",
+        "%def(loop, %loop())\n%loop()",
+    );
+    let out_file = temp_path.join("recursion_limit_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--recursion-limit")
+        .arg("4")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(
+        !output.status.success(),
+        "CLI run with a self-recursive macro should fail once the configured recursion limit is reached."
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("maximum recursion depth (4) exceeded"),
+        "expected configured recursion limit in stderr, got: {stderr}"
+    );
+
+    Ok(())
+}

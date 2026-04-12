@@ -8,7 +8,7 @@ use super::builtins::{BuiltinFn, default_builtins};
 use super::errors::{EvalError, EvalResult};
 use super::monty_eval::MontyEvaluator;
 use super::output::{EvalOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
-use super::state::{EvalConfig, EvaluatorState, MAX_RECURSION_DEPTH, MacroDefinition, ScriptKind};
+use super::state::{EvalConfig, EvaluatorState, MacroDefinition, ScriptKind};
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 pub struct Evaluator {
     state: EvaluatorState,
@@ -402,10 +402,10 @@ impl Evaluator {
             return bf(self, node);
         }
 
-        if self.state.call_depth >= MAX_RECURSION_DEPTH {
+        if self.state.call_depth >= self.state.config.recursion_limit {
             return Err(EvalError::Runtime(format!(
                 "maximum recursion depth ({}) exceeded in macro '{}'",
-                MAX_RECURSION_DEPTH, name
+                self.state.config.recursion_limit, name
             )));
         }
 
@@ -756,10 +756,10 @@ impl Evaluator {
             return Ok(());
         }
 
-        if self.state.call_depth >= MAX_RECURSION_DEPTH {
+        if self.state.call_depth >= self.state.config.recursion_limit {
             return Err(EvalError::Runtime(format!(
                 "maximum recursion depth ({}) exceeded in macro '{}'",
-                MAX_RECURSION_DEPTH, name
+                self.state.config.recursion_limit, name
             )));
         }
 

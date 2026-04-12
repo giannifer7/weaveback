@@ -39,22 +39,10 @@ fn test_core_accessors_and_early_exit() {
 fn test_core_store_helpers_round_trip() {
     let mut eval = Evaluator::new(EvalConfig::default());
 
-    eval.rhaistore_set_str("int".into(), "42".into());
-    eval.rhaistore_set_str("float".into(), "3.25".into());
-    eval.rhaistore_set_str("text".into(), "hello".into());
     eval.pystore_set("py".into(), "world".into());
 
-    assert_eq!(eval.rhaistore_get("int"), "42");
-    assert_eq!(eval.rhaistore_get("float"), "3.25");
-    assert_eq!(eval.rhaistore_get("text"), "hello");
     assert_eq!(eval.pystore_get("py"), "world");
     assert_eq!(eval.pystore_get("missing"), "");
-
-    eval.rhaistore_set_expr("arr".into(), "[1, 2, 3]").unwrap();
-    assert_eq!(eval.rhaistore_get("arr"), "[1, 2, 3]");
-
-    let err = eval.rhaistore_set_expr("broken".into(), "let =").unwrap_err();
-    assert!(err.contains("rhaiexpr:"));
 }
 
 #[test]

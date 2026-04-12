@@ -159,10 +159,9 @@ without introducing a full programming language.
 
 == Escape hatches
 
-When the built-in macros are not enough, two scripted extensions are available.
+When the built-in macros are not enough, one scripted extension is available.
 
-- *`%rhaidef`* — macro body is a https://rhai.rs[Rhai] script, compiled into the binary. No external runtime.
-- *`%pydef`* — macro body runs in a sandboxed Python interpreter (monty), also compiled in. No Python installation required.
+- *`%pydef`* — macro body runs in a sandboxed Python interpreter (monty), compiled into the binary. No Python installation required.
 
 The tradeoff: code produced inside scripted macros cannot be mapped back by
 `weaveback trace`. Use them for isolated calculations or string manipulation,
@@ -253,7 +252,7 @@ Not production-ready. The focus is on the design, not completeness.
 | All flags and options
 
 | link:docs/macros.adoc[Macro language]
-| `%def`, `%if`, `%rhaidef`, `%pydef`
+| `%def`, `%if`, `%pydef`
 
 | link:docs/noweb.adoc[Chunk syntax]
 | `@file`, named chunks, composition

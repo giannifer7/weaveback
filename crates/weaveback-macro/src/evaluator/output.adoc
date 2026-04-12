@@ -143,7 +143,7 @@ pub enum SpanKind {
     VarBinding {
         var_name: String,
     },
-    /// Text generated programmatically (e.g. Rhai/Python script results, builtins)
+    /// Text generated programmatically (e.g. Python script results, builtins)
     /// that has no direct corresponding source token for its content.
     Computed,
 }
@@ -194,7 +194,7 @@ invest the extra effort of per-argument span threading.
 /// The evaluator calls `push_str` for every piece of text it produces,
 /// providing the `SourceSpan` of the token that generated it.
 /// `push_untracked` is used for text whose origin cannot be attributed to
-/// a single source span (e.g. Rhai/Python script results).
+/// a single source span (e.g. Python script results).
 pub trait EvalOutput {
     /// Append `text` that originated at `span` in the source.
     fn push_str(&mut self, text: &str, span: SourceSpan);
@@ -274,7 +274,7 @@ next line so intermediate lines are not left unattributed.
 /// Output accumulator that records one source span per output line.
 ///
 /// For each completed output line the first tracked `push_str` span on that
-/// line is stored.  Untracked pushes (Rhai results, builtins) advance the line
+/// line is stored.  Untracked pushes (script results, builtins) advance the line
 /// counter but do not contribute a span.
 ///
 /// This is much cheaper than recording per-push-call byte offsets: allocations
@@ -369,7 +369,7 @@ The comment says it directly: allocations are proportional to *line count*, not 
 
 **Tracked vs. untracked pushes.**
 - `push_str` — carries a `SourceSpan`, used for macro-defined text (e.g. `%def` bodies, variable substitutions with known origin).
-- `push_untracked` — no span; used for Rhai results and builtins whose output can't be attributed to a single source location. It still advances the line counter by scanning for `\n` bytes, keeping `line_spans` in sync with the actual output.
+- `push_untracked` — no span; used for script results and builtins whose output can't be attributed to a single source location. It still advances the line counter by scanning for `\n` bytes, keeping `line_spans` in sync with the actual output.
 
 **Multi-line literal propagation.**
 When a single `push_str` call contains multiple `\n` bytes (a multi-line string literal), the span is propagated to intermediate lines — but *not* to the line following the final `\n`. That trailing line starts fresh (`current_line_span = None`) so the next `push_str` call takes attribution normally. Without this, every line after a multi-line literal would be incorrectly attributed to wherever that literal came from.

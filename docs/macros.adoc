@@ -182,68 +182,6 @@ call site. Useful for one-time code generation.
 
 '''
 
-== `%rhaidef` — Rhai-scripted macros
-
-----
-%rhaidef(name, param1, ..., body)
-----
-
-The body is a https://rhai.rs[Rhai] script evaluated at call time. All
-visible weaveback scope variables are injected as Rhai string variables. Wrap
-the body in `%{ … %}` when it contains parentheses.
-
-*Registered helpers:*
-
-[cols="2,2,3",options="header"]
-|===
-| Function | Signature | Description
-
-| `parse_int(s)` | `String → i64` | Parse string to integer (0 on error)
-| `parse_float(s)` | `String → f64` | Parse string to float (0.0 on error)
-| `to_hex(n)` | `i64 → String` | Format as `0xHEX`
-|===
-
-----
-%rhaidef(double, x, %{(parse_int(x) * 2).to_string()%})
-%double(21)
-----
-
-Output: `42`
-
-----
-%rhaidef(as_hex, n, %{to_hex(parse_int(n))%})
-%as_hex(255)
-----
-
-Output: `0xFF`
-
-=== `%rhaiset` / `%rhaiget` / `%rhaiexpr` — typed Rhai store
-
-A persistent store that survives across all `%rhaidef` calls in a run. Every
-entry is injected into every `%rhaidef` script with its native Rhai type. Store
-keys modified by a script are automatically written back.
-
-----
-%rhaiset(key, value)       — store a string or number (auto-parsed to i64/f64)
-%rhaiget(key)              — read a store value as string
-%rhaiexpr(key, rhai_expr)  — store the result of a Rhai expression
-----
-
-*Counter with auto write-back:*
-
-----
-%rhaiset(counter, 0)
-%rhaidef(tick, %{
-  counter += 1;
-  counter.to_string()
-%})
-%tick() %tick() %tick()
-----
-
-Output: `1 2 3`
-
-'''
-
 == `%pydef` — Python-scripted macros
 
 ----
@@ -288,10 +226,10 @@ Output: `Total: 30`
 
 == Macro redefinition and the X macro pattern
 
-A `%def` with the same name silently replaces the previous definition. This
-enables the https://en.wikipedia.org/wiki/X_macro[X macro] idiom: define a
-list macro that calls a configurable inner macro `X` for each entry, then
-redefine `X` before each use.
+A `%redef` with the same name replaces the previous rebindable definition.
+This enables the https://en.wikipedia.org/wiki/X_macro[X macro] idiom: define
+a list macro that calls a configurable inner macro `X` for each entry, then
+rebind `X` before each use.
 
 ----
 %def(Colors,
@@ -300,10 +238,10 @@ redefine `X` before each use.
   %X(Blue)
 )
 
-%def(X, value, %{%(value),%})
+%redef(X, value, %{%(value),%})
 typedef enum { %Colors() } Color;
 
-%def(X, value, %{[%(value)] = "%(value)",%})
+%redef(X, value, %{[%(value)] = "%(value)",%})
 const char *color_names[] = { %Colors() };
 ----
 

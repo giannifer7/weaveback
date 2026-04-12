@@ -31,7 +31,6 @@ package "evaluator" {
   component "builtins" as builtins
   component "case_conversion" as case
   component "source_utils" as su
-  component "rhai_eval (RhaiEvaluator)" as rhai
   component "monty_eval (MontyEvaluator)" as monty
   component "lexer_parser" as lp
 }
@@ -40,7 +39,6 @@ api --> core : creates / drives
 core --> state : owns / mutates
 core --> output : pushes text
 core --> builtins : dispatches built-in macro calls
-core --> rhai : delegates %rhaidef bodies
 core --> monty : delegates %pydef bodies
 builtins --> case : case conversion
 builtins --> su : %here writes source
@@ -90,8 +88,8 @@ sequence is:
    formal parameter in the same frame.
 3. The macro body is evaluated inside the frame.
 4. The frame is popped.
-5. For `%rhaidef`/`%pydef` macros, the _already-expanded_ body string is then
-   passed to the Rhai or Python engine; there is no lazy re-expansion.
+5. For `%pydef` macros, the _already-expanded_ body string is then
+   passed to the Python engine; there is no lazy re-expansion.
 
 The critical subtlety about step 1: **the scope is pushed before arguments are
 evaluated**.  A `%set(x, v)` call inside an argument expression therefore mutates
@@ -116,10 +114,9 @@ Consequences worth knowing:
 
 === Script back-ends as pluggable singletons
 
-`RhaiEvaluator` (Rhai) and `MontyEvaluator` (Python via monty) live as fields
-on `Evaluator`.  The Rhai engine is allocated once; the persistent store
-(`rhai_store`, `py_store`) is a `HashMap` that survives across calls so scripts
-can accumulate state.
+`MontyEvaluator` (Python via monty) lives as a field on `Evaluator`.  The
+persistent store (`py_store`) is a `HashMap` that survives across calls so
+scripts can accumulate state.
 
 == Submodule roles
 
@@ -144,8 +141,7 @@ can accumulate state.
   case-conversion utilities, and `modify_source`
 
 | link:scripting.adoc[scripting.adoc]
-| Script back-ends: `RhaiEvaluator` (embedded Rhai) and `MontyEvaluator`
-  (Python via the monty crate)
+| Script back-end: `MontyEvaluator` (Python via the monty crate)
 
 | link:eval_api.adoc[eval_api.adoc]
 | Thin public API: `eval_string`, `eval_file`, `eval_files`, `eval_string_with_defaults`
@@ -198,7 +194,6 @@ mod eval_api;
 pub mod lexer_parser;
 pub mod monty_eval;
 pub mod output;
-pub mod rhai_eval;
 mod source_utils;
 mod state;
 
@@ -216,7 +211,6 @@ pub use eval_api::{
 pub use lexer_parser::lex_parse_content;
 pub use monty_eval::MontyEvaluator;
 pub use output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
-pub use rhai_eval::RhaiEvaluator;
 pub use state::{EvalConfig, MacroDefinition, ScriptKind};
 // @
 ----

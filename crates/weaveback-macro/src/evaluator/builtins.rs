@@ -17,10 +17,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     let mut map = HashMap::new();
     map.insert("def".to_string(), builtin_def as BuiltinFn);
     map.insert("redef".to_string(), builtin_redef as BuiltinFn);
-    map.insert("rhaidef".to_string(), builtin_rhaidef as BuiltinFn);
-    map.insert("rhaiset".to_string(), builtin_rhaiset as BuiltinFn);
-    map.insert("rhaiget".to_string(), builtin_rhaiget as BuiltinFn);
-    map.insert("rhaiexpr".to_string(), builtin_rhaiexpr as BuiltinFn);
     map.insert("pydef".to_string(), builtin_pydef as BuiltinFn);
     map.insert("pyset".to_string(), builtin_pyset as BuiltinFn);
     map.insert("pyget".to_string(), builtin_pyget as BuiltinFn);
@@ -63,7 +59,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("eq".to_string(), builtin_eq as BuiltinFn);
     map.insert("neq".to_string(), builtin_neq as BuiltinFn);
     map.insert("not".to_string(), builtin_not as BuiltinFn);
-    map.insert("rhaidef_raw".to_string(), builtin_rhaidef_raw as BuiltinFn);
     map.insert("pydef_raw".to_string(), builtin_pydef_raw as BuiltinFn);
     map
 }
@@ -219,22 +214,6 @@ pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     )
 }
 
-pub fn builtin_rhaidef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    define_macro(
-        eval,
-        node,
-        DefMacroConfig {
-            min_params_error: "rhaidef requires at least (name, body)".into(),
-            name_param_context: "rhaidef name".into(),
-            formal_param_context: "rhaidef parameter".into(),
-            duplicate_param_error: "rhaidef".into(),
-            script_kind: ScriptKind::Rhai,
-            binding_kind: MacroBindingKind::Constant,
-            redefine: false,
-        },
-    )
-}
-
 pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
@@ -245,22 +224,6 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
             formal_param_context: "pydef parameter".into(),
             duplicate_param_error: "pydef".into(),
             script_kind: ScriptKind::Python,
-            binding_kind: MacroBindingKind::Constant,
-            redefine: false,
-        },
-    )
-}
-
-pub fn builtin_rhaidef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    define_macro(
-        eval,
-        node,
-        DefMacroConfig {
-            min_params_error: "rhaidef_raw requires at least (name, body)".into(),
-            name_param_context: "rhaidef_raw name".into(),
-            formal_param_context: "rhaidef_raw parameter".into(),
-            duplicate_param_error: "rhaidef_raw".into(),
-            script_kind: ScriptKind::RhaiRaw,
             binding_kind: MacroBindingKind::Constant,
             redefine: false,
         },
@@ -545,40 +508,6 @@ pub fn builtin_to_pascal_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResul
 
 pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "screaming")
-}
-pub fn builtin_rhaiset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    let parts = &node.parts;
-    if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage(
-            "rhaiset: exactly 2 args (key, value)".into(),
-        ));
-    }
-    let key = single_ident_param(eval, &node.parts[0], "store key")?;
-    let value = eval.evaluate(&parts[1])?;
-    eval.rhaistore_set_str(key, value);
-    Ok("".into())
-}
-
-pub fn builtin_rhaiexpr(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    let parts = &node.parts;
-    if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage(
-            "rhaiexpr: exactly 2 args (key, rhai_expression)".into(),
-        ));
-    }
-    let key = single_ident_param(eval, &node.parts[0], "store key")?;
-    let expr = eval.evaluate(&parts[1])?;
-    eval.rhaistore_set_expr(key, &expr)
-        .map_err(EvalError::Runtime)?;
-    Ok("".into())
-}
-
-pub fn builtin_rhaiget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    if node.parts.is_empty() {
-        return Err(EvalError::InvalidUsage("rhaiget: requires a key".into()));
-    }
-    let key = single_ident_param(eval, &node.parts[0], "store key")?;
-    Ok(eval.rhaistore_get(&key))
 }
 pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;

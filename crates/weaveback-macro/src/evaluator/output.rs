@@ -18,7 +18,7 @@ pub enum SpanKind {
     VarBinding {
         var_name: String,
     },
-    /// Text generated programmatically (e.g. Rhai/Python script results, builtins)
+    /// Text generated programmatically (e.g. Python script results, builtins)
     /// that has no direct corresponding source token for its content.
     Computed,
 }
@@ -42,7 +42,7 @@ pub struct SourceSpan {
 /// The evaluator calls `push_str` for every piece of text it produces,
 /// providing the `SourceSpan` of the token that generated it.
 /// `push_untracked` is used for text whose origin cannot be attributed to
-/// a single source span (e.g. Rhai/Python script results).
+/// a single source span (e.g. Python script results).
 pub trait EvalOutput {
     /// Append `text` that originated at `span` in the source.
     fn push_str(&mut self, text: &str, span: SourceSpan);
@@ -100,7 +100,7 @@ impl EvalOutput for PlainOutput {
 /// Output accumulator that records one source span per output line.
 ///
 /// For each completed output line the first tracked `push_str` span on that
-/// line is stored.  Untracked pushes (Rhai results, builtins) advance the line
+/// line is stored.  Untracked pushes (script results, builtins) advance the line
 /// counter but do not contribute a span.
 ///
 /// This is much cheaper than recording per-push-call byte offsets: allocations

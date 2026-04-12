@@ -3,7 +3,7 @@
 
 `weaveback-macro` is the macro-expansion engine at the heart of the weaveback
 literate-programming toolchain.  It reads a document containing `%def` /
-`%set` / `%if` / `%rhaidef` / `%pydef` macro calls, evaluates them, and
+`%set` / `%if` / `%pydef` macro calls, evaluates them, and
 emits the expanded text.
 
 This page is the crate-level index.  It generates `lib.rs` and links to every
@@ -47,7 +47,6 @@ package "weaveback-macro" {
     component "state.rs"         as state_rs
     component "output.rs"        as output_rs
     component "builtins.rs"      as builtins_rs
-    component "rhai_eval.rs"     as rhai_rs
     component "monty_eval.rs"    as monty_rs
     component "eval_api.rs"      as eapi_rs
   }
@@ -71,7 +70,6 @@ eval_rs --> ast_rs
 eval_rs --> state_rs
 eval_rs --> output_rs
 eval_rs --> builtins_rs
-eval_rs --> rhai_rs
 eval_rs --> monty_rs
 eval_rs --> core_rs
 eapi_rs --> eval_rs
@@ -132,7 +130,7 @@ cli_rs --> eval_rs
 
 | `evaluator::scripting`
 | xref:evaluator/scripting.adoc[evaluator/scripting.adoc]
-| Rhai and Monty (Python) script back-ends
+| Monty (Python) script back-end
 
 | `evaluator::eval_api`
 | xref:evaluator/eval_api.adoc[evaluator/eval_api.adoc]

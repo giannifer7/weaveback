@@ -74,7 +74,7 @@ weaveback trace src/config.nim 178 --col 10
 | `macro_name` | Macro name (when `kind` is `MacroBody` or `MacroArg`)
 | `param_name` | Parameter name (when `kind` is `MacroArg`)
 | `var_name` | Variable name (when `kind` is `VarBinding`)
-| `def_locations` | `{file, line}` for every `%def`/`%rhaidef`/`%pydef` that defined this macro (when `kind` is `MacroBody`)
+| `def_locations` | `{file, line}` for every `%def`/`%pydef` that defined this macro (when `kind` is `MacroBody`)
 | `set_locations` | `{file, line}` for every `%set` that set this variable (when `kind` is `VarBinding`)
 | `chunk` | Noweb chunk containing this line
 |===

@@ -51,24 +51,16 @@ impl MontyEvaluator {
         Ok(monty_object_to_string(result))
     }
 }
-fn monty_object_to_string(obj: MontyObject) -> String {
+pub fn monty_object_to_string(obj: MontyObject) -> String {
     match obj {
-        MontyObject::String(s) => s,
-        MontyObject::Int(n) => n.to_string(),
-        MontyObject::Float(f) => f.to_string(),
-        MontyObject::Bool(b) => {
-            if b {
-                "true".into()
-            } else {
-                "false".into()
-            }
-        }
         MontyObject::None => String::new(),
-        MontyObject::List(items) => items
-            .into_iter()
-            .map(monty_object_to_string)
-            .collect::<Vec<_>>()
-            .join(""),
+        MontyObject::Bool(b) => {
+            if b { "true".into() } else { String::new() }
+        }
+        MontyObject::Int(i) => i.to_string(),
+        MontyObject::Float(f) => f.to_string(),
+        MontyObject::String(s) => s,
+        MontyObject::List(items) => items.into_iter().map(monty_object_to_string).collect(),
         other => format!("{other:?}"),
     }
 }

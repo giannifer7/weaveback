@@ -6,7 +6,7 @@
 https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the
 Weaveback macro language.  It gives editors a structural model of
 `.weaveback` source files, enabling syntax highlighting, language injection
-into `%rhaidef` and `%pydef` bodies, and `[source,weaveback]` block
+into `%pydef` bodies, and `[source,weaveback]` block
 highlighting inside AsciiDoc literate documents.
 
 The grammar lives in `tree-sitter-weaveback/` at the root of the weaveback
@@ -47,7 +47,7 @@ tree-sitter-weaveback/
 │   └── tree_sitter/        ← tree-sitter C headers
 ├── queries/
 │   ├── highlights.scm      ← syntax highlighting queries
-│   └── injections.scm      ← language injection into %rhaidef/%pydef bodies
+│   └── injections.scm      ← language injection into %pydef/%pydef_raw bodies
 ├── test/
 │   └── corpus/
 │       └── basics.txt      ← tree-sitter test suite

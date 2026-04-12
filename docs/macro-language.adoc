@@ -10,11 +10,11 @@ This document is the normative specification of the weaveback macro language.
 
 The macro language is a **strict, eager, string-valued expansion system**.
 Every macro call reduces to a string.  There are no first-class booleans,
-numbers, or lists outside of the Rhai/Python escape hatches.
+numbers, or lists outside of the Python escape hatch.
 
 The language has two concerns that are deliberately kept separate:
 
-* **Macro definitions** — `%def`, `%rhaidef`, `%rhaidef_raw`, `%pydef`, `%pydef_raw`, `%alias`
+* **Macro definitions** — `%def`, `%pydef`, `%pydef_raw`, `%alias`
 * **Output generation** — calling defined macros and splicing their results
   into the text stream
 
@@ -137,7 +137,7 @@ When `%foo(…)` is encountered:
 
 Attempting to define a user macro with a builtin name (`%def(set, …)`) is
 immediately rejected with `EvalError::InvalidUsage`.  This applies to `%def`,
-`%alias`, `%rhaidef`, `%pydef`, `%rhaidef_raw`, and `%pydef_raw`.
+`%alias`, `%pydef`, and `%pydef_raw`.
 
 === Argument binding
 
@@ -227,21 +227,20 @@ current pass, allowing the same source to be interpreted multiple ways.
 Use `%importas` when combining independent libraries to prevent accidental
 name collision.
 
-=== `%rhaidef(name, [params…,] body)` / `%pydef(name, [params…,] body)`
+=== `%pydef(name, [params…,] body)`
 
-Same argument structure as `%def`.  At call time, the body is **first
-macro-expanded** (substituting `%(param)` references), then executed as Rhai
-or Python (monty) source code.  The return value of the script is the macro's
-expansion.
+Same argument structure as `%def`. At call time, the body is **first
+macro-expanded** (substituting `%(param)` references), then executed as Python
+(monty) source code. The return value of the script is the macro's expansion.
 
 Because the body undergoes macro expansion before execution, any literal `%`
 sigil in the script source must be doubled (`%%`), and macro calls embedded in
-string literals inside the body will expand before the script sees them.  Use
-`%rhaidef_raw` / `%pydef_raw` for new scripts to avoid this.
+string literals inside the body will expand before the script sees them. Use
+`%pydef_raw` for new scripts to avoid this.
 
-=== `%rhaidef_raw(name, [params…,] body)` / `%pydef_raw(name, [params…,] body)`
+=== `%pydef_raw(name, [params…,] body)`
 
-Like `%rhaidef` / `%pydef`, but the body is stored as **literal script source
+Like `%pydef`, but the body is stored as **literal script source
 without any macro expansion**.  Declared parameters are injected directly as
 script-level variables; the body is executed as-is.
 
@@ -486,29 +485,25 @@ independent libraries to prevent accidental name collision.
 
 ---
 
-== Rhai and Python integration
+== Python integration
 
 === Persistent stores
 
-The Rhai store (`rhai_store: HashMap<String, rhai::Dynamic>`) and Python store
-(`py_store: HashMap<String, String>`) survive across macro calls and across
-`%def`/`%rhaidef`/`%pydef` definitions for the lifetime of the evaluator
-session.  They are **not** part of the scope stack and are **not** popped with
+The Python store (`py_store: HashMap<String, String>`) survives across macro
+calls and across `%def`/`%pydef` definitions for the lifetime of the evaluator
+session. It is **not** part of the scope stack and is **not** popped with
 frames.
 
 [cols="1,1,3"]
 |===
 | Builtin | Store | Description
 
-| `%rhaiset(k, v)` | Rhai | Store string `v` as key `k`; auto-promotes to typed `rhai::Dynamic`
-| `%rhaiget(k)` | Rhai | Return value for key `k`; empty if missing
-| `%rhaiexpr(k, expr)` | Rhai | Evaluate `expr` as Rhai, store result; useful for lists `[]`, maps `#{}`
 | `%pyset(k, v)` | Python | Store string `v` as key `k`
 | `%pyget(k)` | Python | Return value for key `k`; empty if missing
 |===
 
 Script stores bypass all scope-stack discipline.  They are powerful for
-accumulation patterns (push to a Rhai array, render at the end) but make
+accumulation patterns but make
 behaviour order-dependent.  Prefer local `%set` where possible.
 
 === `%env(NAME)` — Environment variable
@@ -553,8 +548,6 @@ graph for incremental builds.
 | Call form | Description | Args | Returns
 
 | `%def(n, [p…,] body)` | Define text macro | 2+ | empty
-| `%rhaidef(n, [p…,] body)` | Define Rhai macro (body macro-expanded first) | 2+ | empty
-| `%rhaidef_raw(n, [p…,] body)` | Define Rhai macro (body literal, preferred) | 2+ | empty
 | `%pydef(n, [p…,] body)` | Define Python macro (body macro-expanded first) | 2+ | empty
 | `%pydef_raw(n, [p…,] body)` | Define Python macro (body literal, preferred) | 2+ | empty
 | `%set(n, v)` | Assign variable in current frame | 2 | empty
@@ -577,9 +570,6 @@ graph for incremental builds.
 | `%to_camel_case(s)` | camelCase | 1 | string
 | `%to_pascal_case(s)` | PascalCase | 1 | string
 | `%to_screaming_case(s)` | SCREAMING_CASE | 1 | string
-| `%rhaiset(k, v)` | Write Rhai store | 2 | empty
-| `%rhaiget(k)` | Read Rhai store | 1 | store value or empty
-| `%rhaiexpr(k, expr)` | Eval expr, write Rhai store | 2 | empty
 | `%pyset(k, v)` | Write Python store | 2 | empty
 | `%pyget(k)` | Read Python store | 1 | store value or empty
 | `%env(NAME)` | Read env var (requires `--allow-env`) | 0–1 | env value or empty
@@ -613,7 +603,7 @@ The following behaviours are known limitations and candidates for future work:
   constant, not surfaced in config or error messages.
 
 . **No builtin string operations** — no substring, trim, length, or join;
-  these require Rhai/Python or multi-step `%def` chains.
+  these require Python or multi-step `%def` chains.
 
 . **Discovery mode API** — currently a flag on `EvalConfig`; ideally a
   separate `discover_dependencies()` entry point so the same source text

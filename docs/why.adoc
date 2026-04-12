@@ -267,27 +267,26 @@ pass (`--sigil @`, for example).  This matters for self-hosting: the
 weaveback-macro source uses `^` as its sigil so that `%def` can
 appear literally in examples and tests without being consumed by the expander.
 
-== Why Rhai *and* Python scripting?
+== Why Python scripting?
 
 The built-in macros handle most cases: text substitution, conditionals,
 case conversion, includes.  When you need to compute something — a byte
 offset, a formatted hex constant, a running counter — you need a scripting
 escape hatch.
 
-Two escape hatches exist because the user populations are different.  Systems
-programmers reach for Rhai (Rust-like syntax, pure Rust, no external dependency).
-Python-familiar teams reach for `%pydef`, backed by
+The project now keeps a single escape hatch. Python-familiar teams reach for
+`%pydef`, backed by
 https://github.com/pydantic/monty[monty] — a pure-Rust Python interpreter that
 is compiled into the weaveback binary.  There is no CPython dependency, no
 virtualenv, no installed Python packages required.
 
-Both are sandboxed: no filesystem I/O, no network, no subprocess spawning.
+It is sandboxed: no filesystem I/O, no network, no subprocess spawning.
 A script macro can only transform strings.  This is a deliberate constraint.
 
 Separately, **code produced inside a scripted macro cannot be mapped back by
 `weaveback trace`**.  This is not a consequence of sandboxing — it is an
 inherent property of dynamic code generation: the source map can point to the
-`%rhaidef` call site, but there is no static source line inside the Rhai body
+`%pydef` call site, but there is no static source line inside the script body
 that corresponds to a particular output character.  This makes scripted macros
 unsuitable as a primary structuring mechanism.  They are for isolated
 calculations.

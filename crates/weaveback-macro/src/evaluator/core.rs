@@ -8,14 +8,11 @@ use super::builtins::{BuiltinFn, default_builtins};
 use super::errors::{EvalError, EvalResult};
 use super::monty_eval::MontyEvaluator;
 use super::output::{EvalOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
-use super::rhai_eval::{self, RhaiEvaluator};
 use super::state::{EvalConfig, EvaluatorState, MAX_RECURSION_DEPTH, MacroDefinition, ScriptKind};
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 pub struct Evaluator {
     state: EvaluatorState,
     builtins: HashMap<String, BuiltinFn>,
-    rhai_evaluator: RhaiEvaluator,
-    rhai_store: HashMap<String, rhai::Dynamic>,
     monty_evaluator: MontyEvaluator,
     py_store: HashMap<String, String>,
 }
@@ -138,8 +135,6 @@ impl Evaluator {
         Evaluator {
             state: EvaluatorState::new(config),
             builtins: default_builtins(),
-            rhai_evaluator: RhaiEvaluator::new(),
-            rhai_store: HashMap::new(),
             monty_evaluator: MontyEvaluator::new(),
             py_store: HashMap::new(),
         }
@@ -148,38 +143,6 @@ impl Evaluator {
     /// Access the underlying SourceManager (useful for mapping output spans back to lines/columns).
     pub fn sources(&self) -> &crate::evaluator::state::SourceManager {
         &self.state.source_manager
-    }
-    /// Insert a value into the Rhai store.
-    /// Integers and floats are stored with their native Rhai type so that
-    /// arithmetic operators work inside scripts without explicit conversion.
-    pub fn rhaistore_set_str(&mut self, key: String, value: String) {
-        let dynamic = if let Ok(n) = value.trim().parse::<i64>() {
-            rhai::Dynamic::from(n)
-        } else if let Ok(f) = value.trim().parse::<f64>() {
-            rhai::Dynamic::from(f)
-        } else {
-            rhai::Dynamic::from(value)
-        };
-        self.rhai_store.insert(key, dynamic);
-    }
-
-    /// Evaluate a Rhai expression and store the resulting Dynamic value.
-    /// Use this to initialise store entries with typed literals like `[]` or `#{}`.
-    pub fn rhaistore_set_expr(&mut self, key: String, expr: &str) -> Result<(), String> {
-        let val = self
-            .rhai_evaluator
-            .eval_expr(expr)
-            .map_err(|e| format!("rhaiexpr: {e}"))?;
-        self.rhai_store.insert(key, val);
-        Ok(())
-    }
-
-    /// Read a value from the Rhai store, converting it to String.
-    pub fn rhaistore_get(&self, key: &str) -> String {
-        self.rhai_store
-            .get(key)
-            .map(|d| rhai_eval::dynamic_to_string(d.clone()))
-            .unwrap_or_default()
     }
     pub fn pystore_set(&mut self, key: String, value: String) {
         self.py_store.insert(key, value);
@@ -360,7 +323,7 @@ impl Evaluator {
     /// For `Block` and `Param` nodes the delimiters (`%{`/`%}`) are stripped
     /// by recursing into `parts`.  All other nodes are returned as their
     /// verbatim source bytes — macro calls, variable references, etc. appear
-    /// literally in the result.  Used by `%rhaidef_raw` / `%pydef_raw`.
+    /// literally in the result.  Used by `%pydef_raw`.
     pub fn raw_text_of_node(&self, node: &ASTNode) -> String {
         use crate::types::NodeKind;
         match node.kind {
@@ -454,7 +417,7 @@ impl Evaluator {
 
         self.state.call_depth += 1;
         let mut result = match mac.script_kind {
-            ScriptKind::RhaiRaw | ScriptKind::PythonRaw => {
+            ScriptKind::PythonRaw => {
                 // Raw variants: skip macro expansion — body is literal script source.
                 self.raw_text_of_node(&mac.body)
             }
@@ -464,26 +427,12 @@ impl Evaluator {
                 r?
             }
         };
-        if matches!(mac.script_kind, ScriptKind::RhaiRaw | ScriptKind::PythonRaw) {
+        if matches!(mac.script_kind, ScriptKind::PythonRaw) {
             self.state.call_depth -= 1;
         }
 
         match mac.script_kind {
             ScriptKind::None => {}
-            ScriptKind::Rhai => {
-                // Collect all visible weaveback string variables (outer scopes first)
-                let mut variables = std::collections::HashMap::new();
-                for frame in self.state.scope_stack.iter() {
-                    for (k, v) in &frame.variables {
-                        variables.insert(k.clone(), v.value.clone());
-                    }
-                }
-                let mac_name = mac.name.clone();
-                result = self
-                    .rhai_evaluator
-                    .evaluate(&result, &variables, &mut self.rhai_store, Some(&mac_name))
-                    .map_err(EvalError::Runtime)?;
-            }
             ScriptKind::Python => {
                 // Pass only the explicitly declared parameters to the Python script;
                 // the store is injected as additional variables (params shadow store).
@@ -495,18 +444,6 @@ impl Evaluator {
                 result = self
                     .monty_evaluator
                     .evaluate(&result, &mac.params, &args, &self.py_store, Some(&mac.name))
-                    .map_err(EvalError::Runtime)?;
-            }
-            ScriptKind::RhaiRaw => {
-                // Raw Rhai: inject only declared params (no implicit scope vars).
-                let mut params_map = std::collections::HashMap::new();
-                for p in &mac.params {
-                    params_map.insert(p.clone(), self.state.get_variable(p));
-                }
-                let mac_name = mac.name.clone();
-                result = self
-                    .rhai_evaluator
-                    .evaluate(&result, &params_map, &mut self.rhai_store, Some(&mac_name))
                     .map_err(EvalError::Runtime)?;
             }
             ScriptKind::PythonRaw => {
@@ -954,38 +891,15 @@ impl Evaluator {
         self.state.call_depth -= 1;
         body_result?;
 
-        // For script-based macros (Rhai/Python), we need the string to pass
+        // For script-based macros, we need the string to pass
         // through the script engine.  Evaluate the body again with evaluate()
         // to get the string, then run through the script engine and push
         // the result as untracked.
         match mac.script_kind {
             ScriptKind::None => {}
-            ScriptKind::Rhai => {
-                // We already wrote the body output above.  For Rhai macros,
-                // the body output IS the Rhai source — not the final result.
-                // The correct approach is: don't write body to `out` for scripts;
-                // instead, collect the body into a string, run the script, and
-                // push the script's result.
-                //
-                // However, this is a first-step refactor.  Rhai/Python macros
-                // will always come through the builtin path above (they're
-                // defined via builtin_rhaidef, which stores ScriptKind::Rhai).
-                // evaluate_macro_call_to delegates to evaluate_macro_call for
-                // builtins.  So this branch is currently unreachable for
-                // externally-defined macros.
-                //
-                // For safety, do nothing here — the body was already written.
-            }
             ScriptKind::Python => {
-                // Same reasoning as Rhai above.
-            }
-            ScriptKind::RhaiRaw => {
-                // Raw-script variants are handled in evaluate_macro_call(),
-                // which collects the body as literal script source before
-                // dispatching to the script engine.
             }
             ScriptKind::PythonRaw => {
-                // Same as RhaiRaw above.
             }
         }
 

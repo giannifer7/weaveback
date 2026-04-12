@@ -49,15 +49,13 @@ fn test_single_arg_case_builtins_empty_input_return_empty() {
 
 #[test]
 fn test_store_getters_require_key() {
-    let rhai_err = eval_default("%rhaiget()").unwrap_err();
     let py_err = eval_default("%pyget()").unwrap_err();
-    assert!(rhai_err.to_string().contains("rhaiget: requires a key"));
     assert!(py_err.to_string().contains("pyget: requires a key"));
 }
 
 #[test]
 fn test_store_setters_require_two_args() {
-    for src in ["%rhaiset(one)", "%rhaiexpr(one)", "%pyset(one)"] {
+    for src in ["%pyset(one)"] {
         let err = eval_default(src).unwrap_err();
         assert!(matches!(err, EvalError::InvalidUsage(_)));
     }

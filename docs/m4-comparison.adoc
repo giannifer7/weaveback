@@ -63,37 +63,34 @@ String macros (`%def`) and variables (`%set`) cover the common case.
 The conditional `%if(cond, then, else)` and file inclusion
 (`%include`/`%import`) complete the basic feature set.
 
-Where weaveback-macro regains expressiveness is through scripting escape
-hatches.  `%rhaidef` writes a macro body in
-https://rhai.rs[Rhai], an embeddable scripting language with Rust-like
-syntax.  `%pydef` writes a macro body in Python-like syntax via
+Where weaveback-macro regains expressiveness is through a scripting escape
+hatch. `%pydef` writes a macro body in Python-like syntax via
 https://github.com/pydantic/monty[monty], a minimal, secure Python
-interpreter written in Rust — not CPython, not a subprocess.  Both
+interpreter written in Rust — not CPython, not a subprocess. Scripts
 receive the current scope's variables as strings and return the expanded
-text.  Both run inside sandboxed runtimes with no filesystem or network
-access; Rhai additionally enforces a hard operations limit (100,000
-steps by default) that prevents infinite loops.
+text. They run inside a sandboxed runtime with no filesystem or network
+access.
 
 The practical difference: m4 can express anything, but you have to
 express it entirely in m4's opaque notation.  weaveback-macro covers
 most document-preprocessing needs directly, and delegates the rest to
-languages with better tooling (Rhai, Python).
+Python when computation is genuinely needed.
 
 [cols="1,1,1",options="header"]
 |===
 | Capability | GNU m4 | weaveback-macro
 
-| Recursive macros | ✓ (core feature) | via %rhaidef / %pydef
-| Arithmetic | ✓ `eval` | via Rhai / Python
-| Regex substitution | ✓ `patsubst` | via Rhai / Python
-| String operations | ✓ `substr`, `index`, `len`, `translit` | via Rhai / Python
+| Recursive macros | ✓ (core feature) | via `%pydef`
+| Arithmetic | ✓ `eval` | via Python
+| Regex substitution | ✓ `patsubst` | via Python
+| String operations | ✓ `substr`, `index`, `len`, `translit` | via Python
 | Conditionals | ✓ `ifelse` | ✓ `%if(cond, then, else)`
 | File inclusion | ✓ `include`, `sinclude` | ✓ `%include`, `%import`
-| Shell invocation | ✓ `system`, `esyscmd` | ✗ (both Rhai and monty are sandboxed)
+| Shell invocation | ✓ `system`, `esyscmd` | ✗ (monty is sandboxed)
 | Output reordering | ✓ diversions | ✗
 | Scoped redefinition | ✓ `pushdef`/`popdef` (manual) | ✓ automatic (local by default, `%export` to promote)
 | Named arguments | ✗ | ✓
-| Scripting language body | ✗ | ✓ (Rhai, Python)
+| Scripting language body | ✗ | ✓ (Python)
 | Turing-complete | ✓ | ✓ (via scripting)
 |===
 
@@ -145,7 +142,7 @@ untouched.  The escape for a literal special is doubling (`%%`), the
 same convention used by `printf`.
 
 The main learning investment is understanding which constructs exist
-(`%def`, `%set`, `%if(cond,then,else)`, `%include`, `%rhaidef`,
+(`%def`, `%set`, `%if(cond,then,else)`, `%include`,
 `%pydef`) and the distinction between defining a macro (`%def`) and
 setting a variable (`%set`).  A developer familiar with any template language will reach
 productive use within an hour.
@@ -170,7 +167,7 @@ requiring the programmer to balance them manually.
 
 m4 uses `ifdef` to test whether a name is defined.  weaveback-macro uses
 `%if(cond, then, else)` where the condition is truthy if it expands to a
-non-empty string; Rhai or Python handle any condition more complex than
+non-empty string; Python handles any condition more complex than
 that.
 
 == Error messages and debugging
@@ -282,7 +279,7 @@ weaveback-macro's no-rescan model eliminates that class of bug entirely.
 The remaining failure modes are:
 
 - Calling an undefined macro name (reported immediately with location).
-- A `%rhaidef` body with a Rhai syntax error (reported with the Rhai
+- A `%pydef` body with a Python syntax error (reported with the monty
   error message embedded in the weaveback error).
 - A circular `%include` chain (detected and reported).
 - A `%pydef` body whose Python raises an exception (propagated as an
@@ -367,10 +364,8 @@ weaveback-macro's `%env` builtin (reads environment variables) is
 disabled by default and requires `--allow-env` to enable, to prevent
 templates from silently exfiltrating secrets.
 
-Both `%rhaidef` and `%pydef` run inside sandboxed interpreters with no
-filesystem access, no network access, and no subprocess spawning.
-`%rhaidef` uses Rhai's evaluation engine with a hard operations limit
-(100,000 steps by default).  `%pydef` uses
+`%pydef` runs inside a sandboxed interpreter with no filesystem access,
+no network access, and no subprocess spawning. `%pydef` uses
 https://github.com/pydantic/monty[monty], a minimal, secure Python
 interpreter written in Rust — not CPython.  Neither can read files,
 make network calls, or escape the weaveback process in any way.  This
@@ -415,7 +410,7 @@ Use weaveback-macro when:
 * You want named arguments, clear error messages, and source-location
   tracing from output lines back to original source.
 * You need occasional computation in a macro body and would rather write
-  it in Rhai or Python than in m4.
+  it in Python than in m4.
 * Licensing matters and GPL is a problem.
 * You are targeting Windows and do not want a POSIX dependency chain.
 
@@ -426,7 +421,7 @@ Use weaveback-macro when:
 | Dimension | GNU m4 | weaveback-macro
 
 | **Purpose** | General-purpose | Literate programming
-| **Expressiveness** | High (Turing-complete natively) | Moderate core, high via Rhai/Python
+| **Expressiveness** | High (Turing-complete natively) | Moderate core, high via Python
 | **Learning curve** | Steep (quoting rules) | Gentle (no re-scan, named args)
 | **Error-proneness** | High (silent wrong output) | Low (explicit errors with locations)
 | **Error messages** | Terse, displaced | Source-accurate, embedded cause
@@ -437,5 +432,5 @@ Use weaveback-macro when:
 | **Ecosystem** | 50-year history, huge | New, small
 | **Portability** | Universal | Pre-built binaries, any Rust target
 | **Literate integration** | Manual wiring | First-class pipeline stage
-| **Security** | `system` by default | `%env` opt-in; Rhai and monty both sandboxed (no I/O)
+| **Security** | `system` by default | `%env` opt-in; monty sandboxed (no I/O)
 |===

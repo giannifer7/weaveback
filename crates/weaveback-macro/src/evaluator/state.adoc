@@ -24,7 +24,7 @@ child's pop.
 `TrackedValue` wraps a `String` value with a `Vec<SpanRange>` that carries
 source attribution:
 
-* **Empty spans** — untracked (Rhai/Python script result).  The value is
+* **Empty spans** — untracked (script result).  The value is
   pushed to the output sink as `push_untracked`, contributing no source
   information.
 * **One coarse span** covering `[0, value.len()]` — the fast path.  The tracer
@@ -204,10 +204,10 @@ impl Default for EvalConfig {
 `ScriptKind` determines how a macro's body is processed:
 
 `None`:: Body is macro-expanded and returned as-is.
-`Rhai` / `Python`:: Body is macro-expanded first, then the result string is
+`Python`:: Body is macro-expanded first, then the result string is
   executed as a script.  All visible scope variables are injected into the
   script environment.
-`RhaiRaw` / `PythonRaw`:: Body is passed as literal script source (no macro
+`PythonRaw`:: Body is passed as literal script source (no macro
   expansion).  Only the declared parameters are injected as script variables.
 
 [source,rust]
@@ -216,10 +216,7 @@ impl Default for EvalConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptKind {
     None,
-    Rhai,
     Python,
-    /// Raw Rhai: body is literal script source; params injected as Rhai variables.
-    RhaiRaw,
     /// Raw Python: body is literal script source; params injected as Python variables.
     PythonRaw,
 }
@@ -391,7 +388,7 @@ pub struct VarDefRaw {
 // @
 
 // <<macro def raw>>=
-/// Raw record of a `%def / %rhaidef / %pydef(name, ...)` call site.
+/// Raw record of a `%def / %pydef(name, ...)` call site.
 #[derive(Debug, Clone)]
 pub struct MacroDefRaw {
     pub macro_name: String,
@@ -417,8 +414,8 @@ pub use weaveback_core::MAX_RECURSION_DEPTH;
 == `EvaluatorState` — full mutable evaluation state
 
 `EvaluatorState` owns all mutable state.  `Evaluator` (in `core.rs`) holds an
-`EvaluatorState` plus the stateless singletons (`RhaiEvaluator`,
-`MontyEvaluator`, `builtins` map).
+`EvaluatorState` plus the stateless singletons (`MontyEvaluator`, `builtins`
+map).
 
 The helper methods on `EvaluatorState` encapsulate common patterns: the three
 `set_*_variable` variants manage the span-density levels of `TrackedValue`,
@@ -440,7 +437,7 @@ pub struct EvaluatorState {
     pub discovered_includes: Vec<PathBuf>,
     /// Accumulated `%set` call sites for the var_defs_map.
     pub var_defs: Vec<VarDefRaw>,
-    /// Accumulated `%def/%rhaidef/%pydef` call sites for the macro_defs_map.
+    /// Accumulated `%def/%pydef` call sites for the macro_defs_map.
     pub macro_defs: Vec<MacroDefRaw>,
     /// Diagnostic warnings collected during evaluation (non-fatal).
     pub warnings: Vec<String>,

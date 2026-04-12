@@ -1,8 +1,8 @@
 = Evaluator tests
 :toc: left
 
-The evaluator test suite covers every built-in macro, the Rhai and Python
-scripting back-ends, the output-sink tracing infrastructure, and the public
+The evaluator test suite covers every built-in macro, the Python
+scripting back-end, the output-sink tracing infrastructure, and the public
 eval API.  Tests live under `src/evaluator/tests/` and are gated by
 `#[cfg(test)]` in `mod.rs`.
 
@@ -11,7 +11,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 * link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
 * link:tests-control.adoc[tests-control.adoc] — `%if`, `%equal`, `%include`, `%import`, `%export`, `%eval`, `%here`
 * link:tests-case.adoc[tests-case.adoc] — case conversion module + case-modifier builtins
-* link:tests-scripting.adoc[tests-scripting.adoc] — Rhai (`%rhaidef`, `%rhaiset`, …) and Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
+* link:tests-scripting.adoc[tests-scripting.adoc] — Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
 * link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
 * link:tests-core.adoc[tests-core.adoc] — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
 
@@ -66,11 +66,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 | `%capitalize`, `%decapitalize`, `%convert_case`, `%to_snake_case`,
   `%to_camel_case`, `%to_pascal_case`, `%to_screaming_case`
 
-| `test_rhaidef`
-| `%rhaidef` arithmetic, helper functions, scope capture, hex, error propagation;
-  `%rhaiset`/`%rhaiget`/`%rhaiexpr` store operations including writeback,
-  integer type preservation, array/map accumulation
-
 | `test_pydef`
 | `%pydef` arithmetic, multi-param, greet, error propagation;
   `%pyset`/`%pyget` store operations, param shadowing store key
@@ -99,8 +94,8 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
   remain, cross-reference preservation, arity/identifier guards, discard text
 
 | `test_raw_scripts`
-| `%rhaidef_raw` / `%pydef_raw`: raw body (no macro expansion), param injection,
-  contrast with non-raw, arity/name guards
+| `%pydef_raw`: raw body (no macro expansion), param injection, contrast with
+  non-raw, arity/name guards
 
 | `test_warnings`
 | Warning infrastructure: `%export` at global scope, `%if()` with no args,
@@ -171,10 +166,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // <<test case modifiers>>
 // @
 
-// <<@file weaveback-macro/src/evaluator/tests/test_rhaidef.rs>>=
-// <<test rhaidef>>
-// @
-
 // <<@file weaveback-macro/src/evaluator/tests/test_pydef.rs>>=
 // <<test pydef>>
 // @
@@ -223,9 +214,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // <<test monty eval>>
 // @
 
-// <<@file weaveback-macro/src/evaluator/tests/test_rhai_eval.rs>>=
-// <<test rhai eval>>
-// @
 ----
 
 == `tests/mod.rs` — module registry
@@ -251,8 +239,6 @@ mod test_macro_api;
 mod test_macros;
 mod test_monty_eval;
 mod test_pydef;
-mod test_rhai_eval;
-mod test_rhaidef;
 mod test_set;
 mod test_skill_examples;
 mod test_source_utils;

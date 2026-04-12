@@ -27,7 +27,7 @@ implemented in `weaveback-macro`:
 |===
 | Builtin | Purpose
 
-| `%def`, `%rhaidef`, `%pydef`  | Define a macro (plain, Rhai, Python)
+| `%def`, `%redef`, `%pydef`, `%pydef_raw`  | Define or rebind a macro (plain or Python)
 | `%set`                         | Set a variable
 | `%if`, `%equal`                | Conditional
 | `%include`, `%import`          | File inclusion
@@ -36,7 +36,6 @@ implemented in `weaveback-macro`:
 | `%export`                      | Promote to parent scope
 | `%env`                         | Read environment variable (opt-in)
 | `%pyset`, `%pyget`             | Python variable bridge
-| `%rhaiset`, `%rhaiget`, `%rhaiexpr` | Rhai variable bridge
 | `%capitalize`, `%decapitalize`, `%convert_case`, +
   `%to_snake_case`, `%to_camel_case`, +
   `%to_pascal_case`, `%to_screaming_case`
@@ -64,7 +63,7 @@ colour the `%(` and `)` delimiters distinctly from the name.
 (macro_call
   name: (macro_name) @keyword
   (#match? @keyword
-    "^%(def|rhaidef|pydef|set|if|equal|include|import|eval|here|export|env|pyset|pyget|rhaiset|rhaiget|rhaiexpr|capitalize|decapitalize|convert_case|to_snake_case|to_camel_case|to_pascal_case|to_screaming_case)$"))
+    "^%(def|redef|pydef|pydef_raw|set|if|equal|include|import|eval|here|export|env|pyset|pyget|capitalize|decapitalize|convert_case|to_snake_case|to_camel_case|to_pascal_case|to_screaming_case)$"))
 
 ; --- User-defined macro calls -----------------------------------------------
 (macro_call
@@ -102,17 +101,17 @@ colour the `%(` and `)` delimiters distinctly from the name.
 
 Language injection lets editors apply a second grammar inside a node from
 the primary grammar.  The injection query captures the `block` argument of
-`%rhaidef` and `%pydef` calls and tells the editor to apply the `rhai` or
-`python` grammar to its text content.
+`%pydef` and `%pydef_raw` calls and tells the editor to apply the `python`
+grammar to its text content.
 
-The body is the *last* argument of `%rhaidef` / `%pydef` — in practice
+The body is the *last* argument of `%pydef` / `%pydef_raw` — in practice
 always a `%{...%}` block.  The `%{` and `%}` delimiters will appear as
 noise inside the sub-parser, which is acceptable: editors render the
-block body with Rhai or Python highlighting regardless.
+block body with Python highlighting regardless.
 
-NOTE: Both Rhai and monty (the Python back-end) are sandboxed runtimes with
-no filesystem or network access.  Language injection here is purely for
-visual benefit; it does not affect execution.
+NOTE: monty (the Python back-end) is a sandboxed runtime with no filesystem
+or network access. Language injection here is purely for visual benefit; it
+does not affect execution.
 
 [source,scheme]
 ----
@@ -120,19 +119,11 @@ visual benefit; it does not affect execution.
 ; tree-sitter-weaveback/queries/injections.scm
 ;
 ; Inject host-language grammars into scripted macro bodies.
-; The body is the last argument of %rhaidef / %pydef — in practice
+; The body is the last argument of %pydef / %pydef_raw — in practice
 ; always wrapped in a %{...%} block.  We capture the block node so
 ; editors render its text content with the appropriate sub-grammar.
 ; The %{ and %} delimiters will appear as noise in the sub-parser,
 ; which is acceptable.
-
-; Rhai inside %rhaidef bodies
-((macro_call
-   name: (macro_name) @_name
-   arg: (argument
-     (block) @injection.content))
- (#eq? @_name "%rhaidef")
- (#set! injection.language "rhai"))
 
 ; Python inside %pydef bodies
 ((macro_call
@@ -140,6 +131,14 @@ visual benefit; it does not affect execution.
    arg: (argument
      (block) @injection.content))
  (#eq? @_name "%pydef")
+ (#set! injection.language "python"))
+
+; Python inside %pydef_raw bodies
+((macro_call
+   name: (macro_name) @_name
+   arg: (argument
+     (block) @injection.content))
+ (#eq? @_name "%pydef_raw")
  (#set! injection.language "python"))
 // @
 ----

@@ -247,8 +247,7 @@ for the module map and error hierarchy, then follow the dependency order:
   `crates/weaveback-macro/src/evaluator/source_utils.rs`
 
 | link:../crates/weaveback-macro/src/evaluator/scripting.adoc[script back-ends]
-| `crates/weaveback-macro/src/evaluator/rhai_eval.rs` +
-  `crates/weaveback-macro/src/evaluator/monty_eval.rs`
+| `crates/weaveback-macro/src/evaluator/monty_eval.rs`
 
 | link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[public eval API]
 | `crates/weaveback-macro/src/evaluator/eval_api.rs`

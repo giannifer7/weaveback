@@ -16,8 +16,6 @@ mod test_macro_api;
 mod test_macros;
 mod test_monty_eval;
 mod test_pydef;
-mod test_rhai_eval;
-mod test_rhaidef;
 mod test_set;
 mod test_skill_examples;
 mod test_source_utils;

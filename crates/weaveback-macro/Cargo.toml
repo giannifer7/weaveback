@@ -18,7 +18,6 @@ serde_json.workspace = true
 regex.workspace = true
 lazy_static.workspace = true
 chrono.workspace = true
-rhai.workspace = true
 monty.workspace = true
 wasm-bindgen.workspace = true
 tempfile.workspace = true

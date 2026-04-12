@@ -68,7 +68,7 @@ The `SafeWriter` (see xref:safe_writer.adoc[safe_writer.adoc]) never overwrites 
 
 === 3. Why Two Passes?
 `weaveback` (the top-level tool) runs `weaveback-macro` before `weaveback-tangle`. 
-*   **Macro Power**: This allows you to use logic (Rhai/Python) to generate code chunks dynamically.
+*   **Macro Power**: This allows you to use logic (for example Python via monty) to generate code chunks dynamically.
 *   **Separation of Concerns**: Tangle only cares about `<<noweb>>` syntax; it doesn't need to know about `%macros`.
 
 == Where to go next?

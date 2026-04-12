@@ -128,6 +128,7 @@ fn test_state_define_macro_and_lookup_shadowing() {
     let inner = st.get_macro("m").unwrap();
     assert_eq!(inner.params, vec!["y"]);
     assert_eq!(inner.script_kind, ScriptKind::Python);
+    assert_eq!(inner.binding_kind, MacroBindingKind::Constant);
 
     st.pop_scope();
     let outer = st.get_macro("m").unwrap();

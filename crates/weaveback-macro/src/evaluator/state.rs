@@ -34,10 +34,7 @@ impl Default for EvalConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptKind {
     None,
-    Rhai,
     Python,
-    /// Raw Rhai: body is literal script source; params injected as Rhai variables.
-    RhaiRaw,
     /// Raw Python: body is literal script source; params injected as Python variables.
     PythonRaw,
 }
@@ -126,7 +123,7 @@ pub struct VarDefRaw {
     /// Byte length of the whole `set(...)` call.
     pub length: u32,
 }
-/// Raw record of a `%def / %rhaidef / %pydef(name, ...)` call site.
+/// Raw record of a `%def / %pydef(name, ...)` call site.
 #[derive(Debug, Clone)]
 pub struct MacroDefRaw {
     pub macro_name: String,
@@ -151,7 +148,7 @@ pub struct EvaluatorState {
     pub discovered_includes: Vec<PathBuf>,
     /// Accumulated `%set` call sites for the var_defs_map.
     pub var_defs: Vec<VarDefRaw>,
-    /// Accumulated `%def/%rhaidef/%pydef` call sites for the macro_defs_map.
+    /// Accumulated `%def/%pydef` call sites for the macro_defs_map.
     pub macro_defs: Vec<MacroDefRaw>,
     /// Diagnostic warnings collected during evaluation (non-fatal).
     pub warnings: Vec<String>,

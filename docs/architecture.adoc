@@ -11,7 +11,7 @@ source files.
 Literate source (.md / .adoc / …)
         │
         ▼
-  weaveback-macro          expands %def / %set / %if / %rhaidef / %pydef calls
+  weaveback-macro          expands %def / %set / %if / %pydef calls
         │               into an intermediate noweb document
         ▼
   weaveback-tangle           extracts <[chunk]> references, assembles them,
@@ -542,8 +542,7 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
   `crates/weaveback-macro/src/evaluator/source_utils.rs`
 
 | link:../crates/weaveback-macro/src/evaluator/scripting.adoc[evaluator script back-ends]
-| `crates/weaveback-macro/src/evaluator/rhai_eval.rs` +
-  `crates/weaveback-macro/src/evaluator/monty_eval.rs`
+| `crates/weaveback-macro/src/evaluator/monty_eval.rs`
 
 | link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[evaluator public API]
 | `crates/weaveback-macro/src/evaluator/eval_api.rs`
@@ -581,7 +580,7 @@ By using Weaveback, agents gain several advantages:
 https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the
 Weaveback macro language.  It is a standalone Node.js project (not part of
 the Rust workspace) that provides editor syntax highlighting, language
-injection into `%rhaidef`/`%pydef` bodies, and `[source,weaveback]` block
+injection into `%pydef`/`%pydef_raw` bodies, and `[source,weaveback]` block
 highlighting inside AsciiDoc literate documents.
 
 The grammar and all editor-integration files are literate AsciiDoc sources

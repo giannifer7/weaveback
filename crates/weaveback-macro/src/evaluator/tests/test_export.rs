@@ -23,19 +23,8 @@ mod tests {
 %AFILE(three)
 %(my_var)
         "#;
-        let mut eval = crate::evaluator::Evaluator::new(crate::evaluator::EvalConfig {
-            strict_undefined_vars: false,
-            ..Default::default()
-        });
-        let result = crate::macro_api::process_string(source, None, &mut eval)
-            .expect("Processing failed");
-        let output = String::from_utf8(result).expect("Output was not valid UTF-8");
-        // my_var: its value was evaluated inside maker's body where base/name
-        // are in scope — exported as the concrete string "from one import two".
-        // AFILE: plain export means no freeze; %(base) and %(name) are unbound
-        // at the global call site so they expand to "".
-        let expected = "/three.txt\nfrom one import two";
-        assert_eq!(output.trim(), expected, "Unexpected export output");
+        let err = process_string_defaults(source).unwrap_err();
+        assert!(err.to_string().contains("Undefined variable"));
     }
 
     #[test]

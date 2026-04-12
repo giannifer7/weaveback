@@ -73,11 +73,7 @@ fn test_eval_macro_call_with_conditional_logic() {
 
 #[test]
 fn test_eval_macro_call_with_empty_arguments() {
-    let mut eval = Evaluator::new(EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    });
-    let result = process_string(
+    let err = process_string(
         r#"
         %def(greet, name, %{
             Hello, %(name)!
@@ -85,11 +81,11 @@ fn test_eval_macro_call_with_empty_arguments() {
         %eval(greet, )
         "#,
         None,
-        &mut eval,
+        &mut Evaluator::new(EvalConfig::default()),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, !");
+    assert!(err.to_string().contains("Unbound parameter"));
 }
 
 #[test]

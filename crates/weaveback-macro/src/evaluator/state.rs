@@ -10,11 +10,6 @@ use std::sync::Arc;
 pub struct EvalConfig {
     pub sigil: char,
     pub include_paths: Vec<PathBuf>,
-    /// When true, `%include`/`%import` evaluate their path argument but do not
-    /// recurse into the file.  The resolved path is recorded in
-    /// `EvaluatorState::discovered_includes` instead.  Used by the directory
-    /// driver-discovery pass.
-    pub discovery_mode: bool,
     /// When true, the `%env(NAME)` builtin is permitted to read environment
     /// variables.  Disabled by default so that templates cannot silently
     /// exfiltrate secrets without the user opting in via `--allow-env`.
@@ -23,11 +18,6 @@ pub struct EvalConfig {
     pub env_prefix: Option<String>,
     /// Maximum macro-call recursion depth for this evaluator run.
     pub recursion_limit: usize,
-    /// When true, `%(name)` is an error if `name` is not bound in any scope.
-    pub strict_undefined_vars: bool,
-    /// When true, calling a macro with too few arguments is an error instead
-    /// of binding the missing params to empty strings.
-    pub strict_unbound_params: bool,
 }
 
 impl Default for EvalConfig {
@@ -35,12 +25,9 @@ impl Default for EvalConfig {
         Self {
             sigil: '%',
             include_paths: vec![PathBuf::from(".")],
-            discovery_mode: false,
             allow_env: false,
             env_prefix: None,
             recursion_limit: weaveback_core::MAX_RECURSION_DEPTH,
-            strict_undefined_vars: true,
-            strict_unbound_params: true,
         }
     }
 }
@@ -147,6 +134,7 @@ pub struct MacroDefRaw {
 }
 pub struct EvaluatorState {
     pub config: EvalConfig,
+    pub(crate) discovery_mode: bool,
     pub scope_stack: Vec<ScopeFrame>,
     pub open_includes: HashSet<PathBuf>,
     pub current_file: PathBuf,
@@ -168,6 +156,7 @@ impl EvaluatorState {
     pub fn new(config: EvalConfig) -> Self {
         Self {
             config,
+            discovery_mode: false,
             scope_stack: vec![ScopeFrame::default()],
             open_includes: HashSet::new(),
             current_file: PathBuf::from(""),

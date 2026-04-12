@@ -295,10 +295,7 @@ impl Evaluator {
                 let var_name = self.node_text(node);
                 let val = match self.state.get_variable_opt(&var_name) {
                     Some(v) => v,
-                    None if self.state.config.strict_undefined_vars => {
-                        return Err(EvalError::UndefinedVariable(var_name));
-                    }
-                    None => String::new(),
+                    None => return Err(EvalError::UndefinedVariable(var_name)),
                 };
                 out.push_str(&val);
             }
@@ -421,9 +418,7 @@ impl Evaluator {
         // Effectful builtins like %set are rejected in argument position.
         self.validate_argument_side_effects(&param_nodes, &mac.name)?;
         let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
-        if self.state.config.strict_unbound_params
-            && let Some(param_name) = binding_plan.unbound.first()
-        {
+        if let Some(param_name) = binding_plan.unbound.first() {
             return Err(EvalError::UnboundParameter {
                 macro_name: mac.name.clone(),
                 param_name: (*param_name).to_string(),
@@ -558,7 +553,7 @@ impl Evaluator {
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;
 
-        if self.state.config.discovery_mode {
+        if self.state.discovery_mode {
             self.state.discovered_includes.push(path);
             return Ok("".into());
         }
@@ -582,6 +577,10 @@ impl Evaluator {
     /// Return (and clear) the list of paths recorded during a discovery-mode run.
     pub fn take_discovered_includes(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.state.discovered_includes)
+    }
+
+    pub(crate) fn set_discovery_mode(&mut self, enabled: bool) {
+        self.state.discovery_mode = enabled;
     }
 
     /// Like `do_include`, but registers every newly-defined macro under an
@@ -714,7 +713,7 @@ impl Evaluator {
                             );
                         }
                     }
-                } else if self.state.config.strict_undefined_vars {
+                } else {
                     return Err(EvalError::UndefinedVariable(var_name));
                 }
             }
@@ -773,9 +772,7 @@ impl Evaluator {
         // Plan bindings and evaluate arguments in CALLER scope, before push_scope.
         self.validate_argument_side_effects(&param_nodes, &mac.name)?;
         let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
-        if self.state.config.strict_unbound_params
-            && let Some(param_name) = binding_plan.unbound.first()
-        {
+        if let Some(param_name) = binding_plan.unbound.first() {
             return Err(EvalError::UnboundParameter {
                 macro_name: mac.name.clone(),
                 param_name: (*param_name).to_string(),

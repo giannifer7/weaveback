@@ -110,8 +110,11 @@ Direct contrast:
 
 === Identifiers
 
-An identifier is currently `[A-Za-z_][A-Za-z0-9_]*`.  Hyphens are *not*
-identifier characters; `foo-bar` parses as `foo` (identifier), `-bar` (text).
+An identifier is currently `[A-Za-z_][A-Za-z0-9_]*`.
+
+Hyphens are **not** identifier characters. Macro and variable names therefore
+use underscore-style spellings such as `emit_row` or `chunk_name`, not
+`emit-row` or `chunk-name`.
 
 ---
 
@@ -185,9 +188,7 @@ Given a call `%foo(a, b, key = c)` and a definition `%def(foo, p, q, r, body)`:
   arguments is a bug, not a tolerated shape.
 . *Effectful builtins in arguments*: `%set(...)` in argument position is
   `EvalError::InvalidUsage`. Arguments are values, not assignment sites.
-. *Missing params*: Unbound params are `UnboundParameter` by default.
-  `--no-strict-params` / `EvalConfig.strict_unbound_params = false` restores
-  the old empty-string fallback.
+. *Missing params*: Unbound params are `UnboundParameter`.
 
 ---
 
@@ -197,9 +198,7 @@ Given a call `%foo(a, b, key = c)` and a definition `%def(foo, p, q, r, body)`:
 
 Looks up `name` in the scope stack (top-to-bottom).
 
-* By default, a missing variable is `UndefinedVariable(name)`.
-* `--no-strict-vars` / `EvalConfig.strict_undefined_vars = false` restores the
-  old empty-string fallback.
+* A missing variable is `UndefinedVariable(name)`.
 
 === `%set(name, value)` — assignment
 
@@ -401,15 +400,30 @@ is genuinely lazy in its branch arguments.
 `%if()` with no arguments is a non-fatal warning (the call always returns
 empty and is almost certainly a mistake).
 
+[source]
+----
+%if(%eq(%(target), linux), use-linux, use-other)
+----
+
 === `%eq(a, b)` — Equality predicate
 
 Evaluates both arguments, compares byte-exact.  Returns `1` if equal, empty
 if not.
 
+[source]
+----
+%if(%eq(%(mode), release), optimize, debug)
+----
+
 === `%neq(a, b)` — Inequality predicate
 
 Returns `1` if `a != b`, empty if equal.  `%eq` and `%neq` are strict
 inverses.
+
+[source]
+----
+%if(%neq(%(backend), sqlite), external-db, sqlite)
+----
 
 === `%not([x])` — Logical negation
 
@@ -418,6 +432,11 @@ empty if the argument is non-empty.
 
 `%not()` with no argument: treats the absent argument as empty, so returns `1`.
 `%not(a, b)` is `EvalError::InvalidUsage`.
+
+[source]
+----
+%if(%not(%(feature_flag)), disabled, enabled)
+----
 
 === `%eval(name, args…)` — Dynamic dispatch
 
@@ -430,6 +449,9 @@ the remaining arguments.  Enables data-driven dispatch.
 %def(render_md, x, **%(x)**)
 %eval(render_%(fmt), hello)   ← fmt = "html" or "md"
 ----
+
+`%eval` is the dynamic-dispatch escape hatch. Prefer ordinary direct calls when
+the callee name is statically known.
 
 === `%here(name, args…)` — Source-file patching
 
@@ -627,19 +649,16 @@ optimisation; every call frame occupies stack space.
 pub struct EvalConfig {
     pub sigil: char,                  // default: '%'
     pub include_paths: Vec<PathBuf>,  // default: ["."]
-    pub discovery_mode: bool,         // default: false
     pub allow_env: bool,              // default: false
     pub env_prefix: Option<String>,   // default: None
     pub recursion_limit: usize,       // default: MAX_RECURSION_DEPTH
-    pub strict_undefined_vars: bool,  // default: true
-    pub strict_unbound_params: bool,  // default: true
 }
 ----
 
-**Discovery mode**: `%include` / `%import` still evaluate their path argument.
-If that path expands to empty or whitespace, the include/import is a no-op.
-If it expands to a real path, the resolved path is recorded in
-`discovered_includes` and the target file is not evaluated.
+**Dependency discovery**: the separate discovery API still evaluates the
+`%include` / `%import` path argument. If that path expands to empty or
+whitespace, the include/import is a no-op. If it expands to a real path, the
+resolved path is recorded and the target file is not evaluated.
 
 ---
 
@@ -682,16 +701,14 @@ If it expands to a real path, the resolved path is recorded in
 
 The following behaviours are known limitations and candidates for future work:
 
-. **Undefined variable strictness** — `%(typo)` is `UndefinedVariable` by
-  default.  `--no-strict-vars` / `EvalConfig.strict_undefined_vars = false`
-  restores the old empty-string behaviour.  `%defined(name)` / `%default(x,
-  fallback)` style helpers would still improve explicitness.
+. **Undefined variable helpers** — `%(typo)` is `UndefinedVariable`.
+  `%defined(name)` / `%default(x, fallback)` style helpers would still improve
+  explicitness.
 
 . **Missing (unbound) parameter** — unbound formal parameters are
-  `UnboundParameter` by default.  `--no-strict-params` /
-  `EvalConfig.strict_unbound_params = false` restores the old empty-string
-  fallback.  Explicit optional parameters with inline defaults (`%def(fmt,
-  level, tag, msg = "(none)", body)`) are a possible future addition.
+  `UnboundParameter`. Explicit optional parameters with inline defaults
+  (`%def(fmt, level, tag, msg = "(none)", body)`) are a possible future
+  addition.
 
 . **`%here` remains operationally special** — it rewrites the source file and
   aborts further evaluation via `early_exit`.  This is intentional, but it

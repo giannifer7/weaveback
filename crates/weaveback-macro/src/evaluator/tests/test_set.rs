@@ -58,13 +58,8 @@ mod tests {
         let source = "%def(render_with_prefix, msg, %{%(prefix): %(msg)%})\
                       %alias(warn, render_with_prefix, prefix = WARNING)\
                       %warn(check) %render_with_prefix(check)";
-        let mut eval = Evaluator::new(EvalConfig {
-            strict_undefined_vars: false,
-            ..EvalConfig::default()
-        });
-        let result = process_string(source, None, &mut eval).unwrap();
-        // source macro has no frozen prefix → empty string
-        assert_eq!(String::from_utf8(result).unwrap(), "WARNING: check : check");
+        let err = process_string_defaults(source).unwrap_err();
+        assert!(err.to_string().contains("Undefined variable"));
     }
 
     #[test]

@@ -603,25 +603,15 @@ fn test_http_endpoint_named_params() {
     );
 }
 
-/// Too few arguments: missing params silently become empty strings.
+/// Too few arguments are a hard error in the strict language.
 #[test]
-fn test_too_few_args_become_empty() {
-    let mut eval = Evaluator::new(EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    });
-    let result = process_string(
+fn test_too_few_args_is_error() {
+    let err = process_string_defaults(
         "%def(greet, name, msg, Hello %(name)%(msg)!)\n\
          %greet(Alice)",
-        None,
-        &mut eval,
     )
-    .unwrap();
-    let s = std::str::from_utf8(&result).unwrap();
-    assert!(
-        s.contains("Hello Alice!"),
-        "expected 'Hello Alice!' (msg empty), got: {s:?}"
-    );
+    .unwrap_err();
+    assert!(err.to_string().contains("Unbound parameter"));
 }
 
 /// Too many positional arguments is now an error (Phase 1 diagnostic).

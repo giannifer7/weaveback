@@ -76,7 +76,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
   basic, include, error, nested macros, sigil, shared macros
 
 | `test_macro_api`
-| `process_string`, `process_file`, `process_files_from_config` at the macro_api layer
+| `process_string`, `process_file`, `process_files_from_config`, `discover_includes_in_file` at the macro_api layer
 
 | `test_skill_examples`
 | Exact examples from `SKILL.md`: positional/named params, arity edge cases,

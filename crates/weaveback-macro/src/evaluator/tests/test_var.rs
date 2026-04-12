@@ -54,12 +54,8 @@ fn test_variable_substitution_with_whitespace() {
 }
 
 #[test]
-fn test_variable_substitution_with_empty_string() {
-    let mut eval = Evaluator::new(EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    });
-    let result = process_string(
+fn test_variable_substitution_with_missing_param_is_error() {
+    let err = process_string(
         r#"
         %def(greet, name, %{
             Hello, %(name)!
@@ -67,11 +63,11 @@ fn test_variable_substitution_with_empty_string() {
         %greet()
         "#,
         None,
-        &mut eval,
+        &mut Evaluator::new(EvalConfig::default()),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, !");
+    assert!(err.to_string().contains("Unbound parameter"));
 }
 
 #[test]
@@ -130,12 +126,8 @@ fn test_variable_substitution_with_conditional_logic() {
 }
 
 #[test]
-fn test_variable_substitution_with_conditional_logic_empty() {
-    let mut eval = Evaluator::new(EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    });
-    let result = process_string(
+fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
+    let err = process_string(
         r#"
         %def(greet, name, %{
             %if(%(name), %{
@@ -147,12 +139,9 @@ fn test_variable_substitution_with_conditional_logic_empty() {
         %greet()
         "#,
         None,
-        &mut eval,
+        &mut Evaluator::new(EvalConfig::default()),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(
-        String::from_utf8(result).unwrap().trim(),
-        "Hello, stranger!"
-    );
+    assert!(err.to_string().contains("Unbound parameter"));
 }

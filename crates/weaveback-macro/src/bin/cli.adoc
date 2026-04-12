@@ -3,7 +3,8 @@
 
 `src/bin/weaveback-macro.rs` is the `weaveback-macro` command-line binary.
 It wraps the xref:../macro_api.adoc[macro_api] layer with a clap argument
-parser, adds `--dir` discovery mode, and exposes `--dump-ast` for debugging.
+parser, uses explicit dependency-discovery APIs for `--dir`, and exposes
+`--dump-ast` for debugging.
 
 == Design rationale
 
@@ -12,8 +13,9 @@ parser, adds `--dir` discovery mode, and exposes `--dump-ast` for debugging.
 When `--dir` is given, the binary:
 
 1. Recursively collects all files matching `--ext` under the directory.
-2. Runs a *discovery pass* — a second evaluation in `discovery_mode: true`
-   where `%include(path)` calls are recorded but not expanded.
+2. Runs a *discovery pass* via `discover_includes_in_file(...)`, where
+   `%include(path)` / `%import(path)` targets are resolved and recorded but
+   target files are not expanded.
 3. Filters out any file that appears as a `%include` target of another file
    in the same scan, leaving only *driver* files (top-level entry points).
 4. Processes the driver files with a fresh evaluator.
@@ -63,7 +65,7 @@ Skips evaluation entirely and serialises the parsed AST of each input file to
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
-use weaveback_macro::macro_api::{process_files, process_string};
+use weaveback_macro::macro_api::{discover_includes_in_file, process_files};
 use clap::{ArgGroup, Parser};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -186,14 +188,6 @@ struct Args {
     #[arg(long = "recursion-limit", default_value_t = weaveback_core::MAX_RECURSION_DEPTH)]
     recursion_limit: usize,
 
-    /// Allow `%(name)` to expand to empty string when the variable is undefined.
-    #[arg(long)]
-    no_strict_vars: bool,
-
-    /// Allow missing macro arguments to bind the remaining params to empty strings.
-    #[arg(long)]
-    no_strict_params: bool,
-
     /// Define a top-level variable before evaluation. Repeatable.
     /// Form: `-D NAME=VALUE`
     #[arg(short = 'D', long = "define")]
@@ -237,12 +231,9 @@ fn run(args: Args) -> Result<(), EvalError> {
     let config = EvalConfig {
         sigil: args.sigil,
         include_paths,
-        discovery_mode: false,
         allow_env: args.allow_env,
         env_prefix: args.env_prefix.clone(),
         recursion_limit: args.recursion_limit,
-        strict_undefined_vars: !args.no_strict_vars,
-        strict_unbound_params: !args.no_strict_params,
     };
 
     let final_inputs: Vec<PathBuf> = if let Some(ref dir) = args.directory {
@@ -252,19 +243,13 @@ fn run(args: Args) -> Result<(), EvalError> {
         all.sort();
 
         // Discovery pass: identify which files are %include'd by others (fragments).
-        let discovery_config = EvalConfig {
-            discovery_mode: true,
-            ..config.clone()
-        };
         let mut included: HashSet<PathBuf> = HashSet::new();
         for f in &all {
-            if let Ok(text) = std::fs::read_to_string(f) {
-                let mut disc = Evaluator::new(discovery_config.clone());
-                apply_cli_defines(&mut disc, &args.define)?;
-                if process_string(&text, Some(f), &mut disc).is_ok() {
-                    for p in disc.take_discovered_includes() {
-                        included.insert(p.canonicalize().unwrap_or(p));
-                    }
+            let mut disc = Evaluator::new(config.clone());
+            apply_cli_defines(&mut disc, &args.define)?;
+            if let Ok(paths) = discover_includes_in_file(f, &mut disc) {
+                for p in paths {
+                    included.insert(p.canonicalize().unwrap_or(p));
                 }
             }
         }
@@ -336,8 +321,6 @@ build and invoke the binary as a subprocess, exercising the full CLI contract:
 * `test_large_input` — 10 000-line file with 10 000 macro expansions (smoke test)
 * `test_undefined_variable_is_strict_by_default_cli` — undefined variables now fail by default
 * `test_unbound_params_are_strict_by_default_cli` — missing macro args now fail by default
-* `test_no_strict_vars_cli` — `--no-strict-vars` restores empty-string fallback
-* `test_no_strict_params_cli` — `--no-strict-params` restores empty missing args
 * `test_define_cli` — `-D NAME=VALUE` seeds top-level variables
 * `test_env_prefix_cli` — `--env-prefix` maps `%env(NAME)` to namespaced environment variables
 * `test_recursion_limit_cli` — `--recursion-limit` overrides the default macro nesting cap
@@ -744,57 +727,6 @@ fn test_unbound_params_are_strict_by_default_cli() -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-#[test]
-fn test_no_strict_vars_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let temp = TempDir::new()?;
-    let temp_path = temp.path().canonicalize()?;
-
-    let input = create_test_file(&temp_path, "no_strict_vars.txt", "before%(missing)after");
-    let out_file = temp_path.join("no_strict_vars_out.txt");
-
-    let run = cargo_weaveback_macro_cli()?;
-    let mut cmd = run.command();
-    cmd.arg("--no-strict-vars")
-        .arg("--output")
-        .arg(&out_file)
-        .arg(&input);
-
-    let output = cmd.output()?;
-    assert!(output.status.success(), "no-strict-vars should restore empty fallback");
-
-    let body = fs::read_to_string(&out_file)?;
-    assert_eq!(body, "beforeafter");
-
-    Ok(())
-}
-
-#[test]
-fn test_no_strict_params_cli() -> Result<(), Box<dyn std::error::Error>> {
-    let temp = TempDir::new()?;
-    let temp_path = temp.path().canonicalize()?;
-
-    let input = create_test_file(
-        &temp_path,
-        "no_strict_params.txt",
-        "%def(greet, name, msg, Hello %(name)%(msg)!)\n%greet(Alice)\n",
-    );
-    let out_file = temp_path.join("no_strict_params_out.txt");
-
-    let run = cargo_weaveback_macro_cli()?;
-    let mut cmd = run.command();
-    cmd.arg("--no-strict-params")
-        .arg("--output")
-        .arg(&out_file)
-        .arg(&input);
-
-    let output = cmd.output()?;
-    assert!(output.status.success(), "no-strict-params should restore empty fallback");
-
-    let body = fs::read_to_string(&out_file)?;
-    assert!(body.contains("Hello Alice!"));
-
-    Ok(())
-}
 
 #[test]
 fn test_define_cli() -> Result<(), Box<dyn std::error::Error>> {

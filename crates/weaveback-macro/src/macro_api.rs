@@ -120,6 +120,26 @@ pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
     let mut evaluator = Evaluator::new(EvalConfig::default());
     process_string(source, None, &mut evaluator)
 }
+pub fn discover_includes_in_string(
+    source: &str,
+    real_path: Option<&Path>,
+    evaluator: &mut Evaluator,
+) -> Result<Vec<PathBuf>, EvalError> {
+    evaluator.set_discovery_mode(true);
+    let result = process_string(source, real_path, evaluator);
+    let includes = evaluator.take_discovered_includes();
+    evaluator.set_discovery_mode(false);
+    result.map(|_| includes)
+}
+pub fn discover_includes_in_file(
+    input_file: &Path,
+    evaluator: &mut Evaluator,
+) -> Result<Vec<PathBuf>, EvalError> {
+    let content = fs::read_to_string(input_file)
+        .map_err(|e| EvalError::Runtime(format!("Cannot read {input_file:?}: {e}")))?;
+    discover_includes_in_string(&content, Some(input_file), evaluator)
+        .map_err(|e| with_input_context(input_file, e))
+}
 /// Evaluate `source` with precise per-byte token attribution.
 ///
 /// Returns the expanded string and a sorted list of `SpanRange` entries —

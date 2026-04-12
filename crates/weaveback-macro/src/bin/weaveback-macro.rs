@@ -1,7 +1,7 @@
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
-use weaveback_macro::macro_api::{process_files, process_string};
+use weaveback_macro::macro_api::{discover_includes_in_file, process_files};
 use clap::{ArgGroup, Parser};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -92,14 +92,6 @@ struct Args {
     #[arg(long = "recursion-limit", default_value_t = weaveback_core::MAX_RECURSION_DEPTH)]
     recursion_limit: usize,
 
-    /// Allow `%(name)` to expand to empty string when the variable is undefined.
-    #[arg(long)]
-    no_strict_vars: bool,
-
-    /// Allow missing macro arguments to bind the remaining params to empty strings.
-    #[arg(long)]
-    no_strict_params: bool,
-
     /// Define a top-level variable before evaluation. Repeatable.
     /// Form: `-D NAME=VALUE`
     #[arg(short = 'D', long = "define")]
@@ -135,12 +127,9 @@ fn run(args: Args) -> Result<(), EvalError> {
     let config = EvalConfig {
         sigil: args.sigil,
         include_paths,
-        discovery_mode: false,
         allow_env: args.allow_env,
         env_prefix: args.env_prefix.clone(),
         recursion_limit: args.recursion_limit,
-        strict_undefined_vars: !args.no_strict_vars,
-        strict_unbound_params: !args.no_strict_params,
     };
 
     let final_inputs: Vec<PathBuf> = if let Some(ref dir) = args.directory {
@@ -150,19 +139,13 @@ fn run(args: Args) -> Result<(), EvalError> {
         all.sort();
 
         // Discovery pass: identify which files are %include'd by others (fragments).
-        let discovery_config = EvalConfig {
-            discovery_mode: true,
-            ..config.clone()
-        };
         let mut included: HashSet<PathBuf> = HashSet::new();
         for f in &all {
-            if let Ok(text) = std::fs::read_to_string(f) {
-                let mut disc = Evaluator::new(discovery_config.clone());
-                apply_cli_defines(&mut disc, &args.define)?;
-                if process_string(&text, Some(f), &mut disc).is_ok() {
-                    for p in disc.take_discovered_includes() {
-                        included.insert(p.canonicalize().unwrap_or(p));
-                    }
+            let mut disc = Evaluator::new(config.clone());
+            apply_cli_defines(&mut disc, &args.define)?;
+            if let Ok(paths) = discover_includes_in_file(f, &mut disc) {
+                for p in paths {
+                    included.insert(p.canonicalize().unwrap_or(p));
                 }
             }
         }

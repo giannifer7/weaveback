@@ -97,22 +97,18 @@ fn test_core_parse_string_real_file_and_source_wrappers() {
 }
 
 #[test]
-fn test_core_do_include_discovery_mode_records_paths() {
+fn test_discover_includes_in_string_records_paths() {
     let temp = TempDir::new().unwrap();
     let include_path = temp.path().join("inc.txt");
     fs::write(&include_path, "included").unwrap();
-
-    let config = EvalConfig {
+    let mut eval = Evaluator::new(EvalConfig {
         include_paths: vec![temp.path().to_path_buf()],
-        discovery_mode: true,
         ..EvalConfig::default()
-    };
-    let mut eval = Evaluator::new(config);
+    });
 
-    let result = eval.do_include("inc.txt").unwrap();
-    assert_eq!(result, "");
-
-    let discovered = eval.take_discovered_includes();
+    let discovered =
+        crate::macro_api::discover_includes_in_string("%include(inc.txt)", None, &mut eval)
+            .unwrap();
     assert_eq!(discovered, vec![include_path]);
     assert!(eval.take_discovered_includes().is_empty());
 }

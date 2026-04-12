@@ -49,18 +49,18 @@ fn test_store_setters_require_two_args() {
 }
 
 #[test]
-fn test_import_in_discovery_mode_records_and_swallows_output() {
+fn test_discover_includes_in_file_records_import_target() {
     let temp = TempDir::new().unwrap();
     let include_path = temp.path().join("inc.txt");
     std::fs::write(&include_path, "%def(x, y)").unwrap();
+    let main_path = temp.path().join("main.txt");
+    std::fs::write(&main_path, "%import(inc.txt)").unwrap();
 
     let mut eval = Evaluator::new(EvalConfig {
         include_paths: vec![temp.path().to_path_buf()],
-        discovery_mode: true,
         ..EvalConfig::default()
     });
 
-    let result = process_string("%import(inc.txt)", None, &mut eval).unwrap();
-    assert_eq!(String::from_utf8(result).unwrap(), "");
-    assert_eq!(eval.take_discovered_includes(), vec![include_path]);
+    let result = crate::macro_api::discover_includes_in_file(&main_path, &mut eval).unwrap();
+    assert_eq!(result, vec![include_path]);
 }

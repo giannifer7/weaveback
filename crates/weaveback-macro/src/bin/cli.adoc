@@ -145,6 +145,14 @@ struct Args {
     #[arg(long)]
     allow_env: bool,
 
+    /// Allow `%(name)` to expand to empty string when the variable is undefined.
+    #[arg(long)]
+    no_strict_vars: bool,
+
+    /// Allow missing macro arguments to bind the remaining params to empty strings.
+    #[arg(long)]
+    no_strict_params: bool,
+
     /// The input files (mutually exclusive with --dir)
     #[arg(required = false)]
     inputs: Vec<PathBuf>,
@@ -185,6 +193,8 @@ fn run(args: Args) -> Result<(), EvalError> {
         include_paths,
         discovery_mode: false,
         allow_env: args.allow_env,
+        strict_undefined_vars: !args.no_strict_vars,
+        strict_unbound_params: !args.no_strict_params,
     };
 
     let final_inputs: Vec<PathBuf> = if let Some(ref dir) = args.directory {
@@ -273,6 +283,10 @@ build and invoke the binary as a subprocess, exercising the full CLI contract:
 * `test_colon_separated_includes` — `--include ./path` colon syntax resolves files
 * `test_custom_pathsep_includes` — `--pathsep |` overrides the include separator
 * `test_large_input` — 10 000-line file with 10 000 macro expansions (smoke test)
+* `test_undefined_variable_is_strict_by_default_cli` — undefined variables now fail by default
+* `test_unbound_params_are_strict_by_default_cli` — missing macro args now fail by default
+* `test_no_strict_vars_cli` — `--no-strict-vars` restores empty-string fallback
+* `test_no_strict_params_cli` — `--no-strict-params` restores empty missing args
 
 [source,rust]
 ----
@@ -616,6 +630,114 @@ fn test_large_input() -> Result<(), Box<dyn std::error::Error>> {
         line_count, 10_000,
         "Expected 10,000 expansions of HELLO in the large output."
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_undefined_variable_is_strict_by_default_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(&temp_path, "strict_vars.txt", "before%(missing)after");
+    let out_file = temp_path.join("strict_vars_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(!output.status.success(), "undefined variable should fail by default");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Undefined variable: missing"),
+        "expected undefined-variable error, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_unbound_params_are_strict_by_default_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "strict_params.txt",
+        "%def(greet, name, msg, Hello %(name)%(msg)!)\n%greet(Alice)\n",
+    );
+    let out_file = temp_path.join("strict_params_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(!output.status.success(), "missing args should fail by default");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unbound parameter 'msg' in macro 'greet'"),
+        "expected unbound-parameter error, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_no_strict_vars_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(&temp_path, "no_strict_vars.txt", "before%(missing)after");
+    let out_file = temp_path.join("no_strict_vars_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--no-strict-vars")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(output.status.success(), "no-strict-vars should restore empty fallback");
+
+    let body = fs::read_to_string(&out_file)?;
+    assert_eq!(body, "beforeafter");
+
+    Ok(())
+}
+
+#[test]
+fn test_no_strict_params_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "no_strict_params.txt",
+        "%def(greet, name, msg, Hello %(name)%(msg)!)\n%greet(Alice)\n",
+    );
+    let out_file = temp_path.join("no_strict_params_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--no-strict-params")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(output.status.success(), "no-strict-params should restore empty fallback");
+
+    let body = fs::read_to_string(&out_file)?;
+    assert!(body.contains("Hello Alice!"));
 
     Ok(())
 }

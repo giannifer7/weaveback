@@ -60,6 +60,14 @@ struct Args {
     #[arg(long)]
     allow_env: bool,
 
+    /// Allow `%(name)` to expand to empty string when the variable is undefined.
+    #[arg(long)]
+    no_strict_vars: bool,
+
+    /// Allow missing macro arguments to bind the remaining params to empty strings.
+    #[arg(long)]
+    no_strict_params: bool,
+
     /// The input files (mutually exclusive with --dir)
     #[arg(required = false)]
     inputs: Vec<PathBuf>,
@@ -92,6 +100,8 @@ fn run(args: Args) -> Result<(), EvalError> {
         include_paths,
         discovery_mode: false,
         allow_env: args.allow_env,
+        strict_undefined_vars: !args.no_strict_vars,
+        strict_unbound_params: !args.no_strict_params,
     };
 
     let final_inputs: Vec<PathBuf> = if let Some(ref dir) = args.directory {

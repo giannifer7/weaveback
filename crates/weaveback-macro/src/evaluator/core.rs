@@ -77,6 +77,31 @@ impl Evaluator {
         Ok(())
     }
 
+    fn arg_contains_builtin_call(&self, node: &ASTNode, builtin_name: &str) -> bool {
+        if node.kind == NodeKind::Macro && self.node_text(node) == builtin_name {
+            return true;
+        }
+
+        node.parts
+            .iter()
+            .any(|child| self.arg_contains_builtin_call(child, builtin_name))
+    }
+
+    fn validate_argument_side_effects(
+        &self,
+        param_nodes: &[&ASTNode],
+        macro_name: &str,
+    ) -> EvalResult<()> {
+        for param_node in param_nodes {
+            if self.arg_contains_builtin_call(param_node, "set") {
+                return Err(EvalError::InvalidUsage(format!(
+                    "macro '{macro_name}': %set is not allowed in argument position"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn plan_macro_bindings<'a>(
         &self,
         mac: &'a MacroDefinition,
@@ -243,7 +268,13 @@ impl Evaluator {
             }
             NodeKind::Var => {
                 let var_name = self.node_text(node);
-                let val = self.state.get_variable(&var_name);
+                let val = match self.state.get_variable_opt(&var_name) {
+                    Some(v) => v,
+                    None if self.state.config.strict_undefined_vars => {
+                        return Err(EvalError::UndefinedVariable(var_name));
+                    }
+                    None => String::new(),
+                };
                 out.push_str(&val);
             }
             NodeKind::Macro => {
@@ -361,9 +392,18 @@ impl Evaluator {
         let param_nodes = Self::macro_param_nodes(node);
 
         // Evaluate ALL arguments in CALLER scope, before pushing the callee frame.
-        // This means %(var) in an argument resolves against the caller's bindings,
-        // and %set(x, v) in an argument writes to the caller's scope as expected.
+        // This means %(var) in an argument resolves against the caller's bindings.
+        // Effectful builtins like %set are rejected in argument position.
+        self.validate_argument_side_effects(&param_nodes, &mac.name)?;
         let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
+        if self.state.config.strict_unbound_params
+            && let Some(param_name) = binding_plan.unbound.first()
+        {
+            return Err(EvalError::UnboundParameter {
+                macro_name: mac.name.clone(),
+                param_name: (*param_name).to_string(),
+            });
+        }
 
         let mut positional_vals: Vec<String> = Vec::new();
         for binding in &binding_plan.positional {
@@ -683,6 +723,8 @@ impl Evaluator {
                             );
                         }
                     }
+                } else if self.state.config.strict_undefined_vars {
+                    return Err(EvalError::UndefinedVariable(var_name));
                 }
             }
             NodeKind::Macro => {
@@ -738,7 +780,16 @@ impl Evaluator {
         let param_nodes = Self::macro_param_nodes(node);
 
         // Plan bindings and evaluate arguments in CALLER scope, before push_scope.
+        self.validate_argument_side_effects(&param_nodes, &mac.name)?;
         let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
+        if self.state.config.strict_unbound_params
+            && let Some(param_name) = binding_plan.unbound.first()
+        {
+            return Err(EvalError::UnboundParameter {
+                macro_name: mac.name.clone(),
+                param_name: (*param_name).to_string(),
+            });
+        }
 
         // Pre-evaluate all args: (param_name, val, tagged_spans, coarse_span).
         // tagged_spans is non-empty only when out.is_tracing().

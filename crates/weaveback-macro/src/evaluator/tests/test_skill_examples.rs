@@ -51,19 +51,38 @@ fn test_http_endpoint_named_params() {
     );
 }
 
-/// Too few arguments: missing params silently become empty strings.
+/// Too few arguments are an error by default.
 #[test]
-fn test_too_few_args_become_empty() {
+fn test_too_few_args_is_error_by_default() {
     let result = process_string_defaults(
         "%def(greet, name, msg, Hello %(name)%(msg)!)\n\
          %greet(Alice)",
+    );
+    assert!(
+        matches!(
+            result,
+            Err(EvalError::UnboundParameter { ref macro_name, ref param_name })
+            if macro_name == "greet" && param_name == "msg"
+        ),
+        "expected UnboundParameter for greet/msg, got: {result:?}"
+    );
+}
+
+#[test]
+fn test_no_strict_params_restores_empty_default() {
+    let config = crate::evaluator::EvalConfig {
+        strict_unbound_params: false,
+        ..crate::evaluator::EvalConfig::default()
+    };
+    let mut evaluator = crate::evaluator::Evaluator::new(config);
+    let result = crate::macro_api::process_string(
+        "%def(greet, name, msg, Hello %(name)%(msg)!)\n%greet(Alice)",
+        None,
+        &mut evaluator,
     )
     .unwrap();
     let s = std::str::from_utf8(&result).unwrap();
-    assert!(
-        s.contains("Hello Alice!"),
-        "expected 'Hello Alice!' (msg empty), got: {s:?}"
-    );
+    assert!(s.contains("Hello Alice!"), "expected 'Hello Alice!' (msg empty), got: {s:?}");
 }
 
 /// Too many positional arguments is now an error (Phase 1 diagnostic).

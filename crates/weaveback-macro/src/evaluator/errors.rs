@@ -7,6 +7,12 @@ pub enum EvalError {
     #[error("Undefined macro: {0}")]
     UndefinedMacro(String),
 
+    #[error("Undefined variable: {0}")]
+    UndefinedVariable(String),
+
+    #[error("Unbound parameter '{param_name}' in macro '{macro_name}'")]
+    UnboundParameter { macro_name: String, param_name: String },
+
     #[error("Builtin error: {0}")]
     BuiltinError(String),
 

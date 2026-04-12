@@ -82,28 +82,26 @@ The evaluator is **strict** (call-by-value): all macro arguments are expanded
 to strings before the macro body runs.  At a `%foo(a, b)` call site the
 sequence is:
 
-1. A new `ScopeFrame` is pushed onto the scope stack.
-2. Each argument node is evaluated left-to-right *inside that new frame*,
-   producing a `String`; the string is then bound to the corresponding
-   formal parameter in the same frame.
-3. The macro body is evaluated inside the frame.
-4. The frame is popped.
-5. For `%pydef` macros, the _already-expanded_ body string is then
+1. Each argument node is evaluated left-to-right in the **caller scope**,
+   producing a `String`.
+2. A new `ScopeFrame` is pushed onto the scope stack.
+3. The resulting strings are bound to the corresponding formal parameters in
+   the new frame.
+4. The macro body is evaluated inside the frame.
+5. The frame is popped.
+6. For `%pydef` macros, the _already-expanded_ body string is then
    passed to the Python engine; there is no lazy re-expansion.
 
-The critical subtlety about step 1: **the scope is pushed before arguments are
-evaluated**.  A `%set(x, v)` call inside an argument expression therefore mutates
-the _callee's_ scope frame, not the caller's.  Those mutations disappear when
-the frame is popped in step 4.  This is intentional: arguments should not have
-invisible caller-scope side effects.  (Use `%export` to deliberately propagate
-a value from the callee to the caller.)
+To preserve local reasoning, effectful builtins are not allowed in argument
+position.  In particular, `%set(x, v)` inside a macro argument is rejected with
+`InvalidUsage` instead of silently mutating some scope before the callee runs.
 
 Consequences worth knowing:
 
 * **Eager, not lazy.**  Argument expressions are fully expanded before the body
   runs, so argument side-effects fire in left-to-right call order.
-* **Argument side-effects are scoped.**  `%set` inside an argument lives in
-  the callee's frame and does not bleed into the caller (see above).
+* **Argument expressions are value-producing only.**  `%set` is rejected in
+  argument position; arguments are not assignment sites.
 * **Recursion depth limit.**  A macro calling itself (directly or indirectly)
   will hit `MAX_RECURSION_DEPTH` and return a runtime error rather than
   stack-overflow.
@@ -233,6 +231,12 @@ use thiserror::Error;
 pub enum EvalError {
     #[error("Undefined macro: {0}")]
     UndefinedMacro(String),
+
+    #[error("Undefined variable: {0}")]
+    UndefinedVariable(String),
+
+    #[error("Unbound parameter '{param_name}' in macro '{macro_name}'")]
+    UnboundParameter { macro_name: String, param_name: String },
 
     #[error("Builtin error: {0}")]
     BuiltinError(String),

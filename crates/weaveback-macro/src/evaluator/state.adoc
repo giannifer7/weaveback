@@ -184,6 +184,11 @@ pub struct EvalConfig {
     /// variables.  Disabled by default so that templates cannot silently
     /// exfiltrate secrets without the user opting in via `--allow-env`.
     pub allow_env: bool,
+    /// When true, `%(name)` is an error if `name` is not bound in any scope.
+    pub strict_undefined_vars: bool,
+    /// When true, calling a macro with too few arguments is an error instead
+    /// of binding the missing params to empty strings.
+    pub strict_unbound_params: bool,
 }
 
 impl Default for EvalConfig {
@@ -193,6 +198,8 @@ impl Default for EvalConfig {
             include_paths: vec![PathBuf::from(".")],
             discovery_mode: false,
             allow_env: false,
+            strict_undefined_vars: true,
+            strict_unbound_params: true,
         }
     }
 }
@@ -527,6 +534,15 @@ impl EvaluatorState {
             }
         }
         "".to_string()
+    }
+
+    pub fn get_variable_opt(&self, name: &str) -> Option<String> {
+        for frame in self.scope_stack.iter().rev() {
+            if let Some(tv) = frame.variables.get(name) {
+                return Some(tv.value.clone());
+            }
+        }
+        None
     }
 
     /// Retrieve the tracked value of a variable.

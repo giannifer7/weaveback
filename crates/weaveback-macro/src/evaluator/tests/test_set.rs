@@ -57,7 +57,12 @@ mod tests {
         let source = "%def(render_with_prefix, msg, %{%(prefix): %(msg)%})\
                       %alias(warn, render_with_prefix, prefix = WARNING)\
                       %warn(check) %render_with_prefix(check)";
-        let result = process_string_defaults(source).unwrap();
+        let config = crate::evaluator::EvalConfig {
+            strict_undefined_vars: false,
+            ..crate::evaluator::EvalConfig::default()
+        };
+        let mut evaluator = crate::evaluator::Evaluator::new(config);
+        let result = crate::macro_api::process_string(source, None, &mut evaluator).unwrap();
         // source macro has no frozen prefix → empty string
         assert_eq!(String::from_utf8(result).unwrap(), "WARNING: check : check");
     }

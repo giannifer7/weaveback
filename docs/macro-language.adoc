@@ -118,14 +118,15 @@ user-defined macros.  Consider:
 
 [source]
 ----
-%def(id, x, %(x))
+%def(emit_counter, %(counter))
+%def(id, x, before=%emit_counter() arg=%(x) after=%emit_counter())
 %set(counter, 0)
-%id(%set(counter, 1))
-%(counter)
+%id(%set(counter, 1)%(counter))
 ----
 
-Output: `1`.  `%set(counter, 1)` runs in the **caller's scope** before `id`
-is entered, so the assignment is visible after the call.
+Output: `before=0 arg=1 after=0`.  The argument is fully expanded in the
+**caller scope** before `id` is entered, then the resulting string is bound to
+`x` in the callee frame.
 
 The one exception is `%if`, which evaluates its condition first and then
 evaluates only the selected branch.
@@ -176,8 +177,11 @@ Given a call `%foo(a, b, key = c)` and a definition `%def(foo, p, q, r, body)`:
   `EvalError::InvalidUsage`.
 . *Extra positional args*: `EvalError::InvalidUsage` — too many positional
   arguments is a bug, not a tolerated shape.
-. *Missing params*: Unbound params default to empty string (no error or warning
-  currently; see <<open-items>>).
+. *Effectful builtins in arguments*: `%set(...)` in argument position is
+  `EvalError::InvalidUsage`. Arguments are values, not assignment sites.
+. *Missing params*: Unbound params are `UnboundParameter` by default.
+  `--no-strict-params` / `EvalConfig.strict_unbound_params = false` restores
+  the old empty-string fallback.
 
 ---
 
@@ -567,6 +571,8 @@ pub struct EvalConfig {
     pub include_paths: Vec<PathBuf>,  // default: ["."]
     pub discovery_mode: bool,         // default: false
     pub allow_env: bool,              // default: false
+    pub strict_undefined_vars: bool,  // default: true
+    pub strict_unbound_params: bool,  // default: true
 }
 ----
 
@@ -617,14 +623,16 @@ graph for incremental builds.
 
 The following behaviours are known limitations and candidates for future work:
 
-. **Silent undefined variable** — `%(typo)` expands to empty string; hard to
-  debug.  A `--strict` mode or `%defined(name)` / `%default(x, fallback)`
-  helpers would let authors express intended emptiness explicitly.
+. **Undefined variable strictness** — `%(typo)` is `UndefinedVariable` by
+  default.  `--no-strict-vars` / `EvalConfig.strict_undefined_vars = false`
+  restores the old empty-string behaviour.  `%defined(name)` / `%default(x,
+  fallback)` style helpers would still improve explicitness.
 
-. **Missing (unbound) parameter** — unbound formal parameters default to empty
-  string with no diagnostic.  Explicit optional parameters with inline
-  defaults (`%def(fmt, level, tag, msg = "(none)", body)`) are a
-  possible future addition.
+. **Missing (unbound) parameter** — unbound formal parameters are
+  `UnboundParameter` by default.  `--no-strict-params` /
+  `EvalConfig.strict_unbound_params = false` restores the old empty-string
+  fallback.  Explicit optional parameters with inline defaults (`%def(fmt,
+  level, tag, msg = "(none)", body)`) are a possible future addition.
 
 . **`%(name)` variable reference vs. `%name()` call ambiguity** — `%set` and
   `%(name)` operate on different namespaces (variables vs. macros).  This is

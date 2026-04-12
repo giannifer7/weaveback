@@ -1,3 +1,4 @@
+use crate::evaluator::EvalError;
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -79,10 +80,15 @@ fn test_eval_macro_call_with_empty_arguments() {
         %})
         %eval(greet, )
         "#,
-    )
-    .unwrap();
-
-    assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, !");
+    );
+    assert!(
+        matches!(
+            result,
+            Err(EvalError::UnboundParameter { ref macro_name, ref param_name })
+            if macro_name == "greet" && param_name == "name"
+        ),
+        "expected UnboundParameter for greet/name, got: {result:?}"
+    );
 }
 
 #[test]

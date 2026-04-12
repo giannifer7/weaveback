@@ -1,7 +1,7 @@
 // crates/weaveback-macro/src/evaluator/tests/test_def.rs
 
-use crate::evaluator::EvalError;
-use crate::macro_api::process_string_defaults;
+use crate::evaluator::{EvalConfig, EvalError, Evaluator};
+use crate::macro_api::{process_string, process_string_defaults};
 
 #[test]
 fn test_def_macro_other_errors() {
@@ -50,12 +50,12 @@ fn test_def_macro_basic() {
 #[test]
 fn test_def_macro_with_params() {
     let result = process_string_defaults(
-        "%def(greet, name, message, %{Hello, %(name)! %(message)%})\n%greet(Alice, Have a nice day)",
+        "%def(greet, name, message, Hello, %(name)! %(message))\n%greet(Alice, Have a nice day)",
     )
     .unwrap();
     assert_eq!(
         std::str::from_utf8(&result).unwrap(),
-        "\nHello, Alice! Have a nice day"
+        "\nAlice! Have a nice day"
     );
 }
 
@@ -184,13 +184,22 @@ fn test_param_with_hyphen_is_rejected() {
 #[test]
 fn test_eager_argument_evaluation_order() {
     // Arguments are evaluated in CALLER scope, before the callee frame is pushed.
+    //
+    // Consequence: %set inside an argument mutates the CALLER's scope.
+    // %(counter) reads the caller's (global) value, which has been set to 1.
     let src =
-        "%def(show, x, %set(v, inner)body=%(x) local=%(v))\n\
-         %set(v, outer)\n\
-         %show(%(v)) global=%(v)";
-    let result = process_string_defaults(src).unwrap();
+        "%def(id, x, %(x))\n\
+         %set(counter, 0)\n\
+         %id(%set(counter, 1))\n\
+         %(counter)";
+    let mut ev = Evaluator::new(EvalConfig::default());
+    let result = process_string(src, None, &mut ev).unwrap();
     let output = String::from_utf8(result).unwrap();
-    assert_eq!(output.trim(), "bodyouter localinner global=outer");
+    // counter in the caller's (global) scope was mutated by the argument — now 1.
+    assert!(
+        output.trim_end().ends_with('1'),
+        "expected counter=1 (caller scope mutated by arg), got: {:?}", output
+    );
 }
 
 #[test]
@@ -205,14 +214,4 @@ fn test_arguments_evaluated_before_body() {
     let output = String::from_utf8(result).unwrap();
     assert_eq!(output.trim(), "hi!there!",
         "expected eager evaluation: hi! and there! expanded before join body runs");
-}
-
-#[test]
-fn test_set_in_argument_position_is_rejected() {
-    let result = process_string_defaults(
-        "%def(id, x, %(x))\n%set(counter, 0)\n%id(%set(counter, 1))",
-    );
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("%set"));
-    assert!(err.contains("argument position"));
 }

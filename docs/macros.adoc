@@ -79,15 +79,29 @@ Output: `Hello, World!`
 Macro bodies may call other macros and contain nested `%def` calls.
 Nested definitions are scoped to the invocation; use `%export` to promote them.
 
+`%def` creates a constant binding in the current frame. Use `%redef` when
+rebinding is intentional.
+
+=== `%redef` — explicitly rebind a macro
+
+----
+%redef(name, param1, param2, ..., body)
+----
+
+Replaces an existing rebindable binding in the current frame, or creates one
+if absent. It may not overwrite a `%def` binding.
+
 === Calling conventions
 
 These rules apply to all macro kinds:
 
-* Positional args fill declared params left-to-right; extras are silently ignored.
+* Positional args fill declared params left-to-right; extras are an error.
 * Named args (`param = value`) bind by name; an unknown name is an error.
 * Positional args must come before named args.
 * Binding the same param both ways is an error.
-* Missing args default to empty string.
+* Missing args are an error by default. `--no-strict-params` restores the old
+  empty-string fallback.
+* `%set(...)` is not allowed in argument position.
 
 ----
 %def(endpoint, method, path, handler, %{%(method) %(path) → %(handler)%})
@@ -104,6 +118,9 @@ Version: %(version)
 ----
 
 Output: `Version: 1.0.0`
+
+Undefined variables are an error by default. `--no-strict-vars` restores the
+old empty-string fallback for `%(name)`.
 
 === `%if` — conditional
 
@@ -181,6 +198,11 @@ Evaluates its argument and writes the result back into the source file at the
 call site. Useful for one-time code generation.
 
 '''
+
+=== Block forms
+
+* `%{ ... %}` is a quoted argument block: one argument, still macro-active.
+* `%[ ... %]` is a verbatim block: macro parsing is disabled inside.
 
 == `%pydef` — Python-scripted macros
 

@@ -20,6 +20,7 @@ pub fn process_string(
         None => PathBuf::from(format!("<string-{}>", evaluator.num_source_files())),
     };
     let ast = evaluator.parse_string(source, &path_for_parsing)?;
+    evaluator.validate_ast_semantics(&ast)?;
     if let Some(rp) = real_path {
         evaluator.set_current_file(rp.to_path_buf());
     }
@@ -36,6 +37,7 @@ pub fn process_string_tracing(
         None => PathBuf::from(format!("<string-{}>", evaluator.num_source_files())),
     };
     let ast = evaluator.parse_string(source, &path_for_parsing)?;
+    evaluator.validate_ast_semantics(&ast)?;
     if let Some(rp) = real_path {
         evaluator.set_current_file(rp.to_path_buf());
     }
@@ -134,6 +136,7 @@ pub fn process_string_precise(
         None => PathBuf::from(format!("<string-{}>", evaluator.num_source_files())),
     };
     let ast = evaluator.parse_string(source, &path_for_parsing)?;
+    evaluator.validate_ast_semantics(&ast)?;
     if let Some(rp) = real_path {
         evaluator.set_current_file(rp.to_path_buf());
     }

@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::evaluator::{EvalConfig, EvalError, Evaluator};
-    use crate::macro_api::{process_string, process_string_defaults};
+    use crate::evaluator::EvalError;
+    use crate::macro_api::process_string_defaults;
 
     #[test]
     fn test_export_plain_copy() {
@@ -23,12 +23,7 @@ mod tests {
 %AFILE(three)
 %(my_var)
         "#;
-        let config = EvalConfig {
-            strict_undefined_vars: false,
-            ..EvalConfig::default()
-        };
-        let mut evaluator = Evaluator::new(config);
-        let result = process_string(source, None, &mut evaluator)
+        let result = process_string_defaults(source)
             .expect("Processing failed");
         let output = String::from_utf8(result).expect("Output was not valid UTF-8");
         // my_var: its value was evaluated inside maker's body where base/name

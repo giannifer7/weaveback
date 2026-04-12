@@ -102,6 +102,27 @@ impl Evaluator {
         Ok(())
     }
 
+    fn count_live_macro_calls(&self, node: &ASTNode, macro_name: &str) -> usize {
+        let self_count =
+            usize::from(node.kind == NodeKind::Macro && self.node_text(node) == macro_name);
+        self_count
+            + node
+                .parts
+                .iter()
+                .map(|child| self.count_live_macro_calls(child, macro_name))
+                .sum::<usize>()
+    }
+
+    pub fn validate_ast_semantics(&self, root: &ASTNode) -> EvalResult<()> {
+        let here_count = self.count_live_macro_calls(root, "here");
+        if here_count > 1 {
+            return Err(EvalError::InvalidUsage(
+                "multiple live %here calls in one file are not allowed".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn plan_macro_bindings<'a>(
         &self,
         mac: &'a MacroDefinition,
@@ -563,40 +584,6 @@ impl Evaluator {
     /// additional `prefix_name` alias in the current scope.  The originals
     /// also remain so that internal cross-references inside the file continue
     /// to resolve correctly.
-    pub fn do_include_prefixed(&mut self, filename: &str, prefix: &str) -> EvalResult<String> {
-        // Snapshot which macros already exist in the current scope frame.
-        let before: std::collections::HashSet<String> = self
-            .state
-            .scope_stack
-            .last()
-            .map(|f| f.macros.keys().cloned().collect())
-            .unwrap_or_default();
-
-        self.do_include(filename)?;
-
-        // Collect all macros that were newly defined and register them prefixed.
-        let new_macros: Vec<crate::evaluator::state::MacroDefinition> = self
-            .state
-            .scope_stack
-            .last()
-            .map(|f| {
-                f.macros
-                    .iter()
-                    .filter(|(name, _)| !before.contains(*name))
-                    .map(|(_, mac)| mac.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        for mac in new_macros {
-            let prefixed_name = format!("{prefix}_{}", mac.name);
-            let mut prefixed = mac;
-            prefixed.name = prefixed_name;
-            self.state.define_macro(prefixed)?;
-        }
-
-        Ok("".into())
-    }
     // ---- Tracked evaluation (EvalOutput) ------------------------------------
 
     /// Build a `SourceSpan` from the token of an AST node, defaulting to Literal.

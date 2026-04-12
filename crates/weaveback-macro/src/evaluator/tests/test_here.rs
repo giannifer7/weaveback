@@ -71,9 +71,8 @@ fn test_here_idempotency_already_patched_file() {
 }
 
 #[test]
-fn test_here_only_first_fires_in_file() {
-    // A file with two %here calls: only the first should fire.
-    // After the first %here sets early_exit, the second is never reached.
+fn test_here_multiple_live_calls_is_error_and_noop() {
+    // Multiple live %here calls in one file are rejected before any rewrite.
     let temp_dir = TempDir::new().unwrap();
     let test_file = temp_dir.path().join("two_here.txt");
 
@@ -83,15 +82,9 @@ fn test_here_only_first_fires_in_file() {
 
     let src = fs::read_to_string(&test_file).unwrap();
     let mut ev = create_evaluator_with_temp_dir(temp_dir.path());
-    process_string(&src, Some(&test_file), &mut ev).unwrap();
+    let err = process_string(&src, Some(&test_file), &mut ev).unwrap_err().to_string();
 
     let modified = fs::read_to_string(&test_file).unwrap();
-    // Only the first %here should have been neutralised (%%here) and expanded.
-    assert!(modified.contains("%%here(a)"), "first %here should be neutralised");
-    // Second %here must still be a live call (not neutralised) because early_exit
-    // stopped evaluation before reaching it.
-    assert!(
-        modified.contains("%here(b)") && !modified.contains("%%here(b)"),
-        "second %here should be untouched (early_exit prevented it from firing)"
-    );
+    assert!(err.contains("multiple live %here calls"));
+    assert_eq!(modified, content, "file should remain unchanged on error");
 }

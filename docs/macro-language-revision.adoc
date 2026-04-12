@@ -112,11 +112,12 @@ ____
 **Extra positional args are an error.**  A positional arity mismatch is
 almost always a bug; silently ignoring it hides it.
 
-=== Open
+=== Implemented
 
-**Missing (unbound) parameters** currently default to empty string with no
-diagnostic.  Defaulting is sometimes intentional but should at minimum be
-detectable.
+**Missing (unbound) parameters** are now strict by default:
+
+* unbound formal parameters raise `UnboundParameter`
+* `--no-strict-params` restores the old empty-string fallback
 
 Possible future addition — explicit optional parameters with inline defaults:
 
@@ -180,18 +181,18 @@ current pass, allowing the same source to be interpreted in multiple ways.
 %FIELDS()
 ----
 
-No warning is emitted on redefinition.  There is no `@replace` marker.
+`%def` is now constant-in-frame and `%redef` is the explicit rebinding path.
+There is no `@replace` marker.
 
 === Accidental collision
 
-When composing independent libraries, use `%importas` so each library's names
-live under a distinct prefix and never meet.
+If independent libraries really need separate naming, solve that at the
+library-definition layer rather than relying on a second import form.
 
 === Coding-model rule
 
 ____
 Macro identifiers name roles, not values.  Redefine to change the role.
-Use `%importas` when importing independent libraries.
 ____
 
 ---
@@ -215,11 +216,12 @@ Errors:
 * Extra positional arguments
 * `%env(NAME)` when `--allow-env` is not set
 
-=== Open
+=== Implemented
 
-* Undefined variable reference (`%(typo)`) — currently silently empty.
-  Tempting to warn, but noisy in practice (many patterns rely on empty-if-absent).
-* Unbound parameters — currently default to empty with no diagnostic.
+* Undefined variable reference (`%(typo)`) is `UndefinedVariable` by default.
+  `--no-strict-vars` restores the old empty fallback.
+* Unbound parameters are `UnboundParameter` by default.
+  `--no-strict-params` restores the old empty fallback.
 
 === Useful future additions
 
@@ -292,26 +294,7 @@ ____
 
 `%include` and `%import` as-is.
 
-=== Implemented
-
-`%importas(prefix, path)` — loads `path` like `%import` (text output
-discarded, side effects kept) and additionally registers every newly-defined
-macro under a `prefix_name` alias.  The originals remain in scope so
-internal cross-references inside the imported file continue to work.
-
-[source]
-----
-%importas(mylib, lib.adoc)
-%mylib_greet(world)   <- "Hello world!"
-%greet(world)         <- also works (original remains)
-----
-
-=== Coding-model rule
-
-____
-Use `%importas` when combining independent libraries to prevent accidental
-name collision.  Use `%import` when the file's names are intentionally shared.
-____
+`%import` as-is.
 
 ---
 
@@ -381,7 +364,7 @@ For immediate use in agent/coding-model prompts:
 . Never rely on undefined variables expanding to empty.
 . Never pass side-effecting expressions as arguments.
 . Use `%alias(…, k=v)` for specialization; do not rely on exported macro capture.
-. Keep `%import` / `%importas` at top level whenever possible.
+. Keep `%import` at top level whenever possible.
 . Avoid `%here` in generated sources.
 . Prefer canonical predicates (`%eq`, `%not`) over value-returning `%equal`.
 . Treat wrong arity as a bug, not a shape.
@@ -389,8 +372,6 @@ For immediate use in agent/coding-model prompts:
 . Keep Python code in verbatim blocks when it should remain literal.
 . Prefer local `%set`; avoid cross-call hidden state via script stores.
 . Redefine macros freely to change the current pass or context (X-macro, context-dependent meaning).
-. Use `%importas` when importing independent libraries to avoid name collision.
-
 ---
 
 == Recommended macro-use profile
@@ -400,7 +381,7 @@ For immediate use in agent/coding-model prompts:
 * `%def`, `%alias(…, k=v)` for explicit specialization
 * Macro redefinition for X-macro and context-dependent-meaning patterns
 * `%set` local only
-* `%include` / `%import` / `%importas` at top level only
+* `%include` / `%import` at top level only
 * `%if`, `%eq`, `%not`, `%neq`
 * String case transforms
 * Named arguments for multi-parameter macros
@@ -437,14 +418,13 @@ For immediate use in agent/coding-model prompts:
 * Warning on `%export` at global scope
 * `%eq`, `%neq`, `%not` canonical predicates
 * verbatim blocks `%[ ... %]` / `%name[ ... %name]`
-* `%importas(prefix, path)` namespaced import
 * Warning infrastructure (`take_warnings()` on `Evaluator`)
 
 === Decided — not implementing
 
 * Warning on macro redefinition — redefinition is a first-class semantic
-  operation (X-macro pattern, context-dependent meaning).  Library name
-  collision is addressed by `%importas`.  No `@replace` annotation needed.
+  operation (X-macro pattern, context-dependent meaning).  No `@replace`
+  annotation needed.
 
 === Open
 

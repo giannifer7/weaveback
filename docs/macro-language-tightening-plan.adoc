@@ -105,39 +105,34 @@ core expression model.
 Why it is different:
 
 * rewrites source instead of producing ordinary output
-* single-fire behavior
+* one-file preflight invariant: multiple live `%here` calls are rejected
 * sets global early-exit state
 * mutates future semantics by escaping itself
 
 Near-term work:
 
 * move it further out of the conceptual core in docs
-* hard-error on a second `%here` in the same file
+* done: hard-error on multiple live `%here` calls in the same file
 
 Possible longer-term direction:
 
 * treat it as a dedicated workflow primitive instead of a normal builtin
 
-=== 5. Clarify `%importas`
+=== 5. Remove `%importas`
 
-`%importas(prefix, path)` is useful, but it is not full namespace isolation.
+`%importas` was added speculatively and did not pay for its complexity.
 
-Current behavior is closer to:
+Reasons to remove it:
 
-* import into ambient scope
-* additionally create prefixed aliases for newly introduced macros
+* no real project workflow currently depends on it
+* its semantics were more magical than the value justified
+* it invited namespace expectations it did not cleanly satisfy
 
-That is an overlay, not a strict namespace boundary.
+Direction:
 
-Near-term work:
-
-* document it more bluntly as overlay behavior
-
-Possible longer-term direction:
-
-* split into two forms:
-  - ambient import
-  - strict namespaced import
+* keep `%include` and `%import`
+* keep `%alias` as the explicit composition tool
+* if a real namespace need appears later, design it from that concrete use case
 
 === 6. Keep the block model explicit
 
@@ -148,9 +143,9 @@ The distinction is good, but easy to misread if not reinforced:
 
 Near-term work:
 
-* keep both names visible in docs
-* use examples that show the contrast directly
-* avoid prose that treats both simply as generic “blocks”
+* done: keep both names visible in docs
+* done: use examples that show the contrast directly
+* continue avoiding prose that treats both simply as generic “blocks”
 
 == Coding-model implications
 
@@ -167,7 +162,6 @@ Preferred:
 Acceptable but advanced:
 
 * `%pydef`
-* `%importas`
 * `%export`
 
 Red flags:
@@ -176,7 +170,6 @@ Red flags:
 * relying on undefined variables becoming empty
 * relying on missing parameters becoming empty
 * `%here` in generated code
-* treating `%importas` as if it were strict namespace isolation
 
 == Review questions
 

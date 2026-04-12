@@ -22,7 +22,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("pyget".to_string(), builtin_pyget as BuiltinFn);
     map.insert("include".to_string(), builtin_include as BuiltinFn);
     map.insert("import".to_string(), builtin_import as BuiltinFn);
-    map.insert("importas".to_string(), builtin_importas as BuiltinFn);
     map.insert("if".to_string(), builtin_if as BuiltinFn);
     map.insert("equal".to_string(), builtin_equal as BuiltinFn);
     map.insert("set".to_string(), builtin_set as BuiltinFn);
@@ -249,20 +248,6 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
     Ok("".into())
 }
 
-pub fn builtin_importas(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    if node.parts.len() < 2 {
-        return Err(EvalError::InvalidUsage(
-            "importas: requires (prefix, path)".into(),
-        ));
-    }
-    let prefix = single_ident_param(eval, &node.parts[0], "importas prefix")?;
-    let path = eval.evaluate(&node.parts[1])?;
-    let path = path.trim().to_string();
-    if path.is_empty() {
-        return Ok("".into());
-    }
-    eval.do_include_prefixed(&path, &prefix)
-}
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {

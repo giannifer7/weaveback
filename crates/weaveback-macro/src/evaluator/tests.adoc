@@ -89,10 +89,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 | `%eq`, `%neq`, `%not`: equality, inequality, logical negation, arity errors,
   canonical boolean output, integration with `%if`
 
-| `test_importas`
-| `%importas(prefix, path)`: prefixed aliases, multiple macros, originals
-  remain, cross-reference preservation, arity/identifier guards, discard text
-
 | `test_raw_scripts`
 | Verbatim `%[ ... %]` blocks inside `%pydef`: literal script bodies,
   param injection, and contrast with macro-aware `%{ ... %}` blocks
@@ -248,7 +244,6 @@ mod test_var;
 mod test_output;
 mod test_lexer_parser;
 mod test_eval_api;
-mod test_importas;
 mod test_predicates;
 mod test_raw_scripts;
 mod test_warnings;

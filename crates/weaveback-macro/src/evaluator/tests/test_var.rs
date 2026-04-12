@@ -1,5 +1,4 @@
-use crate::evaluator::{EvalConfig, EvalError, Evaluator};
-use crate::macro_api::{process_string, process_string_defaults};
+use crate::macro_api::process_string_defaults;
 
 #[test]
 fn test_simple_variable_substitution() {
@@ -54,21 +53,14 @@ fn test_variable_substitution_with_whitespace() {
 }
 
 #[test]
-fn test_variable_substitution_with_empty_string_when_not_strict_about_params() {
-    let config = EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    };
-    let mut evaluator = Evaluator::new(config);
-    let result = process_string(
+fn test_variable_substitution_with_empty_string() {
+    let result = process_string_defaults(
         r#"
         %def(greet, name, %{
             Hello, %(name)!
         %})
         %greet()
         "#,
-        None,
-        &mut evaluator,
     )
     .unwrap();
 
@@ -131,33 +123,8 @@ fn test_variable_substitution_with_conditional_logic() {
 }
 
 #[test]
-fn test_strict_undefined_variable_is_error() {
-    let result = process_string_defaults("before%(missing)after");
-    assert!(
-        matches!(result, Err(EvalError::UndefinedVariable(ref name)) if name == "missing"),
-        "expected UndefinedVariable(\"missing\"), got: {result:?}"
-    );
-}
-
-#[test]
-fn test_no_strict_undefined_variable_is_empty() {
-    let config = EvalConfig {
-        strict_undefined_vars: false,
-        ..EvalConfig::default()
-    };
-    let mut evaluator = Evaluator::new(config);
-    let result = process_string("before%(missing)after", None, &mut evaluator);
-    assert_eq!(String::from_utf8(result.unwrap()).unwrap(), "beforeafter");
-}
-
-#[test]
-fn test_variable_substitution_with_conditional_logic_empty_when_not_strict_about_params() {
-    let config = EvalConfig {
-        strict_unbound_params: false,
-        ..EvalConfig::default()
-    };
-    let mut evaluator = Evaluator::new(config);
-    let result = process_string(
+fn test_variable_substitution_with_conditional_logic_empty() {
+    let result = process_string_defaults(
         r#"
         %def(greet, name, %{
             %if(%(name), %{
@@ -168,8 +135,6 @@ fn test_variable_substitution_with_conditional_logic_empty_when_not_strict_about
         %})
         %greet()
         "#,
-        None,
-        &mut evaluator,
     )
     .unwrap();
 

@@ -59,7 +59,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("eq".to_string(), builtin_eq as BuiltinFn);
     map.insert("neq".to_string(), builtin_neq as BuiltinFn);
     map.insert("not".to_string(), builtin_not as BuiltinFn);
-    map.insert("pydef_raw".to_string(), builtin_pydef_raw as BuiltinFn);
     map
 }
 struct DefMacroConfig {
@@ -230,21 +229,6 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     )
 }
 
-pub fn builtin_pydef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    define_macro(
-        eval,
-        node,
-        DefMacroConfig {
-            min_params_error: "pydef_raw requires at least (name, body)".into(),
-            name_param_context: "pydef_raw name".into(),
-            formal_param_context: "pydef_raw parameter".into(),
-            duplicate_param_error: "pydef_raw".into(),
-            script_kind: ScriptKind::PythonRaw,
-            binding_kind: MacroBindingKind::Constant,
-            redefine: false,
-        },
-    )
-}
 fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());

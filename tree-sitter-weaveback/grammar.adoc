@@ -29,8 +29,9 @@ and run `npx tree-sitter generate`.
 // Context sensitivity: inside a macro arg list, ',' and ')' are
 // separators, not text.  We handle this by using two different text
 // tokens: `text` (outside args) and `arg_text` (inside args).
-// Blocks %{...%} / %tag{...%tag} escape back to the "anything goes"
-// context, so nested commas and parens inside a block are fine.
+// Blocks %{...%} / %tag{...%tag} and verbatim blocks %[...%] /
+// %tag[...%tag] escape back to the "anything goes" context, so nested
+// commas and parens inside a block are fine.
 // @
 ----
 
@@ -71,6 +72,7 @@ _node: ($) =>
     $.macro_call,
     $.variable,
     $.block,
+    $.verbatim_block,
     $.line_comment,
     $.block_comment,
     $.escaped_special,
@@ -88,6 +90,7 @@ _arg_node: ($) =>
     $.macro_call,
     $.variable,
     $.block,        // %{...%} restores full text inside
+    $.verbatim_block,
     $.line_comment,
     $.block_comment,
     $.escaped_special,
@@ -235,6 +238,54 @@ block_close: (_) =>
 
 == Comments
 
+== Verbatim blocks
+
+Verbatim blocks are opaque regions: `%[ ... %]` and `%tag[ ... %tag]`.
+They nest structurally, but their contents are literal text rather than
+macro syntax.
+
+[source,javascript]
+----
+// <<ts-verbatim-block-rule>>=
+verbatim_block: ($) =>
+  seq(
+    field("open", $.verbatim_open),
+    repeat(choice($.verbatim_text, $.verbatim_block)),
+    field("close", $.verbatim_close),
+  ),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-verbatim-open>>=
+verbatim_open: (_) =>
+  token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "[")),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-verbatim-close>>=
+verbatim_close: (_) =>
+  token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "]")),
+// @
+----
+
+[source,javascript]
+----
+// <<ts-verbatim-text>>=
+verbatim_text: (_) =>
+  token(
+    choice(
+      /[^%]+/,
+      /%[^\[\]%][^%\[\]]*/,
+      /%/,
+    ),
+  ),
+// @
+----
+
 Three line-comment forms let weaveback source sit inside host-language files
 without introducing alien comment markers: `%#` for shell, `%//` for
 C/JavaScript, and `%--` for Lua.  Block comments use `%/* ... %*/`.
@@ -372,6 +423,17 @@ module.exports = grammar({
     // <<ts-block-open>>
 
     // <<ts-block-close>>
+
+    // -----------------------------------------------------------------------
+    // Verbatim blocks: %[...] / %tag[...%tag]
+    // -----------------------------------------------------------------------
+    // <<ts-verbatim-block-rule>>
+
+    // <<ts-verbatim-open>>
+
+    // <<ts-verbatim-close>>
+
+    // <<ts-verbatim-text>>
 
     // -----------------------------------------------------------------------
     // Comments

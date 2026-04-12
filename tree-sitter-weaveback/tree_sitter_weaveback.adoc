@@ -47,7 +47,7 @@ tree-sitter-weaveback/
 │   └── tree_sitter/        ← tree-sitter C headers
 ├── queries/
 │   ├── highlights.scm      ← syntax highlighting queries
-│   └── injections.scm      ← language injection into %pydef/%pydef_raw bodies
+│   └── injections.scm      ← language injection into %pydef bodies
 ├── test/
 │   └── corpus/
 │       └── basics.txt      ← tree-sitter test suite

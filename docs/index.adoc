@@ -163,6 +163,7 @@ notes are meant to preserve them without pretending they are settled.
 * link:agent-smoothness.adoc[agent smoothness]
 * link:stability-first.adoc[stability first]
 * link:roadmap.adoc[near-term engineering plan]
+* link:macro-language-critique-prep.adoc[macro language critique prep]
 * link:linter-plan.adoc[linter planning notes]
 * link:fact-rules-plan.adoc[facts and rules for option specs]
 

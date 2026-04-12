@@ -154,9 +154,9 @@ fn test_macro_parsing() {
 fn test_token_kind_conversion() {
     use std::convert::TryFrom;
     assert!(TokenKind::try_from(0).is_ok());
-    assert!(TokenKind::try_from(14).is_ok());
+    assert!(TokenKind::try_from(16).is_ok());
     assert!(TokenKind::try_from(-1).is_err());
-    assert!(TokenKind::try_from(15).is_err());
+    assert!(TokenKind::try_from(17).is_err());
 }
 
 // -----------------------------------------------------------------------

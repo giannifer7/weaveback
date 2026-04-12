@@ -94,8 +94,8 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
   remain, cross-reference preservation, arity/identifier guards, discard text
 
 | `test_raw_scripts`
-| `%pydef_raw`: raw body (no macro expansion), param injection, contrast with
-  non-raw, arity/name guards
+| Verbatim `%[ ... %]` blocks inside `%pydef`: literal script bodies,
+  param injection, and contrast with macro-aware `%{ ... %}` blocks
 
 | `test_warnings`
 | Warning infrastructure: `%export` at global scope, `%if()` with no args,

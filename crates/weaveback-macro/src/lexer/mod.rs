@@ -21,6 +21,8 @@ fn is_whitespace(b: u8) -> bool {
 enum State {
     /// Opening byte offset of the `%{` or `%name{`.
     Block(usize),
+    /// Opening byte offset of the `%[` or `%name[`.
+    Verbatim(usize),
     /// Opening byte offset of the `%name(`.
     Macro(usize),
     /// Comment state self-reports its own unclosed error.
@@ -145,6 +147,7 @@ impl<'a> Lexer<'a> {
         std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
     }
 
+
     // ── Emission ──────────────────────────────────────────────────────────
 
     fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
@@ -179,6 +182,15 @@ impl<'a> Lexer<'a> {
                             };
                             Some((msg, *p))
                         }
+                        State::Verbatim(p) => {
+                            let tag = self.block_tag_at(*p);
+                            let msg = if tag.is_empty() {
+                                "Unclosed anonymous block '%['".to_string()
+                            } else {
+                                format!("Unclosed block '%{}['", tag)
+                            };
+                            Some((msg, *p))
+                        }
                         State::Macro(p) => {
                             Some(("Unclosed macro argument list".to_string(), *p))
                         }
@@ -202,6 +214,7 @@ impl<'a> Lexer<'a> {
             };
             let keep_state = match state {
                 State::Block(_) => self.run_block_state(),
+                State::Verbatim(_) => self.run_verbatim_state(),
                 State::Macro(_) => self.run_macro_state(),
                 State::Comment => self.run_comment_state(),
             };
@@ -237,6 +250,74 @@ impl<'a> Lexer<'a> {
                 SpecialAction::Pop => return false,
                 SpecialAction::Continue => {}
             }
+        }
+    }
+
+    // ── Verbatim state ────────────────────────────────────────────────────
+
+    fn run_verbatim_state(&mut self) -> bool {
+        loop {
+            let rest = &self.bytes[self.pos..];
+            let text_len = match memmem::find(rest, &self.sigil_bytes) {
+                Some(i) => i,
+                None => {
+                    if !rest.is_empty() {
+                        self.emit_token(self.pos, rest.len(), TokenKind::Text);
+                        self.pos = self.bytes.len();
+                    }
+                    return false;
+                }
+            };
+            if text_len > 0 {
+                self.emit_token(self.pos, text_len, TokenKind::Text);
+                self.pos += text_len;
+            }
+
+            let pct_start = self.pos;
+            self.advance_sigil();
+
+            if self.peek_byte() == Some(b'[') {
+                self.advance();
+                self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                self.state_stack.push(State::Verbatim(pct_start));
+                return true;
+            }
+
+            if self.peek_byte() == Some(b']') {
+                if self.state_stack.len() <= 1 {
+                    self.error_at(pct_start, "Unmatched verbatim close: no open block");
+                }
+                self.advance();
+                self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                return false;
+            }
+
+            if self.peek_byte().is_some_and(is_identifier_start) {
+                let id_end = self.get_identifier_end(self.pos);
+                self.pos = id_end;
+                match self.peek_byte() {
+                    Some(b'[') => {
+                        self.advance();
+                        self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                        self.state_stack.push(State::Verbatim(pct_start));
+                        return true;
+                    }
+                    Some(b']') => {
+                        if self.state_stack.len() <= 1 {
+                            self.error_at(pct_start, "Unmatched verbatim close: no open block");
+                        }
+                        self.advance();
+                        self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                        return false;
+                    }
+                    _ => {
+                        self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                        continue;
+                    }
+                }
+            }
+
+            self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
         }
     }
 
@@ -326,6 +407,18 @@ impl<'a> Lexer<'a> {
                 self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
                 SpecialAction::Pop
             }
+            Some(b'[') => {
+                self.advance();
+                self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                self.state_stack.push(State::Verbatim(pct_start));
+                SpecialAction::Push
+            }
+            Some(b']') => {
+                self.advance();
+                self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+                SpecialAction::Continue
+            }
             Some(b'/') => {
                 self.advance();
                 match self.peek_byte() {
@@ -408,6 +501,18 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
                         SpecialAction::Pop
+                    }
+                    Some(b'[') => {
+                        self.advance();
+                        self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                        self.state_stack.push(State::Verbatim(pct_start));
+                        SpecialAction::Push
+                    }
+                    Some(b']') => {
+                        self.advance();
+                        self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                        self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+                        SpecialAction::Continue
                     }
                     _ => {
                         // %identifier not followed by ( { } — pass through as plain text.

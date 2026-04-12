@@ -318,30 +318,6 @@ impl Evaluator {
         }
     }
 
-    /// Extract raw source bytes from a node without macro evaluation.
-    ///
-    /// For `Block` and `Param` nodes the delimiters (`%{`/`%}`) are stripped
-    /// by recursing into `parts`.  All other nodes are returned as their
-    /// verbatim source bytes — macro calls, variable references, etc. appear
-    /// literally in the result.  Used by `%pydef_raw`.
-    pub fn raw_text_of_node(&self, node: &ASTNode) -> String {
-        use crate::types::NodeKind;
-        match node.kind {
-            NodeKind::Block | NodeKind::Param => {
-                node.parts.iter().map(|c| self.raw_text_of_node(c)).collect()
-            }
-            NodeKind::LineComment | NodeKind::BlockComment => String::new(),
-            _ => {
-                if let Some(source) = self.state.source_manager.get_source(node.token.src) {
-                    let start = node.token.pos;
-                    let end = (node.token.pos + node.token.length).min(source.len());
-                    String::from_utf8_lossy(&source[start..end]).into_owned()
-                } else {
-                    String::new()
-                }
-            }
-        }
-    }
     pub fn extract_name_value(&self, name_token: &Token) -> String {
         if let Some(source) = self.state.source_manager.get_source(name_token.src) {
             let start = name_token.pos;
@@ -416,38 +392,15 @@ impl Evaluator {
         }
 
         self.state.call_depth += 1;
-        let mut result = match mac.script_kind {
-            ScriptKind::PythonRaw => {
-                // Raw variants: skip macro expansion — body is literal script source.
-                self.raw_text_of_node(&mac.body)
-            }
-            _ => {
-                let r = self.evaluate(&mac.body);
-                self.state.call_depth -= 1;
-                r?
-            }
-        };
-        if matches!(mac.script_kind, ScriptKind::PythonRaw) {
-            self.state.call_depth -= 1;
-        }
+        let result = self.evaluate(&mac.body);
+        self.state.call_depth -= 1;
+        let mut result = result?;
 
         match mac.script_kind {
             ScriptKind::None => {}
             ScriptKind::Python => {
                 // Pass only the explicitly declared parameters to the Python script;
                 // the store is injected as additional variables (params shadow store).
-                let args: Vec<String> = mac
-                    .params
-                    .iter()
-                    .map(|p| self.state.get_variable(p))
-                    .collect();
-                result = self
-                    .monty_evaluator
-                    .evaluate(&result, &mac.params, &args, &self.py_store, Some(&mac.name))
-                    .map_err(EvalError::Runtime)?;
-            }
-            ScriptKind::PythonRaw => {
-                // Raw Python: body is literal source; param injection same as %pydef.
                 let args: Vec<String> = mac
                     .params
                     .iter()
@@ -895,13 +848,7 @@ impl Evaluator {
         // through the script engine.  Evaluate the body again with evaluate()
         // to get the string, then run through the script engine and push
         // the result as untracked.
-        match mac.script_kind {
-            ScriptKind::None => {}
-            ScriptKind::Python => {
-            }
-            ScriptKind::PythonRaw => {
-            }
-        }
+        if matches!(mac.script_kind, ScriptKind::Python) {}
 
         self.state.pop_scope();
 

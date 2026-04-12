@@ -223,3 +223,44 @@ Nested macro call
     arg: (argument
       (arg_text)))
   (text))
+
+================================================================================
+Anonymous verbatim block
+================================================================================
+
+%[outer %macro(x) %(v)%]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (text)
+  (verbatim_block
+    open: (verbatim_open)
+    (verbatim_text)
+    (verbatim_text)
+    (verbatim_text)
+    (verbatim_text)
+    (verbatim_text)
+    close: (verbatim_close))
+  (text))
+
+================================================================================
+Tagged nested verbatim block
+================================================================================
+
+%py[one %inner[two%inner] three%py]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (text)
+  (verbatim_block
+    open: (verbatim_open)
+    (verbatim_text)
+    (verbatim_block
+      open: (verbatim_open)
+      (verbatim_text)
+      close: (verbatim_close))
+    (verbatim_text)
+    close: (verbatim_close))
+  (text))

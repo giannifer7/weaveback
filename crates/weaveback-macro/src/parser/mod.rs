@@ -70,9 +70,15 @@ impl ParseNode {
 /// stack.  `Param` receives individual tokens; `Macro` is only ever visible
 /// after `Param` is popped (at `)`) so that `handle_param` can verify the
 /// expected stack shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BlockDelim {
+    Curly,
+    Square,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum ParserState {
-    Block { tag_pos: usize, tag_len: usize },
+    Block { tag_pos: usize, tag_len: usize, delim: BlockDelim },
     Macro,
     Param,
     Comment,
@@ -128,12 +134,19 @@ impl<'a> ParseContext<'a> {
 
 /// Format a block tag for error messages.
 /// Anonymous blocks (`tag == ""`) render as `(anonymous)`;
-/// named blocks render as `%name{` (open) or `%name}` (close).
+/// named blocks render as `%name{` / `%name}` or `%name[` / `%name]`.
 fn block_tag_label(tag: &str, brace: char) -> String {
     if tag.is_empty() {
         "(anonymous)".to_string()
     } else {
         format!("%{tag}{brace}")
+    }
+}
+
+fn block_delim_chars(delim: BlockDelim) -> (char, char) {
+    match delim {
+        BlockDelim::Curly => ('{', '}'),
+        BlockDelim::Square => ('[', ']'),
     }
 }
 
@@ -241,8 +254,13 @@ impl Parser {
         ctx: &ParseContext,
         tag_pos: usize,
         tag_len: usize,
+        delim: BlockDelim,
     ) -> Result<bool, ParserError> {
-        if token.kind != TokenKind::BlockClose {
+        let expected_close = match delim {
+            BlockDelim::Curly => TokenKind::BlockClose,
+            BlockDelim::Square => TokenKind::VerbatimClose,
+        };
+        if token.kind != expected_close {
             return Ok(false);
         }
         let close_tag = Self::block_tag(&token, ctx.content);
@@ -250,8 +268,9 @@ impl Parser {
         if !ctx.tags_match(open_tag, close_tag) {
             let (ol, oc) = ctx.line_col(tag_pos);
             let (cl, cc) = ctx.line_col(token.pos);
-            let open_label = block_tag_label(ctx.tag_str(open_tag.0, open_tag.1), '{');
-            let close_label = block_tag_label(ctx.tag_str(close_tag.0, close_tag.1), '}');
+            let (open_ch, close_ch) = block_delim_chars(delim);
+            let open_label = block_tag_label(ctx.tag_str(open_tag.0, open_tag.1), open_ch);
+            let close_label = block_tag_label(ctx.tag_str(close_tag.0, close_tag.1), close_ch);
             let err = ParserError::Parse(format!(
                 "{cl}:{cc}: block tag mismatch: '{close_label}' does not close '{open_label}' (opened at {ol}:{oc})",
             ));
@@ -342,7 +361,7 @@ impl Parser {
             tokens[0].src,
             Token::synthetic(tokens[0].src, 0),
         );
-        self.stack.push((ParserState::Block { tag_pos: 0, tag_len: 0 }, root_idx));
+        self.stack.push((ParserState::Block { tag_pos: 0, tag_len: 0, delim: BlockDelim::Curly }, root_idx));
 
         for token in tokens {
             let token = *token;
@@ -353,8 +372,8 @@ impl Parser {
             }
 
             let consumed = match self.stack.last().map(|&(st, _)| st) {
-                Some(ParserState::Block { tag_pos, tag_len }) => {
-                    self.handle_block(token, &ctx, tag_pos, tag_len)?
+                Some(ParserState::Block { tag_pos, tag_len, delim }) => {
+                    self.handle_block(token, &ctx, tag_pos, tag_len, delim)?
                 }
                 Some(ParserState::Param) => self.handle_param(token)?,
                 Some(ParserState::Macro) => {
@@ -386,7 +405,16 @@ impl Parser {
                 TokenKind::BlockOpen => {
                     let (tag_pos, tag_len) = Self::block_tag(&token, ctx.content);
                     self.push_node(
-                        ParserState::Block { tag_pos, tag_len },
+                        ParserState::Block { tag_pos, tag_len, delim: BlockDelim::Curly },
+                        NodeKind::Block,
+                        token.src,
+                        token,
+                    );
+                }
+                TokenKind::VerbatimOpen => {
+                    let (tag_pos, tag_len) = Self::block_tag(&token, ctx.content);
+                    self.push_node(
+                        ParserState::Block { tag_pos, tag_len, delim: BlockDelim::Square },
                         NodeKind::Block,
                         token.src,
                         token,
@@ -418,6 +446,7 @@ impl Parser {
                         !matches!(
                             token.kind,
                             TokenKind::BlockOpen
+                                | TokenKind::VerbatimOpen
                                 | TokenKind::CommentOpen
                                 | TokenKind::Macro
                                 | TokenKind::Var
@@ -437,8 +466,9 @@ impl Parser {
         // Report unclosed non-root structures (stack[0] is always the root block).
         if self.stack.len() > 1 {
             let err = match self.stack.last().map(|&(st, idx)| (st, idx)) {
-                Some((ParserState::Block { tag_pos, tag_len }, _)) => {
-                    let label = block_tag_label(ctx.tag_str(tag_pos, tag_len), '{');
+                Some((ParserState::Block { tag_pos, tag_len, delim }, _)) => {
+                    let (open_ch, _) = block_delim_chars(delim);
+                    let label = block_tag_label(ctx.tag_str(tag_pos, tag_len), open_ch);
                     let (line, col) = ctx.line_col(tag_pos);
                     ParserError::Parse(format!("{line}:{col}: unclosed block '{label}'"))
                 }

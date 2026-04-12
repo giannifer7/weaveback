@@ -35,8 +35,6 @@ impl Default for EvalConfig {
 pub enum ScriptKind {
     None,
     Python,
-    /// Raw Python: body is literal script source; params injected as Python variables.
-    PythonRaw,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacroBindingKind {

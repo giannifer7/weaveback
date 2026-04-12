@@ -143,7 +143,7 @@ Reserved builtin namespace — builtin names cannot be called as user macros.
 
 `%def` / `%alias` attempts that use a builtin name are immediately rejected
 with an error.  The name guard runs inside the shared `define_macro` helper,
-so it covers `%pydef` and `%pydef_raw` as well.
+so it covers `%pydef` as well.
 
 === Coding-model rule
 
@@ -245,24 +245,19 @@ ____
 
 === Implemented
 
-`%pydef_raw(name, [params,] body)`:
+`%pydef(name, [params,] body)`:
 
-* The body is stored as literal script source — no macro expansion occurs.
+* Defines a Python-backed macro.
 * Declared parameters are injected directly as script-level variables.
-* `%pydef_raw` uses the same injection as `%pydef`.
-* Note: the weaveback lexer still tokenises the body at definition time, so
-  `%` must not appear in an unrecognised position inside the body.
-
-The non-raw `%pydef` (macro-expand body first, then execute) remains for
-cases that intentionally want macro preprocessing. New code should prefer the
-`_raw` variant.
+* Use `%[ ... %]` or `%tag[ ... %tag]` when the body should remain literal.
+* Use `%{ ... %}` when macro preprocessing of the script source is intentional.
 
 === Coding-model rule
 
 ____
 Inside a script body, script syntax means script syntax.
-Use `%pydef_raw` for new scripts; reserve `%pydef` for code that needs macro
-preprocessing of the body.
+Use verbatim blocks when the body should stay literal; reserve macro-aware
+blocks for code that intentionally preprocesses the script source.
 ____
 
 ---
@@ -391,7 +386,7 @@ For immediate use in agent/coding-model prompts:
 . Prefer canonical predicates (`%eq`, `%not`) over value-returning `%equal`.
 . Treat wrong arity as a bug, not a shape.
 . Do not redefine builtins or use builtin names for user macros.
-. Keep Python code in raw-script form (`%pydef_raw`).
+. Keep Python code in verbatim blocks when it should remain literal.
 . Prefer local `%set`; avoid cross-call hidden state via script stores.
 . Redefine macros freely to change the current pass or context (X-macro, context-dependent meaning).
 . Use `%importas` when importing independent libraries to avoid name collision.
@@ -413,7 +408,7 @@ For immediate use in agent/coding-model prompts:
 === Yellow path — advanced, use carefully
 
 * `%export` for variables only
-* `%pydef_raw` for computed logic
+* `%pydef` with verbatim blocks for computed logic
 * `%env` only when explicitly enabled
 * `%pydef` (non-raw) when body preprocessing is intentional
 
@@ -441,7 +436,7 @@ For immediate use in agent/coding-model prompts:
 * Warning on `%if()` with no arguments
 * Warning on `%export` at global scope
 * `%eq`, `%neq`, `%not` canonical predicates
-* `%pydef_raw` raw-body script variant
+* verbatim blocks `%[ ... %]` / `%name[ ... %name]`
 * `%importas(prefix, path)` namespaced import
 * Warning infrastructure (`take_warnings()` on `Evaluator`)
 
@@ -458,7 +453,6 @@ For immediate use in agent/coding-model prompts:
 * `%defined(name)` and `%default(x, fallback)` helpers
 * `%here` workflow reclassification
 * Multiple-`%here` error
-* Possible deprecation of non-raw `%pydef` in docs
 * Mark `%equal` as legacy in docs
 * Linter rule for naming-convention enforcement
 * Discovery mode API separation

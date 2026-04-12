@@ -8,8 +8,9 @@
 // Context sensitivity: inside a macro arg list, ',' and ')' are
 // separators, not text.  We handle this by using two different text
 // tokens: `text` (outside args) and `arg_text` (inside args).
-// Blocks %{...%} / %tag{...%tag} escape back to the "anything goes"
-// context, so nested commas and parens inside a block are fine.
+// Blocks %{...%} / %tag{...%tag} and verbatim blocks %[...%] /
+// %tag[...%tag] escape back to the "anything goes" context, so nested
+// commas and parens inside a block are fine.
 
 module.exports = grammar({
   name: "weaveback",
@@ -27,6 +28,7 @@ module.exports = grammar({
         $.macro_call,
         $.variable,
         $.block,
+        $.verbatim_block,
         $.line_comment,
         $.block_comment,
         $.escaped_special,
@@ -39,6 +41,7 @@ module.exports = grammar({
         $.macro_call,
         $.variable,
         $.block,        // %{...%} restores full text inside
+        $.verbatim_block,
         $.line_comment,
         $.block_comment,
         $.escaped_special,
@@ -108,6 +111,31 @@ module.exports = grammar({
     // %}  or  %tag}
     block_close: (_) =>
       token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "}")),
+
+    // -----------------------------------------------------------------------
+    // Verbatim blocks: %[...] / %tag[...%tag]
+    // -----------------------------------------------------------------------
+    verbatim_block: ($) =>
+      seq(
+        field("open", $.verbatim_open),
+        repeat(choice($.verbatim_text, $.verbatim_block)),
+        field("close", $.verbatim_close),
+      ),
+
+    verbatim_open: (_) =>
+      token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "[")),
+
+    verbatim_close: (_) =>
+      token(seq("%", optional(/[a-zA-Z_][a-zA-Z0-9_]*/), "]")),
+
+    verbatim_text: (_) =>
+      token(
+        choice(
+          /[^%]+/,
+          /%[^\[\]%][^%\[\]]*/,
+          /%/,
+        ),
+      ),
 
     // -----------------------------------------------------------------------
     // Comments

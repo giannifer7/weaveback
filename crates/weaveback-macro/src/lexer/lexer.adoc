@@ -62,8 +62,10 @@ every call to `run_comment_state`.
 | `Text`        | _any_           | Literal pass-through content
 | `Space`       | whitespace run  | Whitespace inside macro args (preserved)
 | `Special`     | `%%`            | Escaped sigil → literal `%` in output
-| `BlockOpen`   | `%{` / `%name{` | Opens a named or anonymous block
-| `BlockClose`  | `%}` / `%name}` | Closes the innermost open block
+| `BlockOpen`   | `%{` / `%name{` | Opens a named or anonymous macro-aware block
+| `BlockClose`  | `%}` / `%name}` | Closes the innermost open macro-aware block
+| `VerbatimOpen` | `%[` / `%name[` | Opens a named or anonymous opaque verbatim block
+| `VerbatimClose` | `%]` / `%name]` | Closes the innermost opaque verbatim block
 | `Macro`       | `%name(`        | Macro call head; starts arg-list scanning
 | `Var`         | `%(name)`       | Variable substitution
 | `Ident`       | `[A-Za-z_][…]`  | Identifier inside a macro arg list
@@ -104,6 +106,12 @@ state "Block" as B {
   B : handles all % sequences
 }
 
+state "Verbatim" as V {
+  V : memchr scan for %
+  V : emits Text spans
+  V : only handles %[ / %] nesting
+}
+
 state "Macro" as M {
   M : token-by-token scan
   M : Comma / Equal / Space
@@ -120,12 +128,17 @@ state "Comment" as C {
 B --> M : %name( push
 B --> C : %/* push
 B --> B : %name-open push
+B --> V : %name[ push
 B --> B : %name-close pop
 
 M --> C : %/* push
 M --> B : %name-open push
+M --> V : %name[ push
 M --> M : %name( push
 M --> M : ) pop
+
+V --> V : %name-open push
+V --> V : %name-close pop
 
 C --> C : %/* push
 C --> C : %*/ pop
@@ -176,6 +189,8 @@ impl<'a> Lexer<'a> {
     // <<lexer run>>
 
     // <<lexer block state>>
+
+    // <<lexer verbatim state>>
 
     // <<lexer macro state>>
 
@@ -253,6 +268,8 @@ encode exactly what the caller must do next:
 enum State {
     /// Opening byte offset of the `%{` or `%name{`.
     Block(usize),
+    /// Opening byte offset of the `%[` or `%name[`.
+    Verbatim(usize),
     /// Opening byte offset of the `%name(`.
     Macro(usize),
     /// Comment state self-reports its own unclosed error.
@@ -427,6 +444,7 @@ fn block_tag_at(&self, pct_start: usize) -> &str {
     }
     std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
 }
+
 // @
 ----
 
@@ -494,6 +512,15 @@ pub fn run(&mut self) {
                         };
                         Some((msg, *p))
                     }
+                    State::Verbatim(p) => {
+                        let tag = self.block_tag_at(*p);
+                        let msg = if tag.is_empty() {
+                            "Unclosed anonymous block '%['".to_string()
+                        } else {
+                            format!("Unclosed block '%{}['", tag)
+                        };
+                        Some((msg, *p))
+                    }
                     State::Macro(p) => {
                         Some(("Unclosed macro argument list".to_string(), *p))
                     }
@@ -517,6 +544,7 @@ pub fn run(&mut self) {
         };
         let keep_state = match state {
             State::Block(_) => self.run_block_state(),
+            State::Verbatim(_) => self.run_verbatim_state(),
             State::Macro(_) => self.run_macro_state(),
             State::Comment => self.run_comment_state(),
         };
@@ -569,6 +597,85 @@ fn run_block_state(&mut self) -> bool {
             SpecialAction::Pop => return false,
             SpecialAction::Continue => {}
         }
+    }
+}
+// @
+----
+
+== Verbatim state
+
+Verbatim blocks are opaque to macro parsing.  Only `%[` / `%name[` opens and
+`%]` / `%name]` closes are recognised; everything else, including `%macro(...)`,
+`%(var)`, comments, and `%%`, is emitted literally.
+
+[source,rust]
+----
+// <<lexer verbatim state>>=
+// ── Verbatim state ────────────────────────────────────────────────────
+
+fn run_verbatim_state(&mut self) -> bool {
+    loop {
+        let rest = &self.bytes[self.pos..];
+        let text_len = match memmem::find(rest, &self.sigil_bytes) {
+            Some(i) => i,
+            None => {
+                if !rest.is_empty() {
+                    self.emit_token(self.pos, rest.len(), TokenKind::Text);
+                    self.pos = self.bytes.len();
+                }
+                return false;
+            }
+        };
+        if text_len > 0 {
+            self.emit_token(self.pos, text_len, TokenKind::Text);
+            self.pos += text_len;
+        }
+
+        let pct_start = self.pos;
+        self.advance_sigil();
+
+        if self.peek_byte() == Some(b'[') {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+            self.state_stack.push(State::Verbatim(pct_start));
+            return true;
+        }
+
+        if self.peek_byte() == Some(b']') {
+            if self.state_stack.len() <= 1 {
+                self.error_at(pct_start, "Unmatched verbatim close: no open block");
+            }
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+            return false;
+        }
+
+        if self.peek_byte().is_some_and(is_identifier_start) {
+            let id_end = self.get_identifier_end(self.pos);
+            self.pos = id_end;
+            match self.peek_byte() {
+                Some(b'[') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                    self.state_stack.push(State::Verbatim(pct_start));
+                    return true;
+                }
+                Some(b']') => {
+                    if self.state_stack.len() <= 1 {
+                        self.error_at(pct_start, "Unmatched verbatim close: no open block");
+                    }
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                    return false;
+                }
+                _ => {
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                    continue;
+                }
+            }
+        }
+
+        self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
     }
 }
 // @
@@ -671,7 +778,9 @@ The dispatch table (by the next byte):
 
 | `(`       | `%(varname)` variable substitution — delegated to `handle_var`
 | `{`       | Anonymous block open — push `State::Block`
-| `}`       | Block close — pop current frame
+| `}`       | Macro-aware block close — pop current frame
+| `[`       | Anonymous verbatim block open — push `State::Verbatim`
+| `]`       | Verbatim block close — pop current frame
 | `/`       | Line (`%//`) or block (`%/*`) comment; `%/*` pushes `State::Comment`
 | `-`       | Line comment `%--`
 | `#`       | Line comment `%#`
@@ -712,6 +821,18 @@ fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
             self.advance();
             self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
             SpecialAction::Pop
+        }
+        Some(b'[') => {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+            self.state_stack.push(State::Verbatim(pct_start));
+            SpecialAction::Push
+        }
+        Some(b']') => {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+            self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+            SpecialAction::Continue
         }
         Some(b'/') => {
             self.advance();
@@ -795,6 +916,18 @@ fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
                     self.advance();
                     self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
                     SpecialAction::Pop
+                }
+                Some(b'[') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                    self.state_stack.push(State::Verbatim(pct_start));
+                    SpecialAction::Push
+                }
+                Some(b']') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                    self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+                    SpecialAction::Continue
                 }
                 _ => {
                     // %identifier not followed by ( { } — pass through as plain text.
@@ -935,6 +1068,7 @@ isolation.  Key cases worth noting:
   invocation with a named block containing variable references.
 * **`test_escaped_pubfunc_not_macro`** — `%%name(` must produce a
   `Special` token followed by `Text`, not a macro call.
+* **`test_verbatim_blocks_are_opaque`** — `%[` blocks keep inner macro syntax literal.
 
 [source,rust]
 ----
@@ -1173,6 +1307,41 @@ fn test_nested_blocks() {
             (TokenKind::Text, "inner"),
             (TokenKind::BlockClose, "%}"),
             (TokenKind::BlockClose, "%}"),
+        ],
+    );
+}
+
+#[test]
+fn test_verbatim_blocks_are_opaque() {
+    let input = "%[outer %macro(x) %(v) %// not a comment %]";
+    let tokens = collect_tokens_with_timeout(input).expect("Failed to collect tokens");
+
+    assert_eq!(tokens.first().map(|t| t.kind), Some(TokenKind::VerbatimOpen));
+    assert_eq!(tokens.last().map(|t| t.kind), Some(TokenKind::VerbatimClose));
+    assert!(tokens[1..tokens.len() - 1]
+        .iter()
+        .all(|t| t.kind == TokenKind::Text));
+
+    let inner = &input[2..input.len() - 2];
+    let rebuilt = tokens[1..tokens.len() - 1]
+        .iter()
+        .map(|t| &input[t.pos..t.pos + t.length])
+        .collect::<String>();
+    assert_eq!(rebuilt, inner);
+}
+
+#[test]
+fn test_nested_tagged_verbatim_blocks() {
+    assert_tokens(
+        "%py[one %inner[two%inner] three%py]",
+        &[
+            (TokenKind::VerbatimOpen, "%py["),
+            (TokenKind::Text, "one "),
+            (TokenKind::VerbatimOpen, "%inner["),
+            (TokenKind::Text, "two"),
+            (TokenKind::VerbatimClose, "%inner]"),
+            (TokenKind::Text, " three"),
+            (TokenKind::VerbatimClose, "%py]"),
         ],
     );
 }

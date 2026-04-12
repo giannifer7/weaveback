@@ -580,7 +580,7 @@ By using Weaveback, agents gain several advantages:
 https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the
 Weaveback macro language.  It is a standalone Node.js project (not part of
 the Rust workspace) that provides editor syntax highlighting, language
-injection into `%pydef`/`%pydef_raw` bodies, and `[source,weaveback]` block
+injection into `%pydef` bodies, and `[source,weaveback]` block
 highlighting inside AsciiDoc literate documents.
 
 The grammar and all editor-integration files are literate AsciiDoc sources

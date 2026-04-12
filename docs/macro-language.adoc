@@ -14,7 +14,7 @@ numbers, or lists outside of the Python escape hatch.
 
 The language has two concerns that are deliberately kept separate:
 
-* **Macro definitions** — `%def`, `%pydef`, `%pydef_raw`, `%alias`
+* **Macro definitions** — `%def`, `%redef`, `%pydef`, `%alias`
 * **Output generation** — calling defined macros and splicing their results
   into the text stream
 
@@ -50,7 +50,8 @@ contain many literal percent signs (e.g., CSS, shell scripts).
 
 | `%name(…)` | Macro call.  `name` is an identifier `[A-Za-z_][A-Za-z0-9_]*`.
 | `%(name)` | Variable reference.
-| `%{ … %}` | Anonymous block (quotes commas and parentheses).
+| `%{ … %}` / `%tag{ … %tag}` | Macro-aware block (quotes commas and parentheses).
+| `%[ … %]` / `%tag[ … %tag]` | Opaque verbatim block (disables macro parsing inside).
 | `%%` | Escaped sigil — expands to a single literal sigil character.
 | `%// …` | Line comment — discarded.
 | `%/* … %*/` | Block comment — discarded.
@@ -78,6 +79,26 @@ context.
 Use `%{%}` to pass an explicit empty string argument — the parser strips
 whitespace-only arguments, so a comma with only spaces is not a reliable way
 to pass empty.
+
+Tagged blocks `%tag{ … %tag}` behave the same way, but use an explicit tag
+for readability and nesting discipline.
+
+=== Verbatim blocks `%[ … %]` and `%tag[ … %tag]`
+
+Verbatim blocks are opaque to macro parsing:
+
+* no macro calls are expanded
+* no `%(var)` interpolation happens
+* comment syntax is not recognised
+* nesting is allowed, including tagged nesting
+
+They are the general-purpose “treat this region literally” mechanism, useful
+for embedded scripts, regexes, templates, or any local `--nomacro` behaviour.
+
+[source]
+----
+%pydef(greet, name, %[ "hello " + name %])
+----
 
 === Identifiers
 
@@ -137,7 +158,7 @@ When `%foo(…)` is encountered:
 
 Attempting to define a user macro with a builtin name (`%def(set, …)`) is
 immediately rejected with `EvalError::InvalidUsage`.  This applies to `%def`,
-`%alias`, `%pydef`, and `%pydef_raw`.
+`%redef`, `%alias` and `%pydef`.
 
 === Argument binding
 
@@ -181,13 +202,13 @@ Evaluates `value` and stores it as `name` in the current top frame.
 
 === `%def(name, [params…,] body)`
 
-Defines a text-substitution macro.
+Defines a **constant** text-substitution macro in the current frame.
 
 [cols="1,3"]
 |===
 | Field | Rule
 
-| `name` | Single identifier.  Must not be a builtin name.  Redefining an existing user macro is allowed and silent (see <<macro-redefinition>>).
+| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as either constant or rebindable.
 | `params` | Zero or more identifiers, comma-separated.  Duplicates are an error.  A trailing comma is ignored.
 | `body` | Last argument.  Typically an anonymous block `%{ … %}` when the body contains commas or parentheses.
 |===
@@ -196,14 +217,37 @@ The macro body is stored as an `Arc<ASTNode>` — cloning a macro definition is
 `O(1)` (no deep copy of the body).
 
 [[macro-redefinition]]
-=== Macro redefinition
+=== `%redef(name, [params…,] body)`
 
-Redefining a macro with `%def` (or any definition form) silently replaces the
-previous definition.  Redefinition is a **first-class semantic operation**
-supporting two canonical patterns:
+Defines or replaces a **rebindable** macro in the current frame.
+
+[cols="1,3"]
+|===
+| Field | Rule
+
+| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as a constant binding. If the name already exists as rebindable in the current frame, it is replaced.
+| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. A trailing comma is ignored.
+| `body` | Last argument. Typically an anonymous block `%{ … %}` when the body contains commas or parentheses.
+|===
+
+=== Constant vs. rebindable names
+
+The definition model is intentionally explicit:
+
+* `%def` creates a constant binding
+* `%redef` creates or replaces a rebindable binding
+
+That gives one simple invariant:
+
+* constant names stay constant
+* rebindable names are explicitly marked
+
+Use `%redef` for deliberate X-macro or multi-pass rebinding patterns.
+
+=== Rebinding patterns
 
 X-macro pattern::
-A schema is defined once; successive passes redefine the `X` visitor to map
+A schema is defined once; successive passes rebind the `X` visitor to map
 that schema into different outputs.
 
 Context-dependent meaning::
@@ -217,10 +261,10 @@ current pass, allowing the same source to be interpreted multiple ways.
   %X(age, int)
 %})
 
-%def(X, name, type, %(name): %(type),)          <- pass 1: struct fields
+%redef(X, name, type, %(name): %(type),)          <- pass 1: struct fields
 %FIELDS()
 
-%def(X, name, type, new_%(name): impl Into<%(type)>)  <- pass 2: ctor params
+%redef(X, name, type, new_%(name): impl Into<%(type)>)  <- pass 2: ctor params
 %FIELDS()
 ----
 
@@ -233,23 +277,14 @@ Same argument structure as `%def`. At call time, the body is **first
 macro-expanded** (substituting `%(param)` references), then executed as Python
 (monty) source code. The return value of the script is the macro's expansion.
 
+Declared parameters are injected as Python variables. Ordinary `%set`
+variables are **not** automatically injected into the Python scope; if Python
+code needs their values, they must be interpolated during macro expansion
+before execution.
+
 Because the body undergoes macro expansion before execution, any literal `%`
-sigil in the script source must be doubled (`%%`), and macro calls embedded in
-string literals inside the body will expand before the script sees them. Use
-`%pydef_raw` for new scripts to avoid this.
-
-=== `%pydef_raw(name, [params…,] body)`
-
-Like `%pydef`, but the body is stored as **literal script source
-without any macro expansion**.  Declared parameters are injected directly as
-script-level variables; the body is executed as-is.
-
-Prefer the `_raw` variants for new scripts.  Reserve the non-raw variants for
-cases where macro preprocessing of the body is intentional.
-
-Note: the weaveback lexer still tokenises the body at definition time, so `%`
-must not appear in an unrecognised position inside the body (e.g., `%"` would
-be a lex error).
+sigil in the script source must either be doubled (`%%`) or placed inside a
+verbatim block so the script sees it literally.
 
 === `%alias(new_name, source_name [, key = val, …])` — Macro aliasing
 
@@ -391,7 +426,7 @@ immediately.  This is not an error condition.
 | `UndefinedMacro(name)` | Macro `%name` not found in scope or builtins
 | `InvalidUsage(msg)` | Wrong arg count; invalid identifier; positional-after-named;
   duplicate binding; unknown named arg; extra positional args;
-  attempt to define a builtin name
+  attempt to define a builtin name; invalid `%def` / `%redef` rebinding
 | `Runtime(msg)` | Recursion limit exceeded; script engine error; `%here` I/O failure
 | `ParseError(msg)` | Lexer or parser failure in a file being evaluated
 | `IncludeNotFound(path)` | `%include`/`%import`/`%importas` path not resolved
@@ -547,9 +582,9 @@ graph for incremental builds.
 |===
 | Call form | Description | Args | Returns
 
-| `%def(n, [p…,] body)` | Define text macro | 2+ | empty
-| `%pydef(n, [p…,] body)` | Define Python macro (body macro-expanded first) | 2+ | empty
-| `%pydef_raw(n, [p…,] body)` | Define Python macro (body literal, preferred) | 2+ | empty
+| `%def(n, [p…,] body)` | Define constant text macro | 2+ | empty
+| `%redef(n, [p…,] body)` | Define or replace rebindable text macro | 2+ | empty
+| `%pydef(n, [p…,] body)` | Define Python macro | 2+ | empty
 | `%set(n, v)` | Assign variable in current frame | 2 | empty
 | `%alias(new, src [, k=v…])` | Alias / partial application | 2+ | empty
 | `%export(n)` | Copy binding to parent frame | 1 | empty

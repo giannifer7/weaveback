@@ -206,9 +206,8 @@ impl Default for EvalConfig {
 `None`:: Body is macro-expanded and returned as-is.
 `Python`:: Body is macro-expanded first, then the result string is
   executed as a script.  All visible scope variables are injected into the
-  script environment.
-`PythonRaw`:: Body is passed as literal script source (no macro
-  expansion).  Only the declared parameters are injected as script variables.
+  script environment.  Use verbatim blocks (`%[ ... %]`) inside the body when
+  literal script text is required.
 
 [source,rust]
 ----
@@ -217,8 +216,6 @@ impl Default for EvalConfig {
 pub enum ScriptKind {
     None,
     Python,
-    /// Raw Python: body is literal script source; params injected as Python variables.
-    PythonRaw,
 }
 // @
 ----

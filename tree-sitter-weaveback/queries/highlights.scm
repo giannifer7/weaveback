@@ -4,7 +4,7 @@
 (macro_call
   name: (macro_name) @keyword
   (#match? @keyword
-    "^%(def|redef|pydef|pydef_raw|set|if|equal|include|import|eval|here|export|env|pyset|pyget|capitalize|decapitalize|convert_case|to_snake_case|to_camel_case|to_pascal_case|to_screaming_case)$"))
+    "^%(def|redef|pydef|set|if|equal|include|import|eval|here|export|env|pyset|pyget|capitalize|decapitalize|convert_case|to_snake_case|to_camel_case|to_pascal_case|to_screaming_case)$"))
 
 ; --- User-defined macro calls -----------------------------------------------
 (macro_call
@@ -19,6 +19,8 @@
 ; --- Block delimiters -------------------------------------------------------
 (block_open)  @punctuation.bracket
 (block_close) @punctuation.bracket
+(verbatim_open)  @punctuation.bracket
+(verbatim_close) @punctuation.bracket
 
 ; --- Comments ---------------------------------------------------------------
 (line_comment)  @comment

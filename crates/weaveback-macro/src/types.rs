@@ -19,7 +19,9 @@ pub enum TokenKind {
     LineComment = 11,
     CommentOpen = 12,
     CommentClose = 13,
-    EOF = 14,
+    VerbatimOpen = 14,
+    VerbatimClose = 15,
+    EOF = 16,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum NodeKind {
@@ -103,7 +105,9 @@ impl TryFrom<i32> for TokenKind {
             11 => Ok(TokenKind::LineComment),
             12 => Ok(TokenKind::CommentOpen),
             13 => Ok(TokenKind::CommentClose),
-            14 => Ok(TokenKind::EOF),
+            14 => Ok(TokenKind::VerbatimOpen),
+            15 => Ok(TokenKind::VerbatimClose),
+            16 => Ok(TokenKind::EOF),
             _ => Err(format!("Invalid token kind: {}", value)),
         }
     }
@@ -168,6 +172,8 @@ mod tests {
             TokenKind::LineComment,
             TokenKind::CommentOpen,
             TokenKind::CommentClose,
+            TokenKind::VerbatimOpen,
+            TokenKind::VerbatimClose,
             TokenKind::EOF,
         ];
         for (i, kind) in expected.into_iter().enumerate() {
@@ -178,7 +184,7 @@ mod tests {
     #[test]
     fn token_kind_try_from_rejects_invalid_values() {
         assert!(TokenKind::try_from(-1).is_err());
-        assert!(TokenKind::try_from(15).is_err());
+        assert!(TokenKind::try_from(17).is_err());
         assert!(TokenKind::try_from(99).is_err());
     }
 

@@ -3,8 +3,8 @@
 
 link:tests.adoc[← back to test index]
 
-Tests for the monty-backed Python scripting path (`%pydef`, `%pydef_raw`,
-`%pyset`, `%pyget`) including persistent store behaviour.
+Tests for the monty-backed Python scripting path (`%pydef`, `%pyset`,
+`%pyget`) including persistent store behaviour and verbatim script blocks.
 
 == Python scripting (`test_pydef.rs`)
 

@@ -274,6 +274,10 @@ impl Evaluator {
         self.state.config.allow_env
     }
 
+    pub fn env_prefix(&self) -> Option<&str> {
+        self.state.config.env_prefix.as_deref()
+    }
+
     pub fn num_source_files(&self) -> usize {
         self.state.source_manager.num_sources()
     }

@@ -137,9 +137,6 @@ about chunk composition rather than macro evaluation.
 | `%if(cond, then[, else])`
 | If `cond` is non-empty (after trim), expand `then`; otherwise expand `else` (if provided).
 
-| `%equal(a, b)`
-| Return `a` if `a == b` (exact bytes); otherwise return `""`.
-
 | `%eval(name, args…)`
 | Look up `name` at evaluation time and call the macro with `args`.  Used for dynamic dispatch.
 
@@ -180,7 +177,7 @@ about chunk composition rather than macro evaluation.
 // <<builtins define macro helper>>
 // <<builtins def pydef>>
 // <<builtins include import>>
-// <<builtins if equal>>
+// <<builtins if>>
 // <<builtins set export eval here>>
 // <<builtins capitalize>>
 // <<builtins convert case builtins>>
@@ -240,7 +237,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("include".to_string(), builtin_include as BuiltinFn);
     map.insert("import".to_string(), builtin_import as BuiltinFn);
     map.insert("if".to_string(), builtin_if as BuiltinFn);
-    map.insert("equal".to_string(), builtin_equal as BuiltinFn);
     map.insert("set".to_string(), builtin_set as BuiltinFn);
     map.insert("alias".to_string(), builtin_alias as BuiltinFn);
     map.insert("export".to_string(), builtin_export as BuiltinFn);
@@ -523,14 +519,13 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
 // @
 ----
 
-== `%if` and `%equal`
+== `%if`
 
-`%if` treats any non-whitespace-only string as truthy.  `%equal` returns the
-first argument if both arguments are byte-identical, otherwise `""`.
+`%if` treats any non-empty string as truthy.
 
 [source,rust]
 ----
-// <<builtins if equal>>=
+// <<builtins if>>=
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
@@ -551,16 +546,6 @@ pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
             Ok("".into())
         }
     }
-}
-
-pub fn builtin_equal(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    let parts = &node.parts;
-    if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage("equal: exactly 2 args".into()));
-    }
-    let a = eval.evaluate(&parts[0])?;
-    let b = eval.evaluate(&parts[1])?;
-    if a == b { Ok(a) } else { Ok("".into()) }
 }
 // @
 ----
@@ -840,7 +825,12 @@ pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
         return Ok("".into());
     }
     let name = eval.evaluate(&node.parts[0])?;
-    Ok(std::env::var(name.trim()).unwrap_or_default())
+    let lookup_name = if let Some(prefix) = eval.env_prefix() {
+        format!("{prefix}{}", name.trim())
+    } else {
+        name.trim().to_string()
+    };
+    Ok(std::env::var(lookup_name).unwrap_or_default())
 }
 // @
 ----

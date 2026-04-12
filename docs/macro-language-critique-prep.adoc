@@ -54,7 +54,6 @@ The most useful external criticism is on these questions:
 
 These are real candidates for critique, not oversights in the review request:
 
-* `%equal` still exists as a legacy non-canonical predicate
 * `%here` remains operationally odd even though the docs are clearer now
 * discovery mode is still a flag on config rather than a separate API surface
 

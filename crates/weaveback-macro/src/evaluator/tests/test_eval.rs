@@ -1,4 +1,5 @@
-use crate::macro_api::process_string_defaults;
+use crate::evaluator::{EvalConfig, Evaluator};
+use crate::macro_api::{process_string, process_string_defaults};
 
 #[test]
 fn test_eval_simple_macro_call() {
@@ -72,13 +73,19 @@ fn test_eval_macro_call_with_conditional_logic() {
 
 #[test]
 fn test_eval_macro_call_with_empty_arguments() {
-    let result = process_string_defaults(
+    let mut eval = Evaluator::new(EvalConfig {
+        strict_unbound_params: false,
+        ..EvalConfig::default()
+    });
+    let result = process_string(
         r#"
         %def(greet, name, %{
             Hello, %(name)!
         %})
         %eval(greet, )
         "#,
+        None,
+        &mut eval,
     )
     .unwrap();
 

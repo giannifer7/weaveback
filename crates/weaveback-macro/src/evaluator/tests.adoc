@@ -9,7 +9,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 == Focused test pages
 
 * link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
-* link:tests-control.adoc[tests-control.adoc] — `%if`, `%equal`, `%include`, `%import`, `%export`, `%eval`, `%here`
+* link:tests-control.adoc[tests-control.adoc] — `%if`, `%include`, `%import`, `%export`, `%eval`, `%here`
 * link:tests-case.adoc[tests-case.adoc] — case conversion module + case-modifier builtins
 * link:tests-scripting.adoc[tests-scripting.adoc] — Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
 * link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
@@ -38,9 +38,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 | `test_if`
 | `%if` conditionals: truthy/falsy strings, nested, macro conditions
-
-| `test_equal`
-| `%equal`: exact-match comparison, whitespace sensitivity
 
 | `test_include`
 | `%include`: basic, macros, missing file, circular detection, symlinks, scope,
@@ -128,10 +125,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // <<@file weaveback-macro/src/evaluator/tests/test_if.rs>>=
 // <<test if>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_equal.rs>>=
-// <<test equal>>
 // @
 
 // <<@file weaveback-macro/src/evaluator/tests/test_include.rs>>=
@@ -224,7 +217,6 @@ mod test_case_modifiers;
 mod test_core;
 mod test_def;
 mod test_env;
-mod test_equal;
 mod test_eval;
 mod test_export;
 mod test_here;

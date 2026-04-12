@@ -5,7 +5,6 @@ mod test_case_modifiers;
 mod test_core;
 mod test_def;
 mod test_env;
-mod test_equal;
 mod test_eval;
 mod test_export;
 mod test_here;

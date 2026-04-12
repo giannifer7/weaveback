@@ -19,6 +19,8 @@ pub struct EvalConfig {
     /// variables.  Disabled by default so that templates cannot silently
     /// exfiltrate secrets without the user opting in via `--allow-env`.
     pub allow_env: bool,
+    /// Optional prefix prepended to `%env(NAME)` lookups.
+    pub env_prefix: Option<String>,
     /// When true, `%(name)` is an error if `name` is not bound in any scope.
     pub strict_undefined_vars: bool,
     /// When true, calling a macro with too few arguments is an error instead
@@ -33,6 +35,7 @@ impl Default for EvalConfig {
             include_paths: vec![PathBuf::from(".")],
             discovery_mode: false,
             allow_env: false,
+            env_prefix: None,
             strict_undefined_vars: true,
             strict_unbound_params: true,
         }

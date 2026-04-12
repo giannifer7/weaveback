@@ -23,7 +23,11 @@ mod tests {
 %AFILE(three)
 %(my_var)
         "#;
-        let result = process_string_defaults(source)
+        let mut eval = crate::evaluator::Evaluator::new(crate::evaluator::EvalConfig {
+            strict_undefined_vars: false,
+            ..Default::default()
+        });
+        let result = crate::macro_api::process_string(source, None, &mut eval)
             .expect("Processing failed");
         let output = String::from_utf8(result).expect("Output was not valid UTF-8");
         // my_var: its value was evaluated inside maker's body where base/name

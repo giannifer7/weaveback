@@ -133,14 +133,6 @@ Empty string is falsy; any non-empty string is truthy.
 
 Output: `[DEBUG MODE]`
 
-=== `%equal` — equality test
-
-Returns its first argument if both arguments are equal, otherwise empty string.
-
-----
-%equal(%(mode), release)
-----
-
 === `%include` / `%import`
 
 `%include` expands the file inline. `%import` expands it but discards the

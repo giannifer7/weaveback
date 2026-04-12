@@ -12,12 +12,6 @@ The macro language is a **strict, eager, string-valued expansion system**.
 Every macro call reduces to a string.  There are no first-class booleans,
 numbers, or lists outside of the Python escape hatch.
 
-The language has two concerns that are deliberately kept separate:
-
-* **Macro definitions** — `%def`, `%redef`, `%pydef`, `%alias`
-* **Output generation** — calling defined macros and splicing their results
-  into the text stream
-
 A weaveback run processes one or more _driver_ files.  Each file is parsed
 into an AST and then _evaluated_: text nodes pass through unchanged, macro
 calls are dispatched and their results are spliced in.
@@ -25,7 +19,8 @@ calls are dispatched and their results are spliced in.
 === Sigil
 
 The default sigil is `%`.  Every syntactic construct in the language begins
-with the sigil.  The sigil itself can be changed per-run with `--sigil`.
+with the sigil.  The sigil itself can be changed per-run with `--sigil`, and
+it may be any single UTF-8 scalar value accepted by Rust `char`.
 A doubled sigil (`%%`) is a literal single sigil character; the macro
 expander never processes it as a call.
 
@@ -50,11 +45,11 @@ contain many literal percent signs (e.g., CSS, shell scripts).
 
 | `%name(…)` | Macro call.  `name` is an identifier `[A-Za-z_][A-Za-z0-9_]*`.
 | `%(name)` | Variable reference.
-| `%{ … %}` / `%tag{ … %tag}` | Quoted argument block (single argument, still macro-active).
-| `%[ … %]` / `%tag[ … %tag]` | Opaque verbatim block (disables macro parsing inside).
+| `%{ … %}` / `%tag{ … %tag}` | Quoted argument block (single argument, still macro-active, nestable).
+| `%[ … %]` / `%tag[ … %tag]` | Opaque verbatim block (disables macro parsing inside, nestable).
 | `%%` | Escaped sigil — expands to a single literal sigil character.
 | `%// …` | Line comment — discarded.
-| `%/* … %*/` | Block comment — discarded.
+| `%/* … %*/` | Block comment — discarded, nestable.
 |===
 
 Everything else is literal text.
@@ -73,12 +68,13 @@ otherwise be split:
 Without the block, the comma after `Hello` would split the argument list into
 `Hello` and ` %(name)!`, giving `greet` four arguments instead of three.
 
-Quoted argument blocks have **no scope of their own**. They are evaluated in the enclosing
-context.
+Quoted argument blocks have **no scope of their own**. They are evaluated in
+the enclosing context. They preserve their leading whitespace exactly as
+written.
 
-Use `%{%}` to pass an explicit empty string argument — the parser strips
-whitespace-only arguments, so a comma with only spaces is not a reliable way
-to pass empty.
+`%{%}` is the most explicit way to pass an empty string argument. A bare blank
+argument between commas also works in practice, but `%{%}` is easier to read,
+review, and preserve through edits.
 
 Tagged quoted blocks `%tag{ … %tag}` behave the same way, but use an explicit tag
 for readability and nesting discipline.
@@ -94,6 +90,7 @@ Verbatim blocks are opaque to macro parsing:
 
 They are the general-purpose “treat this region literally” mechanism, useful
 for embedded scripts, regexes, templates, or any local `--nomacro` behaviour.
+Like quoted argument blocks, they preserve leading whitespace exactly.
 
 Direct contrast:
 
@@ -111,9 +108,8 @@ Direct contrast:
 
 === Identifiers
 
-An identifier is `[A-Za-z_][A-Za-z0-9_]*`.  Hyphens are *not* identifier
-characters; `foo-bar` parses as `foo` (identifier), `-bar` (text).  This is a
-common source of confusion when porting shell variable names or CSS class names.
+An identifier is currently `[A-Za-z_][A-Za-z0-9_]*`.  Hyphens are *not*
+identifier characters; `foo-bar` parses as `foo` (identifier), `-bar` (text).
 
 ---
 
@@ -127,15 +123,14 @@ user-defined macros.  Consider:
 
 [source]
 ----
-%def(emit_counter, %(counter))
-%def(id, x, before=%emit_counter() arg=%(x) after=%emit_counter())
-%set(counter, 0)
-%id(%set(counter, 1)%(counter))
+%set(counter, caller)
+%def(id, x, before=%(counter) arg=%(x) after=%(counter))
+%id(%(counter))
 ----
 
-Output: `before=0 arg=1 after=0`.  The argument is fully expanded in the
-**caller scope** before `id` is entered, then the resulting string is bound to
-`x` in the callee frame.
+Output: `before=caller arg=caller after=caller`.  The argument is fully
+expanded in the **caller scope** before `id` is entered, then the resulting
+string is bound to `x` in the callee frame.
 
 The one exception is `%if`, which evaluates its condition first and then
 evaluates only the selected branch.
@@ -224,8 +219,8 @@ Defines a **constant** text-substitution macro in the current frame.
 | Field | Rule
 
 | `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as either constant or rebindable.
-| `params` | Zero or more identifiers, comma-separated.  Duplicates are an error.  A trailing comma is ignored.
-| `body` | Last argument. Typically a quoted argument block `%{ … %}` when the body contains commas or parentheses.
+| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored.
+| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies.
 |===
 
 The macro body is stored as an `Arc<ASTNode>` — cloning a macro definition is
@@ -241,8 +236,8 @@ Defines or replaces a **rebindable** macro in the current frame.
 | Field | Rule
 
 | `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as a constant binding. If the name already exists as rebindable in the current frame, it is replaced.
-| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. A trailing comma is ignored.
-| `body` | Last argument. Typically a quoted argument block `%{ … %}` when the body contains commas or parentheses.
+| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored.
+| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies.
 |===
 
 === Constant vs. rebindable names
@@ -286,24 +281,26 @@ current pass, allowing the same source to be interpreted multiple ways.
 === `%pydef(name, [params…,] body)`
 
 Same argument structure as `%def`. At call time, the body is **first
-macro-expanded** (substituting `%(param)` references), then executed as Python
-(monty) source code. The return value of the script is the macro's expansion.
+macro-expanded**, then executed as Python (monty) source code. The return
+value of the script is the macro's expansion.
 
 Declared parameters are injected as Python variables. Ordinary `%set`
 variables are **not** automatically injected into the Python scope; if Python
 code needs their values, they must be interpolated during macro expansion
 before execution.
 
-Because the body undergoes macro expansion before execution, any literal `%`
-sigil in the script source must either be doubled (`%%`) or placed inside a
-verbatim block so the script sees it literally.
+The natural forms are:
+
+* `%pydef(name, ..., %[ ... %])` for literal script bodies
+* `%pydef(name, ..., %{ ... %})` only when macro preprocessing of the script
+  source is intentional
 
 === `%alias(new_name, source_name [, key = val, …])` — Macro aliasing
 
 Creates a new macro definition that is a copy of `source_name` at the moment
 `%alias` is called.  The copy shares the body `Arc` (`O(1)` clone).
 
-**Snapshot semantics**: Later redefinition of `source_name` does not affect
+**Snapshot semantics**: later redefinition of `source_name` does not affect
 the alias.
 
 **Free-variable pre-binding** (optional named args): Each `key = val` pair is
@@ -350,10 +347,12 @@ The macro language has no boolean type.  The convention used by all builtins:
 
 Predicates return `1` (truthy) or empty (falsy).
 
-Note: the parser strips leading whitespace from unquoted arguments.  An
-unquoted whitespace-only argument (`%foo(   )`) arrives as empty string and
-is falsy.  Content inside `%{ … %}` blocks is preserved verbatim, so
-`%foo(%{   %})` receives three spaces, which is non-empty and truthy.
+Note:
+
+* the parser strips leading whitespace from unquoted arguments
+* `0` is still truthy because it is a non-empty string
+* content inside `%{ … %}` blocks is preserved verbatim, so `%foo(%{   %})`
+  receives three spaces, which is non-empty and therefore truthy
 
 ---
 
@@ -388,11 +387,6 @@ empty if the argument is non-empty.
 `%not()` with no argument: treats the absent argument as empty, so returns `1`.
 `%not(a, b)` is `EvalError::InvalidUsage`.
 
-=== `%equal(a, b)` — Legacy equality
-
-Returns `a` if `a == b`, empty if not.  Retained for backward compatibility.
-Prefer `%eq` in new code.
-
 === `%eval(name, args…)` — Dynamic dispatch
 
 Evaluates the first argument to obtain a macro name, then calls that macro with
@@ -419,8 +413,8 @@ Caveats:
 * Multiple live `%here` calls in one file are a hard error.
 * The source file must be writable.
 * `%here` is a source-rewrite operation, not a normal expression-forming macro.
-  Generated code should not contain it. Treat it as operational machinery, not
-  part of the calm conceptual core of the language.
+  Treat it as operational machinery, not part of the calm conceptual core of
+  the language.
 
 Once `%here` sets `early_exit`, all subsequent `evaluate()` calls return empty
 immediately.  This is not an error condition.
@@ -436,9 +430,7 @@ immediately.  This is not an error condition.
 | Error | Trigger
 
 | `UndefinedMacro(name)` | Macro `%name` not found in scope or builtins
-| `InvalidUsage(msg)` | Wrong arg count; invalid identifier; positional-after-named;
-  duplicate binding; unknown named arg; extra positional args;
-  attempt to define a builtin name; invalid `%def` / `%redef` rebinding
+| `InvalidUsage(msg)` | Wrong arg count; invalid identifier; positional-after-named; duplicate binding; unknown named arg; extra positional args; attempt to define a builtin name; invalid `%def` / `%redef` rebinding
 | `Runtime(msg)` | Recursion limit exceeded; script engine error; `%here` I/O failure
 | `ParseError(msg)` | Lexer or parser failure in a file being evaluated
 | `IncludeNotFound(path)` | `%include`/`%import` path not resolved
@@ -481,7 +473,7 @@ transformation.  Word boundaries are:
 | `%to_camel_case(s)` | Lower first word, upper rest | `foo_bar` → `fooBar`
 | `%to_pascal_case(s)` | Upper every word | `foo_bar` → `FooBar`
 | `%to_screaming_case(s)` | Upper, underscore-separated | `FooBar` → `FOO_BAR`
-| `%convert_case(s, style)` | Dispatch by `style` string | —
+| `%convert_case(s, style)` | Dispatch by `style` string (`snake`, `camel`, `pascal`, `screaming`) | —
 |===
 
 All return empty string if input is empty.
@@ -536,8 +528,10 @@ behaviour order-dependent.  Prefer local `%set` where possible.
 
 === `%env(NAME)` — Environment variable
 
-Reads `NAME` from the process environment.  Requires `--allow-env`; returns
-empty string if not found or if `--allow-env` is not set.
+Reads `NAME` from the process environment. Requires `--allow-env`.
+
+If `EvalConfig.env_prefix = Some("WB_".into())` or the CLI is run with
+`--env-prefix WB_`, then `%env(PATH)` reads `WB_PATH`.
 
 ---
 
@@ -560,14 +554,16 @@ pub struct EvalConfig {
     pub include_paths: Vec<PathBuf>,  // default: ["."]
     pub discovery_mode: bool,         // default: false
     pub allow_env: bool,              // default: false
+    pub env_prefix: Option<String>,   // default: None
     pub strict_undefined_vars: bool,  // default: true
     pub strict_unbound_params: bool,  // default: true
 }
 ----
 
-**Discovery mode**: `%include`/`%import` record the resolved path in
-`discovered_includes` without evaluating.  Used to collect the dependency
-graph for incremental builds.
+**Discovery mode**: `%include` / `%import` still evaluate their path argument.
+If that path expands to empty, the include is skipped normally. If it expands
+to a real path, the resolved path is recorded in `discovered_includes` and the
+target file is not evaluated.
 
 ---
 
@@ -589,7 +585,6 @@ graph for incremental builds.
 | `%eq(a, b)` | Equality predicate | 2 | `1` or empty
 | `%neq(a, b)` | Inequality predicate | 2 | `1` or empty
 | `%not([x])` | Logical negation | 0–1 | `1` or empty
-| `%equal(a, b)` | Legacy equality (returns `a`) | 2 | `a` or empty
 | `%eval(n, args…)` | Dynamic dispatch | 1+ | macro result
 | `%here(n, args…)` | Patch source file and stop | 1+ | empty
 | `%capitalize(s)` | Upper-case first char | 1 | string
@@ -622,21 +617,9 @@ The following behaviours are known limitations and candidates for future work:
   fallback.  Explicit optional parameters with inline defaults (`%def(fmt,
   level, tag, msg = "(none)", body)`) are a possible future addition.
 
-. **`%(name)` variable reference vs. `%name()` call ambiguity** — `%set` and
-  `%(name)` operate on different namespaces (variables vs. macros).  This is
-  intentional but occasionally surprising.
-
 . **`%here` remains operationally special** — it rewrites the source file and
   aborts further evaluation via `early_exit`.  This is intentional, but it
   still sits outside the calm core of the language.
 
 . **`MAX_RECURSION_DEPTH` not user-configurable** — value is a compiled-in
   constant, not surfaced in config or error messages.
-
-. **No builtin string operations** — no substring, trim, length, or join;
-  these require Python or multi-step `%def` chains.
-
-. **Discovery mode API** — currently a flag on `EvalConfig`; ideally a
-  separate `discover_dependencies()` entry point so the same source text
-  cannot accidentally be evaluated in two radically different ways depending
-  on a hidden flag.

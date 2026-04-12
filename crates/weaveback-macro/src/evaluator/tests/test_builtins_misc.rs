@@ -9,19 +9,6 @@ fn eval_default(src: &str) -> Result<String, EvalError> {
 }
 
 #[test]
-fn test_equal_wrong_arity_reports_error() {
-    let err = eval_default("%equal(one)").unwrap_err();
-    assert!(matches!(err, EvalError::InvalidUsage(_)));
-    assert!(err.to_string().contains("equal: exactly 2 args"));
-}
-
-#[test]
-fn test_equal_mismatch_returns_empty() {
-    let result = eval_default("%equal(one,two)").unwrap();
-    assert_eq!(result, "");
-}
-
-#[test]
 fn test_include_and_import_empty_filename_return_empty() {
     assert_eq!(eval_default("%include()").unwrap(), "");
     assert_eq!(eval_default("%import()").unwrap(), "");

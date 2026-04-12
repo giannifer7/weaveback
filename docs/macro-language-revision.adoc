@@ -303,7 +303,6 @@ ____
 === Keep
 
 * `%if` (lazy branches — evaluated only when reached)
-* `%equal` for backward compatibility
 
 === Implemented
 
@@ -317,9 +316,6 @@ Canonical predicate builtins returning `1` or empty:
 | `%neq(a, b)` | `1` if `a != b`, else empty
 | `%not(x)` | `1` if `x` is empty, else empty; accepts 0 or 1 args
 |===
-
-`%equal(a, b)` returns `a` rather than a canonical boolean — useful in
-specific patterns but not a general predicate.  Prefer `%eq` in new code.
 
 `%if` treats the empty string as false and any non-empty string as true.
 `%not()` with no arguments returns `1` (no arg = empty = false, negation = true).
@@ -366,7 +362,7 @@ For immediate use in agent/coding-model prompts:
 . Use `%alias(…, k=v)` for specialization; do not rely on exported macro capture.
 . Keep `%import` at top level whenever possible.
 . Avoid `%here` in generated sources.
-. Prefer canonical predicates (`%eq`, `%not`) over value-returning `%equal`.
+. Prefer canonical predicates (`%eq`, `%not`, `%neq`).
 . Treat wrong arity as a bug, not a shape.
 . Do not redefine builtins or use builtin names for user macros.
 . Keep Python code in verbatim blocks when it should remain literal.
@@ -401,7 +397,6 @@ For immediate use in agent/coding-model prompts:
 * Relying on silent empty undefined variables
 * Side effects in argument position
 * Exporting macros with implicit capture
-* `%equal` as a boolean (use `%eq` instead)
 
 ---
 
@@ -433,6 +428,5 @@ For immediate use in agent/coding-model prompts:
 * `%defined(name)` and `%default(x, fallback)` helpers
 * `%here` workflow reclassification
 * Multiple-`%here` error
-* Mark `%equal` as legacy in docs
 * Linter rule for naming-convention enforcement
 * Discovery mode API separation

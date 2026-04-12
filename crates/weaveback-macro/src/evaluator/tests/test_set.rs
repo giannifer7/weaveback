@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::macro_api::process_string_defaults;
+    use crate::evaluator::{EvalConfig, Evaluator};
+    use crate::macro_api::{process_string, process_string_defaults};
 
     #[test]
     fn test_builtin_set() {
@@ -57,7 +58,11 @@ mod tests {
         let source = "%def(render_with_prefix, msg, %{%(prefix): %(msg)%})\
                       %alias(warn, render_with_prefix, prefix = WARNING)\
                       %warn(check) %render_with_prefix(check)";
-        let result = process_string_defaults(source).unwrap();
+        let mut eval = Evaluator::new(EvalConfig {
+            strict_undefined_vars: false,
+            ..EvalConfig::default()
+        });
+        let result = process_string(source, None, &mut eval).unwrap();
         // source macro has no frozen prefix → empty string
         assert_eq!(String::from_utf8(result).unwrap(), "WARNING: check : check");
     }

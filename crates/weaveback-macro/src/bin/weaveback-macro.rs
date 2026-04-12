@@ -1,7 +1,7 @@
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
-use weaveback_macro::macro_api::process_string;
+use weaveback_macro::macro_api::{process_files, process_string};
 use clap::{ArgGroup, Parser};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,29 @@ fn default_pathsep() -> String {
     } else {
         ":".to_string()
     }
+}
+fn is_ascii_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn apply_cli_defines(eval: &mut Evaluator, defines: &[String]) -> Result<(), EvalError> {
+    for item in defines {
+        let (name, value) = item.split_once('=').ok_or_else(|| {
+            EvalError::InvalidUsage(format!("define: expected NAME=VALUE, got '{item}'"))
+        })?;
+        if !is_ascii_identifier(name) {
+            return Err(EvalError::InvalidUsage(format!(
+                "define: '{name}' is not a valid identifier"
+            )));
+        }
+        eval.set_variable(name, value);
+    }
+    Ok(())
 }
 /// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
 fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -60,6 +83,11 @@ struct Args {
     #[arg(long)]
     allow_env: bool,
 
+    /// Optional prefix prepended to environment lookups.
+    /// Example: `--env-prefix WB_` makes `%env(PATH)` read `WB_PATH`.
+    #[arg(long)]
+    env_prefix: Option<String>,
+
     /// Allow `%(name)` to expand to empty string when the variable is undefined.
     #[arg(long)]
     no_strict_vars: bool,
@@ -67,6 +95,11 @@ struct Args {
     /// Allow missing macro arguments to bind the remaining params to empty strings.
     #[arg(long)]
     no_strict_params: bool,
+
+    /// Define a top-level variable before evaluation. Repeatable.
+    /// Form: `-D NAME=VALUE`
+    #[arg(short = 'D', long = "define")]
+    define: Vec<String>,
 
     /// The input files (mutually exclusive with --dir)
     #[arg(required = false)]
@@ -100,6 +133,7 @@ fn run(args: Args) -> Result<(), EvalError> {
         include_paths,
         discovery_mode: false,
         allow_env: args.allow_env,
+        env_prefix: args.env_prefix.clone(),
         strict_undefined_vars: !args.no_strict_vars,
         strict_unbound_params: !args.no_strict_params,
     };
@@ -119,6 +153,7 @@ fn run(args: Args) -> Result<(), EvalError> {
         for f in &all {
             if let Ok(text) = std::fs::read_to_string(f) {
                 let mut disc = Evaluator::new(discovery_config.clone());
+                apply_cli_defines(&mut disc, &args.define)?;
                 if process_string(&text, Some(f), &mut disc).is_ok() {
                     for p in disc.take_discovered_includes() {
                         included.insert(p.canonicalize().unwrap_or(p));
@@ -153,7 +188,9 @@ fn run(args: Args) -> Result<(), EvalError> {
         return weaveback_macro::ast::dump_macro_ast(args.sigil, &final_inputs);
     }
 
-    weaveback_macro::macro_api::process_files_from_config(&final_inputs, &args.output, config)
+    let mut evaluator = Evaluator::new(config);
+    apply_cli_defines(&mut evaluator, &args.define)?;
+    process_files(&final_inputs, &args.output, &mut evaluator)
 }
 fn main() {
     let args = Args::parse();

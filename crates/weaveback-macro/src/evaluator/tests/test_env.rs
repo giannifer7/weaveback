@@ -31,6 +31,22 @@ fn test_env_with_no_args_returns_empty_when_enabled() {
 }
 
 #[test]
+fn test_env_prefix_is_applied_when_configured() {
+    let key = "WBM_PREFIXED_ENV_TEST";
+    unsafe {
+        std::env::set_var(key, "prefixed-value");
+    }
+
+    let mut eval = Evaluator::new(EvalConfig {
+        allow_env: true,
+        env_prefix: Some("WBM_".into()),
+        ..EvalConfig::default()
+    });
+    let result = process_string("%env(PREFIXED_ENV_TEST)", None, &mut eval).unwrap();
+    assert_eq!(String::from_utf8(result).unwrap(), "prefixed-value");
+}
+
+#[test]
 fn test_eval_requires_macro_name() {
     let mut eval = Evaluator::new(EvalConfig::default());
     let err = process_string("%eval()", None, &mut eval).unwrap_err();

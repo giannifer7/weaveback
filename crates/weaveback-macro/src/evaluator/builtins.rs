@@ -23,7 +23,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("include".to_string(), builtin_include as BuiltinFn);
     map.insert("import".to_string(), builtin_import as BuiltinFn);
     map.insert("if".to_string(), builtin_if as BuiltinFn);
-    map.insert("equal".to_string(), builtin_equal as BuiltinFn);
     map.insert("set".to_string(), builtin_set as BuiltinFn);
     map.insert("alias".to_string(), builtin_alias as BuiltinFn);
     map.insert("export".to_string(), builtin_export as BuiltinFn);
@@ -227,7 +226,6 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         },
     )
 }
-
 fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -268,16 +266,6 @@ pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
             Ok("".into())
         }
     }
-}
-
-pub fn builtin_equal(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
-    let parts = &node.parts;
-    if parts.len() != 2 {
-        return Err(EvalError::InvalidUsage("equal: exactly 2 args".into()));
-    }
-    let a = eval.evaluate(&parts[0])?;
-    let b = eval.evaluate(&parts[1])?;
-    if a == b { Ok(a) } else { Ok("".into()) }
 }
 pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
@@ -508,7 +496,12 @@ pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
         return Ok("".into());
     }
     let name = eval.evaluate(&node.parts[0])?;
-    Ok(std::env::var(name.trim()).unwrap_or_default())
+    let lookup_name = if let Some(prefix) = eval.env_prefix() {
+        format!("{prefix}{}", name.trim())
+    } else {
+        name.trim().to_string()
+    };
+    Ok(std::env::var(lookup_name).unwrap_or_default())
 }
 /// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
 /// Canonical boolean predicate; always returns `1` or `""`, never an operand.

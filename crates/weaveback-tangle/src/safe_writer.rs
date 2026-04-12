@@ -283,8 +283,16 @@ impl SafeFileWriter {
             }
         }
 
-        // Step 3: copy temp → output, skip if identical.
-        self.copy_if_different(&tmp_path, &output_file)?;
+        // Step 3: copy temp → output.
+        // Normally skip the copy when content is identical (keeps build-system
+        // timestamps stable).  When force_generated is set we always overwrite —
+        // that is the whole point of the flag.
+        if self.config.force_generated {
+            self.atomic_copy(&tmp_path, &output_file)
+                .map_err(SafeWriterError::from)?;
+        } else {
+            self.copy_if_different(&tmp_path, &output_file)?;
+        }
 
         // Step 4: read the (possibly formatted) temp content for the baseline
         // and return it to the caller so they don't need a second disk read.

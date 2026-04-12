@@ -12,16 +12,14 @@ Tests for the `Evaluator` core API (`core.rs`), `EvaluatorState` internals
 ----
 // <<test core>>=
 // crates/weaveback-macro/src/evaluator/tests/test_core.rs
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use tempfile::TempDir;
 
 use crate::evaluator::core::Evaluator;
 use crate::evaluator::output::{EvalOutput, PlainOutput};
-use crate::evaluator::state::{EvalConfig, MacroDefinition, ScriptKind};
+use crate::evaluator::state::EvalConfig;
 
 #[test]
 fn test_core_accessors_and_early_exit() {
@@ -140,27 +138,6 @@ fn test_core_do_include_accepts_absolute_existing_path() {
 
     let result = eval.do_include(include_path.to_str().unwrap()).unwrap();
     assert_eq!(result, "absolute include");
-}
-
-#[test]
-fn test_core_freeze_macro_definition_captures_outer_vars_only() {
-    let mut eval = Evaluator::new(EvalConfig::default());
-    eval.set_variable("outer", "frozen");
-    eval.set_variable("param", "ambient");
-    let body = eval
-        .parse_string("%(outer)-%(param)", &PathBuf::from("<freeze>"))
-        .unwrap();
-    let mac = MacroDefinition {
-        name: "demo".into(),
-        params: vec!["param".into()],
-        body: Arc::new(body),
-        script_kind: ScriptKind::None,
-        frozen_args: HashMap::new(),
-    };
-
-    let frozen = eval.freeze_macro_definition(&mac);
-    assert_eq!(frozen.frozen_args.get("outer").unwrap(), "frozen");
-    assert!(!frozen.frozen_args.contains_key("param"));
 }
 // @
 ----

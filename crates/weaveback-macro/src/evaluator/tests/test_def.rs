@@ -164,12 +164,10 @@ fn test_param_with_hyphen_is_rejected() {
 
 #[test]
 fn test_eager_argument_evaluation_order() {
-    // Arguments are evaluated eagerly (to strings) before the macro body runs,
-    // but argument evaluation occurs INSIDE the callee's new scope frame.
+    // Arguments are evaluated in CALLER scope, before the callee frame is pushed.
     //
-    // Consequence: %set inside an argument mutates the callee's scope, not the
-    // caller's.  The caller's scope is unchanged — so `%(counter)` still reads
-    // the caller's value (0), not the callee-scoped mutation (1).
+    // Consequence: %set inside an argument mutates the CALLER's scope.
+    // %(counter) reads the caller's (global) value, which has been set to 1.
     let src =
         "%def(id, x, %(x))\n\
          %set(counter, 0)\n\
@@ -178,10 +176,10 @@ fn test_eager_argument_evaluation_order() {
     let mut ev = Evaluator::new(EvalConfig::default());
     let result = process_string(src, None, &mut ev).unwrap();
     let output = String::from_utf8(result).unwrap();
-    // counter in the caller's (global) scope is unchanged — still 0.
+    // counter in the caller's (global) scope was mutated by the argument — now 1.
     assert!(
-        output.trim_end().ends_with('0'),
-        "expected counter=0 (caller scope unchanged), got: {:?}", output
+        output.trim_end().ends_with('1'),
+        "expected counter=1 (caller scope mutated by arg), got: {:?}", output
     );
 }
 

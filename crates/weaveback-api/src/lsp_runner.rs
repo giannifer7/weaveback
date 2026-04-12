@@ -123,3 +123,66 @@ pub fn run_lsp(
     }
     Ok(())
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lsp_cmd_definition_fields_accessible() {
+        let cmd = LspCmd::Definition {
+            out_file: "foo.rs".to_string(),
+            line: 10,
+            col: 5,
+        };
+        match cmd {
+            LspCmd::Definition { out_file, line, col } => {
+                assert_eq!(out_file, "foo.rs");
+                assert_eq!(line, 10);
+                assert_eq!(col, 5);
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn lsp_cmd_references_fields_accessible() {
+        let cmd = LspCmd::References {
+            out_file: "bar.rs".to_string(),
+            line: 3,
+            col: 1,
+        };
+        match cmd {
+            LspCmd::References { out_file, line, col } => {
+                assert_eq!(out_file, "bar.rs");
+                assert_eq!(line, 3);
+                assert_eq!(col, 1);
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn run_lsp_errors_when_db_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("nonexistent.db");
+        let cmd = LspCmd::Definition {
+            out_file: "foo.rs".to_string(),
+            line: 1,
+            col: 1,
+        };
+        let err = run_lsp(
+            cmd,
+            db_path,
+            tmp.path().to_path_buf(),
+            weaveback_macro::evaluator::EvalConfig::default(),
+            None,
+            None,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not found") || msg.contains("Database"),
+            "unexpected error: {msg}"
+        );
+    }
+}

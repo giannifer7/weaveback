@@ -1,0 +1,464 @@
+= Weaveback Macro Language — Design and State
+:toc: left
+:toc-title: Contents
+
+This document records the design decisions behind the macro language and the
+current implementation state.  It is structured as a *keep / change / remove*
+analysis per topic, followed by a status summary.
+
+The goal is a language a coding model (or a human author) can use reliably
+without constantly simulating weird edge cases.
+
+== Target semantic core
+
+A language that is:
+
+* **locally predictable** — expressions mean what they look like where they
+  are written
+* **uniform** — builtins and user macros obey the same call rules
+* **strict about mistakes** — wrong arity, typos, and bad forms are errors
+  or warnings, not silent empty output
+* **explicit about side effects** — mutations are visible at the call site
+* **small enough to fit in working memory** — the full model can be described
+  in a page
+
+Desired properties:
+
+* strict eager expansion
+* arguments evaluate in **caller scope**
+* one scope model
+* one capture model (`%alias` only)
+* uniform call validation across all forms
+* strict-by-default or warn-by-default diagnostics
+* script bodies clearly fenced off from macro syntax
+
+---
+
+== 1. Scope and state
+
+=== Keep
+
+* Stack of scope frames
+* Shadowing lookup (inner scope wins)
+* Local `%set`
+* Global frame never popped
+
+=== Implemented
+
+Argument evaluation now happens in the **caller scope**, before the callee
+frame is pushed.
+
+Old behaviour:: `evaluate(arg)` ran inside the callee's new (empty) frame.
+  `%set(x, v)` inside an argument wrote to the callee frame, which was
+  immediately discarded.  Side effects in argument lists were silently swallowed.
+
+Current behaviour::
+1. All arguments are evaluated in the caller's current scope.
+2. A new callee frame is pushed.
+3. The already-evaluated strings are bound to formal parameters.
+
+=== Demoted — still present, not in core story
+
+Persistent script stores (`rhai_store`, `py_store`) are an advanced effect
+system, clearly separated from the main scope model.  They bypass all frame
+discipline and are not part of the core semantics.
+
+=== Coding-model rule
+
+____
+Expressions are evaluated where they are written, then passed as strings.
+____
+
+---
+
+== 2. Capture semantics
+
+=== Keep
+
+`%alias(new, src, k=v, …)` as explicit partial application / selective
+free-variable pinning.  The semantics are understandable and useful.
+
+=== Implemented
+
+Single capture model:
+
+* Ordinary macros use **dynamic lookup** at call time.
+* `%alias(…, k=v)` is the **only** capture mechanism.
+* `%export(macro)` copies the macro definition upward **as-is**, with no
+  automatic free-variable freezing.
+
+`freeze_macro_definition` has been removed.  Implicit half-closure semantics
+on `%export` no longer exist.
+
+=== Coding-model rule
+
+____
+A macro does not secretly gain a frozen environment unless
+`%alias(…, k=v)` explicitly says so.
+____
+
+---
+
+== 3. Argument handling
+
+=== Keep
+
+* Positional args must precede named args.
+* Unknown named arg → error.
+* Duplicate binding (positional + named) → error.
+
+=== Implemented
+
+**Extra positional args are an error.**  A positional arity mismatch is
+almost always a bug; silently ignoring it hides it.
+
+=== Open
+
+**Missing (unbound) parameters** currently default to empty string with no
+diagnostic.  Defaulting is sometimes intentional but should at minimum be
+detectable.
+
+Possible future addition — explicit optional parameters with inline defaults:
+
+[source]
+----
+%def(fmt, level, tag, msg = "(none)", body)
+----
+
+=== Coding-model rule
+
+____
+Wrong arity is a bug, not a tolerated shape.
+____
+
+---
+
+== 4. Builtins vs. user-defined macros
+
+=== Keep
+
+Reserved builtin namespace — builtin names cannot be called as user macros.
+
+=== Implemented
+
+`%def` / `%alias` attempts that use a builtin name are immediately rejected
+with an error.  The name guard runs inside the shared `define_macro` helper,
+so it covers `%rhaidef`, `%pydef`, `%rhaidef_raw`, and `%pydef_raw` as well.
+
+=== Coding-model rule
+
+____
+All calls obey the same argument-shape rules regardless of target.
+____
+
+---
+
+== 5. Macro redefinition
+
+Macro redefinition is a **first-class semantic operation**, not an incidental
+hazard.  It supports two canonical patterns:
+
+X-macro pattern::
+A schema is defined once; successive passes redefine the `X` visitor to map
+that schema into different outputs.
+
+Context-dependent meaning::
+Macro identifiers have no fixed meaning.  Their expansion is determined by the
+current pass, allowing the same source to be interpreted in multiple ways.
+
+[source]
+----
+%def(FIELDS, %{
+  %X(name, string)
+  %X(age, int)
+%})
+
+%def(X, name, type, %(name): %(type),)          <- pass 1: struct fields
+%FIELDS()
+
+%def(X, name, type, new_%(name): impl Into<%(type)>)  <- pass 2: ctor params
+%FIELDS()
+----
+
+No warning is emitted on redefinition.  There is no `@replace` marker.
+
+=== Accidental collision
+
+When composing independent libraries, use `%importas` so each library's names
+live under a distinct prefix and never meet.
+
+=== Coding-model rule
+
+____
+Macro identifiers name roles, not values.  Redefine to change the role.
+Use `%importas` when importing independent libraries.
+____
+
+---
+
+== 6. Diagnostics — silent failures
+
+=== Keep
+
+Empty string as a first-class macro result.
+
+=== Implemented
+
+Non-fatal warnings (accumulated in `Vec<String>`, drained via `take_warnings()`):
+
+* `%if()` called with no arguments — always expands to empty
+* `%export` at global scope — no parent frame; the call is a no-op
+
+Errors:
+
+* Attempt to `%def` / `%alias` a builtin name
+* Extra positional arguments
+* `%env(NAME)` when `--allow-env` is not set
+
+=== Open
+
+* Undefined variable reference (`%(typo)`) — currently silently empty.
+  Tempting to warn, but noisy in practice (many patterns rely on empty-if-absent).
+* Unbound parameters — currently default to empty with no diagnostic.
+
+=== Useful future additions
+
+* `%defined(name)` — returns `1` if name is defined, empty otherwise.
+* `%default(x, fallback)` — returns `x` if non-empty, else `fallback`.
+
+These let authors express *intended* emptiness instead of relying on silent
+empty-on-undefined.
+
+=== Coding-model rule
+
+____
+Silence means success, not hidden fallback.
+____
+
+---
+
+== 7. Script integration
+
+=== Keep
+
+`%rhaidef` and `%pydef` as escape hatches for computed logic.
+
+=== Implemented
+
+`%rhaidef_raw(name, [params,] body)` and `%pydef_raw(name, [params,] body)`:
+
+* The body is stored as literal script source — no macro expansion occurs.
+* Declared parameters are injected directly as script-level variables.
+* `%rhaidef_raw` injects only declared params (not the full scope).
+* `%pydef_raw` uses the same injection as `%pydef`.
+* Note: the weaveback lexer still tokenises the body at definition time, so
+  `%` must not appear in an unrecognised position inside the body.
+
+The old `%rhaidef` / `%pydef` (macro-expand body first, then execute) remain
+for backward compatibility.  New code should prefer the `_raw` variants.
+
+=== Coding-model rule
+
+____
+Inside a script body, script syntax means script syntax.
+Use `%rhaidef_raw` / `%pydef_raw` for new scripts; reserve the non-raw
+variants for code that needs macro preprocessing of the body.
+____
+
+---
+
+== 8. `%here`
+
+=== Keep
+
+The capability (source-file patching on first run) may be useful.
+
+=== Open
+
+* Recast as an **explicit workflow primitive**, not a regular expression-forming
+  builtin.  Options: separate subcommand, required mode flag, or rename to
+  something obviously effectful (`%patch_here`).
+* **Error** if more than one `%here` appears in a file, instead of silently
+  running only the first.
+* Surface the one-shot behaviour prominently in the docs.
+
+=== Coding-model rule
+
+____
+`%here` is a source-rewrite operation, not a normal expression-forming macro.
+Generated code should not contain it.
+____
+
+---
+
+== 9. Includes and imports
+
+=== Keep
+
+`%include` and `%import` as-is.
+
+=== Implemented
+
+`%importas(prefix, path)` — loads `path` like `%import` (text output
+discarded, side effects kept) and additionally registers every newly-defined
+macro under a `prefix_name` alias.  The originals remain in scope so
+internal cross-references inside the imported file continue to work.
+
+[source]
+----
+%importas(mylib, lib.adoc)
+%mylib_greet(world)   <- "Hello world!"
+%greet(world)         <- also works (original remains)
+----
+
+=== Coding-model rule
+
+____
+Use `%importas` when combining independent libraries to prevent accidental
+name collision.  Use `%import` when the file's names are intentionally shared.
+____
+
+---
+
+== 10. Boolean predicates
+
+=== Keep
+
+* `%if` (lazy branches — evaluated only when reached)
+* `%equal` for backward compatibility
+
+=== Implemented
+
+Canonical predicate builtins returning `1` or empty:
+
+[cols="1,3"]
+|===
+| Builtin | Semantics
+
+| `%eq(a, b)` | `1` if `a == b` byte-exact, else empty
+| `%neq(a, b)` | `1` if `a != b`, else empty
+| `%not(x)` | `1` if `x` is empty, else empty; accepts 0 or 1 args
+|===
+
+`%equal(a, b)` returns `a` rather than a canonical boolean — useful in
+specific patterns but not a general predicate.  Prefer `%eq` in new code.
+
+`%if` treats the empty string as false and any non-empty string as true.
+`%not()` with no arguments returns `1` (no arg = empty = false, negation = true).
+
+=== Coding-model rule
+
+____
+The boolean model is: empty string = false, non-empty string = true.
+Canonical predicates return `1` or empty.  Models do not have to remember
+which of the operands is returned.
+____
+
+---
+
+== 11. Discovery mode
+
+=== Keep
+
+The dependency-discovery feature.
+
+=== Open
+
+Present as two separate operations in the API and documentation:
+
+* `evaluate()` — normal expansion
+* `discover_dependencies()` — collect `%include`/`%import` paths without
+  expanding
+
+=== Coding-model rule
+
+____
+The same source text should not appear to have two radically different meanings
+depending on a hidden runtime flag.
+____
+
+---
+
+== Recommended authoring rules for generated macros
+
+For immediate use in agent/coding-model prompts:
+
+. Never rely on undefined variables expanding to empty.
+. Never pass side-effecting expressions as arguments.
+. Use `%alias(…, k=v)` for specialization; do not rely on exported macro capture.
+. Keep `%import` / `%importas` at top level whenever possible.
+. Avoid `%here` in generated sources.
+. Prefer canonical predicates (`%eq`, `%not`) over value-returning `%equal`.
+. Treat wrong arity as a bug, not a shape.
+. Do not redefine builtins or use builtin names for user macros.
+. Keep Rhai/Python code in raw-script form (`%rhaidef_raw` / `%pydef_raw`).
+. Prefer local `%set`; avoid cross-call hidden state via script stores.
+. Redefine macros freely to change the current pass or context (X-macro, context-dependent meaning).
+. Use `%importas` when importing independent libraries to avoid name collision.
+
+---
+
+== Recommended macro-use profile
+
+=== Green path — encouraged in generated code
+
+* `%def`, `%alias(…, k=v)` for explicit specialization
+* Macro redefinition for X-macro and context-dependent-meaning patterns
+* `%set` local only
+* `%include` / `%import` / `%importas` at top level only
+* `%if`, `%eq`, `%not`, `%neq`
+* String case transforms
+* Named arguments for multi-parameter macros
+
+=== Yellow path — advanced, use carefully
+
+* `%export` for variables only
+* `%rhaidef_raw` / `%pydef_raw` for computed logic
+* `%env` only when explicitly enabled
+* `%rhaidef` / `%pydef` (non-raw) when body preprocessing is intentional
+
+=== Red path — avoid in generated code
+
+* `%here`
+* Script stores for cross-call accumulation
+* Dynamic free-variable lookup across deep include chains
+* Relying on silent empty undefined variables
+* Side effects in argument position
+* Exporting macros with implicit capture
+* `%equal` as a boolean (use `%eq` instead)
+
+---
+
+== Implementation status
+
+=== Done
+
+* Caller-scope argument evaluation
+* `%export` as plain upward copy; `freeze_macro_definition` removed
+* `%alias(…, k=v)` as sole capture mechanism
+* Error on `%def` / `%alias` of a builtin name
+* Error on extra positional arguments
+* Warning on `%if()` with no arguments
+* Warning on `%export` at global scope
+* `%eq`, `%neq`, `%not` canonical predicates
+* `%rhaidef_raw` / `%pydef_raw` raw-body script variants
+* `%importas(prefix, path)` namespaced import
+* Warning infrastructure (`take_warnings()` on `Evaluator`)
+
+=== Decided — not implementing
+
+* Warning on macro redefinition — redefinition is a first-class semantic
+  operation (X-macro pattern, context-dependent meaning).  Library name
+  collision is addressed by `%importas`.  No `@replace` annotation needed.
+
+=== Open
+
+* Missing (unbound) parameter diagnostic
+* Undefined variable reference diagnostic (likely too noisy)
+* `%defined(name)` and `%default(x, fallback)` helpers
+* `%here` workflow reclassification
+* Multiple-`%here` error
+* Deprecation of non-raw `%rhaidef` / `%pydef` in docs
+* Mark `%equal` as legacy in docs
+* Linter rule for naming-convention enforcement
+* Discovery mode API separation

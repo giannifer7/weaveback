@@ -198,9 +198,14 @@ impl Default for EvalConfig {
 
 == `ScriptKind` — which engine evaluates a macro body
 
-After the body text is expanded (variable substitution etc.), `ScriptKind`
-determines whether the result is returned as-is (`None`) or passed through
-a scripting engine (`Rhai`, `Python`).
+`ScriptKind` determines how a macro's body is processed:
+
+`None`:: Body is macro-expanded and returned as-is.
+`Rhai` / `Python`:: Body is macro-expanded first, then the result string is
+  executed as a script.  All visible scope variables are injected into the
+  script environment.
+`RhaiRaw` / `PythonRaw`:: Body is passed as literal script source (no macro
+  expansion).  Only the declared parameters are injected as script variables.
 
 [source,rust]
 ----
@@ -210,6 +215,10 @@ pub enum ScriptKind {
     None,
     Rhai,
     Python,
+    /// Raw Rhai: body is literal script source; params injected as Rhai variables.
+    RhaiRaw,
+    /// Raw Python: body is literal script source; params injected as Python variables.
+    PythonRaw,
 }
 // @
 ----
@@ -219,10 +228,10 @@ pub enum ScriptKind {
 `MacroDefinition` is cloned out of the scope stack at every call site.
 `body` is an `Arc<ASTNode>` so cloning is cheap (no deep copy of the AST).
 
-`frozen_args` is populated by `Evaluator::freeze_macro_definition` when a
-macro is exported via `%export`.  It maps variable names that appear in the
-body (but are not declared parameters) to their values at export time,
-implementing a lexical closure without a reference to the enclosing scope.
+`frozen_args` is populated by `%alias(new, src, k=v, …)` overrides.  Each
+`k=v` pair is evaluated at alias-definition time and merged into the copy's
+`frozen_args`, pinning those free variables for all future calls to the alias.
+This is the sole explicit capture mechanism; `%export` now does a plain copy.
 
 [source,rust]
 ----
@@ -406,6 +415,8 @@ pub struct EvaluatorState {
     pub var_defs: Vec<VarDefRaw>,
     /// Accumulated `%def/%rhaidef/%pydef` call sites for the macro_defs_map.
     pub macro_defs: Vec<MacroDefRaw>,
+    /// Diagnostic warnings collected during evaluation (non-fatal).
+    pub warnings: Vec<String>,
 }
 
 impl EvaluatorState {
@@ -421,7 +432,16 @@ impl EvaluatorState {
             discovered_includes: Vec::new(),
             var_defs: Vec::new(),
             macro_defs: Vec::new(),
+            warnings: Vec::new(),
         }
+    }
+
+    pub fn push_warning(&mut self, msg: String) {
+        self.warnings.push(msg);
+    }
+
+    pub fn drain_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
     }
 
     pub fn drain_var_defs(&mut self) -> Vec<VarDefRaw> {

@@ -1,12 +1,16 @@
 // crates/weaveback-macro/src/evaluator/tests/test_eval_api.rs
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::{NamedTempFile, TempDir};
 
 use crate::evaluator::{
-    errors::{EvalError, EvalResult},
-    eval_api::{eval_file_with_config, eval_files_with_config, eval_string_with_defaults},
+    core::Evaluator,
+    errors::EvalError,
+    eval_api::{
+        eval_file, eval_file_with_config, eval_files, eval_files_with_config, eval_string,
+        eval_string_with_defaults,
+    },
     state::EvalConfig,
 };
 
@@ -68,4 +72,78 @@ fn test_eval_files() {
         .filter_map(|e| e.ok())
         .collect();
     assert_eq!(files.len(), 2);
+}
+
+#[test]
+fn eval_string_with_real_path_sets_current_file() {
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    let fake_path = Path::new("/tmp/fake_source.adoc");
+    let result = eval_string("%def(x, hi)\n%x()", Some(fake_path), &mut evaluator).unwrap();
+    assert_eq!(result, "\nhi");
+}
+
+#[test]
+fn eval_string_without_path_uses_placeholder() {
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    let result = eval_string("hello world", None, &mut evaluator).unwrap();
+    assert_eq!(result, "hello world");
+}
+
+#[test]
+fn eval_file_errors_on_missing_input() {
+    let tmp = TempDir::new().unwrap();
+    let missing = tmp.path().join("nonexistent.adoc");
+    let out = tmp.path().join("out.txt");
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    let err = eval_file(&missing, &out, &mut evaluator).unwrap_err();
+    assert!(err.to_string().contains("Cannot resolve input path"));
+}
+
+#[test]
+fn eval_files_shared_evaluator_sees_prior_defs() {
+    let tmp = TempDir::new().unwrap();
+    let out_dir = tmp.path().join("out");
+
+    let mut f1 = NamedTempFile::new().unwrap();
+    write!(f1, "%def(greeting, Hi)").unwrap();
+    let mut f2 = NamedTempFile::new().unwrap();
+    write!(f2, "%greeting()").unwrap();
+
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    eval_files(
+        &[f1.path().to_path_buf(), f2.path().to_path_buf()],
+        &out_dir,
+        &mut evaluator,
+    )
+    .unwrap();
+
+    let files: Vec<_> = std::fs::read_dir(&out_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(files.len(), 2);
+}
+
+#[test]
+fn eval_file_writes_output_to_existing_dir() {
+    let tmp = TempDir::new().unwrap();
+    let input = create_temp_file("plain text");
+    let out = tmp.path().join("output.txt");
+    let mut evaluator = Evaluator::new(EvalConfig::default());
+    eval_file(input.path(), &out, &mut evaluator).unwrap();
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "plain text");
+}
+
+#[test]
+fn eval_files_with_config_creates_output_dir() {
+    let tmp = TempDir::new().unwrap();
+    let out_dir = tmp.path().join("new_output_dir");
+    let input = create_temp_file("hello");
+    eval_files_with_config(
+        &[input.path().to_path_buf()],
+        &out_dir,
+        EvalConfig::default(),
+    )
+    .unwrap();
+    assert!(out_dir.exists());
 }

@@ -1,0 +1,4 @@
+[env]
+# This tells mise to load variables from a .env file in the same directory
+_.file = ".env"
+

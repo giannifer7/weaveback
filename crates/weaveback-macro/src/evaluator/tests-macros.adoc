@@ -301,12 +301,10 @@ fn test_param_with_hyphen_is_rejected() {
 
 #[test]
 fn test_eager_argument_evaluation_order() {
-    // Arguments are evaluated eagerly (to strings) before the macro body runs,
-    // but argument evaluation occurs INSIDE the callee's new scope frame.
+    // Arguments are evaluated in CALLER scope, before the callee frame is pushed.
     //
-    // Consequence: %set inside an argument mutates the callee's scope, not the
-    // caller's.  The caller's scope is unchanged — so `%(counter)` still reads
-    // the caller's value (0), not the callee-scoped mutation (1).
+    // Consequence: %set inside an argument mutates the CALLER's scope.
+    // %(counter) reads the caller's (global) value, which has been set to 1.
     let src =
         "%def(id, x, %(x))\n\
          %set(counter, 0)\n\
@@ -315,10 +313,10 @@ fn test_eager_argument_evaluation_order() {
     let mut ev = Evaluator::new(EvalConfig::default());
     let result = process_string(src, None, &mut ev).unwrap();
     let output = String::from_utf8(result).unwrap();
-    // counter in the caller's (global) scope is unchanged — still 0.
+    // counter in the caller's (global) scope was mutated by the argument — now 1.
     assert!(
-        output.trim_end().ends_with('0'),
-        "expected counter=0 (caller scope unchanged), got: {:?}", output
+        output.trim_end().ends_with('1'),
+        "expected counter=1 (caller scope mutated by arg), got: {:?}", output
     );
 }
 
@@ -509,6 +507,72 @@ mod tests {
             process_string_defaults(source).expect("Failed to process string with %set builtin");
         let output = String::from_utf8(result).expect("Output was not valid UTF-8");
         assert_eq!(output.trim(), "bar");
+    }
+
+    #[test]
+    fn test_alias_forwards_call() {
+        let source = "%def(greet, name, %{Hello %(name)!%})\
+                      %alias(say_hi, greet)\
+                      %say_hi(world)";
+        let result = process_string_defaults(source).unwrap();
+        assert_eq!(String::from_utf8(result).unwrap(), "Hello world!");
+    }
+
+    #[test]
+    fn test_alias_independent_after_redef() {
+        // Re-defining `greet` after the alias should not affect `say_hi`.
+        let source = "%def(greet, name, %{Hello %(name)!%})\
+                      %alias(say_hi, greet)\
+                      %def(greet, name, %{Bye %(name)!%})\
+                      %say_hi(world) %greet(world)";
+        let result = process_string_defaults(source).unwrap();
+        assert_eq!(String::from_utf8(result).unwrap(), "Hello world! Bye world!");
+    }
+
+    #[test]
+    fn test_alias_unknown_source_errors() {
+        let source = "%alias(foo, no_such_macro)";
+        let err = process_string_defaults(source).unwrap_err();
+        assert!(err.to_string().contains("not defined"));
+    }
+
+    #[test]
+    fn test_alias_with_frozen_override() {
+        // %(prefix) is a free variable in the body (not a param).
+        // The alias pins it to "WARNING" at alias-definition time.
+        let source = "%def(render_with_prefix, msg, %{%(prefix): %(msg)%})\
+                      %alias(warn, render_with_prefix, prefix = WARNING)\
+                      %warn(check this)";
+        let result = process_string_defaults(source).unwrap();
+        assert_eq!(String::from_utf8(result).unwrap(), "WARNING: check this");
+    }
+
+    #[test]
+    fn test_alias_override_does_not_affect_source() {
+        // Pre-binding in the alias must not leak back into the original macro.
+        let source = "%def(render_with_prefix, msg, %{%(prefix): %(msg)%})\
+                      %alias(warn, render_with_prefix, prefix = WARNING)\
+                      %warn(check) %render_with_prefix(check)";
+        let result = process_string_defaults(source).unwrap();
+        // source macro has no frozen prefix → empty string
+        assert_eq!(String::from_utf8(result).unwrap(), "WARNING: check : check");
+    }
+
+    #[test]
+    fn test_alias_override_multiple_vars() {
+        let source = "%def(fmt, msg, %{[%(level)] %(tag): %(msg)%})\
+                      %alias(err, fmt, level = ERROR, tag = sys)\
+                      %err(disk full)";
+        let result = process_string_defaults(source).unwrap();
+        assert_eq!(String::from_utf8(result).unwrap(), "[ERROR] sys: disk full");
+    }
+
+    #[test]
+    fn test_alias_override_args_must_be_named() {
+        let source = "%def(foo, x, %{%(x)%})\
+                      %alias(bar, foo, not_named)";
+        let err = process_string_defaults(source).unwrap_err();
+        assert!(err.to_string().contains("named"));
     }
 }
 // @

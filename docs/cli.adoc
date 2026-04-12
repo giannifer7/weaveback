@@ -2,7 +2,7 @@
 
 == `weaveback` — combined tool
 
-Runs macro expansion and chunk extraction in one pass.
+Runs macro expansion and chunk extraction as one command.
 
 [source,bash]
 ----
@@ -97,7 +97,9 @@ weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
 weaveback search <query> [OPTIONS]   # search prose via FTS/tags/embeddings
 weaveback lint [OPTIONS] [PATHS]     # run structural checks on literate sources
-weaveback tags [OPTIONS]             # list prose tags
+weaveback coverage [OPTIONS] <LCOV>  # regroup LCOV coverage by literate source
+weaveback tag [OPTIONS]              # tag prose blocks with LLM-generated tags
+weaveback tags [OPTIONS]             # list LLM-generated prose tags
 weaveback lsp <command> [ARGS]       # semantic language server operations
 weaveback mcp                        # start MCP server for IDE/agent integration
 weaveback serve [OPTIONS]            # local docs server with inline editing

@@ -38,7 +38,7 @@ use std::path::PathBuf;
 #[command(
     name = "weaveback",
     version,
-    about = "Macro expander + literate-programming chunk extractor in one pass"
+    about = "Macro expander + literate-programming chunk extractor as one command"
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -67,17 +67,7 @@ pub(crate) enum Commands {
     },
     /// Run all tangle passes from weaveback.toml (or --config <file>)
     Tangle {
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
-%render_rust_enum_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-%})
+%alias(emit_option, render_rust_enum_option)
 %tangle_command_options()
     },
     /// Parse FILE:LINE[:COL] and return structured source-of-truth attribution
@@ -152,17 +142,7 @@ pub(crate) enum LspCommands {
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct Args {
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
-%render_rust_struct_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-%})
+%alias(emit_option, render_rust_struct_option)
 %macro_arg_options()
 %debug_arg_options()
 %tangle_arg_options()
@@ -178,18 +158,7 @@ doc_descr = %(doc_descr),
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-main-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-main-rows)
 %macro_arg_options()
 %debug_arg_options()
 %tangle_arg_options()
@@ -200,154 +169,55 @@ doc_descr = %(doc_descr),
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-tangle-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-tangle-rows)
 %tangle_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-apply-back-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-apply-back-rows)
 %apply_back_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-graph-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-graph-rows)
 %graph_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-search-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-search-rows)
 %search_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-lint-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-lint-rows)
 %lint_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-coverage-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-coverage-rows)
 %coverage_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-tags-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-tags-rows)
 %tags_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-lsp-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-lsp-rows)
 %lsp_command_options()
 ----
 
 [source,adoc]
 ----
-%def(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<cli-doc-serve-rows>>=
-%render_doc_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-// @
-%})
+%alias(emit_option, render_doc_chunk_option, chunk_name = cli-doc-serve-rows)
 %serve_command_options()
 ----
 
@@ -358,7 +228,7 @@ doc_descr = %(doc_descr),
 
 == `weaveback` — combined tool
 
-Runs macro expansion and chunk extraction in one pass.
+Runs macro expansion and chunk extraction as one command.
 
 [source,bash]
 ----
@@ -431,7 +301,9 @@ weaveback impact <chunk>             # show transitive impact of a chunk change
 weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
 weaveback search <query> [OPTIONS]   # search prose via FTS/tags/embeddings
 weaveback lint [OPTIONS] [PATHS]     # run structural checks on literate sources
-weaveback tags [OPTIONS]             # list prose tags
+weaveback coverage [OPTIONS] <LCOV>  # regroup LCOV coverage by literate source
+weaveback tag [OPTIONS]              # tag prose blocks with LLM-generated tags
+weaveback tags [OPTIONS]             # list LLM-generated prose tags
 weaveback lsp <command> [ARGS]       # semantic language server operations
 weaveback mcp                        # start MCP server for IDE/agent integration
 weaveback serve [OPTIONS]            # local docs server with inline editing

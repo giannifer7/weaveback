@@ -89,6 +89,22 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 | `test_skill_examples`
 | Exact examples from `SKILL.md`: positional/named params, arity edge cases,
   dynamic vs lexical scoping, `%export` freeze
+
+| `test_predicates`
+| `%eq`, `%neq`, `%not`: equality, inequality, logical negation, arity errors,
+  canonical boolean output, integration with `%if`
+
+| `test_importas`
+| `%importas(prefix, path)`: prefixed aliases, multiple macros, originals
+  remain, cross-reference preservation, arity/identifier guards, discard text
+
+| `test_raw_scripts`
+| `%rhaidef_raw` / `%pydef_raw`: raw body (no macro expansion), param injection,
+  contrast with non-raw, arity/name guards
+
+| `test_warnings`
+| Warning infrastructure: `%export` at global scope, `%if()` with no args,
+  `take_warnings()` drains the list, `%export` inside macro does not warn
 |===
 
 == File structure
@@ -245,6 +261,11 @@ mod test_utils;
 mod test_var;
 mod test_output;
 mod test_lexer_parser;
+mod test_eval_api;
+mod test_importas;
+mod test_predicates;
+mod test_raw_scripts;
+mod test_warnings;
 // @
 ----
 

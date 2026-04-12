@@ -245,9 +245,11 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("pyget".to_string(), builtin_pyget as BuiltinFn);
     map.insert("include".to_string(), builtin_include as BuiltinFn);
     map.insert("import".to_string(), builtin_import as BuiltinFn);
+    map.insert("importas".to_string(), builtin_importas as BuiltinFn);
     map.insert("if".to_string(), builtin_if as BuiltinFn);
     map.insert("equal".to_string(), builtin_equal as BuiltinFn);
     map.insert("set".to_string(), builtin_set as BuiltinFn);
+    map.insert("alias".to_string(), builtin_alias as BuiltinFn);
     map.insert("export".to_string(), builtin_export as BuiltinFn);
     map.insert("eval".to_string(), builtin_eval as BuiltinFn);
     map.insert("here".to_string(), builtin_here as BuiltinFn);
@@ -277,6 +279,11 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
         builtin_to_screaming_case as BuiltinFn,
     );
     map.insert("env".to_string(), builtin_env as BuiltinFn);
+    map.insert("eq".to_string(), builtin_eq as BuiltinFn);
+    map.insert("neq".to_string(), builtin_neq as BuiltinFn);
+    map.insert("not".to_string(), builtin_not as BuiltinFn);
+    map.insert("rhaidef_raw".to_string(), builtin_rhaidef_raw as BuiltinFn);
+    map.insert("pydef_raw".to_string(), builtin_pydef_raw as BuiltinFn);
     map
 }
 // @
@@ -382,6 +389,14 @@ fn define_macro(
     }
 
     let macro_name = single_ident_param(eval, &node.parts[0], &config.name_param_context)?;
+
+    if eval.is_builtin(&macro_name) {
+        return Err(EvalError::InvalidUsage(format!(
+            "cannot define macro '{}': name is reserved as a built-in",
+            macro_name
+        )));
+    }
+
     let body_node = node.parts.last().unwrap().clone();
 
     let mut seen = HashSet::new();
@@ -465,14 +480,46 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         },
     )
 }
+
+pub fn builtin_rhaidef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "rhaidef_raw requires at least (name, body)".into(),
+            name_param_context: "rhaidef_raw name".into(),
+            formal_param_context: "rhaidef_raw parameter".into(),
+            duplicate_param_error: "rhaidef_raw".into(),
+            script_kind: ScriptKind::RhaiRaw,
+        },
+    )
+}
+
+pub fn builtin_pydef_raw(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "pydef_raw requires at least (name, body)".into(),
+            name_param_context: "pydef_raw name".into(),
+            formal_param_context: "pydef_raw parameter".into(),
+            duplicate_param_error: "pydef_raw".into(),
+            script_kind: ScriptKind::PythonRaw,
+        },
+    )
+}
 // @
 ----
 
-== `%include` and `%import`
+== `%include`, `%import`, and `%importas`
 
-`builtin_import` discards the text output from `process_include_file` (returns
-`""`) but the evaluation has already executed the file's side effects (macro
-and variable definitions).
+`builtin_import` discards the text output (returns `""`) but the evaluation
+has already executed the file's side effects (macro and variable definitions).
+
+`builtin_importas` also runs the file like `%import`, but additionally
+registers every newly-defined macro under a `prefix_name` alias.  The
+originals remain so that internal cross-references inside the file continue
+to resolve.  The prefix must be a valid identifier.
 
 [source,rust]
 ----
@@ -496,6 +543,21 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
     let _ = process_include_file(eval, node)?;
     Ok("".into())
 }
+
+pub fn builtin_importas(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if node.parts.len() < 2 {
+        return Err(EvalError::InvalidUsage(
+            "importas: requires (prefix, path)".into(),
+        ));
+    }
+    let prefix = single_ident_param(eval, &node.parts[0], "importas prefix")?;
+    let path = eval.evaluate(&node.parts[1])?;
+    let path = path.trim().to_string();
+    if path.is_empty() {
+        return Ok("".into());
+    }
+    eval.do_include_prefixed(&path, &prefix)
+}
 // @
 ----
 
@@ -510,10 +572,11 @@ first argument if both arguments are byte-identical, otherwise `""`.
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
+        eval.push_warning("%if() called with no arguments — always expands to \"\"".to_string());
         return Ok("".into());
     }
     let cond = eval.evaluate(&parts[0])?;
-    if !cond.trim().is_empty() {
+    if !cond.is_empty() {
         if parts.len() > 1 {
             eval.evaluate(&parts[1])
         } else {
@@ -564,6 +627,66 @@ pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     eval.set_variable(&var_name, &value);
     eval.record_var_def(
         var_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
+    Ok("".into())
+}
+
+/// `%alias(new_name, source_name[, key = val, …])` — define `new_name` as a
+/// snapshot copy of the macro currently bound to `source_name`.  The first two
+/// arguments must be positional plain identifiers.  Any additional arguments
+/// must be named (`key = val`); their values are evaluated at alias-definition
+/// time and merged into the copy's `frozen_args`, so they are in scope whenever
+/// the alias is called regardless of what the enclosing scope contains at call
+/// time.
+///
+/// This is partial application for free-variable bindings: if `source_name`
+/// references `%(chunk_name)` in its body but does not declare `chunk_name` as
+/// a parameter, `%alias(emit_option, source_name, chunk_name = tangle-rows)`
+/// pins that free variable for the lifetime of the alias.
+pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() < 2 {
+        return Err(EvalError::InvalidUsage(
+            "alias: at least 2 args required: alias(new_name, source_name[, key = val, …])".into(),
+        ));
+    }
+    if parts[0].name.is_some() || parts[1].name.is_some() {
+        return Err(EvalError::InvalidUsage(
+            "alias: new_name and source_name must be positional, not key=val".into(),
+        ));
+    }
+    let new_name = single_ident_param(eval, &parts[0], "alias target name")?;
+
+    if eval.is_builtin(&new_name) {
+        return Err(EvalError::InvalidUsage(format!(
+            "cannot alias to '{}': name is reserved as a built-in",
+            new_name
+        )));
+    }
+
+    let source_name = single_ident_param(eval, &parts[1], "alias source name")?;
+    let mut mac = eval
+        .get_macro(&source_name)
+        .ok_or_else(|| EvalError::InvalidUsage(
+            format!("alias: macro '{source_name}' is not defined"),
+        ))?;
+    mac.name = new_name.clone();
+    for part in &parts[2..] {
+        let key = match part.name.as_ref() {
+            Some(tok) => eval.extract_name_value(tok),
+            None => return Err(EvalError::InvalidUsage(
+                "alias: override arguments must be named (key = val)".into(),
+            )),
+        };
+        let val = eval.evaluate(part)?;
+        mac.frozen_args.insert(key, val);
+    }
+    eval.define_macro(mac);
+    eval.record_macro_def(
+        new_name,
         node.token.src,
         node.token.pos as u32,
         (node.end_pos.saturating_sub(node.token.pos)) as u32,
@@ -797,6 +920,58 @@ pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     }
     let name = eval.evaluate(&node.parts[0])?;
     Ok(std::env::var(name.trim()).unwrap_or_default())
+}
+// @
+----
+
+== Canonical predicate builtins: `%eq`, `%neq`, `%not`
+
+These builtins return the canonical boolean values `"1"` (true) or `""` (false),
+suitable for use as the condition argument to `%if`.
+
+`%not` accepts 0 or 1 arguments; 0 args is treated as an empty-string input,
+which is falsy, so `%not()` → `"1"`.
+
+[source,rust]
+----
+// <<builtins predicates>>=
+/// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
+/// Canonical boolean predicate; always returns `1` or `""`, never an operand.
+pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage("eq: exactly 2 args".into()));
+    }
+    let a = eval.evaluate(&parts[0])?;
+    let b = eval.evaluate(&parts[1])?;
+    if a == b { Ok("1".into()) } else { Ok("".into()) }
+}
+
+/// `%neq(a, b)` — returns `"1"` if `a != b` (byte-exact), else `""`.
+pub fn builtin_neq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage("neq: exactly 2 args".into()));
+    }
+    let a = eval.evaluate(&parts[0])?;
+    let b = eval.evaluate(&parts[1])?;
+    if a != b { Ok("1".into()) } else { Ok("".into()) }
+}
+
+/// `%not(x)` — returns `"1"` if `x` is the empty string, else `""`.
+/// Logical negation: empty string is falsy, any non-empty string is truthy.
+/// Accepts 0 or 1 args; 0 args is treated as empty string → returns `"1"`.
+pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() > 1 {
+        return Err(EvalError::InvalidUsage("not: at most 1 arg".into()));
+    }
+    let x = if parts.is_empty() {
+        String::new()
+    } else {
+        eval.evaluate(&parts[0])?
+    };
+    if x.is_empty() { Ok("1".into()) } else { Ok("".into()) }
 }
 // @
 ----

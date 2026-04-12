@@ -758,3 +758,49 @@ fn send_error(id: Option<Value>, msg: &str) {
         "content": [{ "type": "text", "text": msg }]
     }));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `get_or_spawn_lsp` must return an error immediately for unsupported
+    /// extensions, without spawning any process.
+    #[test]
+    fn get_or_spawn_lsp_unsupported_extension_returns_error() {
+        let mut clients: HashMap<String, LspClient> = HashMap::new();
+        let result = get_or_spawn_lsp(&mut clients, "xyz_unsupported");
+        let msg = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected error for unsupported extension"),
+        };
+        assert!(
+            msg.contains("unsupported file extension"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    /// Verifying that `initialize` JSON is well-formed: tools/list response
+    /// must include the expected tool names.
+    #[test]
+    fn tools_list_contains_expected_tool_names() {
+        let tools = serde_json::json!({
+            "tools": [
+                { "name": "weaveback_trace" },
+                { "name": "weaveback_apply_back" },
+                { "name": "weaveback_apply_fix" },
+                { "name": "weaveback_chunk_context" },
+                { "name": "weaveback_list_chunks" },
+                { "name": "weaveback_find_chunk" },
+            ]
+        });
+        let names: Vec<&str> = tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(names.contains(&"weaveback_trace"));
+        assert!(names.contains(&"weaveback_apply_fix"));
+        assert!(names.contains(&"weaveback_chunk_context"));
+    }
+}

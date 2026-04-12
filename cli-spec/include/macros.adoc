@@ -23,10 +23,6 @@ produce no output themselves.
 
 %def(render_doc_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{| %(doc_flag) | %(doc_default) | %(doc_descr)
 %})
-
-%def(render_doc_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
-%render_doc_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
-%})
 ----
 
 == Shared args
@@ -41,7 +37,7 @@ arg_attr = %{required = false%},
 doc_block = %{    /// Input files (mutually exclusive with --dir)%},
 doc_flag = %{`<INPUTS>...`%},
 doc_default = %{ %},
-doc_descr = %{Explicit files to process when `--dir` is not used.%},
+doc_descr = %{Explicit files to process when `--dir` is not used.%}
 )
 %emit_option(
 field = input_dir,
@@ -50,7 +46,7 @@ arg_attr = %{long, default_value = "."%},
 doc_block = %{    /// Base directory prepended to every input path%},
 doc_flag = %{`--input-dir <PATH>`%},
 doc_default = %{`.`%},
-doc_descr = %{Base directory prepended to every input path.%},
+doc_descr = %{Base directory prepended to every input path.%}
 )
 %emit_option(
 field = sigil,
@@ -59,7 +55,7 @@ arg_attr = %{long, default_value = "%%"%},
 doc_block = %{    /// Macro sigil%},
 doc_flag = %{`--sigil <CHAR>`%},
 doc_default = %{`%%`%},
-doc_descr = %{Macro sigil character.%},
+doc_descr = %{Macro sigil character.%}
 )
 %emit_option(
 field = no_macros,
@@ -70,7 +66,7 @@ doc_block = %{    /// Skip macro expansion and feed source files directly to the
     /// character would collide with literal text (e.g. %%, ^ in Rust or shell).%},
 doc_flag = %{`--no-macros`%},
 doc_default = %{off%},
-doc_descr = %{Skip macro expansion and feed source files directly to the tangle pass.%},
+doc_descr = %{Skip macro expansion and feed source files directly to the tangle pass.%}
 )
 %emit_option(
 field = include,
@@ -79,7 +75,7 @@ arg_attr = %{long, default_value = "."%},
 doc_block = %{    /// Include paths for %%include/%%import (colon-separated on Unix)%},
 doc_flag = %{`--include <PATHS>`%},
 doc_default = %{`.`%},
-doc_descr = %{Include search paths for `%%include` and `%%import` (colon-separated on Unix).%},
+doc_descr = %{Include search paths for `%%include` and `%%import` (colon-separated on Unix).%}
 )
 %emit_option(
 field = db,
@@ -88,7 +84,7 @@ arg_attr = %{long, default_value = "weaveback.db"%},
 doc_block = %{    /// Path to the weaveback database [default: weaveback.db in current directory]%},
 doc_flag = %{`--db <PATH>`%},
 doc_default = %{`weaveback.db`%},
-doc_descr = %{Path to the source-map database.%},
+doc_descr = %{Path to the source-map database.%}
 )
 %})
 
@@ -100,7 +96,7 @@ arg_attr = %{long%},
 doc_block = %{    /// Print macro-expanded text to stderr before noweb processing%},
 doc_flag = %{`--dump-expanded`%},
 doc_default = %{off%},
-doc_descr = %{Print macro-expanded text to stderr before noweb processing.%},
+doc_descr = %{Print macro-expanded text to stderr before noweb processing.%}
 )
 %})
 
@@ -112,7 +108,7 @@ arg_attr = %{long = "gen", default_value = "gen"%},
 doc_block = %{    /// Base directory for generated output files%},
 doc_flag = %{`--gen <PATH>`%},
 doc_default = %{`gen`%},
-doc_descr = %{Base directory for generated output files.%},
+doc_descr = %{Base directory for generated output files.%}
 )
 %emit_option(
 field = open_delim,
@@ -121,7 +117,7 @@ arg_attr = %{long, default_value = "<["%},
 doc_block = %{    /// Chunk open delimiter%},
 doc_flag = %{`--open-delim <STR>`%},
 doc_default = %{`<[`%},
-doc_descr = %{Chunk-open delimiter.%},
+doc_descr = %{Chunk-open delimiter.%}
 )
 %emit_option(
 field = close_delim,
@@ -130,7 +126,7 @@ arg_attr = %{long, default_value = "]>"%},
 doc_block = %{    /// Chunk close delimiter%},
 doc_flag = %{`--close-delim <STR>`%},
 doc_default = %{`]>`%},
-doc_descr = %{Chunk-close delimiter.%},
+doc_descr = %{Chunk-close delimiter.%}
 )
 %emit_option(
 field = chunk_end,
@@ -139,7 +135,7 @@ arg_attr = %{long, default_value = "@"%},
 doc_block = %{    /// Chunk end marker%},
 doc_flag = %{`--chunk-end <STR>`%},
 doc_default = %{`@`%},
-doc_descr = %{End-of-chunk marker.%},
+doc_descr = %{End-of-chunk marker.%}
 )
 %emit_option(
 field = comment_markers,
@@ -148,7 +144,7 @@ arg_attr = %{long, default_value = "#,//"%},
 doc_block = %{    /// Comment markers recognised before chunk delimiters (comma-separated)%},
 doc_flag = %{`--comment-markers <STR>`%},
 doc_default = %{`#,//`%},
-doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%},
+doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%}
 )
 %emit_option(
 field = formatter,
@@ -157,7 +153,7 @@ arg_attr = %{long, value_name = "EXT=CMD"%},
 doc_block = %{    /// Formatter command per output file extension, e.g. --formatter rs=rustfmt%},
 doc_flag = %{`--formatter <EXT=CMD>`%},
 doc_default = %{ %},
-doc_descr = %{Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.%},
+doc_descr = %{Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.%}
 )
 %emit_option(
 field = force_generated,
@@ -167,7 +163,7 @@ doc_block = %{    /// Overwrite generated files even if they differ from the sto
     /// Intended for explicit recovery or regeneration workflows.%},
 doc_flag = %{`--force-generated`%},
 doc_default = %{off%},
-doc_descr = %{Overwrite generated files even if they differ from the stored baseline.%},
+doc_descr = %{Overwrite generated files even if they differ from the stored baseline.%}
 )
 %})
 
@@ -181,7 +177,7 @@ doc_block = %{    /// Discover and process driver files under this directory.
     /// Mutually exclusive with positional input files.%},
 doc_flag = %{`--dir <DIR>`%},
 doc_default = %{ %},
-doc_descr = %{Auto-discover driver files; mutually exclusive with positional inputs.%},
+doc_descr = %{Auto-discover driver files; mutually exclusive with positional inputs.%}
 )
 %emit_option(
 field = ext,
@@ -191,7 +187,7 @@ doc_block = %{    /// File extension(s) to scan in --dir mode (can be repeated).
     /// Default: md. Example: --ext adoc --ext md to scan both.%},
 doc_flag = %{`--ext <EXT>`%},
 doc_default = %{`md`%},
-doc_descr = %{File extension to scan in `--dir` mode; repeatable.%},
+doc_descr = %{File extension to scan in `--dir` mode; repeatable.%}
 )
 %})
 
@@ -205,7 +201,7 @@ doc_block = %{    /// Write a Makefile depfile listing every source file read.
     /// adding a new file triggers a rebuild.%},
 doc_flag = %{`--depfile <PATH>`%},
 doc_default = %{ %},
-doc_descr = %{Write a Makefile depfile listing every source file read.%},
+doc_descr = %{Write a Makefile depfile listing every source file read.%}
 )
 %emit_option(
 field = stamp,
@@ -214,7 +210,7 @@ arg_attr = %{long%},
 doc_block = %{    /// Touch this file on success (build-system stamp).%},
 doc_flag = %{`--stamp <PATH>`%},
 doc_default = %{ %},
-doc_descr = %{Touch this file on success (build-system stamp).%},
+doc_descr = %{Touch this file on success (build-system stamp).%}
 )
 %})
 
@@ -228,7 +224,7 @@ doc_block = %{    /// Skip rebuilding the prose full-text search index after thi
     /// the tangle command rebuilds the index once after all passes complete.%},
 doc_flag = %{hidden%},
 doc_default = %{hidden%},
-doc_descr = %{hidden%},
+doc_descr = %{hidden%}
 )
 %})
 
@@ -241,7 +237,7 @@ doc_block = %{    /// Allow %%env(NAME) to read environment variables.
     /// Disabled by default to prevent templates from silently reading secrets.%},
 doc_flag = %{`--allow-env`%},
 doc_default = %{off%},
-doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%},
+doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%}
 )
 %emit_option(
 field = allow_home,
@@ -250,7 +246,7 @@ arg_attr = %{long%},
 doc_block = %{    /// Allow @file ~/… chunks to write outside the gen/ directory.%},
 doc_flag = %{`--allow-home`%},
 doc_default = %{off%},
-doc_descr = %{Allow `@file ~/…` chunks to write outside the `gen/` sandbox.%},
+doc_descr = %{Allow `@file ~/…` chunks to write outside the `gen/` sandbox.%}
 )
 %emit_option(
 field = strict,
@@ -259,7 +255,7 @@ arg_attr = %{long%},
 doc_block = %{    /// Treat references to undefined chunks as fatal errors (default: expand to nothing).%},
 doc_flag = %{`--strict`%},
 doc_default = %{off%},
-doc_descr = %{Treat references to undefined chunks as fatal errors (default: silently expand to nothing).%},
+doc_descr = %{Treat references to undefined chunks as fatal errors (default: silently expand to nothing).%}
 )
 %emit_option(
 field = dry_run,
@@ -268,7 +264,7 @@ arg_attr = %{long%},
 doc_block = %{    /// Print output paths without writing anything.%},
 doc_flag = %{`--dry-run`%},
 doc_default = %{off%},
-doc_descr = %{Print output paths without writing anything.%},
+doc_descr = %{Print output paths without writing anything.%}
 )
 %emit_option(
 field = warn_unused,
@@ -279,7 +275,7 @@ doc_block = %{    /// Warn about chunks that are defined but never referenced by
     /// chunks are defined speculatively.%},
 doc_flag = %{`--warn-unused`%},
 doc_default = %{off%},
-doc_descr = %{Warn about named chunks that are defined but never referenced by any `@file` chunk; suppressed by default.%},
+doc_descr = %{Warn about named chunks that are defined but never referenced by any `@file` chunk; suppressed by default.%}
 )
 %})
 ----
@@ -290,13 +286,22 @@ doc_descr = %{Warn about named chunks that are defined but never referenced by a
 ----
 %def(tangle_command_options, %{
 %emit_option(
+field = files,
+rust_type = Vec<String>,
+arg_attr = %{ %},
+doc_block = %{        /// Optional list of files or directories to tangle. If omitted, tangles all configured passes.%},
+doc_flag = %{`<FILES>...`%},
+doc_default = %{ %},
+doc_descr = %{Files or directories to tangle (filters the global graph). If omitted, tangles everything.%}
+)
+%emit_option(
 field = config,
 rust_type = std::path::PathBuf,
 arg_attr = %{long, default_value = "weaveback.toml"%},
 doc_block = %{        /// Path to the tangle config file%},
 doc_flag = %{`--config <PATH>`%},
 doc_default = %{`weaveback.toml`%},
-doc_descr = %{Path to the tangle config file.%},
+doc_descr = %{Path to the tangle config file.%}
 )
 %emit_option(
 field = force_generated,
@@ -306,7 +311,7 @@ doc_block = %{        /// Overwrite generated files even if they differ from the
         /// Use this only when the literate source is the authoritative state.%},
 doc_flag = %{`--force-generated`%},
 doc_default = %{off%},
-doc_descr = %{Overwrite generated files even if they differ from the stored baseline.%},
+doc_descr = %{Overwrite generated files even if they differ from the stored baseline.%}
 )
 %})
 
@@ -318,7 +323,7 @@ arg_attr = %{long, default_value = "weaveback.toml"%},
 doc_block = %{        /// Path to the tangle config file (reads [tags] section)%},
 doc_flag = %{`--config <PATH>`%},
 doc_default = %{`weaveback.toml`%},
-doc_descr = %{Path to the tangle config file (reads `[tags]`).%},
+doc_descr = %{Path to the tangle config file (reads `[tags]`).%}
 )
 %emit_option(
 field = backend,
@@ -327,7 +332,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Override backend (anthropic/gemini/openai/ollama)%},
 doc_flag = %{`--backend <BACKEND>`%},
 doc_default = %{ %},
-doc_descr = %{Override backend (`anthropic`, `gemini`, `openai`, `ollama`).%},
+doc_descr = %{Override backend (`anthropic`, `gemini`, `openai`, `ollama`).%}
 )
 %emit_option(
 field = model,
@@ -336,7 +341,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Override model name%},
 doc_flag = %{`--model <MODEL>`%},
 doc_default = %{ %},
-doc_descr = %{Override model name.%},
+doc_descr = %{Override model name.%}
 )
 %emit_option(
 field = endpoint,
@@ -345,7 +350,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Override API endpoint (for ollama / openai-compatible)%},
 doc_flag = %{`--endpoint <URL>`%},
 doc_default = %{ %},
-doc_descr = %{Override API endpoint (for ollama or openai-compatible backends).%},
+doc_descr = %{Override API endpoint (for ollama or openai-compatible backends).%}
 )
 %emit_option(
 field = batch_size,
@@ -354,7 +359,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Override blocks per LLM request%},
 doc_flag = %{`--batch-size <N>`%},
 doc_default = %{ %},
-doc_descr = %{Override blocks per LLM request.%},
+doc_descr = %{Override blocks per LLM request.%}
 )
 %})
 
@@ -362,11 +367,11 @@ doc_descr = %{Override blocks per LLM request.%},
 %emit_option(
 field = files,
 rust_type = Vec<String>,
-arg_attr =,
+arg_attr = %{ %},
 doc_block = %{        /// Relative paths within gen/ to process (default: all modified files)%},
 doc_flag = %{`<FILES>...`%},
 doc_default = %{ %},
-doc_descr = %{Relative paths within `gen/` to process (default: all modified files).%},
+doc_descr = %{Relative paths within `gen/` to process (default: all modified files).%}
 )
 %emit_option(
 field = dry_run,
@@ -375,7 +380,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Show what would change without writing anything%},
 doc_flag = %{`--dry-run`%},
 doc_default = %{off%},
-doc_descr = %{Show what would change without writing anything.%},
+doc_descr = %{Show what would change without writing anything.%}
 )
 %})
 
@@ -387,7 +392,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Restrict to the subgraph reachable from this chunk%},
 doc_flag = %{`--chunk <CHUNK>`%},
 doc_default = %{ %},
-doc_descr = %{Restrict to the subgraph reachable from this chunk.%},
+doc_descr = %{Restrict to the subgraph reachable from this chunk.%}
 )
 %})
 
@@ -395,11 +400,11 @@ doc_descr = %{Restrict to the subgraph reachable from this chunk.%},
 %emit_option(
 field = query,
 rust_type = String,
-arg_attr =,
+arg_attr = %{ %},
 doc_block = %{        /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)%},
 doc_flag = %{`<QUERY>`%},
 doc_default = %{ %},
-doc_descr = %{Search query (FTS5 syntax: `AND`, `OR`, `NOT`, phrase `"..."`, prefix `foo*`).%},
+doc_descr = %{Search query (FTS5 syntax: `AND`, `OR`, `NOT`, phrase `"..."`, prefix `foo*`).%}
 )
 %emit_option(
 field = limit,
@@ -408,7 +413,7 @@ arg_attr = %{long, default_value = "10"%},
 doc_block = %{        /// Maximum number of results to show%},
 doc_flag = %{`--limit <N>`%},
 doc_default = %{`10`%},
-doc_descr = %{Maximum number of results to show.%},
+doc_descr = %{Maximum number of results to show.%}
 )
 %})
 
@@ -420,7 +425,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Read plain text from stdin, extract FILE:LINE[:COL] locations, and attribute them%},
 doc_flag = %{`--scan-stdin`%},
 doc_default = %{off%},
-doc_descr = %{Read plain text from stdin, extract `FILE:LINE[:COL]` locations, and attribute them.%},
+doc_descr = %{Read plain text from stdin, extract `FILE:LINE[:COL]` locations, and attribute them.%}
 )
 %emit_option(
 field = summary,
@@ -429,16 +434,16 @@ arg_attr = %{long%},
 doc_block = %{        /// Emit grouped source-of-truth summary JSON instead of a flat result array%},
 doc_flag = %{`--summary`%},
 doc_default = %{off%},
-doc_descr = %{Emit grouped source-of-truth summary JSON instead of a flat result array.%},
+doc_descr = %{Emit grouped source-of-truth summary JSON instead of a flat result array.%}
 )
 %emit_option(
 field = locations,
 rust_type = Vec<String>,
-arg_attr =,
+arg_attr = %{ %},
 doc_block = %{        /// One or more generated locations in FILE:LINE or FILE:LINE:COL form%},
 doc_flag = %{`<LOCATIONS>...`%},
 doc_default = %{ %},
-doc_descr = %{One or more generated locations in `FILE:LINE` or `FILE:LINE:COL` form.%},
+doc_descr = %{One or more generated locations in `FILE:LINE` or `FILE:LINE:COL` form.%}
 )
 %})
 
@@ -450,7 +455,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Emit only compiler messages and the final weaveback summary, not Cargo artifact chatter%},
 doc_flag = %{`--diagnostics-only`%},
 doc_default = %{off%},
-doc_descr = %{Emit only compiler messages and the final weaveback summary.%},
+doc_descr = %{Emit only compiler messages and the final weaveback summary.%}
 )
 %emit_option(
 field = args,
@@ -459,7 +464,7 @@ arg_attr = %{trailing_var_arg = true, allow_hyphen_values = true%},
 doc_block = %{        /// Cargo subcommand and arguments, passed through after `weaveback cargo`%},
 doc_flag = %{`[ARGS]...`%},
 doc_default = %{ %},
-doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback cargo`.%},
+doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback cargo`.%}
 )
 %})
 
@@ -467,11 +472,11 @@ doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback ca
 %emit_option(
 field = paths,
 rust_type = Vec<PathBuf>,
-arg_attr =,
+arg_attr = %{ %},
 doc_block = %{        /// Files or directories to lint (default: current tree)%},
 doc_flag = %{`<PATHS>...`%},
 doc_default = %{current tree%},
-doc_descr = %{Files or directories to lint (default: current tree).%},
+doc_descr = %{Files or directories to lint (default: current tree).%}
 )
 %emit_option(
 field = strict,
@@ -480,7 +485,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Treat violations as errors%},
 doc_flag = %{`--strict`%},
 doc_default = %{off%},
-doc_descr = %{Treat violations as errors.%},
+doc_descr = %{Treat violations as errors.%}
 )
 %emit_option(
 field = rule,
@@ -489,7 +494,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Restrict linting to one rule%},
 doc_flag = %{`--rule <RULE>`%},
 doc_default = %{all%},
-doc_descr = %{Restrict linting to one rule.%},
+doc_descr = %{Restrict linting to one rule.%}
 )
 %emit_option(
 field = json,
@@ -498,7 +503,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Emit structured JSON instead of human-readable text%},
 doc_flag = %{`--json`%},
 doc_default = %{off%},
-doc_descr = %{Emit structured JSON instead of human-readable text.%},
+doc_descr = %{Emit structured JSON instead of human-readable text.%}
 )
 %})
 
@@ -510,7 +515,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Print a concise human summary ranked by missed lines instead of full JSON%},
 doc_flag = %{`--summary`%},
 doc_default = %{off%},
-doc_descr = %{Print a concise human summary ranked by missed lines instead of full JSON.%},
+doc_descr = %{Print a concise human summary ranked by missed lines instead of full JSON.%}
 )
 %emit_option(
 field = top_sources,
@@ -519,7 +524,7 @@ arg_attr = %{long, default_value = "10"%},
 doc_block = %{        /// Maximum number of source files to show in summary mode%},
 doc_flag = %{`--top-sources <N>`%},
 doc_default = %{`10`%},
-doc_descr = %{Maximum number of source files to show in summary mode.%},
+doc_descr = %{Maximum number of source files to show in summary mode.%}
 )
 %emit_option(
 field = top_sections,
@@ -528,7 +533,7 @@ arg_attr = %{long, default_value = "3"%},
 doc_block = %{        /// Maximum number of sections to show per source file in summary mode%},
 doc_flag = %{`--top-sections <N>`%},
 doc_default = %{`3`%},
-doc_descr = %{Maximum number of sections to show per source file in summary mode.%},
+doc_descr = %{Maximum number of sections to show per source file in summary mode.%}
 )
 %emit_option(
 field = explain_unattributed,
@@ -537,16 +542,16 @@ arg_attr = %{long%},
 doc_block = %{        /// For each unattributed file show the unmapped line ranges with source content%},
 doc_flag = %{`--explain-unattributed`%},
 doc_default = %{off%},
-doc_descr = %{For each unattributed file, print the unmapped line ranges with the actual source content so you can see which code lacks noweb entries.%},
+doc_descr = %{For each unattributed file, print the unmapped line ranges with the actual source content so you can see which code lacks noweb entries.%}
 )
 %emit_option(
 field = lcov_file,
 rust_type = PathBuf,
-arg_attr =,
+arg_attr = %{ %},
 doc_block = %{        /// Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`%},
 doc_flag = %{`<LCOV>`%},
 doc_default = %{ %},
-doc_descr = %{Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.%},
+doc_descr = %{Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.%}
 )
 %})
 
@@ -558,7 +563,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Filter to a single source file (plain relative path)%},
 doc_flag = %{`--file <PATH>`%},
 doc_default = %{ %},
-doc_descr = %{Filter to a single source file (plain relative path).%},
+doc_descr = %{Filter to a single source file (plain relative path).%}
 )
 %})
 
@@ -570,7 +575,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Manual override for the LSP command (e.g. "nimlsp")%},
 doc_flag = %{`--lsp-cmd <CMD>`%},
 doc_default = %{(auto)%},
-doc_descr = %{Manual override for LSP command (e.g. `nimlsp`).%},
+doc_descr = %{Manual override for LSP command (e.g. `nimlsp`).%}
 )
 %emit_option(
 field = lsp_lang,
@@ -579,7 +584,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Manual override for the language ID (e.g. "nim")%},
 doc_flag = %{`--lsp-lang <ID>`%},
 doc_default = %{(auto)%},
-doc_descr = %{Manual override for language ID (e.g. `nim`).%},
+doc_descr = %{Manual override for language ID (e.g. `nim`).%}
 )
 %})
 
@@ -591,7 +596,7 @@ arg_attr = %{long, default_value = "7779"%},
 doc_block = %{        /// TCP port to listen on%},
 doc_flag = %{`--port <N>`%},
 doc_default = %{`7779`%},
-doc_descr = %{TCP port to listen on.%},
+doc_descr = %{TCP port to listen on.%}
 )
 %emit_option(
 field = html,
@@ -600,7 +605,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Directory to serve (default: <project-root>/docs/html)%},
 doc_flag = %{`--html <PATH>`%},
 doc_default = %{`<root>/docs/html`%},
-doc_descr = %{Directory to serve.%},
+doc_descr = %{Directory to serve.%}
 )
 %emit_option(
 field = open_delim,
@@ -609,7 +614,7 @@ arg_attr = %{long, default_value = "<["%},
 doc_block = %{        /// Chunk open delimiter for the tangle oracle (default: <[)%},
 doc_flag = %{`--open-delim <STR>`%},
 doc_default = %{`<[`%},
-doc_descr = %{Chunk-open delimiter for the tangle oracle.%},
+doc_descr = %{Chunk-open delimiter for the tangle oracle.%}
 )
 %emit_option(
 field = close_delim,
@@ -618,7 +623,7 @@ arg_attr = %{long, default_value = "]>"%},
 doc_block = %{        /// Chunk close delimiter for the tangle oracle (default: ]>)%},
 doc_flag = %{`--close-delim <STR>`%},
 doc_default = %{`]>`%},
-doc_descr = %{Chunk-close delimiter for the tangle oracle.%},
+doc_descr = %{Chunk-close delimiter for the tangle oracle.%}
 )
 %emit_option(
 field = chunk_end,
@@ -627,7 +632,7 @@ arg_attr = %{long, default_value = "@@"%},
 doc_block = %{        /// Chunk-end marker for the tangle oracle (default: @@)%},
 doc_flag = %{`--chunk-end <STR>`%},
 doc_default = %{`@@`%},
-doc_descr = %{Chunk-end marker for the tangle oracle.%},
+doc_descr = %{Chunk-end marker for the tangle oracle.%}
 )
 %emit_option(
 field = comment_markers,
@@ -636,7 +641,7 @@ arg_attr = %{long, default_value = "//"%},
 doc_block = %{        /// Comment markers for the tangle oracle (comma-separated, default: //)%},
 doc_flag = %{`--comment-markers <STR>`%},
 doc_default = %{`//`%},
-doc_descr = %{Comment prefixes for the oracle (comma-separated).%},
+doc_descr = %{Comment prefixes for the oracle (comma-separated).%}
 )
 %emit_option(
 field = ai_backend,
@@ -645,7 +650,7 @@ arg_attr = %{long, default_value = "claude-cli"%},
 doc_block = %{        /// AI backend for /__ai: "claude-cli" (default), "anthropic", "gemini", "ollama", "openai"%},
 doc_flag = %{`--ai-backend <MODE>`%},
 doc_default = %{`claude-cli`%},
-doc_descr = %{AI backend for `/__ai`: `claude-cli`, `anthropic`, `gemini`, `ollama`, or `openai`.%},
+doc_descr = %{AI backend for `/__ai`: `claude-cli`, `anthropic`, `gemini`, `ollama`, or `openai`.%}
 )
 %emit_option(
 field = ai_model,
@@ -654,7 +659,7 @@ arg_attr = %{long%},
 doc_block = %{        /// AI model name (e.g. "claude-3-5-sonnet-20240620", "gemini-1.5-pro", "llama3")%},
 doc_flag = %{`--ai-model <STR>`%},
 doc_default = %{(default)%},
-doc_descr = %{AI model name (e.g. `gemini-1.5-pro`, `llama3`, `gpt-4o`).%},
+doc_descr = %{AI model name (e.g. `gemini-1.5-pro`, `llama3`, `gpt-4o`).%}
 )
 %emit_option(
 field = ai_endpoint,
@@ -663,7 +668,7 @@ arg_attr = %{long%},
 doc_block = %{        /// AI API endpoint / base URL (for ollama or openai-compatible backends)%},
 doc_flag = %{`--ai-endpoint <URL>`%},
 doc_default = %{(default)%},
-doc_descr = %{Base URL for `ollama` or `openai` backends.%},
+doc_descr = %{Base URL for `ollama` or `openai` backends.%}
 )
 %emit_option(
 field = watch,
@@ -672,7 +677,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Watch .adoc and theme sources; tangle + re-render docs on each change%},
 doc_flag = %{`--watch`%},
 doc_default = %{off%},
-doc_descr = %{Watch `.adoc` and theme sources; tangle + re-render docs on each change.%},
+doc_descr = %{Watch `.adoc` and theme sources; tangle + re-render docs on each change.%}
 )
 %})
 ----
@@ -691,7 +696,7 @@ arg_attr = %{long, default_value = "%%"%},
 doc_block = %{        /// Macro sigil character%},
 doc_flag = %{`--sigil <CHAR>`%},
 doc_default = %{`%%`%},
-doc_descr = %{Macro sigil character.%},
+doc_descr = %{Macro sigil character.%}
 )
 %emit_option(
 field = include,
@@ -700,7 +705,7 @@ arg_attr = %{long, default_value = "."%},
 doc_block = %{        /// Include paths for %%include/%%import (colon-separated on Unix)%},
 doc_flag = %{`--include <PATHS>`%},
 doc_default = %{`.`%},
-doc_descr = %{Include search paths for `%%include` and `%%import`.%},
+doc_descr = %{Include search paths for `%%include` and `%%import`.%}
 )
 %emit_option(
 field = allow_env,
@@ -709,7 +714,7 @@ arg_attr = %{long%},
 doc_block = %{        /// Allow %%env(NAME) to read environment variables%},
 doc_flag = %{`--allow-env`%},
 doc_default = %{off%},
-doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%},
+doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%}
 )
 %})
 
@@ -721,7 +726,7 @@ arg_attr = %{long = "gen", default_value = "gen"%},
 doc_block = %{    /// Base directory for generated output files%},
 doc_flag = %{`--gen <PATH>`%},
 doc_default = %{`gen`%},
-doc_descr = %{Base directory for generated output files.%},
+doc_descr = %{Base directory for generated output files.%}
 )
 %emit_option(
 field = open_delim,
@@ -730,7 +735,7 @@ arg_attr = %{long, default_value = "<["%},
 doc_block = %{    /// Chunk open delimiter%},
 doc_flag = %{`--open-delim <STR>`%},
 doc_default = %{`<[`%},
-doc_descr = %{Chunk-open delimiter.%},
+doc_descr = %{Chunk-open delimiter.%}
 )
 %emit_option(
 field = close_delim,
@@ -739,7 +744,7 @@ arg_attr = %{long, default_value = "]>"%},
 doc_block = %{    /// Chunk close delimiter%},
 doc_flag = %{`--close-delim <STR>`%},
 doc_default = %{`]>`%},
-doc_descr = %{Chunk-close delimiter.%},
+doc_descr = %{Chunk-close delimiter.%}
 )
 %emit_option(
 field = chunk_end,
@@ -748,7 +753,7 @@ arg_attr = %{long, default_value = "@"%},
 doc_block = %{    /// Chunk end marker%},
 doc_flag = %{`--chunk-end <STR>`%},
 doc_default = %{`@`%},
-doc_descr = %{End-of-chunk marker.%},
+doc_descr = %{End-of-chunk marker.%}
 )
 %emit_option(
 field = comment_markers,
@@ -757,7 +762,7 @@ arg_attr = %{long, default_value = "#,//"%},
 doc_block = %{    /// Comment markers recognised before chunk delimiters (comma-separated)%},
 doc_flag = %{`--comment-markers <STR>`%},
 doc_default = %{`#,//`%},
-doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%},
+doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%}
 )
 %emit_option(
 field = formatter,
@@ -766,7 +771,7 @@ arg_attr = %{long, value_name = "EXT=CMD"%},
 doc_block = %{    /// Formatter command per output file extension, e.g. --formatter rs=rustfmt%},
 doc_flag = %{`--formatter <EXT=CMD>`%},
 doc_default = %{ %},
-doc_descr = %{Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.%},
+doc_descr = %{Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.%}
 )
 %})
 ----

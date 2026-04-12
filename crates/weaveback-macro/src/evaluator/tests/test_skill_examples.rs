@@ -66,22 +66,16 @@ fn test_too_few_args_become_empty() {
     );
 }
 
-/// Too many arguments: extra args beyond the parameter list are silently ignored.
+/// Too many positional arguments is now an error (Phase 1 diagnostic).
 #[test]
-fn test_too_many_args_ignored() {
+fn test_too_many_args_is_error() {
     let result = process_string_defaults(
         "%def(greet, name, Hello %(name)!)\n\
          %greet(Alice, Bob, Charlie)",
-    )
-    .unwrap();
-    let s = std::str::from_utf8(&result).unwrap();
-    assert!(
-        s.contains("Hello Alice!"),
-        "expected 'Hello Alice!' (extras ignored), got: {s:?}"
     );
     assert!(
-        !s.contains("Bob") && !s.contains("Charlie"),
-        "extra args should be ignored, got: {s:?}"
+        matches!(result, Err(EvalError::InvalidUsage(_))),
+        "expected InvalidUsage for extra positional args, got: {result:?}"
     );
 }
 

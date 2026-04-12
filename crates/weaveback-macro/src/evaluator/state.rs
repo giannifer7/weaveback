@@ -35,6 +35,10 @@ pub enum ScriptKind {
     None,
     Rhai,
     Python,
+    /// Raw Rhai: body is literal script source; params injected as Rhai variables.
+    RhaiRaw,
+    /// Raw Python: body is literal script source; params injected as Python variables.
+    PythonRaw,
 }
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
@@ -142,6 +146,8 @@ pub struct EvaluatorState {
     pub var_defs: Vec<VarDefRaw>,
     /// Accumulated `%def/%rhaidef/%pydef` call sites for the macro_defs_map.
     pub macro_defs: Vec<MacroDefRaw>,
+    /// Diagnostic warnings collected during evaluation (non-fatal).
+    pub warnings: Vec<String>,
 }
 
 impl EvaluatorState {
@@ -157,7 +163,16 @@ impl EvaluatorState {
             discovered_includes: Vec::new(),
             var_defs: Vec::new(),
             macro_defs: Vec::new(),
+            warnings: Vec::new(),
         }
+    }
+
+    pub fn push_warning(&mut self, msg: String) {
+        self.warnings.push(msg);
+    }
+
+    pub fn drain_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
     }
 
     pub fn drain_var_defs(&mut self) -> Vec<VarDefRaw> {

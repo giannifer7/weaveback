@@ -26,3 +26,8 @@ mod test_utils;
 mod test_var;
 mod test_output;
 mod test_lexer_parser;
+mod test_eval_api;
+mod test_importas;
+mod test_predicates;
+mod test_raw_scripts;
+mod test_warnings;

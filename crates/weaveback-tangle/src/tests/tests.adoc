@@ -1399,6 +1399,42 @@ fn test_force_generated_overwrites_modified_file() -> Result<(), WeavebackError>
 }
 
 #[test]
+fn test_force_generated_writes_identical_content() -> Result<(), WeavebackError> {
+    // Regression: force_generated must bypass copy_if_different (Step 3).
+    // When tangle produces content identical to what is on disk (e.g. because
+    // macros failed silently), the old code would skip the write even with
+    // force_generated=true.  The fix is to call atomic_copy unconditionally.
+    let temp = TempDir::new().unwrap();
+    let mut writer = SafeFileWriter::with_config(
+        temp.path().join("gen"),
+        SafeWriterConfig {
+            force_generated: true,
+            ..SafeWriterConfig::default()
+        },
+    ).unwrap();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Same content")?;
+
+    // Overwrite on disk so the mtime changes but content stays the same.
+    let final_path = writer.get_gen_base().join(&test_file);
+    // Record mtime before the second write.
+    let mtime_before = fs::metadata(&final_path).unwrap().modified().unwrap();
+    // Brief pause so the filesystem timestamp resolution can distinguish writes.
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Tangle again with the same content — force_generated must still write.
+    write_file(&mut writer, &test_file, "Same content")?;
+
+    let mtime_after = fs::metadata(&final_path).unwrap().modified().unwrap();
+    // The file must have been touched (mtime advanced).
+    assert!(mtime_after >= mtime_before, "force_generated must write even when content is identical");
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, "Same content");
+    Ok(())
+}
+
+#[test]
 fn test_baseline_always_written() -> Result<(), WeavebackError> {
     let (_temp, mut writer) = create_test_writer();
     let test_file = PathBuf::from("test.txt");

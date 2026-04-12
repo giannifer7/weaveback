@@ -21,6 +21,7 @@ resolver = "2"
 
 members = [
     "crates/weaveback",
+    "crates/weaveback-api",
     "crates/weaveback-macro",
     "crates/weaveback-tangle",
     "crates/weaveback-docgen",
@@ -28,6 +29,11 @@ members = [
     "crates/weaveback-lsp",
     "crates/weaveback-agent-core",
     "crates/weaveback-py",
+    "crates/wb-tangle",
+    "crates/wb-query",
+    "crates/weaveback-serve",
+    "crates/wb-serve",
+    "crates/wb-mcp",
 ]
 
 [workspace.package]
@@ -93,6 +99,8 @@ pyo3 = { version = "0.28", features = ["extension-module"] }
 pythonize = "0.28"
 
 # Internal crate dependencies (points to the sub-crate on disk)
+weaveback-api = { path = "crates/weaveback-api" }
+weaveback-serve = { path = "crates/weaveback-serve" }
 weaveback-core = { path = "crates/weaveback-core" }
 weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }
@@ -505,6 +513,13 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/weaveback-agent-core/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/weaveback-macro/"
 ext = "adoc"
 open_delim = "<<"
@@ -528,6 +543,64 @@ open_delim = "<["
 close_delim = "]>"
 comment_markers = "//"
 chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback-docgen/examples/"
+gen = "crates/weaveback-docgen/examples/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-py/src/"
+gen = "crates/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-api/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-serve/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/wb-serve/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/wb-mcp/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/wb-tangle/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/wb-query/src/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
 
 [[pass]]
 dir = "crates/weaveback/src/"
@@ -569,6 +642,7 @@ gen = "."
 ext = "adoc"
 open_delim = "<<"
 close_delim = ">>"
+include = "."
 
 [[pass]]
 dir = ".github/workflows/"

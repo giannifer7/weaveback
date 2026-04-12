@@ -441,28 +441,32 @@ mod tests {
     use crate::macro_api::process_string_defaults;
 
     #[test]
-    fn test_export_macro_with_frozen_args() {
+    fn test_export_plain_copy() {
+        // %export now does a plain upward copy — no automatic free-variable freezing.
+        // Variables resolved in the macro body (e.g. via %set) are exported as
+        // their evaluated string values.  Macros are copied as-is: free variables
+        // in the body will be looked up dynamically at the call site.
         let source = r#"
-%def(macro_exporting_stuff, base, name, %{
+%def(maker, base, name, %{
     %def(AFILE, param, %(base)/%(name)%(param).txt)
     %export(AFILE)
 
     %set(my_var, %{from %(base) import %(name)%})
     %export(my_var)
 %})
-%macro_exporting_stuff(one, two)
+%maker(one, two)
 %AFILE(three)
 %(my_var)
         "#;
         let result = process_string_defaults(source)
-            .expect("Processing failed for export with macro parameters");
+            .expect("Processing failed");
         let output = String::from_utf8(result).expect("Output was not valid UTF-8");
-        let expected = "one/twothree.txt\nfrom one import two";
-        assert_eq!(
-            output.trim(),
-            expected,
-            "Exported macro did not freeze outer variables as expected"
-        );
+        // my_var: its value was evaluated inside maker's body where base/name
+        // are in scope — exported as the concrete string "from one import two".
+        // AFILE: plain export means no freeze; %(base) and %(name) are unbound
+        // at the global call site so they expand to "".
+        let expected = "/three.txt\nfrom one import two";
+        assert_eq!(output.trim(), expected, "Unexpected export output");
     }
 
     #[test]

@@ -1545,65 +1545,10 @@ class AgentLoop:
 
 == File Assembly
 
-The file chunks below keep the implementation top-down.  Each file is assembled
-from a small number of named chunks, which makes it easier to expand the design
-incrementally without losing the rationale.
-
-[source,toml]
-----
-# <<@file crates/weaveback-agent-core/Cargo.toml>>=
-# <<agent-core-cargo>>
-# @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-agent-core/src/lib.rs>>=
-// <<agent-core-lib>>
-// @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-agent-core/src/workspace.rs>>=
-// <<agent-core-workspace>>
-// @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-agent-core/src/change_plan.rs>>=
-// <<agent-core-change-plan>>
-// @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-agent-core/src/read_api.rs>>=
-// <<agent-core-read-api>>
-// @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-agent-core/src/apply.rs>>=
-// <<agent-core-apply>>
-// @
-----
-
-[source,toml]
-----
-# <<@file crates/weaveback-py/Cargo.toml>>=
-# <<agent-pyo3-cargo>>
-# @
-----
-
-[source,rust]
-----
-// <<@file crates/weaveback-py/src/lib.rs>>=
-// <<agent-pyo3-lib>>
-// @
-----
+NOTE: The canonical sources for `weaveback-agent-core` and `weaveback-py` now
+live in their respective crate-level adoc files (`crates/weaveback-agent-core/src/`
+and `crates/weaveback-py/src/`). The design chunks above are referenced only for
+documentation purposes and are no longer generated from this file.
 
 [source,toml]
 ----

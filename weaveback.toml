@@ -149,6 +149,7 @@ gen = "."
 ext = "adoc"
 open_delim = "<<"
 close_delim = ">>"
+include = "."
 
 [[pass]]
 dir = ".github/workflows/"

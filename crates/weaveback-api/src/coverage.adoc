@@ -15,6 +15,7 @@ use weaveback_tangle::WeavebackError;
 use weaveback_core::PathResolver;
 use weaveback_macro::evaluator::EvalConfig;
 use weaveback_agent_core::{Workspace as AgentWorkspace, WorkspaceConfig as AgentWorkspaceConfig};
+use weaveback_tangle::lookup::distinctive_suffix_candidates;
 use serde_json::json;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -651,17 +652,12 @@ fn find_noweb_entries_for_generated_file(
     }
 
     for candidate in candidates {
-        if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&candidate)
+        if let Ok(entries) = db.get_noweb_entries_for_file(&candidate)
             && !entries.is_empty()
         {
             return Some(entries);
         }
-        let parts: Vec<&str> = candidate.split('/').filter(|part| !part.is_empty()).collect();
-        for start in 1..parts.len() {
-            let suffix = parts[start..].join("/");
-            if !suffix.contains('/') {
-                break;
-            }
+        for suffix in distinctive_suffix_candidates(&candidate) {
             if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&suffix)
                 && !entries.is_empty()
             {
@@ -1676,6 +1672,42 @@ mod tests {
             scan_generated_locations(text),
             vec!["src/generated.rs:1:27", r#"C:\tmp\gen\out.rs:17:9"#]
         );
+    }
+
+    #[test]
+    fn find_noweb_entries_for_generated_file_rejects_ambiguous_short_suffixes() {
+        let mut db = WeavebackDb::open_temp().expect("db");
+        db.set_noweb_entries(
+            "/tmp/a/src/main.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "a.adoc".to_string(),
+                    chunk_name: "a".to_string(),
+                    src_line: 1,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set a");
+        db.set_noweb_entries(
+            "/tmp/b/src/main.rs",
+            &[(
+                0,
+                NowebMapEntry {
+                    src_file: "b.adoc".to_string(),
+                    chunk_name: "b".to_string(),
+                    src_line: 1,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set b");
+
+        let got = find_noweb_entries_for_generated_file(&db, "src/main.rs", Path::new("."));
+        assert!(got.is_none());
     }
 
 

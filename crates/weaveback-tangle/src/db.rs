@@ -469,6 +469,36 @@ impl WeavebackDb {
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
     }
+
+    pub fn get_noweb_entries_for_file(
+        &self,
+        out_file: &str,
+    ) -> Result<Vec<(u32, NowebMapEntry)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT nm.out_line, f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+             FROM noweb_map nm
+             JOIN files f_out ON f_out.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             WHERE f_out.path = ?1
+             ORDER BY nm.out_line",
+        )?;
+        let rows = stmt.query_map(params![out_file], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                NowebMapEntry {
+                    src_file: row.get(1)?,
+                    chunk_name: row.get(2)?,
+                    src_line: row.get::<_, u32>(3)?,
+                    indent: row.get(4)?,
+                    confidence: row
+                        .get::<_, String>(5)
+                        .map(|s| Confidence::parse(&s))
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
+    }
 }
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.

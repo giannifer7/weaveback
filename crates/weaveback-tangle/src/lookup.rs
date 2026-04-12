@@ -2,6 +2,32 @@ use std::path::Path;
 use crate::db::{WeavebackDb, NowebMapEntry, DbError};
 use weaveback_core::PathResolver;
 
+const MIN_DISTINCTIVE_SUFFIX_COMPONENTS: usize = 3;
+
+fn normalized_path_components(path: &str) -> Vec<String> {
+    path.replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_string())
+        .collect()
+}
+
+/// Generate progressively shorter suffix candidates for compatibility lookup,
+/// but only keep suffixes that are structurally distinctive enough to avoid
+/// basename-level ambiguity across crates or package roots.
+pub fn distinctive_suffix_candidates(path: &str) -> Vec<String> {
+    let parts = normalized_path_components(path);
+    if parts.len() < MIN_DISTINCTIVE_SUFFIX_COMPONENTS {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    for start in 1..=parts.len() - MIN_DISTINCTIVE_SUFFIX_COMPONENTS {
+        out.push(parts[start..].join("/"));
+    }
+    out
+}
+
 /// Returns (line, col) both 1-indexed; col counts UTF-8 characters.
 pub fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     let offset = byte_offset.min(text.len());
@@ -52,15 +78,8 @@ pub fn find_best_noweb_entry(
     // Try 4: progressively strip leading path components and match by suffix.
     // This bridges current repo layouts like `crates/weaveback/src/main.rs`
     // to db keys like `weaveback/src/main.rs`.
-    let components: Vec<_> = Path::new(out_file).components().collect();
-    for i in 1..components.len() {
-        let sub: std::path::PathBuf = components[i..].iter().collect();
-        let sub_str = sub.to_string_lossy();
-        if !sub_str.contains('/') {
-            break;
-        }
+    for sub_str in distinctive_suffix_candidates(out_file) {
         if sub_str != out_file
-            && sub_str != norm
             && let Some(entry) = db.get_noweb_entry_by_suffix(&sub_str, out_line_0)? {
             return Ok(Some(entry));
         }
@@ -207,6 +226,61 @@ mod tests {
 
         assert_eq!(entry.chunk_name, "short");
         assert_eq!(entry.src_file, "a.adoc");
+    }
+
+    #[test]
+    fn distinctive_suffix_candidates_stop_before_ambiguous_short_forms() {
+        assert_eq!(
+            distinctive_suffix_candidates("crates/weaveback/src/main.rs"),
+            vec!["weaveback/src/main.rs".to_string()]
+        );
+        assert_eq!(
+            distinctive_suffix_candidates(r"C:\tmp\ws\crate\src\main.rs"),
+            vec![
+                "tmp/ws/crate/src/main.rs".to_string(),
+                "ws/crate/src/main.rs".to_string(),
+                "crate/src/main.rs".to_string(),
+            ]
+        );
+        assert!(distinctive_suffix_candidates("src/main.rs").is_empty());
+        assert!(distinctive_suffix_candidates("main.rs").is_empty());
+    }
+
+    #[test]
+    fn find_best_noweb_entry_rejects_ambiguous_two_component_suffixes() {
+        let mut db = WeavebackDb::open_temp().expect("temp db");
+        db.set_noweb_entries(
+            "/tmp/a/src/main.rs",
+            &[(
+                7,
+                NowebMapEntry {
+                    src_file: "a.adoc".to_string(),
+                    chunk_name: "a".to_string(),
+                    src_line: 1,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set a");
+        db.set_noweb_entries(
+            "/tmp/b/src/main.rs",
+            &[(
+                7,
+                NowebMapEntry {
+                    src_file: "b.adoc".to_string(),
+                    chunk_name: "b".to_string(),
+                    src_line: 1,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .expect("set b");
+
+        let resolver = PathResolver::new(PathBuf::from("."), PathBuf::from("crates"));
+        let got = find_best_noweb_entry(&db, "src/main.rs", 7, &resolver).expect("lookup ok");
+        assert!(got.is_none());
     }
 
     // ── find_line_col ──────────────────────────────────────────────────────

@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::builtins::{BuiltinFn, default_builtins};
 use super::errors::{EvalError, EvalResult};
@@ -92,14 +91,22 @@ impl Evaluator {
         let mut positional = Vec::new();
         let mut named = Vec::new();
 
+        if positional_count > mac.params.len() {
+            return Err(EvalError::InvalidUsage(format!(
+                "macro '{}': {} positional argument(s) given, but only {} parameter(s) declared",
+                mac.name,
+                positional_count,
+                mac.params.len()
+            )));
+        }
+
         for (i, param_node) in param_nodes[..positional_count].iter().enumerate() {
-            if let Some(param_name) = mac.params.get(i) {
-                positional.push(PositionalBinding {
-                    param_name,
-                    param_node,
-                });
-                assigned.insert(param_name.clone());
-            }
+            let param_name = &mac.params[i];
+            positional.push(PositionalBinding {
+                param_name,
+                param_node,
+            });
+            assigned.insert(param_name.clone());
         }
 
         for param_node in &param_nodes[positional_count..] {
@@ -185,6 +192,14 @@ impl Evaluator {
         self.state.define_macro(mac);
     }
 
+    pub fn get_macro(&self, name: &str) -> Option<crate::evaluator::state::MacroDefinition> {
+        self.state.get_macro(name)
+    }
+
+    pub fn is_builtin(&self, name: &str) -> bool {
+        self.builtins.contains_key(name)
+    }
+
     pub fn set_variable(&mut self, name: &str, value: &str) {
         self.state.set_variable(name, value);
     }
@@ -203,6 +218,14 @@ impl Evaluator {
 
     pub fn drain_macro_defs(&mut self) -> Vec<super::state::MacroDefRaw> {
         self.state.drain_macro_defs()
+    }
+
+    pub fn push_warning(&mut self, msg: String) {
+        self.state.push_warning(msg);
+    }
+
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        self.state.drain_warnings()
     }
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
         self.state
@@ -327,6 +350,31 @@ impl Evaluator {
             "".into()
         }
     }
+
+    /// Extract raw source bytes from a node without macro evaluation.
+    ///
+    /// For `Block` and `Param` nodes the delimiters (`%{`/`%}`) are stripped
+    /// by recursing into `parts`.  All other nodes are returned as their
+    /// verbatim source bytes — macro calls, variable references, etc. appear
+    /// literally in the result.  Used by `%rhaidef_raw` / `%pydef_raw`.
+    pub fn raw_text_of_node(&self, node: &ASTNode) -> String {
+        use crate::types::NodeKind;
+        match node.kind {
+            NodeKind::Block | NodeKind::Param => {
+                node.parts.iter().map(|c| self.raw_text_of_node(c)).collect()
+            }
+            NodeKind::LineComment | NodeKind::BlockComment => String::new(),
+            _ => {
+                if let Some(source) = self.state.source_manager.get_source(node.token.src) {
+                    let start = node.token.pos;
+                    let end = (node.token.pos + node.token.length).min(source.len());
+                    String::from_utf8_lossy(&source[start..end]).into_owned()
+                } else {
+                    String::new()
+                }
+            }
+        }
+    }
     pub fn extract_name_value(&self, name_token: &Token) -> String {
         if let Some(source) = self.state.source_manager.get_source(name_token.src) {
             let start = name_token.pos;
@@ -369,49 +417,52 @@ impl Evaluator {
 
         let param_nodes = Self::macro_param_nodes(node);
 
+        // Evaluate ALL arguments in CALLER scope, before pushing the callee frame.
+        // This means %(var) in an argument resolves against the caller's bindings,
+        // and %set(x, v) in an argument writes to the caller's scope as expected.
+        let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
+
+        let mut positional_vals: Vec<String> = Vec::new();
+        for binding in &binding_plan.positional {
+            positional_vals.push(self.evaluate(binding.param_node)?);
+        }
+        let mut named_vals: Vec<String> = Vec::new();
+        for binding in &binding_plan.named {
+            named_vals.push(self.evaluate(binding.param_node)?);
+        }
+
         self.state.push_scope();
 
-        // frozen_args are vars that are not parameters
-        // and get their values at definition site
+        // frozen_args: free variables pre-bound by %alias(…, k=v) overrides
         for (var, frozen_val) in mac.frozen_args.iter() {
             self.state.set_variable(var, frozen_val);
         }
 
-        // Python-style parameter binding:
-        //   - Positional args must come before named args; a positional after a
-        //     named arg is an error (mirrors Python's SyntaxError).
-        //   - Positional args fill declared params left-to-right.
-        //   - Named args (key = value) bind by name in any relative order among
-        //     themselves.
-        //   - Binding the same param twice (positionally AND by name) is an error.
-        //   - Unknown named arg → error.
-        //   - Missing params default to empty string.
-        let binding_plan = match self.plan_macro_bindings(&mac, &param_nodes) {
-            Ok(plan) => plan,
-            Err(err) => {
-                self.state.pop_scope();
-                return Err(err);
-            }
-        };
-
-        for binding in &binding_plan.positional {
-            let val = self.evaluate(binding.param_node)?;
-            self.state.set_variable(binding.param_name, &val);
+        for (binding, val) in binding_plan.positional.iter().zip(positional_vals.iter()) {
+            self.state.set_variable(binding.param_name, val);
         }
-
-        for binding in &binding_plan.named {
-            let val = self.evaluate(binding.param_node)?;
-            self.state.set_variable(&binding.arg_name, &val);
+        for (binding, val) in binding_plan.named.iter().zip(named_vals.iter()) {
+            self.state.set_variable(&binding.arg_name, val);
         }
-
         for param_name in &binding_plan.unbound {
             self.state.set_variable(param_name, "");
         }
 
         self.state.call_depth += 1;
-        let body_result = self.evaluate(&mac.body);
-        self.state.call_depth -= 1;
-        let mut result = body_result?;
+        let mut result = match mac.script_kind {
+            ScriptKind::RhaiRaw | ScriptKind::PythonRaw => {
+                // Raw variants: skip macro expansion — body is literal script source.
+                self.raw_text_of_node(&mac.body)
+            }
+            _ => {
+                let r = self.evaluate(&mac.body);
+                self.state.call_depth -= 1;
+                r?
+            }
+        };
+        if matches!(mac.script_kind, ScriptKind::RhaiRaw | ScriptKind::PythonRaw) {
+            self.state.call_depth -= 1;
+        }
 
         match mac.script_kind {
             ScriptKind::None => {}
@@ -442,6 +493,30 @@ impl Evaluator {
                     .evaluate(&result, &mac.params, &args, &self.py_store, Some(&mac.name))
                     .map_err(EvalError::Runtime)?;
             }
+            ScriptKind::RhaiRaw => {
+                // Raw Rhai: inject only declared params (no implicit scope vars).
+                let mut params_map = std::collections::HashMap::new();
+                for p in &mac.params {
+                    params_map.insert(p.clone(), self.state.get_variable(p));
+                }
+                let mac_name = mac.name.clone();
+                result = self
+                    .rhai_evaluator
+                    .evaluate(&result, &params_map, &mut self.rhai_store, Some(&mac_name))
+                    .map_err(EvalError::Runtime)?;
+            }
+            ScriptKind::PythonRaw => {
+                // Raw Python: body is literal source; param injection same as %pydef.
+                let args: Vec<String> = mac
+                    .params
+                    .iter()
+                    .map(|p| self.state.get_variable(p))
+                    .collect();
+                result = self
+                    .monty_evaluator
+                    .evaluate(&result, &mac.params, &args, &self.py_store, Some(&mac.name))
+                    .map_err(EvalError::Runtime)?;
+            }
         }
 
         self.state.pop_scope();
@@ -451,6 +526,9 @@ impl Evaluator {
     pub fn export(&mut self, name: &str) {
         let stack_len = self.state.scope_stack.len();
         if stack_len <= 1 {
+            self.state.push_warning(format!(
+                "%export('{name}') at global scope has no effect (no parent frame to export into)"
+            ));
             return;
         }
         let parent_index = stack_len - 2;
@@ -481,45 +559,14 @@ impl Evaluator {
             .get(name)
             .cloned()
         {
-            let frozen_mac = self.freeze_macro_definition(&mac);
+            // Plain upward copy — no automatic free-variable freezing.
+            // Use %alias(new, src, k=v) for explicit capture.
             self.state
                 .scope_stack
                 .get_mut(parent_index)
                 .unwrap()
                 .macros
-                .insert(name.to_string(), frozen_mac);
-        }
-    }
-
-    pub fn freeze_macro_definition(&mut self, mac: &MacroDefinition) -> MacroDefinition {
-        let mut frozen = HashMap::new();
-        let keep: HashSet<String> = mac.params.iter().cloned().collect();
-        self.collect_freeze_vars(&mac.body, &keep, &mut frozen);
-
-        MacroDefinition {
-            name: mac.name.clone(),
-            params: mac.params.clone(),
-            body: Arc::clone(&mac.body),
-            script_kind: mac.script_kind.clone(),
-            frozen_args: frozen,
-        }
-    }
-
-    fn collect_freeze_vars(
-        &mut self,
-        node: &ASTNode,
-        keep: &HashSet<String>,
-        frozen: &mut HashMap<String, String>,
-    ) {
-        if node.kind == NodeKind::Var {
-            let var_name = self.node_text(node).trim().to_string();
-            if !keep.contains(&var_name) && !frozen.contains_key(&var_name) {
-                let value = self.evaluate(node).unwrap_or_default();
-                frozen.insert(var_name, value);
-            }
-        }
-        for child in &node.parts {
-            self.collect_freeze_vars(child, keep, frozen);
+                .insert(name.to_string(), mac);
         }
     }
     pub fn parse_string(&mut self, text: &str, path: &PathBuf) -> Result<ASTNode, EvalError> {
@@ -576,6 +623,45 @@ impl Evaluator {
     /// Return (and clear) the list of paths recorded during a discovery-mode run.
     pub fn take_discovered_includes(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.state.discovered_includes)
+    }
+
+    /// Like `do_include`, but registers every newly-defined macro under an
+    /// additional `prefix_name` alias in the current scope.  The originals
+    /// also remain so that internal cross-references inside the file continue
+    /// to resolve correctly.
+    pub fn do_include_prefixed(&mut self, filename: &str, prefix: &str) -> EvalResult<String> {
+        // Snapshot which macros already exist in the current scope frame.
+        let before: std::collections::HashSet<String> = self
+            .state
+            .scope_stack
+            .last()
+            .map(|f| f.macros.keys().cloned().collect())
+            .unwrap_or_default();
+
+        self.do_include(filename)?;
+
+        // Collect all macros that were newly defined and register them prefixed.
+        let new_macros: Vec<crate::evaluator::state::MacroDefinition> = self
+            .state
+            .scope_stack
+            .last()
+            .map(|f| {
+                f.macros
+                    .iter()
+                    .filter(|(name, _)| !before.contains(*name))
+                    .map(|(_, mac)| mac.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for mac in new_macros {
+            let prefixed_name = format!("{prefix}_{}", mac.name);
+            let mut prefixed = mac;
+            prefixed.name = prefixed_name;
+            self.state.define_macro(prefixed);
+        }
+
+        Ok("".into())
     }
     // ---- Tracked evaluation (EvalOutput) ------------------------------------
 
@@ -757,24 +843,12 @@ impl Evaluator {
 
         let param_nodes = Self::macro_param_nodes(node);
 
-        self.state.push_scope();
+        // Plan bindings and evaluate arguments in CALLER scope, before push_scope.
+        let binding_plan = self.plan_macro_bindings(&mac, &param_nodes)?;
 
-        // frozen_args are vars that are not parameters
-        for (var, frozen_val) in mac.frozen_args.iter() {
-            let mut span = self.span_of(node);
-            span.kind = SpanKind::VarBinding { var_name: var.clone() };
-            self.state.set_tracked_variable(var, frozen_val, Some(span));
-        }
-
-        // Python-style parameter binding (same logic as evaluate_macro_call)
-        let binding_plan = match self.plan_macro_bindings(&mac, &param_nodes) {
-            Ok(plan) => plan,
-            Err(err) => {
-                self.state.pop_scope();
-                return Err(err);
-            }
-        };
-
+        // Pre-evaluate all args: (param_name, val, tagged_spans, coarse_span).
+        // tagged_spans is non-empty only when out.is_tracing().
+        let mut positional_pre: Vec<(String, String, Vec<SpanRange>, SourceSpan)> = Vec::new();
         for binding in &binding_plan.positional {
             if out.is_tracing() {
                 let (val, raw_spans) = self.evaluate_arg_to_traced(binding.param_node)?;
@@ -785,8 +859,12 @@ impl Evaluator {
                     name,
                     binding.param_name,
                 );
-                self.state
-                    .set_traced_variable(binding.param_name, val, tagged);
+                positional_pre.push((
+                    binding.param_name.to_string(),
+                    val,
+                    tagged,
+                    self.span_of(binding.param_node),
+                ));
             } else {
                 let val = self.evaluate(binding.param_node)?;
                 let mut span = self.span_of(binding.param_node);
@@ -794,11 +872,11 @@ impl Evaluator {
                     macro_name: name.to_string(),
                     param_name: binding.param_name.to_string(),
                 };
-                self.state
-                    .set_tracked_variable(binding.param_name, &val, Some(span));
+                positional_pre.push((binding.param_name.to_string(), val, vec![], span));
             }
         }
 
+        let mut named_pre: Vec<(String, String, Vec<SpanRange>, SourceSpan)> = Vec::new();
         for binding in &binding_plan.named {
             if out.is_tracing() {
                 let (val, raw_spans) = self.evaluate_arg_to_traced(binding.param_node)?;
@@ -809,8 +887,12 @@ impl Evaluator {
                     name,
                     &binding.arg_name,
                 );
-                self.state
-                    .set_traced_variable(&binding.arg_name, val, tagged);
+                named_pre.push((
+                    binding.arg_name.clone(),
+                    val,
+                    tagged,
+                    self.span_of(binding.param_node),
+                ));
             } else {
                 let val = self.evaluate(binding.param_node)?;
                 let mut span = self.span_of(binding.param_node);
@@ -818,12 +900,42 @@ impl Evaluator {
                     macro_name: name.to_string(),
                     param_name: binding.arg_name.clone(),
                 };
-                self.state
-                    .set_tracked_variable(&binding.arg_name, &val, Some(span));
+                named_pre.push((binding.arg_name.clone(), val, vec![], span));
             }
         }
 
-        for param_name in &binding_plan.unbound {
+        let unbound_names: Vec<String> =
+            binding_plan.unbound.iter().map(|s| s.to_string()).collect();
+
+        // NOW push the callee frame
+        self.state.push_scope();
+
+        // frozen_args: pre-bound free variables from %alias(…, k=v) overrides
+        for (var, frozen_val) in mac.frozen_args.iter() {
+            let mut span = self.span_of(node);
+            span.kind = SpanKind::VarBinding { var_name: var.clone() };
+            self.state.set_tracked_variable(var, frozen_val, Some(span));
+        }
+
+        // Bind pre-evaluated positional args
+        for (param_name, val, tagged, coarse_span) in positional_pre {
+            if out.is_tracing() {
+                self.state.set_traced_variable(&param_name, val, tagged);
+            } else {
+                self.state.set_tracked_variable(&param_name, &val, Some(coarse_span));
+            }
+        }
+
+        // Bind pre-evaluated named args
+        for (param_name, val, tagged, coarse_span) in named_pre {
+            if out.is_tracing() {
+                self.state.set_traced_variable(&param_name, val, tagged);
+            } else {
+                self.state.set_tracked_variable(&param_name, &val, Some(coarse_span));
+            }
+        }
+
+        for param_name in &unbound_names {
             self.state.set_variable(param_name, "");
         }
 
@@ -862,6 +974,14 @@ impl Evaluator {
             }
             ScriptKind::Python => {
                 // Same reasoning as Rhai above.
+            }
+            ScriptKind::RhaiRaw => {
+                // Raw-script variants are handled in evaluate_macro_call(),
+                // which collects the body as literal script source before
+                // dispatching to the script engine.
+            }
+            ScriptKind::PythonRaw => {
+                // Same as RhaiRaw above.
             }
         }
 

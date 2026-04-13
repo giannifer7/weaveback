@@ -1,4 +1,4 @@
-= Weaveback CLI overview
+= Weaveback CLI specification
 :toc: left
 
 This directory no longer defines one combined `weaveback` binary. The CLI is
@@ -11,12 +11,13 @@ split across four focused tools:
 * link:../crates/wb-serve/src/main.html[`wb-serve`] for the local docs server
 * link:../crates/wb-mcp/src/main.html[`wb-mcp`] for MCP / agent integration
 
-The role of `cli-spec/` is now narrower and easier to read:
+The role of `cli-spec/` is now narrower and easier to read, but it is still
+fully generative:
 
 1. link:macros.html[`macros.adoc`] defines shared option-family macros
 2. each standalone CLI spec imports those macros and generates its own
    `cli_generated.rs`
-3. this file generates the public CLI overview page
+3. this file generates the public cross-binary CLI reference page
 
 [plantuml,format=svg]
 ----
@@ -51,7 +52,7 @@ mcp --> out
 @enduml
 ----
 
-== Generated CLI overview
+== Generated CLI reference
 
 [source,adoc]
 ----

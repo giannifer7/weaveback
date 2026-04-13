@@ -5,9 +5,8 @@
 This file is the standalone CLI source of truth for `wb-tangle`.
 
 Like the top-level [cli-spec.adoc](/home/g4/_prj/weaveback/cli-spec/cli-spec.adoc),
-it keeps the generated Rust skeleton readable by projecting reusable option
-families into named chunks first, then assembling the final struct from those
-chunks.
+it is a real literate source file: reusable option families are projected into
+named chunks first, then the final Rust skeleton assembles those chunks.
 
 == Rust projection chunks
 

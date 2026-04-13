@@ -119,8 +119,8 @@ the main Rust crates.
 | link:../project/option-spec.adoc[CLI option-spec experiment]
 | `scripts/option_spec/` prototype for multi-projection CLI metadata
 
-| link:../cli-spec/cli-spec.adoc[CLI overview and shared CLI-spec notes]
-| `docs/cli.adoc`
+| link:../cli-spec/cli-spec.adoc[split CLI specification]
+| `docs/cli.adoc` (generated cross-binary CLI reference)
 |===
 
 == Split CLI literate sources

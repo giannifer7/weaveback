@@ -4,61 +4,74 @@
 
 This file defines the standalone `wb-query` CLI.
 
-Compared to the combined `weaveback` CLI, this one mixes a few hand-written
-fields (`db`, `gen_dir`, positional trace inputs) with reusable option
-families. The reusable parts are projected into named chunks first so the enum
-shape stays readable.
+This CLI mixes a few hand-written fields (`db`, `gen_dir`, positional trace
+inputs, the nested `lsp` subcommands) with reusable option families. The
+reusable parts are projected into named chunks first so the enum shape stays
+readable.
 
 == Rust projection chunks
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-trace-eval-options)
-%eval_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%eval_options(chunk_name = wb-query-trace-eval-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-graph-options)
-%graph_command_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%graph_command_options(chunk_name = wb-query-graph-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-tags-options)
-%tags_command_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%tag_command_options(chunk_name = wb-query-tag-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-lint-options)
-%lint_command_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%tags_command_options(chunk_name = wb-query-tags-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-attribute-options)
-%attribute_command_options()
-%eval_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%lint_command_options(chunk_name = wb-query-lint-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-coverage-options)
-%coverage_command_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%attribute_command_options(chunk_name = wb-query-attribute-options)
+%eval_options(chunk_name = wb-query-attribute-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-cargo-options)
-%cargo_command_options()
-%eval_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%coverage_command_options(chunk_name = wb-query-coverage-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-search-options)
-%search_command_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%cargo_command_options(chunk_name = wb-query-cargo-options)
+%eval_options(chunk_name = wb-query-cargo-options)
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option)
+%lsp_command_options(chunk_name = wb-query-lsp-options)
+%eval_options(chunk_name = wb-query-lsp-options)
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option)
+%search_command_options(chunk_name = wb-query-search-options)
 ----
 
 [source,rust]
@@ -112,6 +125,10 @@ pub(crate) enum Commands {
     Graph {
 // <<wb-query-graph-options>>
     },
+    /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index.
+    Tag {
+// <<wb-query-tag-options>>
+    },
     /// List tagged source blocks.
     Tags {
 // <<wb-query-tags-options>>
@@ -132,9 +149,37 @@ pub(crate) enum Commands {
     Cargo {
 // <<wb-query-cargo-options>>
     },
+    /// Semantic language server operations for generated code.
+    Lsp {
+// <<wb-query-lsp-options>>
+        #[command(subcommand)]
+        cmd: LspCommands,
+    },
     /// Full-text search over tangled source content.
     Search {
 // <<wb-query-search-options>>
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum LspCommands {
+    /// Go to definition of a symbol and map it to literate source.
+    Definition {
+        /// Generated file path.
+        out_file: String,
+        /// 1-indexed line number in the generated file.
+        line: u32,
+        /// 1-indexed column number in the generated file.
+        col: u32,
+    },
+    /// Find references to a symbol and map them to literate source.
+    References {
+        /// Generated file path.
+        out_file: String,
+        /// 1-indexed line number in the generated file.
+        line: u32,
+        /// 1-indexed column number in the generated file.
+        col: u32,
     },
 }
 // @

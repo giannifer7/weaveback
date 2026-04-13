@@ -2,13 +2,16 @@
 :toc: left
 :source-highlighter: syntect
 
-`wb-tangle` is the weaveback build tool.  It operates in two modes:
+`wb-tangle` is the weaveback build-and-reconcile tool.  It operates in three
+surfaces:
 
 * **Multi-pass** (default): reads `weaveback.toml` and runs all `[[pass]]`
-  entries in parallel, then rebuilds FTS.
+  entries sequentially, then rebuilds FTS.
 * **Single-pass** (activated by `--dir`): processes one directory of literate
   sources, writing `@file` chunks to the output directory.  This mode is what
   multi-pass spawns via `std::process::Command` for each `[[pass]]`.
+* **`apply-back` subcommand**: propagates edits made directly in `gen/` back
+  to the literate source using trace/oracle verification.
 
 == Error Type
 
@@ -41,7 +44,7 @@ Generated from `cli-spec/wb-tangle-cli.adoc`.
 ----
 // <<wb-tangle-cli>>=
 mod cli_generated;
-use cli_generated::{Cli, SinglePassCli};
+use cli_generated::{Cli, Commands, SinglePassCli};
 use clap::Parser;
 // @
 ----
@@ -86,13 +89,47 @@ fn run_single_pass_from_cli(s: SinglePassCli, force_generated: bool) -> Result<(
     Ok(())
 }
 
+fn run_apply_back(
+    files: Vec<String>,
+    dry_run: bool,
+    single: &SinglePassCli,
+) -> Result<(), Error> {
+    use weaveback_api::apply_back::{ApplyBackOptions, run_apply_back};
+
+    let pathsep = if cfg!(windows) { ";" } else { ":" };
+    let include_paths: Vec<std::path::PathBuf> = single
+        .include
+        .split(pathsep)
+        .map(std::path::PathBuf::from)
+        .collect();
+    let eval_config = weaveback_macro::evaluator::EvalConfig {
+        sigil: single.sigil,
+        include_paths,
+        allow_env: single.allow_env,
+        ..Default::default()
+    };
+    let opts = ApplyBackOptions {
+        db_path: single.db.clone(),
+        gen_dir: single.gen_dir.clone(),
+        dry_run,
+        files,
+        eval_config: Some(eval_config),
+    };
+    run_apply_back(opts, &mut std::io::stdout())
+        .map_err(|e| Error::Io(std::io::Error::other(e.to_string())))
+}
+
 fn main() {
     let cli = Cli::parse();
 
-    let result: Result<(), Error> = if cli.single.directory.is_some() || !cli.single.inputs.is_empty() {
-        run_single_pass_from_cli(cli.single, cli.force_generated)
-    } else {
-        run_multi_pass(&cli.config, cli.force_generated)
+    let result: Result<(), Error> = match cli.command {
+        Some(Commands::ApplyBack { files, dry_run }) => {
+            run_apply_back(files, dry_run, &cli.single)
+        }
+        None if cli.single.directory.is_some() || !cli.single.inputs.is_empty() => {
+            run_single_pass_from_cli(cli.single, cli.force_generated)
+        }
+        None => run_multi_pass(&cli.config, cli.force_generated),
     };
 
     if let Err(e) = result {

@@ -9,31 +9,28 @@ produce no output themselves.
 
 [source]
 ----
-%redef(render_rust_struct_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
+%redef(render_rust_struct_chunk_option, chunk_name, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+// <<%(chunk_name)>>=
+%(doc_block)
 %if(%(arg_attr), %{    #[arg(%(arg_attr))]
 %})
     pub(crate) %(field): %(rust_type),
+// @
 %})
 
-%redef(render_rust_enum_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{%(doc_block)
+%redef(render_rust_enum_chunk_option, chunk_name, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+// <<%(chunk_name)>>=
+%(doc_block)
 %if(%(arg_attr), %{    #[arg(%(arg_attr))]
 %})
     %(field): %(rust_type),
+// @
 %})
 
-%redef(render_rust_struct_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
-%render_rust_struct_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
-%})
-
-%redef(render_rust_enum_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
-%render_rust_enum_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
-%})
-
-%redef(render_doc_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{| %(doc_flag) | %(doc_default) | %(doc_descr)
-%})
-
-%redef(render_doc_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
-%render_doc_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
+%redef(render_doc_chunk_option, chunk_name, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
+// <<%(chunk_name)>>=
+| %(doc_flag) | %(doc_default) | %(doc_descr)
+// @
 %})
 ----
 
@@ -41,8 +38,9 @@ produce no output themselves.
 
 [source]
 ----
-%redef(macro_arg_options, %{
+%redef(macro_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = inputs,
 rust_type = Vec<PathBuf>,
 arg_attr = %{required = false%},
@@ -52,6 +50,7 @@ doc_default = %{ %},
 doc_descr = %{Explicit files to process when `--dir` is not used.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = input_dir,
 rust_type = PathBuf,
 arg_attr = %{long, default_value = "."%},
@@ -61,6 +60,7 @@ doc_default = %{`.`%},
 doc_descr = %{Base directory prepended to every input path.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = sigil,
 rust_type = char,
 arg_attr = %{long, default_value = "%%"%},
@@ -70,6 +70,7 @@ doc_default = %{`%%`%},
 doc_descr = %{Macro sigil character.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = no_macros,
 rust_type = bool,
 arg_attr = %{long%},
@@ -81,6 +82,7 @@ doc_default = %{off%},
 doc_descr = %{Skip macro expansion and feed source files directly to the tangle pass.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = include,
 rust_type = String,
 arg_attr = %{long, default_value = "."%},
@@ -90,6 +92,7 @@ doc_default = %{`.`%},
 doc_descr = %{Include search paths for `%%include` and `%%import` (colon-separated on Unix).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = db,
 rust_type = PathBuf,
 arg_attr = %{long, default_value = "weaveback.db"%},
@@ -100,8 +103,9 @@ doc_descr = %{Path to the source-map database.%},
 )
 %})
 
-%redef(debug_arg_options, %{
+%redef(debug_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = dump_expanded,
 rust_type = bool,
 arg_attr = %{long%},
@@ -112,8 +116,9 @@ doc_descr = %{Print macro-expanded text to stderr before noweb processing.%},
 )
 %})
 
-%redef(tangle_arg_options, %{
+%redef(tangle_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = gen_dir,
 rust_type = PathBuf,
 arg_attr = %{long = "gen", default_value = "gen"%},
@@ -123,6 +128,7 @@ doc_default = %{`gen`%},
 doc_descr = %{Base directory for generated output files.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = open_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "<["%},
@@ -132,6 +138,7 @@ doc_default = %{`<[`%},
 doc_descr = %{Chunk-open delimiter.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = close_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "]>"%},
@@ -141,6 +148,7 @@ doc_default = %{`]>`%},
 doc_descr = %{Chunk-close delimiter.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = chunk_end,
 rust_type = String,
 arg_attr = %{long, default_value = "@"%},
@@ -150,6 +158,7 @@ doc_default = %{`@`%},
 doc_descr = %{End-of-chunk marker.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = comment_markers,
 rust_type = String,
 arg_attr = %{long, default_value = "#,//"%},
@@ -159,6 +168,7 @@ doc_default = %{`#,//`%},
 doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = formatter,
 rust_type = Vec<String>,
 arg_attr = %{long, value_name = "EXT=CMD"%},
@@ -168,6 +178,7 @@ doc_default = %{ %},
 doc_descr = %{Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = force_generated,
 rust_type = bool,
 arg_attr = %{long%},
@@ -179,8 +190,9 @@ doc_descr = %{Overwrite generated files even if they differ from the stored base
 )
 %})
 
-%redef(directory_arg_options, %{
+%redef(directory_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = directory,
 rust_type = Option<PathBuf>,
 arg_attr = %{long = "dir", conflicts_with = "inputs"%},
@@ -192,6 +204,7 @@ doc_default = %{ %},
 doc_descr = %{Auto-discover driver files; mutually exclusive with positional inputs.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = ext,
 rust_type = Vec<String>,
 arg_attr = %{long, default_value = "md"%},
@@ -203,8 +216,9 @@ doc_descr = %{File extension to scan in `--dir` mode; repeatable.%},
 )
 %})
 
-%redef(build_arg_options, %{
+%redef(build_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = depfile,
 rust_type = Option<PathBuf>,
 arg_attr = %{long%},
@@ -216,6 +230,7 @@ doc_default = %{ %},
 doc_descr = %{Write a Makefile depfile listing every source file read.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = stamp,
 rust_type = Option<PathBuf>,
 arg_attr = %{long%},
@@ -226,13 +241,14 @@ doc_descr = %{Touch this file on success (build-system stamp).%},
 )
 %})
 
-%redef(hidden_arg_options, %{
+%redef(hidden_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = no_fts,
 rust_type = bool,
 arg_attr = %{long, hide = true%},
 doc_block = %{    /// Skip rebuilding the prose full-text search index after this run.
-    /// Used internally by `weaveback tangle` to avoid concurrent FTS rebuilds;
+    /// Used internally by `wb-tangle` to avoid concurrent FTS rebuilds;
     /// the tangle command rebuilds the index once after all passes complete.%},
 doc_flag = %{hidden%},
 doc_default = %{hidden%},
@@ -240,8 +256,9 @@ doc_descr = %{hidden%},
 )
 %})
 
-%redef(security_arg_options, %{
+%redef(security_arg_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = allow_env,
 rust_type = bool,
 arg_attr = %{long%},
@@ -252,6 +269,7 @@ doc_default = %{off%},
 doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = allow_home,
 rust_type = bool,
 arg_attr = %{long%},
@@ -261,6 +279,7 @@ doc_default = %{off%},
 doc_descr = %{Allow `@file ~/…` chunks to write outside the `gen/` sandbox.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = strict,
 rust_type = bool,
 arg_attr = %{long%},
@@ -270,6 +289,7 @@ doc_default = %{off%},
 doc_descr = %{Treat references to undefined chunks as fatal errors (default: silently expand to nothing).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = dry_run,
 rust_type = bool,
 arg_attr = %{long%},
@@ -279,6 +299,7 @@ doc_default = %{off%},
 doc_descr = %{Print output paths without writing anything.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = warn_unused,
 rust_type = bool,
 arg_attr = %{long%},
@@ -296,8 +317,9 @@ doc_descr = %{Warn about named chunks that are defined but never referenced by a
 
 [source]
 ----
-%redef(tangle_command_options, %{
+%redef(tangle_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = config,
 rust_type = std::path::PathBuf,
 arg_attr = %{long, default_value = "weaveback.toml"%},
@@ -307,6 +329,7 @@ doc_default = %{`weaveback.toml`%},
 doc_descr = %{Path to the tangle config file.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = force_generated,
 rust_type = bool,
 arg_attr = %{long%},
@@ -318,8 +341,9 @@ doc_descr = %{Overwrite generated files even if they differ from the stored base
 )
 %})
 
-%redef(tag_command_options, %{
+%redef(tag_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = config,
 rust_type = std::path::PathBuf,
 arg_attr = %{long, default_value = "weaveback.toml"%},
@@ -329,6 +353,7 @@ doc_default = %{`weaveback.toml`%},
 doc_descr = %{Path to the tangle config file (reads `[tags]`).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = backend,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -338,6 +363,7 @@ doc_default = %{ %},
 doc_descr = %{Override backend (`anthropic`, `gemini`, `openai`, `ollama`).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = model,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -347,6 +373,7 @@ doc_default = %{ %},
 doc_descr = %{Override model name.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = endpoint,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -356,6 +383,7 @@ doc_default = %{ %},
 doc_descr = %{Override API endpoint (for ollama or openai-compatible backends).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = batch_size,
 rust_type = Option<usize>,
 arg_attr = %{long%},
@@ -366,8 +394,9 @@ doc_descr = %{Override blocks per LLM request.%},
 )
 %})
 
-%redef(apply_back_command_options, %{
+%redef(apply_back_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = files,
 rust_type = Vec<String>,
 arg_attr =,
@@ -377,6 +406,7 @@ doc_default = %{ %},
 doc_descr = %{Relative paths within `gen/` to process (default: all modified files).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = dry_run,
 rust_type = bool,
 arg_attr = %{long%},
@@ -387,8 +417,9 @@ doc_descr = %{Show what would change without writing anything.%},
 )
 %})
 
-%redef(graph_command_options, %{
+%redef(graph_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = chunk,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -399,8 +430,9 @@ doc_descr = %{Restrict to the subgraph reachable from this chunk.%},
 )
 %})
 
-%redef(search_command_options, %{
+%redef(search_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = query,
 rust_type = String,
 arg_attr =,
@@ -410,6 +442,7 @@ doc_default = %{ %},
 doc_descr = %{Search query (FTS5 syntax: `AND`, `OR`, `NOT`, phrase `"..."`, prefix `foo*`).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = limit,
 rust_type = usize,
 arg_attr = %{long, default_value = "10"%},
@@ -420,8 +453,9 @@ doc_descr = %{Maximum number of results to show.%},
 )
 %})
 
-%redef(attribute_command_options, %{
+%redef(attribute_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = scan_stdin,
 rust_type = bool,
 arg_attr = %{long%},
@@ -431,6 +465,7 @@ doc_default = %{off%},
 doc_descr = %{Read plain text from stdin, extract `FILE:LINE[:COL]` locations, and attribute them.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = summary,
 rust_type = bool,
 arg_attr = %{long%},
@@ -440,6 +475,7 @@ doc_default = %{off%},
 doc_descr = %{Emit grouped source-of-truth summary JSON instead of a flat result array.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = locations,
 rust_type = Vec<String>,
 arg_attr =,
@@ -450,29 +486,32 @@ doc_descr = %{One or more generated locations in `FILE:LINE` or `FILE:LINE:COL` 
 )
 %})
 
-%redef(cargo_command_options, %{
+%redef(cargo_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = diagnostics_only,
 rust_type = bool,
 arg_attr = %{long%},
-doc_block = %{        /// Emit only compiler messages and the final weaveback summary, not Cargo artifact chatter%},
+doc_block = %{        /// Emit only compiler messages and the final source-of-truth summary, not Cargo artifact chatter%},
 doc_flag = %{`--diagnostics-only`%},
 doc_default = %{off%},
-doc_descr = %{Emit only compiler messages and the final weaveback summary.%},
+doc_descr = %{Emit only compiler messages and the final source-of-truth summary.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = args,
 rust_type = Vec<String>,
 arg_attr = %{trailing_var_arg = true, allow_hyphen_values = true%},
-doc_block = %{        /// Cargo subcommand and arguments, passed through after `weaveback cargo`%},
+doc_block = %{        /// Cargo subcommand and arguments, passed through after `wb-query cargo`%},
 doc_flag = %{`[ARGS]...`%},
 doc_default = %{ %},
-doc_descr = %{Cargo subcommand and arguments, passed through after `weaveback cargo`.%},
+doc_descr = %{Cargo subcommand and arguments, passed through after `wb-query cargo`.%},
 )
 %})
 
-%redef(lint_command_options, %{
+%redef(lint_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = paths,
 rust_type = Vec<PathBuf>,
 arg_attr =,
@@ -482,6 +521,7 @@ doc_default = %{current tree%},
 doc_descr = %{Files or directories to lint (default: current tree).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = strict,
 rust_type = bool,
 arg_attr = %{long%},
@@ -491,6 +531,7 @@ doc_default = %{off%},
 doc_descr = %{Treat violations as errors.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = rule,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -500,6 +541,7 @@ doc_default = %{all%},
 doc_descr = %{Restrict linting to one rule.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = json,
 rust_type = bool,
 arg_attr = %{long%},
@@ -510,8 +552,9 @@ doc_descr = %{Emit structured JSON instead of human-readable text.%},
 )
 %})
 
-%redef(coverage_command_options, %{
+%redef(coverage_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = summary,
 rust_type = bool,
 arg_attr = %{long%},
@@ -521,6 +564,7 @@ doc_default = %{off%},
 doc_descr = %{Print a concise human summary ranked by missed lines instead of full JSON.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = top_sources,
 rust_type = usize,
 arg_attr = %{long, default_value = "10"%},
@@ -530,6 +574,7 @@ doc_default = %{`10`%},
 doc_descr = %{Maximum number of source files to show in summary mode.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = top_sections,
 rust_type = usize,
 arg_attr = %{long, default_value = "3"%},
@@ -539,6 +584,7 @@ doc_default = %{`3`%},
 doc_descr = %{Maximum number of sections to show per source file in summary mode.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = explain_unattributed,
 rust_type = bool,
 arg_attr = %{long%},
@@ -548,6 +594,7 @@ doc_default = %{off%},
 doc_descr = %{For each unattributed file, print the unmapped line ranges with the actual source content so you can see which code lacks noweb entries.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = lcov_file,
 rust_type = PathBuf,
 arg_attr =,
@@ -558,8 +605,9 @@ doc_descr = %{Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-
 )
 %})
 
-%redef(tags_command_options, %{
+%redef(tags_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = file,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -570,8 +618,9 @@ doc_descr = %{Filter to a single source file (plain relative path).%},
 )
 %})
 
-%redef(lsp_command_options, %{
+%redef(lsp_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = lsp_cmd,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -581,6 +630,7 @@ doc_default = %{(auto)%},
 doc_descr = %{Manual override for LSP command (e.g. `nimlsp`).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = lsp_lang,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -591,8 +641,9 @@ doc_descr = %{Manual override for language ID (e.g. `nim`).%},
 )
 %})
 
-%redef(serve_command_options, %{
+%redef(serve_command_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = port,
 rust_type = u16,
 arg_attr = %{long, default_value = "7779"%},
@@ -602,6 +653,7 @@ doc_default = %{`7779`%},
 doc_descr = %{TCP port to listen on.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = html,
 rust_type = Option<PathBuf>,
 arg_attr = %{long%},
@@ -611,6 +663,7 @@ doc_default = %{`<root>/docs/html`%},
 doc_descr = %{Directory to serve.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = open_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "<["%},
@@ -620,6 +673,7 @@ doc_default = %{`<[`%},
 doc_descr = %{Chunk-open delimiter for the tangle oracle.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = close_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "]>"%},
@@ -629,6 +683,7 @@ doc_default = %{`]>`%},
 doc_descr = %{Chunk-close delimiter for the tangle oracle.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = chunk_end,
 rust_type = String,
 arg_attr = %{long, default_value = "@@"%},
@@ -638,6 +693,7 @@ doc_default = %{`@@`%},
 doc_descr = %{Chunk-end marker for the tangle oracle.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = comment_markers,
 rust_type = String,
 arg_attr = %{long, default_value = "//"%},
@@ -647,6 +703,7 @@ doc_default = %{`//`%},
 doc_descr = %{Comment prefixes for the oracle (comma-separated).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = ai_backend,
 rust_type = String,
 arg_attr = %{long, default_value = "claude-cli"%},
@@ -656,6 +713,7 @@ doc_default = %{`claude-cli`%},
 doc_descr = %{AI backend for `/__ai`: `claude-cli`, `anthropic`, `gemini`, `ollama`, or `openai`.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = ai_model,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -665,6 +723,7 @@ doc_default = %{(default)%},
 doc_descr = %{AI model name (e.g. `gemini-1.5-pro`, `llama3`, `gpt-4o`).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = ai_endpoint,
 rust_type = Option<String>,
 arg_attr = %{long%},
@@ -674,6 +733,7 @@ doc_default = %{(default)%},
 doc_descr = %{Base URL for `ollama` or `openai` backends.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = watch,
 rust_type = bool,
 arg_attr = %{long%},
@@ -691,8 +751,9 @@ Reusable groups for standalone binaries that lack a global `Args` struct.
 
 [source]
 ----
-%redef(eval_options, %{
+%redef(eval_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = sigil,
 rust_type = char,
 arg_attr = %{long, default_value = "%%"%},
@@ -702,6 +763,7 @@ doc_default = %{`%%`%},
 doc_descr = %{Macro sigil character.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = include,
 rust_type = String,
 arg_attr = %{long, default_value = "."%},
@@ -711,6 +773,7 @@ doc_default = %{`.`%},
 doc_descr = %{Include search paths for `%%include` and `%%import`.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = allow_env,
 rust_type = bool,
 arg_attr = %{long%},
@@ -721,8 +784,9 @@ doc_descr = %{Enable `%%env(NAME)` (disabled by default to protect secrets).%},
 )
 %})
 
-%redef(tangle_delim_options, %{
+%redef(tangle_delim_options, chunk_name, %{ 
 %emit_option(
+chunk_name = %(chunk_name),
 field = gen_dir,
 rust_type = PathBuf,
 arg_attr = %{long = "gen", default_value = "gen"%},
@@ -732,6 +796,7 @@ doc_default = %{`gen`%},
 doc_descr = %{Base directory for generated output files.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = open_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "<["%},
@@ -741,6 +806,7 @@ doc_default = %{`<[`%},
 doc_descr = %{Chunk-open delimiter.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = close_delim,
 rust_type = String,
 arg_attr = %{long, default_value = "]>"%},
@@ -750,6 +816,7 @@ doc_default = %{`]>`%},
 doc_descr = %{Chunk-close delimiter.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = chunk_end,
 rust_type = String,
 arg_attr = %{long, default_value = "@"%},
@@ -759,6 +826,7 @@ doc_default = %{`@`%},
 doc_descr = %{End-of-chunk marker.%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = comment_markers,
 rust_type = String,
 arg_attr = %{long, default_value = "#,//"%},
@@ -768,6 +836,7 @@ doc_default = %{`#,//`%},
 doc_descr = %{Comment prefixes recognised before chunk delimiters (comma-separated).%},
 )
 %emit_option(
+chunk_name = %(chunk_name),
 field = formatter,
 rust_type = Vec<String>,
 arg_attr = %{long, value_name = "EXT=CMD"%},

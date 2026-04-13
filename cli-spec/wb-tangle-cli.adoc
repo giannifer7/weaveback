@@ -13,20 +13,26 @@ chunks.
 
 [source]
 ----
-%alias(emit_option, render_rust_struct_chunk_option, chunk_name = wb-tangle-cli-options)
-%tangle_command_options()
+%alias(emit_option, render_rust_struct_chunk_option)
+%tangle_command_options(chunk_name = wb-tangle-cli-options)
 ----
 
 [source]
 ----
-%alias(emit_option, render_rust_struct_chunk_option, chunk_name = wb-tangle-single-options)
-%macro_arg_options()
-%debug_arg_options()
-%directory_arg_options()
-%tangle_delim_options()
-%build_arg_options()
-%hidden_arg_options()
-%security_arg_options()
+%alias(emit_option, render_rust_enum_chunk_option)
+%apply_back_command_options(chunk_name = wb-tangle-apply-back-options)
+----
+
+[source]
+----
+%alias(emit_option, render_rust_struct_chunk_option)
+%macro_arg_options(chunk_name = wb-tangle-single-options)
+%debug_arg_options(chunk_name = wb-tangle-single-options)
+%directory_arg_options(chunk_name = wb-tangle-single-options)
+%tangle_delim_options(chunk_name = wb-tangle-single-options)
+%build_arg_options(chunk_name = wb-tangle-single-options)
+%hidden_arg_options(chunk_name = wb-tangle-single-options)
+%security_arg_options(chunk_name = wb-tangle-single-options)
 ----
 
 [source,rust]
@@ -44,8 +50,19 @@ use std::path::PathBuf;
 pub(crate) struct Cli {
 // <<wb-tangle-cli-options>>
 
+    #[command(subcommand)]
+    pub(crate) command: Option<Commands>,
+
     #[command(flatten)]
     pub(crate) single: SinglePassCli,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub(crate) enum Commands {
+    /// Propagate edits in gen/ back to the literate source.
+    ApplyBack {
+// <<wb-tangle-apply-back-options>>
+    },
 }
 
 /// All single-pass flags (used when --dir is present).

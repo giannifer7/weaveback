@@ -1,8 +1,7 @@
 {
   "mcpServers": {
     "weaveback": {
-      "command": "weaveback",
-      "args": ["mcp"]
+      "command": "wb-mcp"
     }
   }
 }

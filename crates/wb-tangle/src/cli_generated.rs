@@ -18,8 +18,25 @@ pub(crate) struct Cli {
 
     pub(crate) force_generated: bool,
 
+    #[command(subcommand)]
+    pub(crate) command: Option<Commands>,
+
     #[command(flatten)]
     pub(crate) single: SinglePassCli,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub(crate) enum Commands {
+    /// Propagate edits in gen/ back to the literate source.
+    ApplyBack {
+        /// Relative paths within gen/ to process (default: all modified files)
+
+    files: Vec<String>,
+        /// Show what would change without writing anything
+    #[arg(long)]
+
+    dry_run: bool,
+    },
 }
 
 /// All single-pass flags (used when --dir is present).

@@ -60,6 +60,29 @@ pub(crate) enum Commands {
 
     chunk: Option<String>,
     },
+    /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index.
+    Tag {
+        /// Path to the tangle config file (reads [tags] section)
+    #[arg(long, default_value = "weaveback.toml")]
+
+    config: std::path::PathBuf,
+        /// Override backend (anthropic/gemini/openai/ollama)
+    #[arg(long)]
+
+    backend: Option<String>,
+        /// Override model name
+    #[arg(long)]
+
+    model: Option<String>,
+        /// Override API endpoint (for ollama / openai-compatible)
+    #[arg(long)]
+
+    endpoint: Option<String>,
+        /// Override blocks per LLM request
+    #[arg(long)]
+
+    batch_size: Option<usize>,
+    },
     /// List tagged source blocks.
     Tags {
         /// Filter to a single source file (plain relative path)
@@ -156,6 +179,31 @@ pub(crate) enum Commands {
 
     allow_env: bool,
     },
+    /// Semantic language server operations for generated code.
+    Lsp {
+        /// Manual override for the LSP command (e.g. "nimlsp")
+    #[arg(long)]
+
+    lsp_cmd: Option<String>,
+        /// Manual override for the language ID (e.g. "nim")
+    #[arg(long)]
+
+    lsp_lang: Option<String>,
+        /// Macro sigil character
+    #[arg(long, default_value = "%")]
+
+    sigil: char,
+        /// Include paths for %include/%import (colon-separated on Unix)
+    #[arg(long, default_value = ".")]
+
+    include: String,
+        /// Allow %env(NAME) to read environment variables
+    #[arg(long)]
+
+    allow_env: bool,
+        #[command(subcommand)]
+        cmd: LspCommands,
+    },
     /// Full-text search over tangled source content.
     Search {
         /// Search query (FTS5 syntax: AND, OR, NOT, phrase "...", prefix foo*)
@@ -165,5 +213,27 @@ pub(crate) enum Commands {
     #[arg(long, default_value = "10")]
 
     limit: usize,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum LspCommands {
+    /// Go to definition of a symbol and map it to literate source.
+    Definition {
+        /// Generated file path.
+        out_file: String,
+        /// 1-indexed line number in the generated file.
+        line: u32,
+        /// 1-indexed column number in the generated file.
+        col: u32,
+    },
+    /// Find references to a symbol and map them to literate source.
+    References {
+        /// Generated file path.
+        out_file: String,
+        /// 1-indexed line number in the generated file.
+        line: u32,
+        /// 1-indexed column number in the generated file.
+        col: u32,
     },
 }

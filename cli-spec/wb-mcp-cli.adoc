@@ -11,8 +11,8 @@ to this binary. The reusable evaluator flags are projected into a named chunk.
 
 [source]
 ----
-%alias(emit_option, render_rust_struct_chunk_option, chunk_name = wb-mcp-eval-options)
-%eval_options()
+%alias(emit_option, render_rust_struct_chunk_option)
+%eval_options(chunk_name = wb-mcp-eval-options)
 ----
 
 [source,rust]

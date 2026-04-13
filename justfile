@@ -1,11 +1,11 @@
 # justfile — weaveback workspace
 
-# Prefer locally-built release binary; fall back to debug, then PATH.
-_wb := if path_exists("target/release/weaveback") == "true" { \
-           "./target/release/weaveback" \
-       } else if path_exists("target/debug/weaveback") == "true" { \
-           "./target/debug/weaveback" \
-       } else { "weaveback" }
+# Prefer locally-built release wb-tangle; fall back to debug, then PATH.
+_wb_tangle := if path_exists("target/release/wb-tangle") == "true" { \
+                  "./target/release/wb-tangle" \
+              } else if path_exists("target/debug/wb-tangle") == "true" { \
+                  "./target/debug/wb-tangle" \
+              } else { "wb-tangle" }
 
 _pyproj := "python/weaveback-agent"
 
@@ -83,7 +83,7 @@ coverage:
 # Regroup LCOV coverage by owning literate source and section
 coverage-source:
     cargo llvm-cov --workspace --lcov --output-path lcov.info
-    cargo run --package weaveback -- coverage lcov.info > coverage_by_source.json
+    cargo run --package wb-query -- coverage lcov.info > coverage_by_source.json
 
 # Generate an HTML Rust coverage report under coverage_report/
 coverage-html:
@@ -120,17 +120,17 @@ duplicates TARGET='.':
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 
-# Run the combined weaveback tool (usage: just weaveback src/foo.md)
-weaveback FILE:
-    cargo run --package weaveback -- "{{FILE}}"
+# Run wb-tangle on a file (usage: just tangle-file src/foo.adoc)
+tangle-file FILE:
+    cargo run --package wb-tangle -- "{{FILE}}"
 
 # Serve docs/html/ locally with live reload and inline editor (dev build)
 serve *ARGS:
-    cargo run --release --package weaveback -- serve {{ARGS}}
+    cargo run --release --package wb-serve -- {{ARGS}}
 
 # Serve with auto-rebuild: edits to .adoc or theme sources trigger tangle + docs
 dev *ARGS:
-    cargo run --release --package weaveback -- serve --watch {{ARGS}}
+    cargo run --release --package wb-serve -- --watch {{ARGS}}
 
 # Run weaveback-macro on a file (usage: just macros src/foo.md)
 macros FILE:
@@ -144,11 +144,11 @@ noweb FILE:
 
 # Regenerate the c_enum example
 example-c-enum:
-    cd examples/c_enum && cargo run --package weaveback -- status.adoc --gen .
+    cd examples/c_enum && cargo run --package wb-tangle -- status.adoc --gen .
 
 # Regenerate the events fan-out example
 example-events:
-    cd examples/events && cargo run --package weaveback -- events.adoc --gen .
+    cd examples/events && cargo run --package wb-tangle -- events.adoc --gen .
 
 # Regenerate the nim-adoc example via meson/ninja
 example-nim-adoc:
@@ -178,16 +178,6 @@ export TARGET: (build-container TARGET)
 # Build and export all targets
 export-all: (export "glibc") (export "musl") (export "windows") (export "fedora")
 
-# Build .deb locally (requires cargo-deb)
-deb:
-    cargo build --release --workspace
-    cargo deb -p weaveback --no-build
-
-# Build .rpm locally (requires cargo-generate-rpm)
-rpm:
-    cargo build --release --workspace
-    cargo generate-rpm -p crates/weaveback
-
 # Bump Cargo.toml version first, then: just tag
 # Commits Cargo.lock, tags, waits for CI, writes PKGBUILD to aur-weaveback-bin/, updates flake.nix
 tag: lint
@@ -205,9 +195,9 @@ update-release:
 
 # Tangle all .adoc literate sources from weaveback.toml
 tangle:
-    {{_wb}} tangle
+    {{_wb_tangle}}
 
-# Install weaveback binary (+ JDK for PlantUML diagrams with --diagrams)
+# Install the split CLI tools (+ JDK for PlantUML diagrams with --diagrams)
 # Pass extra args: just install --diagrams  /  just install --source
 install *ARGS:
     python3 scripts/install.py {{ARGS}}
@@ -215,26 +205,26 @@ install *ARGS:
 PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
 
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
-# --sigil % de-escapes %% in files that use % as the macro sigil
+# --sigil %% de-escapes %%%% in files that use %% as the macro sigil
 # --sigil ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as sigil)
 docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil % --sigil ^ \
+        --sigil %% --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil % --sigil ^ \
+        --sigil %% --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}} \
         --ai-xref
 
 # Semantic language server operations (requires rust-analyzer)
-# Usage: just lsp definition crates/weaveback/src/main.rs 123 45
+# Usage: just lsp definition crates/wb-query/src/main.rs 123 45
 lsp *ARGS:
-    cargo run --package weaveback -- lsp {{ARGS}}
+    cargo run --package wb-query -- lsp {{ARGS}}
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 

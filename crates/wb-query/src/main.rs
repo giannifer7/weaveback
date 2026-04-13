@@ -1,5 +1,5 @@
 mod cli_generated;
-use cli_generated::{Cli, Commands};
+use cli_generated::{Cli, Commands, LspCommands};
 use clap::Parser;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -30,6 +30,88 @@ fn default_pathsep() -> String {
     if cfg!(windows) { ";".to_string() } else { ":".to_string() }
 }
 
+fn build_eval_config(sigil: char, include: String, allow_env: bool) -> weaveback_macro::evaluator::EvalConfig {
+    use weaveback_macro::evaluator::EvalConfig;
+    let pathsep = default_pathsep();
+    let include_paths: Vec<PathBuf> = include
+        .split(&pathsep)
+        .map(PathBuf::from)
+        .collect();
+    EvalConfig {
+        sigil,
+        include_paths,
+        allow_env,
+        ..Default::default()
+    }
+}
+
+fn run_tag_only(
+    config_path: &std::path::Path,
+    backend_override: Option<String>,
+    model_override: Option<String>,
+    endpoint_override: Option<String>,
+    batch_size_override: Option<usize>,
+    db_path: PathBuf,
+) -> Result<(), Error> {
+    use weaveback_api::tag;
+    use weaveback_api::tangle::{TangleCfg, TagsCfg};
+    use weaveback_api::tangle::{default_tags_backend, default_tags_batch_size, default_tags_model};
+
+    let toml_tags: Option<TagsCfg> = std::fs::read_to_string(config_path).ok()
+        .and_then(|s| toml::from_str::<TangleCfg>(&s).ok())
+        .and_then(|c| c.tags);
+
+    let tag_cfg = tag::TagConfig {
+        backend: backend_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.backend.clone()))
+            .unwrap_or_else(default_tags_backend),
+        model: model_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.model.clone()))
+            .unwrap_or_else(default_tags_model),
+        endpoint: endpoint_override
+            .or_else(|| toml_tags.as_ref().and_then(|t| t.endpoint.clone())),
+        batch_size: batch_size_override
+            .or_else(|| toml_tags.as_ref().map(|t| t.batch_size))
+            .unwrap_or_else(default_tags_batch_size),
+    };
+
+    if !db_path.exists() {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run wb-tangle first.", db_path.display()),
+        )));
+    }
+
+    match weaveback_tangle::db::WeavebackDb::open(&db_path) {
+        Ok(mut db) => {
+            tag::run_auto_tag(&mut db, &tag_cfg);
+            if let Err(e) = db.rebuild_prose_fts() {
+                eprintln!("warning: FTS index rebuild failed: {e}");
+            }
+        }
+        Err(e) => return Err(Error::Noweb(WeavebackError::Db(e))),
+    }
+    Ok(())
+}
+
+fn run_lsp(
+    cmd: LspCommands,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: weaveback_macro::evaluator::EvalConfig,
+    override_cmd: Option<String>,
+    override_lang: Option<String>,
+) -> Result<(), Error> {
+    let api_cmd = match cmd {
+        LspCommands::Definition { out_file, line, col } =>
+            weaveback_api::lsp_runner::LspCmd::Definition { out_file, line, col },
+        LspCommands::References { out_file, line, col } =>
+            weaveback_api::lsp_runner::LspCmd::References { out_file, line, col },
+    };
+    weaveback_api::lsp_runner::run_lsp(api_cmd, db_path, gen_dir, eval_config, override_cmd, override_lang)
+        .map_err(Error::Io)
+}
+
 fn run(cli: Cli) -> Result<(), Error> {
     use weaveback_core::PathResolver;
     use weaveback_tangle::db::WeavebackDb;
@@ -45,18 +127,7 @@ fn run(cli: Cli) -> Result<(), Error> {
         }
 
         Commands::Trace { out_file, line, col, sigil, include, allow_env } => {
-            use weaveback_macro::evaluator::EvalConfig;
-            let pathsep = default_pathsep();
-            let include_paths: Vec<PathBuf> = include
-                .split(&pathsep)
-                .map(PathBuf::from)
-                .collect();
-            let eval_config = EvalConfig {
-                sigil,
-                include_paths,
-                allow_env,
-                ..Default::default()
-            };
+            let eval_config = build_eval_config(sigil, include, allow_env);
             let db = WeavebackDb::open_read_only(&cli.db)?;
             let resolver = PathResolver::new(PathBuf::from("."), cli.gen_dir);
             match weaveback_api::lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config)? {
@@ -73,6 +144,10 @@ fn run(cli: Cli) -> Result<(), Error> {
         Commands::Graph { chunk } => {
             let dot = weaveback_api::query::chunk_graph_dot(chunk.as_deref(), &cli.db)?;
             print!("{dot}");
+        }
+
+        Commands::Tag { config, backend, model, endpoint, batch_size } => {
+            run_tag_only(&config, backend, model, endpoint, batch_size, cli.db)?;
         }
 
         Commands::Tags { file } => {
@@ -98,18 +173,7 @@ fn run(cli: Cli) -> Result<(), Error> {
         }
 
         Commands::Attribute { scan_stdin, summary, locations, sigil, include, allow_env } => {
-            use weaveback_macro::evaluator::EvalConfig;
-            let pathsep = default_pathsep();
-            let include_paths: Vec<PathBuf> = include
-                .split(&pathsep)
-                .map(PathBuf::from)
-                .collect();
-            let eval_config = EvalConfig {
-                sigil,
-                include_paths,
-                allow_env,
-                ..Default::default()
-            };
+            let eval_config = build_eval_config(sigil, include, allow_env);
             weaveback_api::coverage::run_attribute(
                 scan_stdin, summary, locations, cli.db, cli.gen_dir, eval_config,
             )?;
@@ -123,21 +187,15 @@ fn run(cli: Cli) -> Result<(), Error> {
         }
 
         Commands::Cargo { diagnostics_only, args, sigil, include, allow_env } => {
-            use weaveback_macro::evaluator::EvalConfig;
-            let pathsep = default_pathsep();
-            let include_paths: Vec<PathBuf> = include
-                .split(&pathsep)
-                .map(PathBuf::from)
-                .collect();
-            let eval_config = EvalConfig {
-                sigil,
-                include_paths,
-                allow_env,
-                ..Default::default()
-            };
+            let eval_config = build_eval_config(sigil, include, allow_env);
             weaveback_api::coverage::run_cargo_annotated(
                 args, diagnostics_only, cli.db, cli.gen_dir, eval_config,
             )?;
+        }
+
+        Commands::Lsp { lsp_cmd, lsp_lang, sigil, include, allow_env, cmd } => {
+            let eval_config = build_eval_config(sigil, include, allow_env);
+            run_lsp(cmd, cli.db, cli.gen_dir, eval_config, lsp_cmd, lsp_lang)?;
         }
 
         Commands::Search { query, limit } => {

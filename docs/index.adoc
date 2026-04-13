@@ -59,12 +59,12 @@ note right of db : macro_map + noweb_map\nsrc_snapshots
 @enduml
 ----
 
-The two tools can run independently or combined via the `weaveback` binary:
+The two core passes can run independently, or via the split front-end tools:
 
 [source,shell]
 ----
-# Combined single-pass (most common)
-weaveback source.adoc --gen src/
+# Build/tangle directly
+wb-tangle source.adoc --gen src/
 
 # Separate passes
 weaveback-macro source.adoc --output expanded.adoc
@@ -84,8 +84,8 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle]
 | Noweb chunk extractor, safe file writer, SQLite source-map database
 
-| link:../crates/weaveback/src/weaveback.adoc[weaveback]
-| Combined binary: macro + tangle in one pass; apply-back, MCP server, LSP bridge
+| link:../docs/cli.adoc[split CLI overview]
+| Public command surface: `wb-tangle`, `wb-query`, `wb-serve`, and `wb-mcp`
 
 | link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
@@ -119,40 +119,30 @@ the main Rust crates.
 | link:../project/option-spec.adoc[CLI option-spec experiment]
 | `scripts/option_spec/` prototype for multi-projection CLI metadata
 
-| link:../cli-spec/cli-spec.adoc[weaveback CLI spec]
-| `crates/weaveback/src/cli_generated.rs` and `docs/cli.adoc`
+| link:../cli-spec/cli-spec.adoc[CLI overview and shared CLI-spec notes]
+| `docs/cli.adoc`
 |===
 
-== weaveback CLI literate sources
+== Split CLI literate sources
 
-The `weaveback` crate contains the combined entry point and high-level 
-integration features (MCP, LSP, Documentation Server).
+The public CLI now lives in four focused binaries.
 
-.weaveback adoc files
+.split CLI adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback/src/weaveback.adoc[weaveback CLI index]
-| `crates/weaveback/src/main.rs`
+| link:../crates/wb-tangle/src/main.adoc[wb-tangle]
+| `crates/wb-tangle/src/main.rs`
 
-| link:../crates/weaveback/src/mcp.adoc[MCP server]
-| `crates/weaveback/src/mcp.rs`
+| link:../crates/wb-query/src/main.adoc[wb-query]
+| `crates/wb-query/src/main.rs`
 
-| link:../crates/weaveback/src/serve.adoc[live documentation server]
-| `crates/weaveback/src/serve.rs`
+| link:../crates/wb-serve/src/main.adoc[wb-serve]
+| `crates/wb-serve/src/main.rs`
 
-| link:../crates/weaveback/src/apply_back.adoc[apply-back reconciliation]
-| `crates/weaveback/src/apply_back.rs`
-
-| link:../crates/weaveback/src/lookup.adoc[source lookup and tracing]
-| `crates/weaveback/src/lookup.rs`
-
-| link:../crates/weaveback/src/lint.adoc[structural lint]
-| `crates/weaveback/src/lint.rs`
-
-| link:../crates/weaveback/src/manifest.adoc[Cargo manifest]
-| `crates/weaveback/Cargo.toml`
+| link:../crates/wb-mcp/src/main.adoc[wb-mcp]
+| `crates/wb-mcp/src/main.rs`
 |===
 
 == Planning Notes

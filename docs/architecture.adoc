@@ -2,8 +2,8 @@
 
 Weaveback is a literate programming toolchain. Source files are written as
 annotated documents (Markdown, AsciiDoc, etc.) that contain both prose and
-named code chunks. The `weaveback` command processes them and writes the final
-source files.
+named code chunks. The split CLI tools process them and write the final source
+files.
 
 == Transformation pipeline
 
@@ -29,15 +29,18 @@ Literate source (.md / .adoc / …)
 See link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map] for the
 weaveback-tangle internals.
 
-The two passes run in-process when you invoke the combined `weaveback` binary.
-The separate `weaveback-macro` and `weaveback-tangle` binaries exist for pipeline
-use but are not needed for normal work.
+Normal work now uses the split front ends:
+
+* `wb-tangle` for builds, tangling, and apply-back
+* `wb-query` for tracing, search, diagnostics, coverage, tagging, and LSP
+* `wb-serve` for the docs server
+* `wb-mcp` for MCP integration
 
 == Source of truth
 
 The literate document is the *only* source of truth. Files under `gen/`
 are derived artefacts — editing them directly is always wrong because the
-next `weaveback` run will overwrite them (or refuse to, and tell you why; see
+next `wb-tangle` run will overwrite them (or refuse to, and tell you why; see
 below).
 
 == Directory layout
@@ -47,7 +50,10 @@ project/
 ├── src/                   literate source files
 ├── gen/                   generated output files  ← do not edit
 ├── crates/
-│   ├── weaveback/         combined CLI and high-level integration
+│   ├── wb-tangle/         build/tangle/apply-back front end
+│   ├── wb-query/          query/trace/coverage/tag/lsp front end
+│   ├── wb-serve/          docs server front end
+│   ├── wb-mcp/            MCP front end
 │   ├── weaveback-macro/   macro expansion engine
 │   ├── weaveback-tangle/  noweb chunk extractor and database
 │   ├── weaveback-docgen/  documentation generator
@@ -112,22 +118,22 @@ link:../crates/weaveback-tangle/src/db.adoc#_gen_baselines[`gen_baselines`]
 table). On the next run, before writing, it compares the current `gen/` file
 against that baseline:
 
-* *File unchanged since last run* — weaveback overwrites it with the new
+* *File unchanged since last run* — `wb-tangle` overwrites it with the new
   content as usual.
-* *File modified externally* — weaveback stops with a `ModifiedExternally`
+* *File modified externally* — `wb-tangle` stops with a `ModifiedExternally`
   error and leaves the file untouched. The message names the file so you
   can decide what to do:
 ** To accept the regenerated version: restore the file from version
-   control (or delete it) and rerun weaveback.
-** To keep your manual change: run `weaveback apply-back` (see below) to
-   propagate the edit back into the literate source, then rerun weaveback.
+   control (or delete it) and rerun `wb-tangle`.
+** To keep your manual change: run `wb-tangle apply-back` (see below) to
+   propagate the edit back into the literate source, then rerun `wb-tangle`.
 
 In CI, start from a clean checkout (no `weaveback.db`) so no baseline exists and
 no conflict can arise.
 
 == Propagating gen/ edits back to the source (`apply-back`)
 
-`weaveback apply-back` is the batch inverse of `weaveback`: it reads the diff
+`wb-tangle apply-back` is the batch inverse of `wb-tangle`: it reads the diff
 between modified `gen/` files and their stored baselines, traces each changed
 output line back through `noweb_map` and macro tracing, and then tries to
 reconstruct the best literate-source edit that would reproduce the desired
@@ -135,9 +141,9 @@ generated result.
 
 [source,bash]
 ----
-weaveback apply-back                # process all modified gen/ files
-weaveback apply-back src/foo.c      # process one file
-weaveback apply-back --dry-run      # show what would change without writing
+wb-tangle apply-back                # process all modified gen/ files
+wb-tangle apply-back src/foo.c      # process one file
+wb-tangle apply-back --dry-run      # show what would change without writing
 ----
 
 *What it can and cannot handle:*
@@ -162,15 +168,15 @@ After applying, `apply-back` updates the baselines in `weaveback.db` so the next
 already been edited by hand. For AI-assisted or interactive edits, prefer the
 MCP `weaveback_apply_fix` tool instead.
 
-== Source tracing (`weaveback trace`)
+== Source tracing (`wb-query trace`)
 
-`weaveback` records a full source map on every run. Use it to answer
+Weaveback records a full source map on every run. Use it to answer
 _"where in the literate source did this output line come from?"_
 
 [source,bash]
 ----
-weaveback trace <out_file> <line>
-weaveback trace <out_file> <line> --col <col>   # 1-indexed character position
+wb-query trace <out_file> <line>
+wb-query trace <out_file> <line> --col <col>   # 1-indexed character position
 ----
 
 Both line and column numbers are *1-indexed character positions*
@@ -181,9 +187,9 @@ produced that token.
 
 See link:tracing.adoc[docs/tracing.adoc] for the full output schema and examples.
 
-== Semantic language-server integration (`weaveback lsp`)
+== Semantic language-server integration (`wb-query lsp`)
 
-`weaveback lsp` provides semantic navigation by bridging language-specific
+`wb-query lsp` provides semantic navigation by bridging language-specific
 LSPs with Weaveback's literate source maps. This allows
 developers and coding agents to perform semantic queries on generated code
 and have the results mapped directly back to the original source.
@@ -196,13 +202,13 @@ Supported languages (auto-detected):
 [source,bash]
 ----
 # Go to definition of symbol at line 100, col 8
-weaveback lsp definition gen/src/main.rs 100 8
+wb-query lsp definition gen/src/main.rs 100 8
 
 # Find all references to symbol at line 50, col 12
-weaveback lsp references gen/src/main.rs 50 12
+wb-query lsp references gen/src/main.rs 50 12
 
 # Manual override for a custom server
-weaveback lsp --lsp-cmd "pylsp" definition gen/main.py 10 5
+wb-query lsp --lsp-cmd "pylsp" definition gen/main.py 10 5
 ----
 
 === How it works
@@ -224,16 +230,16 @@ relationships like call sites and trait implementations that a simple structural
 parser (like `syn`) cannot resolve, and injects them as semantic links in the
 generated HTML.
 
-== MCP server (`weaveback mcp`)
+== MCP server (`wb-mcp`)
 
-`weaveback mcp` exposes tracing and surgical source-editing over the
+`wb-mcp` exposes tracing and surgical source-editing over the
 https://modelcontextprotocol.io/[Model Context Protocol], so IDE
 extensions and AI agents can work with literate sources without shelling out
 or doing a full rebuild.
 
 [source,bash]
 ----
-weaveback --db weaveback.db --gen src mcp
+wb-mcp --db weaveback.db --gen src
 ----
 
 === Tools
@@ -289,8 +295,8 @@ Add a `.mcp.json` in your project root:
 {
   "mcpServers": {
     "weaveback": {
-      "command": "weaveback",
-      "args": ["--db", "weaveback.db", "--gen", "src", "mcp"]
+      "command": "wb-mcp",
+      "args": ["--db", "weaveback.db", "--gen", "src"]
     }
   }
 }
@@ -298,9 +304,9 @@ Add a `.mcp.json` in your project root:
 
 Adjust `--gen` to match your project's generated-file directory.
 
-== Live documentation server (`weaveback serve`)
+== Live documentation server (`wb-serve`)
 
-`weaveback serve` starts a local HTTP server that serves the rendered HTML
+`wb-serve` starts a local HTTP server that serves the rendered HTML
 documentation from `docs/html/`, pushes live-reload events to connected
 browsers via Server-Sent Events, and — when you are editing the project's own
 literate sources — lets you edit named code chunks directly in the browser.
@@ -310,11 +316,11 @@ literate sources — lets you edit named code chunks directly in the browser.
 [source,bash]
 ----
 # Terminal 1 — start the server once
-weaveback serve
+wb-serve
 
 # Terminal 2 — normal edit loop
 $EDITOR crates/foo/src/bar.adoc
-just tangle && just docs       # weaveback serve detects the HTML changes and
+just tangle && just docs       # wb-serve detects the HTML changes and
                                # reloads the browser tab automatically
 ----
 
@@ -325,7 +331,7 @@ connected browsers can reload. In `--watch` mode it also triggers rebuilds when
 editor still writes literate source; the normal build pipeline remains the
 authority that regenerates code and docs.
 
-`weaveback serve` also adds a floating "✏ Edit source" button to every rendered
+`wb-serve` also adds a floating "✏ Edit source" button to every rendered
 page.  Clicking it opens the corresponding `.adoc` file at line 1 in
 `$VISUAL` / `$EDITOR`.
 
@@ -415,15 +421,15 @@ structural problems in the same tangle unit.  It does *not* run formatters or
 write `gen/` files — it only verifies that chunk expansion succeeds without
 error.
 
-The oracle uses the chunk-syntax configuration passed to `weaveback serve`:
+The oracle uses the chunk-syntax configuration passed to `wb-serve`:
 
 [source,bash]
 ----
 # Defaults match the weaveback project's own conventions
-weaveback serve
+wb-serve
 
 # Override for projects using different delimiters
-weaveback serve --open-delim "<<" --close-delim ">>" --chunk-end "@" \
+wb-serve --open-delim "<<" --close-delim ">>" --chunk-end "@" \
                 --comment-markers "//"
 ----
 

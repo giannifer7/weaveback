@@ -1,424 +1,141 @@
 = CLI reference
 
-== `weaveback` — combined tool
+The old combined `weaveback` binary is gone. The public CLI is now split into
+four focused tools.
 
-Runs macro expansion and chunk extraction as one command.
+== Command map
+
+[cols="1,3",options="header"]
+|===
+| Tool | Responsibility
+
+| `wb-tangle`
+| Build-side operations: single-pass tangling, multi-pass `weaveback.toml`
+  runs, and `apply-back` reconciliation from `gen/` to literate source.
+
+| `wb-query`
+| Read/query-side operations: `where`, `trace`, `attribute`, `impact`,
+  `graph`, `search`, `lint`, `coverage`, wrapped `cargo`, `tags`, plus
+  semantic `lsp` lookups and `tag` metadata generation.
+
+| `wb-serve`
+| Local docs server with live reload, inline editing, and AI-assisted views.
+
+| `wb-mcp`
+| MCP server for editor and agent integrations.
+|===
+
+== Migration from the old combined CLI
+
+[cols="2,3",options="header"]
+|===
+| Old command | New command
+
+| `weaveback file.adoc --gen gen`
+| `wb-tangle file.adoc --gen gen`
+
+| `weaveback --dir src --gen gen`
+| `wb-tangle --dir src --gen gen`
+
+| `weaveback tangle`
+| `wb-tangle`
+
+| `weaveback apply-back`
+| `wb-tangle apply-back`
+
+| `weaveback where ...`
+| `wb-query where ...`
+
+| `weaveback trace ...`
+| `wb-query trace ...`
+
+| `weaveback attribute ...`
+| `wb-query attribute ...`
+
+| `weaveback cargo ...`
+| `wb-query cargo ...`
+
+| `weaveback coverage ...`
+| `wb-query coverage ...`
+
+| `weaveback graph ...`
+| `wb-query graph ...`
+
+| `weaveback impact ...`
+| `wb-query impact ...`
+
+| `weaveback search ...`
+| `wb-query search ...`
+
+| `weaveback lint ...`
+| `wb-query lint ...`
+
+| `weaveback tag ...`
+| `wb-query tag ...`
+
+| `weaveback tags ...`
+| `wb-query tags ...`
+
+| `weaveback lsp ...`
+| `wb-query lsp ...`
+
+| `weaveback serve ...`
+| `wb-serve ...`
+
+| `weaveback mcp`
+| `wb-mcp`
+|===
+
+== Common workflows
+
+=== Build and regenerate outputs
 
 [source,bash]
 ----
-weaveback [OPTIONS] <INPUTS>...      # explicit files
-weaveback [OPTIONS] --dir <DIR>      # auto-discover driver files
+wb-tangle --dir src --ext adoc --include . --gen src
+wb-tangle
 ----
 
-=== Options
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `<INPUTS>...` |   | Explicit files to process when `--dir` is not used.
-| `--input-dir <PATH>` | `.` | Base directory prepended to every input path.
-| `--sigil <CHAR>` | `%` | Macro sigil character.
-| `--no-macros` | off | Skip macro expansion and feed source files directly to the tangle pass.
-| `--include <PATHS>` | `.` | Include search paths for `%include` and `%import` (colon-separated on Unix).
-| `--db <PATH>` | `weaveback.db` | Path to the source-map database.
-| `--dump-expanded` | off | Print macro-expanded text to stderr before noweb processing.
-| `--gen <PATH>` | `gen` | Base directory for generated output files.
-| `--open-delim <STR>` | `<[` | Chunk-open delimiter.
-| `--close-delim <STR>` | `]>` | Chunk-close delimiter.
-| `--chunk-end <STR>` | `@` | End-of-chunk marker.
-| `--comment-markers <STR>` | `#,//` | Comment prefixes recognised before chunk delimiters (comma-separated).
-| `--formatter <EXT=CMD>` |   | Run a formatter after writing each file, e.g. `rs=rustfmt`; repeatable.
-| `--force-generated` | off | Overwrite generated files even if they differ from the stored baseline.
-| `--dir <DIR>` |   | Auto-discover driver files; mutually exclusive with positional inputs.
-| `--ext <EXT>` | `md` | File extension to scan in `--dir` mode; repeatable.
-| `--depfile <PATH>` |   | Write a Makefile depfile listing every source file read.
-| `--stamp <PATH>` |   | Touch this file on success (build-system stamp).
-| `--allow-env` | off | Enable `%env(NAME)` (disabled by default to protect secrets).
-| `--allow-home` | off | Allow `@file ~/…` chunks to write outside the `gen/` sandbox.
-| `--strict` | off | Treat references to undefined chunks as fatal errors (default: silently expand to nothing).
-| `--dry-run` | off | Print output paths without writing anything.
-| `--warn-unused` | off | Warn about named chunks that are defined but never referenced by any `@file` chunk; suppressed by default.
-|===
-
-=== Directory mode
-
-`--dir` scans a directory tree recursively for files matching `--ext`,
-determines which are _drivers_ (top-level files) vs _fragments_ (included by
-another file), and processes each driver. No changes needed when new files are
-added.
+=== Reconcile edits made in `gen/`
 
 [source,bash]
 ----
-weaveback --dir src --include . --gen src
-weaveback --dir src --ext adoc --include . --gen src
-weaveback --dir src --ext md --ext adoc --include . --gen src
+wb-tangle apply-back
+wb-tangle --gen path/to/gen apply-back --dry-run
 ----
 
-`--dump-expanded` is the first thing to check when a chunk can't be found or
-expands unexpectedly — it prints the macro-expanded intermediate text that
-weaveback-tangle receives.
-
-=== Build-system integration
-
-`--depfile` and `--stamp` together let a single build rule cover an entire
-directory of literate sources:
-
-[source,meson]
-----
-custom_target('gen',
-  output  : ['gen.stamp'],
-  depfile : 'gen.d',
-  command : [weaveback,
-             '--dir',     meson.current_source_dir() / 'src',
-             '--ext',     'adoc',
-             '--include', meson.current_source_dir(),
-             '--stamp',   '@OUTPUT0@',
-             '--depfile', '@DEPFILE@'],
-)
-----
-
-NOTE: List only the stamp in `output`, never the `.d` file.
-Ninja consumes the depfile internally; declaring it as an output makes ninja
-think it is always missing and reruns the target on every build.
-
-'''
-
-=== Subcommands
+=== Trace generated code back to literate source
 
 [source,bash]
 ----
-weaveback tangle [OPTIONS]           # run all configured tangle passes
-weaveback where <file> <line>        # trace output line to its noweb chunk
-weaveback trace <file> <line>        # full two-level trace (noweb + macro)
-weaveback attribute <location>       # parse FILE:LINE[:COL] and trace it
-weaveback cargo [ARGS]...            # run cargo and annotate generated-file diagnostics
-weaveback apply-back [OPTIONS]       # propagate gen/ edits to literate source
-weaveback impact <chunk>             # show transitive impact of a chunk change
-weaveback graph [OPTIONS]            # export dependency graph as DOT (Graphviz)
-weaveback search <query> [OPTIONS]   # search prose via FTS/tags/embeddings
-weaveback lint [OPTIONS] [PATHS]     # run structural checks on literate sources
-weaveback coverage [OPTIONS] <LCOV>  # regroup LCOV coverage by literate source
-weaveback tag [OPTIONS]              # tag prose blocks with LLM-generated tags
-weaveback tags [OPTIONS]             # list LLM-generated prose tags
-weaveback lsp <command> [ARGS]       # semantic language server operations
-weaveback mcp                        # start MCP server for IDE/agent integration
-weaveback serve [OPTIONS]            # local docs server with inline editing
+wb-query where gen/out.rs 120
+wb-query trace gen/out.rs 120 8 --include .
+wb-query attribute gen/out.rs:120:8 --include .
 ----
 
-==== `tangle`
-
-Runs all tangle passes from `weaveback.toml` or an alternate config file.
+=== Coverage and diagnostics
 
 [source,bash]
 ----
-weaveback tangle
-weaveback tangle --config alt.toml
-weaveback tangle --force-generated
+wb-query cargo clippy --all-targets -- -D warnings
+wb-query coverage --summary lcov.info
 ----
 
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `--config <PATH>` | `weaveback.toml` | Path to the tangle config file.
-| `--force-generated` | off | Overwrite generated files even if they differ from the stored baseline.
-|===
-
-'''
-
-==== `attribute`
-
-Parses a compiler-style generated location, `FILE:LINE` or `FILE:LINE:COL`,
-and returns the same structured JSON attribution as `trace`.
+=== Docs server and MCP
 
 [source,bash]
 ----
-weaveback attribute gen/out.rs:17
-weaveback attribute gen/out.rs:17:9
+wb-serve --watch
+wb-mcp
 ----
 
-'''
+== Detailed references
 
-==== `cargo`
+For full flag-by-flag details, read the tool-specific pages:
 
-Runs `cargo` with JSON diagnostics enabled and augments compiler messages with
-source-of-truth attribution when a span maps back to a generated file.
-
-[source,bash]
-----
-weaveback cargo check
-weaveback cargo clippy --all-targets -- -D warnings
-----
-
-==== `apply-back`
-
-When you edit a file in `gen/` directly, the next `weaveback` run refuses to
-overwrite it (`ModifiedExternally`). `apply-back` closes the loop: it diffs
-the modified gen/ file against the stored baseline, traces each changed line
-back through noweb and macro provenance, then tries to reconstruct the best
-literate-source edit that reproduces the desired generated result.
-
-[source,bash]
-----
-weaveback apply-back                     # process all modified gen/ files
-weaveback apply-back src/foo.c           # process one specific file
-weaveback apply-back --dry-run           # show patches without writing
-weaveback --gen path/to/gen apply-back   # use non-default gen/ directory
-----
-
-For literal and simple noweb-mapped edits, the patch can be applied directly.
-For macro-generated regions, weaveback now does bounded candidate search plus
-oracle verification. Size-changing hunks are still reported for manual
-resolution instead of being guessed silently.
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `<FILES>...` |   | Relative paths within `gen/` to process (default: all modified files).
-| `--dry-run` | off | Show what would change without writing anything.
-|===
-
-'''
-
-==== `impact`
-
-Shows every chunk and output file transitively affected if a given chunk changes.
-Outputs a JSON object.
-
-[source,bash]
-----
-weaveback impact my-config-chunk
-----
-
-'''
-
-==== `graph`
-
-Exports the chunk-dependency graph in DOT (Graphviz) format for visualization.
-
-[source,bash]
-----
-weaveback graph | dot -Tsvg -o deps.svg
-weaveback graph --chunk my-module | dot -Tpng -o my-module.png
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `--chunk <CHUNK>` |   | Restrict to the subgraph reachable from this chunk.
-|===
-
-'''
-
-==== `search`
-
-Searches prose blocks using the hybrid retrieval path: SQLite FTS5, tags, and
-optional embeddings.
-
-[source,bash]
-----
-weaveback search "apply-back"
-weaveback search "tags:sqlite error handling" --limit 20
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `<QUERY>` |   | Search query (FTS5 syntax: `AND`, `OR`, `NOT`, phrase `"..."`, prefix `foo*`).
-| `--limit <N>` | `10` | Maximum number of results to show.
-|===
-
-'''
-
-==== `lint`
-
-Runs structural checks on literate source files. The first implemented rule is
-`chunk-body-outside-fence`, which warns when a `// <<...>>=` chunk definition
-appears outside an AsciiDoc listing block fenced by `----`.
-
-[source,bash]
-----
-weaveback lint
-weaveback lint --strict
-weaveback lint --rule chunk-body-outside-fence crates/weaveback/src/serve.adoc
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `<PATHS>...` | current tree | Files or directories to lint (default: current tree).
-| `--strict` | off | Treat violations as errors.
-| `--rule <RULE>` | all | Restrict linting to one rule.
-| `--json` | off | Emit structured JSON instead of human-readable text.
-|===
-
-'''
-
-==== `coverage`
-
-Regroups LCOV line coverage by owning literate source file and section using
-the same trace machinery as `attribute` and wrapped Cargo diagnostics.
-
-[source,bash]
-----
-just coverage
-weaveback coverage lcov.info
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `--summary` | off | Print a concise human summary ranked by missed lines instead of full JSON.
-| `--top-sources <N>` | `10` | Maximum number of source files to show in summary mode.
-| `--top-sections <N>` | `3` | Maximum number of sections to show per source file in summary mode.
-| `--explain-unattributed` | off | For each unattributed file, print the unmapped line ranges with the actual source content so you can see which code lacks noweb entries.
-| `<LCOV>` |   | Path to an LCOV tracefile, typically `lcov.info` from `cargo llvm-cov --lcov`.
-|===
-
-'''
-
-==== `tags`
-
-Lists the LLM-generated prose tags stored in the database.
-
-[source,bash]
-----
-weaveback tags
-weaveback tags --file crates/weaveback/src/apply_back.adoc
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `--file <PATH>` |   | Filter to a single source file (plain relative path).
-|===
-
-'''
-
-==== `lsp`
-
-Provides semantic navigation and intelligence by bridging language-specific
-LSPs (like `rust-analyzer`) with Weaveback source maps.
-
-[source,bash]
-----
-weaveback lsp definition gen/main.rs 100 8
-weaveback lsp references gen/main.rs 100 8
-----
-
-[cols="3,4",options="header"]
-|===
-| Command | Description
-
-| `definition` | Find symbol definition and map back to `.adoc`
-| `references` | Find all references and map back to `.adoc`
-|===
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-| `--lsp-cmd <CMD>` | (auto) | Manual override for LSP command (e.g. `nimlsp`).
-| `--lsp-lang <ID>` | (auto) | Manual override for language ID (e.g. `nim`).
-|===
-
-'''
-
-==== `serve`
-
-Starts a local HTTP server at `http://127.0.0.1:<port>/` that serves
-`docs/html/`, pushes live-reload events to connected browsers when HTML files
-change, and provides the inline chunk editor for literate source files.
-
-[source,bash]
-----
-weaveback serve                          # default port 7779
-weaveback serve --port 8080             # custom port
-weaveback serve --html /other/dir       # serve a different directory
-weaveback serve --watch                 # rebuild docs on source changes
-----
-
-[cols="3,2,4",options="header"]
-|===
-| Flag | Default | Description
-| `--port <N>` | `7779` | TCP port to listen on.
-| `--html <PATH>` | `<root>/docs/html` | Directory to serve.
-| `--open-delim <STR>` | `<[` | Chunk-open delimiter for the tangle oracle.
-| `--close-delim <STR>` | `]>` | Chunk-close delimiter for the tangle oracle.
-| `--chunk-end <STR>` | `@@` | Chunk-end marker for the tangle oracle.
-| `--comment-markers <STR>` | `//` | Comment prefixes for the oracle (comma-separated).
-| `--ai-backend <MODE>` | `claude-cli` | AI backend for `/__ai`: `claude-cli`, `anthropic`, `gemini`, `ollama`, or `openai`.
-| `--ai-model <STR>` | (default) | AI model name (e.g. `gemini-1.5-pro`, `llama3`, `gpt-4o`).
-| `--ai-endpoint <URL>` | (default) | Base URL for `ollama` or `openai` backends.
-| `--watch` | off | Watch `.adoc` and theme sources; tangle + re-render docs on each change.
-|===
-
-The tangle-oracle flags must match the delimiters used by the project being
-served. They are only needed if you use non-default chunk syntax and intend
-to use the `/__apply` inline editor endpoint.
-
-=== AI Backend Modes
-
-`claude-cli` (default):: Shells out to `claude -p --output-format stream-json`,
-  using the authenticated Claude Code session already on the machine — no extra
-  credentials required.
-`anthropic`:: Calls the Anthropic Messages API directly. Requires the
-  `ANTHROPIC_API_KEY` environment variable.
-`gemini`:: Calls the Google Gemini API. Requires the `GOOGLE_API_KEY`
-  environment variable.
-`ollama`:: Calls a local Ollama instance. Uses `--ai-endpoint` (default:
-  `http://localhost:11434`) and `--ai-model` (default: `llama3`).
-`openai`:: Calls an OpenAI-compatible API. Requires `OPENAI_API_KEY` (unless
-  using a local provider) and `--ai-endpoint`.
-
-See link:architecture.adoc#_live_documentation_server_weaveback_serve[architecture.adoc]
-for the full design, HTTP endpoint reference, and inline editor documentation.
-
-'''
-
-== `weaveback-macro` — macro expander only
-
-[source,bash]
-----
-weaveback-macro [OPTIONS] <INPUTS>...
-weaveback-macro [OPTIONS] --dir <DIR>
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-
-| `--output <PATH>` | `-` | Output file (`-` for stdout)
-| `--sigil <CHAR>` | `%` | Macro invocation character
-| `--include <PATHS>` | `.` | Include search paths
-| `--pathsep <STR>` | `:` / `;` | Path separator (platform default)
-| `--input-dir <PATH>` | `.` | Base directory prepended to each input path
-| `--allow-env` | off | Enable `%env(NAME)`
-| `--dir <DIR>` | | Auto-discover driver files
-| `--ext <EXT>` | `md` | File extension to scan in `--dir` mode; repeatable
-|===
-
-'''
-
-== `weaveback-tangle` — chunk extractor only
-
-[source,bash]
-----
-weaveback-tangle [OPTIONS] <FILES>...
-weaveback-tangle [OPTIONS] -              # read from stdin
-----
-
-[cols="3,1,4",options="header"]
-|===
-| Flag | Default | Description
-
-| `--gen <PATH>` | `gen` | Output directory
-| `--open-delim <STR>` | `<[` | Chunk-open delimiter
-| `--close-delim <STR>` | `]>` | Chunk-close delimiter
-| `--chunk-end <STR>` | `@` | End-of-chunk marker
-| `--comment-markers <STR>` | `#,//` | Comment prefixes before chunk markers
-| `--db <PATH>` | `weaveback.db` | Path to the source-map database
-| `--allow-home` | off | Allow `@file ~/…` chunks to write outside `gen/`
-| `--dry-run` | off | Print output paths without writing
-| `--strict` | off | Treat undefined chunks as fatal errors
-| `--warn-unused` | off | Warn about helper chunks not referenced by any `@file`
-| `--formatter <EXT=CMD>` | | Formatter command to run after writing each file
-|===
+* link:../crates/wb-tangle/src/main.html[`wb-tangle`]
+* link:../crates/wb-query/src/main.html[`wb-query`]
+* link:../crates/wb-serve/src/main.html[`wb-serve`]
+* link:../crates/wb-mcp/src/main.html[`wb-mcp`]
+* link:../cli-spec/macros.html[`cli-spec/macros.adoc`] for the shared option
+  families used by the generated CLI code

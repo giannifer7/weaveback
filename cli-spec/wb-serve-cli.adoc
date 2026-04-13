@@ -11,8 +11,8 @@ then the final `Cli` struct just includes that chunk.
 
 [source]
 ----
-%alias(emit_option, render_rust_struct_chunk_option, chunk_name = wb-serve-options)
-%serve_command_options()
+%alias(emit_option, render_rust_struct_chunk_option)
+%serve_command_options(chunk_name = wb-serve-options)
 ----
 
 [source,rust]

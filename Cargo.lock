@@ -2783,6 +2783,7 @@ dependencies = [
  "clap",
  "serde_json",
  "thiserror",
+ "toml",
  "weaveback-api",
  "weaveback-core",
  "weaveback-macro",
@@ -2805,33 +2806,6 @@ dependencies = [
  "thiserror",
  "weaveback-api",
  "weaveback-macro",
- "weaveback-tangle",
-]
-
-[[package]]
-name = "weaveback"
-version = "0.11.0"
-dependencies = [
- "assert_cmd",
- "clap",
- "notify",
- "predicates",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "similar",
- "tempfile",
- "thiserror",
- "tiny_http",
- "toml",
- "ureq",
- "weaveback-agent-core",
- "weaveback-api",
- "weaveback-core",
- "weaveback-lsp",
- "weaveback-macro",
- "weaveback-serve",
  "weaveback-tangle",
 ]
 

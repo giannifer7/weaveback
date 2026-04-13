@@ -41,7 +41,7 @@ contain many literal percent signs (e.g., CSS, shell scripts).
 
 === Token types
 
-[cols="1,3"]
+[%header,cols="1,3"]
 |===
 | Token | Description
 
@@ -215,7 +215,7 @@ Evaluates `value` and stores it as `name` in the current top frame.
 
 Defines a **constant** text-substitution macro in the current frame.
 
-[cols="1,3"]
+[%header,cols="1,3"]
 |===
 | Field | Rule
 
@@ -232,7 +232,7 @@ The macro body is stored as an `Arc<ASTNode>` — cloning a macro definition is
 
 Defines or replaces a **rebindable** macro in the current frame.
 
-[cols="1,3"]
+[%header,cols="1,3"]
 |===
 | Field | Rule
 
@@ -479,7 +479,7 @@ immediately.  This is not an error condition.
 
 === Errors
 
-[cols="1,3"]
+[%header,cols="1,3"]
 |===
 | Error | Trigger
 
@@ -497,7 +497,7 @@ immediately.  This is not an error condition.
 Warnings are accumulated in the evaluator and drained by the caller via
 `take_warnings()`.  They do not abort evaluation.
 
-[cols="1,3"]
+[%header,cols="1,3"]
 |===
 | Warning | Trigger
 
@@ -517,7 +517,7 @@ transformation.  Word boundaries are:
 * Acronym boundary (upper→upper→lower)
 * Digit transition
 
-[cols="1,2,1"]
+[%header,cols="1,2,1"]
 |===
 | Builtin | Transformation | Example
 
@@ -597,7 +597,7 @@ calls and across `%def`/`%pydef` definitions for the lifetime of the evaluator
 session. It is **not** part of the scope stack and is **not** popped with
 frames.
 
-[cols="1,1,3"]
+[%header,cols="1,1,3"]
 |===
 | Builtin | Store | Description
 
@@ -664,7 +664,7 @@ resolved path is recorded and the target file is not evaluated.
 
 == Builtin summary
 
-[cols="2,3,1,3"]
+[%header,cols="2,3,1,3"]
 |===
 | Call form | Description | Args | Returns
 

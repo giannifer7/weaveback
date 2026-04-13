@@ -774,7 +774,7 @@ fn print_coverage_summary_to_writer(
             } else {
                 100.0 * covered as f64 / total as f64
             };
-            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed")?;
+            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%%), {missed} missed")?;
             if let Some(sections) = source["sections"].as_array() {
                 for section in sections.iter().take(top_sections) {
                     let breadcrumb = section["source_section_breadcrumb"]
@@ -797,7 +797,7 @@ fn print_coverage_summary_to_writer(
                     };
                     writeln!(
                         out,
-                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%%), {missed} missed"
                     )?;
                 }
             }
@@ -820,7 +820,7 @@ fn print_coverage_summary_to_writer(
                 };
                 writeln!(
                     out,
-                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%%), {missed} missed"
                 )?;
                 if file["has_noweb_entries"].as_bool().unwrap_or(false) {
                     let start = file["mapped_line_start"].as_u64().unwrap_or(0);

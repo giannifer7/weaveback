@@ -191,7 +191,7 @@ when absent, only noweb-level patches (no macro tracing) are applied.
 | `Noweb` | No macro attribution available; patch at noweb-expanded line.
 | `Literal` | Original literate source text — safe to auto-patch.
 | `MacroBodyLiteral` | Macro body with no variable references — safe to auto-patch.
-| `MacroBodyWithVars` | Macro body containing `%(...)` — heuristic fix + oracle.
+| `MacroBodyWithVars` | Macro body containing `%%(...)` — heuristic fix + oracle.
 | `MacroArg` | Argument at a call site — column-based replacement + oracle.
 | `Unpatchable` | `VarBinding` or `Computed` — reported only.
 |===
@@ -225,7 +225,7 @@ enum PatchSource {
     Literal { src_file: String, src_line: usize, len: usize },
     /// Macro body text with no variable references — safe to auto-patch.
     MacroBodyLiteral { src_file: String, src_line: usize, macro_name: String },
-    /// Macro body text containing `%(...)` references.
+    /// Macro body text containing `%%(...)` references.
     /// Attempt structural fix + oracle verification; report if it fails.
     MacroBodyWithVars { src_file: String, src_line: usize, macro_name: String },
     /// Argument value at a macro call site.
@@ -546,7 +546,7 @@ fn attempt_macro_arg_patch(
 /// literal (non-variable) parts updated.
 ///
 /// Algorithm:
-///  1. Split `body_line` into alternating literal/variable segments via `%(...)`.
+///  1. Split `body_line` into alternating literal/variable segments via `%%(...)`.
 ///  2. Walk `old_expanded` to extract the runtime value of each variable.
 ///  3. Walk `new_expanded` to extract the new literal parts (variable values held fixed).
 ///  4. Rebuild body using original variable references and new literals.
@@ -1458,7 +1458,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
             .collect()
     };
 
-    let sigil = opts.eval_config.as_ref().map_or('%', |ec| ec.sigil);
+    let sigil = opts.eval_config.as_ref().map_or('%%', |ec| ec.sigil);
 
     // Snapshot cache: driver path → bytes.  Populated lazily.
     let mut snapshot_cache: HashMap<String, Option<Vec<u8>>> = HashMap::new();
@@ -1869,14 +1869,14 @@ mod tests {
 
     #[test]
     fn attempt_macro_body_fix_no_vars_replaces_literal() {
-        // Body has no %(…) variables; old_expanded matches body_line
-        let result = attempt_macro_body_fix("hello world", "hello world", "hello Rust", '%');
+        // Body has no %%(…) variables; old_expanded matches body_line
+        let result = attempt_macro_body_fix("hello world", "hello world", "hello Rust", '%%');
         assert_eq!(result, Some("hello Rust".to_string()));
     }
 
     #[test]
     fn attempt_macro_body_fix_returns_none_when_same() {
-        let result = attempt_macro_body_fix("foo", "foo", "foo", '%');
+        let result = attempt_macro_body_fix("foo", "foo", "foo", '%%');
         assert_eq!(result, None);
     }
 

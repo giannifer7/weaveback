@@ -2,23 +2,24 @@
 
 %import(cli-spec/macros.adoc)
 
+This file defines the standalone `wb-mcp` CLI.
+
+The hand-written `db` / `gen_dir` fields stay inline because they are specific
+to this binary. The reusable evaluator flags are projected into a named chunk.
+
+== Rust projection chunk
+
+[source]
+----
+%alias(emit_option, render_rust_struct_chunk_option, chunk_name = wb-mcp-eval-options)
+%eval_options()
+----
+
 [source,rust]
 ----
 // <<@file crates/wb-mcp/src/cli_generated.rs>>=
 use clap::Parser;
 use std::path::PathBuf;
-
-%redef(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
-%render_rust_struct_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-%})
 
 /// Weaveback MCP server: JSON-RPC bridge for AI agent tooling.
 ///
@@ -35,7 +36,7 @@ pub(crate) struct Cli {
     #[arg(long = "gen", default_value = "gen")]
     pub(crate) gen_dir: PathBuf,
 
-%eval_options()
+// <<wb-mcp-eval-options>>
 }
 // @
 ----

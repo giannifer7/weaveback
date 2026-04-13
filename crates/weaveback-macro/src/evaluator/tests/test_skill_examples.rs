@@ -2,8 +2,8 @@
 //
 // Tests that verify the exact examples shown in SKILL.md.
 
-use crate::evaluator::{EvalConfig, EvalError, Evaluator};
-use crate::macro_api::{process_string, process_string_defaults};
+use crate::evaluator::EvalError;
+use crate::macro_api::process_string_defaults;
 
 /// SKILL.md — positional params, multi-line call, leading space stripped, %# comments stripped.
 #[test]
@@ -54,11 +54,9 @@ fn test_http_endpoint_named_params() {
 /// Too few arguments are a hard error in the strict language.
 #[test]
 fn test_too_few_args_is_error() {
-    let err = process_string(
+    let err = process_string_defaults(
         "%def(greet, name, msg, Hello %(name)%(msg)!)\n\
          %greet(Alice)",
-        None,
-        &mut Evaluator::new(EvalConfig::default()),
     )
     .unwrap_err();
     assert!(err.to_string().contains("Unbound parameter"));

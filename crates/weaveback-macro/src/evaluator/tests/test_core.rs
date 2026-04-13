@@ -88,7 +88,6 @@ fn test_discover_includes_in_string_records_paths() {
     let temp = TempDir::new().unwrap();
     let include_path = temp.path().join("inc.txt");
     fs::write(&include_path, "included").unwrap();
-
     let mut eval = Evaluator::new(EvalConfig {
         include_paths: vec![temp.path().to_path_buf()],
         ..EvalConfig::default()

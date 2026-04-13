@@ -54,8 +54,8 @@ fn run(cli: Cli) -> Result<(), Error> {
             let eval_config = EvalConfig {
                 sigil,
                 include_paths,
-                discovery_mode: false,
                 allow_env,
+                ..Default::default()
             };
             let db = WeavebackDb::open_read_only(&cli.db)?;
             let resolver = PathResolver::new(PathBuf::from("."), cli.gen_dir);
@@ -107,8 +107,8 @@ fn run(cli: Cli) -> Result<(), Error> {
             let eval_config = EvalConfig {
                 sigil,
                 include_paths,
-                discovery_mode: false,
                 allow_env,
+                ..Default::default()
             };
             weaveback_api::coverage::run_attribute(
                 scan_stdin, summary, locations, cli.db, cli.gen_dir, eval_config,
@@ -132,8 +132,8 @@ fn run(cli: Cli) -> Result<(), Error> {
             let eval_config = EvalConfig {
                 sigil,
                 include_paths,
-                discovery_mode: false,
                 allow_env,
+                ..Default::default()
             };
             weaveback_api::coverage::run_cargo_annotated(
                 args, diagnostics_only, cli.db, cli.gen_dir, eval_config,

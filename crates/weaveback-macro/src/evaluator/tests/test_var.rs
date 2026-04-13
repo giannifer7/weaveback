@@ -1,5 +1,4 @@
-use crate::evaluator::{EvalConfig, Evaluator};
-use crate::macro_api::{process_string, process_string_defaults};
+use crate::macro_api::process_string_defaults;
 
 #[test]
 fn test_simple_variable_substitution() {
@@ -55,15 +54,13 @@ fn test_variable_substitution_with_whitespace() {
 
 #[test]
 fn test_variable_substitution_with_missing_param_is_error() {
-    let err = process_string(
+    let err = process_string_defaults(
         r#"
         %def(greet, name, %{
             Hello, %(name)!
         %})
         %greet()
         "#,
-        None,
-        &mut Evaluator::new(EvalConfig::default()),
     )
     .unwrap_err();
 
@@ -127,7 +124,7 @@ fn test_variable_substitution_with_conditional_logic() {
 
 #[test]
 fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
-    let err = process_string(
+    let err = process_string_defaults(
         r#"
         %def(greet, name, %{
             %if(%(name), %{
@@ -138,8 +135,6 @@ fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
         %})
         %greet()
         "#,
-        None,
-        &mut Evaluator::new(EvalConfig::default()),
     )
     .unwrap_err();
 

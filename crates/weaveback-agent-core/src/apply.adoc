@@ -403,7 +403,7 @@ mod tests {
         db.set_source_config(
             rel,
             &TangleConfig {
-                sigil: '%',
+                sigil: '%%',
                 open_delim: "<<".to_string(),
                 close_delim: ">>".to_string(),
                 chunk_end: "@".to_string(),

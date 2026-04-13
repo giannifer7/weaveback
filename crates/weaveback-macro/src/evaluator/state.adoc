@@ -562,13 +562,13 @@ impl EvaluatorState {
     }
 
     pub fn redefine_macro(&mut self, mac: MacroDefinition) -> EvalResult<()> {
-        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name) {
-            if existing.binding_kind == MacroBindingKind::Constant {
-                return Err(EvalError::InvalidUsage(format!(
-                    "cannot redefine macro '{}': constant binding already exists in current scope",
-                    mac.name
-                )));
-            }
+        if let Some(existing) = self.current_scope_mut().macros.get(&mac.name)
+            && existing.binding_kind == MacroBindingKind::Constant
+        {
+            return Err(EvalError::InvalidUsage(format!(
+                "cannot redefine macro '{}': constant binding already exists in current scope",
+                mac.name
+            )));
         }
         self.current_scope_mut().macros.insert(mac.name.clone(), mac);
         Ok(())

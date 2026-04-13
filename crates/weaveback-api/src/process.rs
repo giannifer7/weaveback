@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::collections::{HashMap, HashSet};
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
-use weaveback_macro::macro_api::process_string;
+use weaveback_macro::macro_api::{discover_includes_in_string, process_string};
 use weaveback_tangle::{Clip, SafeFileWriter, SafeWriterConfig, WeavebackError};
 
 /// Combined error type for a single tangle pass.
@@ -212,8 +212,8 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
     let eval_config = EvalConfig {
         sigil: args.sigil,
         include_paths: include_paths.clone(),
-        discovery_mode: false,
         allow_env: args.allow_env,
+        ..EvalConfig::default()
     };
     let mut evaluator = Evaluator::new(eval_config.clone());
 
@@ -253,13 +253,12 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
         find_files(dir, &args.ext, &mut all)?;
         all.sort();
 
-        let discovery_config = EvalConfig { discovery_mode: true, ..eval_config.clone() };
         let mut included: HashSet<PathBuf> = HashSet::new();
         for adoc in &all {
             if let Ok(text) = std::fs::read_to_string(adoc) {
-                let mut disc = Evaluator::new(discovery_config.clone());
-                if process_string(&text, Some(adoc), &mut disc).is_ok() {
-                    for p in disc.take_discovered_includes() {
+                let mut disc = Evaluator::new(eval_config.clone());
+                if let Ok(paths) = discover_includes_in_string(&text, Some(adoc), &mut disc) {
+                    for p in paths {
                         included.insert(p.canonicalize().unwrap_or(p));
                     }
                 }
@@ -356,10 +355,8 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
 
     if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
         let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
-        if !args.no_fts {
-            if let Err(e) = db.rebuild_prose_fts() {
-                eprintln!("warning: FTS index rebuild failed: {e}");
-            }
+        if !args.no_fts && let Err(e) = db.rebuild_prose_fts() {
+            eprintln!("warning: FTS index rebuild failed: {e}");
         }
     }
 

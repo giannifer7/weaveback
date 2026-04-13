@@ -104,8 +104,8 @@ fn build_eval_config(args: &Args) -> weaveback_macro::evaluator::EvalConfig {
     weaveback_macro::evaluator::EvalConfig {
         sigil: args.sigil,
         include_paths,
-        discovery_mode: false,
         allow_env: args.allow_env,
+        ..weaveback_macro::evaluator::EvalConfig::default()
     }
 }
 

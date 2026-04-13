@@ -17,6 +17,89 @@ surface adopt one bounded abstraction uniformly:
 If this layer is worthwhile, it should lower drift across those views. If it
 does not, it should be removed.
 
+== What This File Is Doing
+
+The design is simple, but the current file hid it too aggressively.
+
+There are three layers:
+
+1. option-family macros in [macros.adoc](/home/g4/_prj/weaveback/cli-spec/macros.adoc)
+2. projection blocks in this file
+3. generated targets:
+   - [cli_generated.rs](/home/g4/_prj/weaveback/crates/weaveback/src/cli_generated.rs)
+   - [cli.adoc](/home/g4/_prj/weaveback/docs/cli.adoc)
+
+The important point is that the option families are not supposed to write Rust
+or docs directly in one opaque burst. They should contribute rows to named
+chunks, and the generated file skeleton should stay readable.
+
+=== Mental model
+
+An option family like `%%search_command_options()` is just a reusable list of
+option declarations. We project that family more than once:
+
+* into Rust fields / enum members for clap
+* into AsciiDoc table rows for the CLI reference
+
+That means the same option metadata drives both the parser and the docs.
+
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor transparent
+skinparam defaultFontName "DejaVu Sans"
+skinparam rectangle {
+  RoundCorner 12
+}
+
+rectangle "option family\nsearch_command_options()" as family
+rectangle "renderer alias\nemit_option -> render_rust_*_chunk_option" as rust
+rectangle "renderer alias\nemit_option -> render_doc_chunk_option" as docs
+rectangle "accumulating chunks\ncli-rust-search-options\ncli-doc-search-rows" as chunks
+rectangle "generated targets\ncli_generated.rs\ncli.adoc" as out
+
+family --> rust
+family --> docs
+rust --> chunks
+docs --> chunks
+chunks --> out
+@enduml
+----
+
+=== Reading order
+
+If you want to understand the file without reading every macro expansion:
+
+1. read the generated Rust skeleton below
+2. note the named chunks it pulls in
+3. look at the projection blocks that fill those chunks
+4. only then look at the reusable option-family definitions in [macros.adoc](/home/g4/_prj/weaveback/cli-spec/macros.adoc)
+
+=== Example: one option, two projections
+
+The shape is:
+
+[source]
+----
+%%emit_option(
+field = limit,
+rust_type = usize,
+arg_attr = %{long, default_value = "10"%},
+doc_block = %{    /// Maximum number of results to show%},
+doc_flag = %{`--limit <N>`%},
+doc_default = %{`10`%},
+doc_descr = %{Maximum number of results to show.%}
+)
+----
+
+From that one declaration we want:
+
+* a Rust field with `#[arg(...)]`
+* a doc-table row
+
+The accumulating chunk approach makes that explicit instead of forcing the
+reader to mentally inline every macro call.
+
 == Macro definitions
 
 All shared renderers and option groups live in `macros.adoc`; import them here.
@@ -24,6 +107,95 @@ All shared renderers and option groups live in `macros.adoc`; import them here.
 [source]
 ----
 %import(cli-spec/macros.adoc)
+----
+
+== Rust projection chunks
+
+These blocks do not define the CLI directly. They fill named chunks that the
+generated Rust skeleton uses.
+
+[source]
+----
+%alias(emit_option, render_rust_struct_chunk_option, chunk_name = cli-rust-main-args)
+%macro_arg_options()
+%debug_arg_options()
+%tangle_arg_options()
+%directory_arg_options()
+%build_arg_options()
+%hidden_arg_options()
+%security_arg_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-tangle-options)
+%tangle_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-attribute-options)
+%attribute_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-cargo-options)
+%cargo_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-tag-options)
+%tag_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-apply-back-options)
+%apply_back_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-graph-options)
+%graph_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-search-options)
+%search_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-lint-options)
+%lint_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-coverage-options)
+%coverage_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-tags-options)
+%tags_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-lsp-options)
+%lsp_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = cli-rust-serve-options)
+%serve_command_options()
 ----
 
 == Generated Rust module
@@ -67,26 +239,25 @@ pub(crate) enum Commands {
     },
     /// Run all tangle passes from weaveback.toml (or --config <file>)
     Tangle {
-%alias(emit_option, render_rust_enum_option)
-%tangle_command_options()
+// <<cli-rust-tangle-options>>
     },
     /// Parse FILE:LINE[:COL] and return structured source-of-truth attribution
     Attribute {
-%attribute_command_options()
+// <<cli-rust-attribute-options>>
     },
     /// Run cargo with JSON diagnostics and add source-of-truth attribution
     Cargo {
-%cargo_command_options()
+// <<cli-rust-cargo-options>>
     },
     /// Tag prose blocks with LLM-generated tags, then rebuild the FTS index
     Tag {
-%tag_command_options()
+// <<cli-rust-tag-options>>
     },
     /// Run as an MCP server for IDE/agent integration
     Mcp,
     /// Propagate edits in gen/ back to the literate source
     ApplyBack {
-%apply_back_command_options()
+// <<cli-rust-apply-back-options>>
     },
     /// Show every chunk and output file transitively affected if CHUNK changes
     Impact {
@@ -94,33 +265,33 @@ pub(crate) enum Commands {
     },
     /// Export the chunk-dependency graph in DOT (Graphviz) format
     Graph {
-%graph_command_options()
+// <<cli-rust-graph-options>>
     },
     /// Search literate source prose (FTS5 + tags + optional embeddings)
     Search {
-%search_command_options()
+// <<cli-rust-search-options>>
     },
     /// Run structural checks on literate source files
     Lint {
-%lint_command_options()
+// <<cli-rust-lint-options>>
     },
     /// Regroup LCOV line coverage by owning literate source and section
     Coverage {
-%coverage_command_options()
+// <<cli-rust-coverage-options>>
     },
     /// List LLM-generated tags for prose blocks
     Tags {
-%tags_command_options()
+// <<cli-rust-tags-options>>
     },
     /// Semantic language server operations (requires rust-analyzer)
     Lsp {
-%lsp_command_options()
+// <<cli-rust-lsp-options>>
         #[command(subcommand)]
         cmd: LspCommands,
     },
     /// Serve docs/html/ locally with live reload and "Edit source" navigation
     Serve {
-%serve_command_options()
+// <<cli-rust-serve-options>>
     },
 }
 
@@ -142,19 +313,16 @@ pub(crate) enum LspCommands {
 
 #[derive(clap::Args, Debug)]
 pub(crate) struct Args {
-%alias(emit_option, render_rust_struct_option)
-%macro_arg_options()
-%debug_arg_options()
-%tangle_arg_options()
-%directory_arg_options()
-%build_arg_options()
-%hidden_arg_options()
-%security_arg_options()
+// <<cli-rust-main-args>>
 }
 // @
 ----
 
 == Generated CLI reference
+
+The doc side already follows the better pattern: each option family accumulates
+table rows into a named chunk, and the final `docs/cli.adoc` file simply pulls
+those chunks into the relevant sections.
 
 [source,adoc]
 ----

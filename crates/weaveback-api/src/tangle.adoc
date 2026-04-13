@@ -8,7 +8,7 @@
 * Config structs for deserialising `weaveback.toml` (`TangleCfg`,
   `TanglePassCfg`, `TagsCfg`, `EmbeddingsCfg`)
 * `build_pass_cmd` — builds a `std::process::Command` for one pass
-* `run_tangle_all` — runs all passes in parallel, then FTS + tag + embed
+* `run_tangle_all` — runs all passes sequentially, then FTS + tag + embed
 
 This is the core of `wb-tangle`; the single-pass CLI entry point (which
 handles `--dir`, `--gen`, etc.) stays in the binary layer.
@@ -133,15 +133,15 @@ pub fn build_pass_cmd(
 
 == Orchestration
 
-`run_tangle_all` runs all passes from `config_path` in parallel via
-`rayon`, then rebuilds the FTS index and optionally runs the LLM tag
-and embedding passes.
+`run_tangle_all` runs all passes from `config_path` sequentially, then
+rebuilds the FTS index and optionally runs the LLM tag and embedding
+passes. This is intentionally serialized because every pass merges into
+the same persistent SQLite database, and correctness matters more than
+parallelism here.
 
 [source,rust]
 ----
 // <<tangle-run>>=
-use rayon::prelude::*;
-
 /// Run every pass in `weaveback.toml` and, if a db exists, rebuild FTS /
 /// run LLM tagging / run embedding.
 ///
@@ -160,20 +160,20 @@ pub fn run_tangle_all(
     let exe = std::env::current_exe()?;
     let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
 
-    let errors: Vec<String> = cfg.passes
-        .par_iter()
-        .filter_map(|pass| {
-            let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
-            match cmd.status() {
-                Err(e)                => Some(format!("{}: {e}", pass.dir)),
-                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
-                _                     => None,
+    for pass in &cfg.passes {
+        let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
+        match cmd.status() {
+            Err(e) => {
+                return Err(std::io::Error::other(format!("{}: {e}", pass.dir)));
             }
-        })
-        .collect();
-
-    if let Some(msg) = errors.into_iter().next() {
-        return Err(std::io::Error::other(msg));
+            Ok(s) if !s.success() => {
+                return Err(std::io::Error::other(format!(
+                    "tangle pass failed for: {}",
+                    pass.dir
+                )));
+            }
+            Ok(_) => {}
+        }
     }
 
     let db_path = std::path::Path::new("weaveback.db");
@@ -358,7 +358,7 @@ close_delim = ">>"
             close_delim:     None,
             chunk_end:       None,
             comment_markers: None,
-            sigil:           vec!["%".to_string(), "^".to_string()],
+            sigil:           vec!["%%".to_string(), "^".to_string()],
         };
         let cmd = build_pass_cmd(std::path::Path::new("weaveback"), &pass, ".", false);
         let args: Vec<_> = cmd.get_args().map(|a| a.to_str().unwrap().to_string()).collect();
@@ -366,7 +366,7 @@ close_delim = ">>"
             .filter(|w| w[0] == "--sigil")
             .map(|w| w[1].clone())
             .collect();
-        assert!(sigil_vals.contains(&"%".to_string()));
+        assert!(sigil_vals.contains(&"%%".to_string()));
         assert!(sigil_vals.contains(&"^".to_string()));
     }
 

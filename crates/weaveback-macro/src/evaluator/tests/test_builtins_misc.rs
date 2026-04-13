@@ -42,10 +42,8 @@ fn test_store_getters_require_key() {
 
 #[test]
 fn test_store_setters_require_two_args() {
-    for src in ["%pyset(one)"] {
-        let err = eval_default(src).unwrap_err();
-        assert!(matches!(err, EvalError::InvalidUsage(_)));
-    }
+    let err = eval_default("%pyset(one)").unwrap_err();
+    assert!(matches!(err, EvalError::InvalidUsage(_)));
 }
 
 #[test]

@@ -582,11 +582,6 @@ impl Evaluator {
     pub(crate) fn set_dependency_discovery_active(&mut self, enabled: bool) {
         self.state.dependency_discovery_active = enabled;
     }
-
-    /// Like `do_include`, but registers every newly-defined macro under an
-    /// additional `prefix_name` alias in the current scope.  The originals
-    /// also remain so that internal cross-references inside the file continue
-    /// to resolve correctly.
     // ---- Tracked evaluation (EvalOutput) ------------------------------------
 
     /// Build a `SourceSpan` from the token of an AST node, defaulting to Literal.
@@ -882,12 +877,6 @@ impl Evaluator {
         let body_result = self.evaluate_to_with_context(&mac.body, out, Some(&body_span));
         self.state.call_depth -= 1;
         body_result?;
-
-        // For script-based macros, we need the string to pass
-        // through the script engine.  Evaluate the body again with evaluate()
-        // to get the string, then run through the script engine and push
-        // the result as untracked.
-        if matches!(mac.script_kind, ScriptKind::Python) {}
 
         self.state.pop_scope();
 

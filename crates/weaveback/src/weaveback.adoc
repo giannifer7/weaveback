@@ -179,7 +179,7 @@ use weaveback_api::process::SinglePassArgs;
 . Build the `EvalConfig` and `Evaluator` for macro expansion.
 . Create `SafeFileWriter` and `Clip` for noweb extraction.
 . Determine the set of driver files (explicit inputs or auto-discovered in
-  `--dir` mode; discovery uses a separate pass with `discovery_mode=true`).
+  `--dir` mode; dependency discovery uses a separate API pass).
 . *Phase 1*: macro-expand each driver (or, when `--no-macros` is set, read
   the file directly without expansion), feed the result to `clip.read`, and
   record `%set`/`%def` positions into the database.
@@ -247,8 +247,8 @@ fn build_eval_config(args: &Args) -> weaveback_macro::evaluator::EvalConfig {
     weaveback_macro::evaluator::EvalConfig {
         sigil: args.sigil,
         include_paths,
-        discovery_mode: false,
         allow_env: args.allow_env,
+        ..weaveback_macro::evaluator::EvalConfig::default()
     }
 }
 

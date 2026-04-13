@@ -21,6 +21,14 @@ produce no output themselves.
     %(field): %(rust_type),
 %})
 
+%redef(render_rust_struct_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
+%render_rust_struct_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
+%})
+
+%redef(render_rust_enum_chunk_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{// <<%(chunk_name)>>=
+%render_rust_enum_option(field=%(field), rust_type=%(rust_type), arg_attr=%(arg_attr), doc_block=%(doc_block), doc_flag=%(doc_flag), doc_default=%(doc_default), doc_descr=%(doc_descr))// @
+%})
+
 %redef(render_doc_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{| %(doc_flag) | %(doc_default) | %(doc_descr)
 %})
 

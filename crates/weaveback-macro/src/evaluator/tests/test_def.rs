@@ -184,9 +184,10 @@ fn test_param_with_hyphen_is_rejected() {
 #[test]
 fn test_eager_argument_evaluation_order() {
     // Arguments are evaluated in CALLER scope, before the callee frame is pushed.
+    // %set in argument position is forbidden, so use a pure caller-scope read.
     let src =
         "%set(counter, 1)\n\
-         %def(show, x, %{before=%(counter) arg=%(x) after=%(counter)%})\n\
+         %def(show, x, before=%(counter) arg=%(x) after=%(counter))\n\
          %show(%(counter))";
     let mut ev = Evaluator::new(EvalConfig::default());
     let result = process_string(src, None, &mut ev).unwrap();

@@ -96,8 +96,6 @@ pub fn build_pass_cmd(
     cmd.arg("--no-fts");
     cmd
 }
-use rayon::prelude::*;
-
 /// Run every pass in `weaveback.toml` and, if a db exists, rebuild FTS /
 /// run LLM tagging / run embedding.
 ///
@@ -116,20 +114,20 @@ pub fn run_tangle_all(
     let exe = std::env::current_exe()?;
     let default_gen = cfg.default_gen.as_deref().unwrap_or(".");
 
-    let errors: Vec<String> = cfg.passes
-        .par_iter()
-        .filter_map(|pass| {
-            let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
-            match cmd.status() {
-                Err(e)                => Some(format!("{}: {e}", pass.dir)),
-                Ok(s) if !s.success() => Some(format!("tangle pass failed for: {}", pass.dir)),
-                _                     => None,
+    for pass in &cfg.passes {
+        let mut cmd = build_pass_cmd(&exe, pass, default_gen, force_generated);
+        match cmd.status() {
+            Err(e) => {
+                return Err(std::io::Error::other(format!("{}: {e}", pass.dir)));
             }
-        })
-        .collect();
-
-    if let Some(msg) = errors.into_iter().next() {
-        return Err(std::io::Error::other(msg));
+            Ok(s) if !s.success() => {
+                return Err(std::io::Error::other(format!(
+                    "tangle pass failed for: {}",
+                    pass.dir
+                )));
+            }
+            Ok(_) => {}
+        }
     }
 
     let db_path = std::path::Path::new("weaveback.db");

@@ -1030,14 +1030,16 @@ impl Clip {
         let fc = self.store.get_file_chunks().to_vec();
         let mut all_referenced = HashSet::new();
         for name in &fc {
-            if skip.contains(name) {
-                continue;
-            }
+            let skip_write = skip.contains(name);
             let (lines, map_entries, referenced, deps) = self.store.expand_with_map(name, "")?;
             all_referenced.extend(referenced);
 
-            let mut cw = ChunkWriter::new(&mut self.writer);
-            let written_bytes = cw.write_chunk(name, &lines)?;
+            let written_bytes = if skip_write {
+                None
+            } else {
+                let mut cw = ChunkWriter::new(&mut self.writer);
+                cw.write_chunk(name, &lines)?
+            };
 
             let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
             let out_file_key = {

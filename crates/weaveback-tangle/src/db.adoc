@@ -410,6 +410,86 @@ impl WeavebackDb {
 // @@
 ----
 
+== Tests
+
+[source,rust]
+----
+// <[db-tests]>=
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
+        let temp = TempDir::new().unwrap();
+        let target_path = temp.path().join("target.db");
+
+        let mut target = WeavebackDb::open(&target_path).unwrap();
+        target
+            .set_noweb_entries(
+                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/weaveback-macro/src/evaluator/tests/test_set.rs",
+                &[(
+                    1,
+                    NowebMapEntry {
+                        src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                            .into(),
+                        chunk_name: "test set".into(),
+                        src_line: 515,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                )],
+            )
+            .unwrap();
+        drop(target);
+
+        let mut fresh = WeavebackDb::open_temp().unwrap();
+        fresh
+            .set_src_snapshot(
+                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests-macros.adoc",
+                b"snapshot",
+            )
+            .unwrap();
+        fresh
+            .set_baseline(
+                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+                b"generated",
+            )
+            .unwrap();
+        fresh
+            .set_noweb_entries(
+                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+                &[(
+                    1,
+                    NowebMapEntry {
+                        src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                            .into(),
+                        chunk_name: "test set".into(),
+                        src_line: 515,
+                        indent: String::new(),
+                        confidence: Confidence::Exact,
+                    },
+                )],
+            )
+            .unwrap();
+
+        fresh.merge_into(&target_path).unwrap();
+
+        let merged = WeavebackDb::open_read_only(&target_path).unwrap();
+        let out_files = merged.query_chunk_output_files("test set").unwrap();
+        assert_eq!(
+            out_files,
+            vec![
+                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs"
+                    .to_string()
+            ]
+        );
+    }
+}
+// @@
+----
+
 == gen_baselines
 
 `set_baseline` / `get_baseline` maintain the modification-detection baseline
@@ -1195,6 +1275,26 @@ to the corresponding target ID by joining through the shared `path` string.
 Tables without file-ID columns (`gen_baselines`, `src_snapshots`, `run_config`)
 are copied with a simple `SELECT *`.
 
+Some tables are authoritative snapshots for a touched source or output file,
+not append-only logs. Before reinserting current rows, the merge therefore
+deletes stale target rows for:
+
+* output files touched in this run (`noweb_map`, keyed by `gen_baselines.path`)
+* source files read in this run also clear their previous `noweb_map` rows,
+  because an old bad output-path key may survive even when the source-side
+  mapping is otherwise current
+* source files read in this run (`chunk_defs`, `chunk_deps`,
+  `literate_source_config`, `source_blocks`, `var_defs`, `macro_defs`,
+  keyed by `src_snapshots.path`)
+
+The source-file delete uses a suffix-aware match (`absolute == absolute` or
+`absolute ends_with "/relative"`) because older databases may still contain
+repo-relative `files.path` rows while `src_snapshots` stores absolute paths.
+
+Without this delete phase, old rows survive when a generated file shrinks or a
+source file stops defining a chunk/edge, which pollutes impact analysis and
+trace lookups.
+
 The `BEGIN IMMEDIATE`, inserts, and `COMMIT` are issued as separate
 `execute_batch` calls so that an explicit `ROLLBACK` can be sent on any
 failure.  `DETACH` always runs, even on error, to avoid leaking the attachment.
@@ -1248,6 +1348,77 @@ impl WeavebackDb {
                  INSERT OR REPLACE INTO target.src_snapshots  SELECT * FROM src_snapshots;
                  INSERT OR REPLACE INTO target.run_config     SELECT * FROM run_config;"
             )?;
+
+            // Snapshot tables need a replacement semantics for touched files.
+            self.conn.execute_batch("
+                DELETE FROM target.noweb_map
+                 WHERE out_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN gen_baselines gb ON gb.path = t.path
+                 )
+                    OR src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.chunk_defs
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.chunk_deps
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.literate_source_config
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.source_blocks
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.var_defs
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+
+                DELETE FROM target.macro_defs
+                 WHERE src_file IN (
+                    SELECT t.id
+                      FROM target.files t
+                      JOIN src_snapshots ss
+                        ON t.path = ss.path
+                        OR ss.path LIKE ('%/' || t.path)
+                 );
+            ")?;
 
             // Tables with file IDs: remap via path lookup in target.files.
             self.conn.execute_batch("
@@ -1898,5 +2069,6 @@ use std::path::Path;
 // <[db-merge]>
 // <[db-rest]>
 // <[db-fts]>
+// <[db-tests]>
 // @@
 ----

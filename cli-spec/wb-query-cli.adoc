@@ -2,6 +2,65 @@
 
 %import(cli-spec/macros.adoc)
 
+This file defines the standalone `wb-query` CLI.
+
+Compared to the combined `weaveback` CLI, this one mixes a few hand-written
+fields (`db`, `gen_dir`, positional trace inputs) with reusable option
+families. The reusable parts are projected into named chunks first so the enum
+shape stays readable.
+
+== Rust projection chunks
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-trace-eval-options)
+%eval_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-graph-options)
+%graph_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-tags-options)
+%tags_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-lint-options)
+%lint_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-attribute-options)
+%attribute_command_options()
+%eval_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-coverage-options)
+%coverage_command_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-cargo-options)
+%cargo_command_options()
+%eval_options()
+----
+
+[source]
+----
+%alias(emit_option, render_rust_enum_chunk_option, chunk_name = wb-query-search-options)
+%search_command_options()
+----
+
 [source,rust]
 ----
 // <<@file crates/wb-query/src/cli_generated.rs>>=
@@ -42,18 +101,7 @@ pub(crate) enum Commands {
         /// Column number (1-indexed, 0 = start of line).
         #[arg(default_value = "0")]
         col: u32,
-%redef(emit_option, field, rust_type, arg_attr, doc_block, doc_flag, doc_default, doc_descr, %{
-%render_rust_enum_option(
-field = %(field),
-rust_type = %(rust_type),
-arg_attr = %(arg_attr),
-doc_block = %(doc_block),
-doc_flag = %(doc_flag),
-doc_default = %(doc_default),
-doc_descr = %(doc_descr),
-)
-%})
-%eval_options()
+// <<wb-query-trace-eval-options>>
     },
     /// Compute transitive impact of changes to a chunk.
     Impact {
@@ -62,33 +110,31 @@ doc_descr = %(doc_descr),
     },
     /// Export chunk dependency graph as Graphviz DOT.
     Graph {
-%graph_command_options()
+// <<wb-query-graph-options>>
     },
     /// List tagged source blocks.
     Tags {
-%tags_command_options()
+// <<wb-query-tags-options>>
     },
     /// Lint literate source files.
     Lint {
-%lint_command_options()
+// <<wb-query-lint-options>>
     },
     /// Map generated locations to their literate source (bulk mode).
     Attribute {
-%attribute_command_options()
-%eval_options()
+// <<wb-query-attribute-options>>
     },
     /// Report source coverage from an lcov file.
     Coverage {
-%coverage_command_options()
+// <<wb-query-coverage-options>>
     },
     /// Run cargo and annotate diagnostics with literate source locations.
     Cargo {
-%cargo_command_options()
-%eval_options()
+// <<wb-query-cargo-options>>
     },
     /// Full-text search over tangled source content.
     Search {
-%search_command_options()
+// <<wb-query-search-options>>
     },
 }
 // @

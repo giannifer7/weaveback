@@ -2769,7 +2769,7 @@ dependencies = [
 
 [[package]]
 name = "wb-mcp"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "weaveback-api",
@@ -2778,7 +2778,7 @@ dependencies = [
 
 [[package]]
 name = "wb-query"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "serde_json",
@@ -2791,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "wb-serve"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "weaveback-serve",
@@ -2799,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "wb-tangle"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "thiserror",
@@ -2810,7 +2810,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2837,7 +2837,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-agent-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2851,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-api"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "rayon",
  "regex",
@@ -2871,11 +2871,11 @@ dependencies = [
 
 [[package]]
 name = "weaveback-core"
-version = "0.10.0"
+version = "0.11.0"
 
 [[package]]
 name = "weaveback-docgen"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "acdc-converters-core",
  "acdc-converters-html",
@@ -2896,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-lsp"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "log",
  "lsp-types",
@@ -2909,7 +2909,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-macro"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-py"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "pyo3",
  "pythonize",
@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-serve"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "notify",
  "serde",
@@ -2958,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "weaveback-tangle"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "asciidoc-parser",
  "assert_cmd",

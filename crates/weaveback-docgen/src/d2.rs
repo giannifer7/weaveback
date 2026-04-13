@@ -15,6 +15,12 @@ pub enum D2Error {
     #[error("failed to write SVG cache file '{path}': {source}")]
     CacheWrite { path: String, source: std::io::Error },
 }
+
+impl D2Error {
+    fn is_missing_binary(&self) -> bool {
+        matches!(self, D2Error::Spawn(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
+}
 fn collect_d2_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
     use asciidoc_parser::{Parser, blocks::IsBlock};
 
@@ -131,7 +137,14 @@ pub fn preprocess_d2(
         let svg_out_path = images_out_dir.join(&svg_name);
 
         if !svg_cache_path.exists() {
-            let svg_bytes = render_d2_diagram(&diagram_src, index, theme, layout)?;
+            let svg_bytes = match render_d2_diagram(&diagram_src, index, theme, layout) {
+                Ok(svg) => svg,
+                Err(e) if e.is_missing_binary() => {
+                    eprintln!("d2: {label}: {e}; skipping D2 pre-processing for this file");
+                    return Ok(None);
+                }
+                Err(e) => return Err(e),
+            };
             std::fs::write(&svg_cache_path, &svg_bytes).map_err(|e| D2Error::CacheWrite {
                 path: svg_cache_path.to_string_lossy().into_owned(),
                 source: e,
@@ -217,5 +230,11 @@ mod tests {
             source: std::io::Error::other("disk full"),
         };
         assert!(e.to_string().contains("/tmp/x.svg"));
+    }
+
+    #[test]
+    fn d2_error_missing_binary_detection() {
+        let e = D2Error::Spawn(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
+        assert!(e.is_missing_binary());
     }
 }

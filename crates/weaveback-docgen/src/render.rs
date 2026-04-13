@@ -154,6 +154,9 @@ pub fn render_docs(
             };
 
             // 1.5. D2 pre-processing.
+            // Missing `d2` is treated as an optional-tool case: keep rendering
+            // docs, but leave D2 blocks unconverted. Actual D2 render failures
+            // still abort the build.
             let base_before_d2 = after_plantuml.as_deref().unwrap_or(&source);
             let after_d2: Option<String> = {
                 let images_dir = out_file.parent().unwrap_or(out_dir);

@@ -250,7 +250,7 @@ fn extract_block_text(snapshot: &str, line_start: u32, line_end: u32) -> String 
 
 == Orchestration
 
-`run_auto_embed` is the entry point called from `weaveback tangle`.
+`run_auto_embed` is the entry point called from `wb-tangle`.
 It persists the config, queries for blocks that need embeddings, groups them
 by source file (to load each snapshot once), calls the embedding API in
 batches, and stores the resulting vectors in `block_embeddings`.
@@ -502,7 +502,7 @@ mod tests {
 // <<@file weaveback-api/src/semantic.rs>>=
 //! Lightweight semantic retrieval: optional prose embeddings stored in SQLite.
 //!
-//! Runs as an optional post-step after `weaveback tangle`.  Only blocks
+//! Runs as an optional post-step after `wb-tangle`.  Only blocks
 //! whose BLAKE3 content hash has changed since the last run are sent to
 //! the embedding API; results are cached in `block_embeddings` and fused
 //! with FTS results at query time.

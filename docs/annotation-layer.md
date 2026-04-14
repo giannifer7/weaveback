@@ -579,7 +579,7 @@ Teach `where` or `trace` to show nearby annotations.
 For example:
 
 ```bash
-weaveback where gen/src/parser.rs:148
+wb-query where gen/src/parser.rs:148
 ```
 
 Could output something like:

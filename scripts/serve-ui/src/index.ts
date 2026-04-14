@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     hint.id = 'wb-serve-hint';
     hint.innerHTML =
       '\u2736 <a href="https://github.com/giannifer7/weaveback#live-documentation-server"'
-      + ' target="_blank" rel="noopener">Run <code>weaveback serve</code> locally</a>'
+      + ' target="_blank" rel="noopener">Run <code>wb-serve</code> locally</a>'
       + ' for the inline editor and AI assistant.';
     document.body.appendChild(hint);
     return;

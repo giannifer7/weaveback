@@ -372,7 +372,7 @@ All `/__*` endpoints include `Access-Control-Allow-Origin: *`.
 
 === AI assistant (`/__ai`)
 
-`weaveback serve` includes an AI assistant panel that provides context-aware 
+`wb-serve` includes an AI assistant panel that provides context-aware 
 help. When a question is asked about a chunk, the server builds a 
 comprehensive context object:
 - **Source body**: the raw literate source of the chunk.

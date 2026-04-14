@@ -55,10 +55,10 @@ fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = match notify::recommended_watcher(tx) {
             Ok(w) => w,
-            Err(e) => { eprintln!("weaveback serve: watcher error: {e}"); return; }
+            Err(e) => { eprintln!("wb-serve: watcher error: {e}"); return; }
         };
         if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::Recursive) {
-            eprintln!("weaveback serve: watch error: {e}");
+            eprintln!("wb-serve: watch error: {e}");
             return;
         }
         for result in &rx {
@@ -97,7 +97,7 @@ fn find_plantuml_jar() -> Option<PathBuf> {
 
 fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
     if tangle {
-        eprintln!("weaveback serve --watch: tangle...");
+        eprintln!("wb-serve --watch: tangle...");
         let exe = std::env::current_exe()
             .unwrap_or_else(|_| PathBuf::from("weaveback"));
         let ok = std::process::Command::new(&exe)
@@ -106,19 +106,19 @@ fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
-        if !ok { eprintln!("weaveback serve --watch: tangle failed"); return; }
+        if !ok { eprintln!("wb-serve --watch: tangle failed"); return; }
     }
     if theme {
-        eprintln!("weaveback serve --watch: theme...");
+        eprintln!("wb-serve --watch: theme...");
         let ok = std::process::Command::new("node")
             .arg(project_root.join("scripts").join("serve-ui").join("build.mjs"))
             .current_dir(project_root)
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
-        if !ok { eprintln!("weaveback serve --watch: theme build failed"); return; }
+        if !ok { eprintln!("wb-serve --watch: theme build failed"); return; }
     }
-    eprintln!("weaveback serve --watch: docs...");
+    eprintln!("wb-serve --watch: docs...");
     let mut cmd = std::process::Command::new(find_docgen_bin());
     cmd.args(["--sigil", "%", "--sigil", "^"])
         .current_dir(project_root);
@@ -134,10 +134,10 @@ fn spawn_source_watcher(project_root: PathBuf) {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = match notify::recommended_watcher(tx) {
             Ok(w) => w,
-            Err(e) => { eprintln!("weaveback serve: source watcher error: {e}"); return; }
+            Err(e) => { eprintln!("wb-serve: source watcher error: {e}"); return; }
         };
         if let Err(e) = watcher.watch(&project_root, RecursiveMode::Recursive) {
-            eprintln!("weaveback serve: source watch error: {e}");
+            eprintln!("wb-serve: source watch error: {e}");
             return;
         }
         let docs_html  = project_root.join("docs").join("html");
@@ -1506,7 +1506,7 @@ pub fn run_serve(
 
     let tangle_cfg = Arc::new(tangle_cfg);
 
-    println!("weaveback serve: http://127.0.0.1:{port}/");
+    println!("wb-serve: http://127.0.0.1:{port}/");
     println!("  Serving: {}", html_dir.display());
     println!("  Editor:  $VISUAL / $EDITOR ({})",
         std::env::var("VISUAL")

@@ -596,7 +596,7 @@ impl WeavebackDb {
     }
 
     /// Return the distinct output files that contain lines attributed to
-    /// `chunk_name`.  Used by `weaveback impact` to map terminal chunks to
+    /// `chunk_name`.  Used by `wb-query impact` to map terminal chunks to
     /// the `gen/` files they affect.
     pub fn query_chunk_output_files(
         &self,

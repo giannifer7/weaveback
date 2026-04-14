@@ -12,7 +12,7 @@ line back to its origin, or propagate edits back to the source.
 
 [source,sh]
 ----
-weaveback source.adoc --gen src
+wb-tangle source.adoc --gen src
 ----
 
 ---
@@ -53,8 +53,8 @@ Weaveback closes the loop.
 Every generated line knows where it came from and can be traced precisely.
 Edits can propagate back to the source.
 
-- *Trace* any generated line back to its source: `weaveback where`
-- *Propagate* edits from generated files back to the document: `weaveback apply-back`
+- *Trace* any generated line back to its source: `wb-query where`
+- *Propagate* edits from generated files back to the document: `wb-tangle apply-back`
 
 The source remains the single source of truth — without becoming a dead end.
 
@@ -77,7 +77,7 @@ Trace a line back to its origin:
 
 [source,sh]
 ----
-weaveback where src/events.rs:2
+wb-query where src/events.rs 2
 ----
 
 → opens the exact chunk in the literate source.
@@ -99,7 +99,7 @@ Propagate the change back:
 
 [source,sh]
 ----
-weaveback apply-back
+wb-tangle apply-back
 ----
 
 → the literate source is updated, preserving consistency.
@@ -144,7 +144,7 @@ All outputs remain consistent because they originate from the same structured so
 
 The macro system is intentionally simple.
 
-Built-ins — case conversion, `%if`, `%equal` — cover common patterns
+Built-ins — case conversion, `%if`, `%eq`, `%neq`, `%not` — cover common patterns
 while keeping expansions predictable and traceable.
 
 Macros enable:
@@ -163,7 +163,7 @@ When the built-in macros are not enough, one scripted extension is available.
 - *`%pydef`* — macro body runs in a sandboxed Python interpreter (monty), compiled into the binary. No Python installation required.
 
 The tradeoff: code produced inside scripted macros cannot be mapped back by
-`weaveback trace`. Use them for isolated calculations or string manipulation,
+`wb-query trace`. Use them for isolated calculations or string manipulation,
 not as a primary structuring mechanism.
 
 ---
@@ -188,7 +188,7 @@ rather than blind generation.
 
 == Live documentation server
 
-`weaveback serve` starts a local HTTP server with live reload, inline chunk
+`wb-serve` starts a local HTTP server with live reload, inline chunk
 editing, and an AI assistant panel that receives full chunk context: source
 body, surrounding prose and design notes, dependency bodies.
 
@@ -198,24 +198,26 @@ image::docs/ai-panel.png[AI assistant panel,width=700]
 
 == Install
 
-*Installer script* (Linux, macOS, Windows — downloads and installs the binary):
+*Installer script* (Linux, macOS, Windows):
 
 [source,sh]
 ----
 python3 scripts/install.py             # core
-python3 scripts/install.py --diagrams  # + PlantUML support
+python3 scripts/install.py --diagrams  # + D2 and PlantUML support
 ----
 
 *Arch Linux:* `paru -S weaveback-bin`
 
 *Nix:* `nix profile install github:giannifer7/weaveback`
 
-*Quick binary only (musl, any Linux):*
+*Quick split binaries (musl, any Linux):*
 
 [source,sh]
 ----
-curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
-     -o ~/.local/bin/weaveback && chmod +x ~/.local/bin/weaveback
+base=https://github.com/giannifer7/weaveback/releases/latest/download
+for bin in wb-tangle wb-query wb-serve wb-mcp; do
+  curl -sL "$base/$bin-musl" -o "$HOME/.local/bin/$bin" && chmod +x "$HOME/.local/bin/$bin"
+done
 ----
 
 → link:docs/install.adoc[Full installation guide]
@@ -227,7 +229,7 @@ curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveb
 [source,sh]
 ----
 cd examples/events
-weaveback events.adoc --gen .
+wb-tangle events.adoc --gen .
 ----
 
 ---
@@ -248,10 +250,10 @@ Not production-ready. The focus is on the design, not completeness.
 | Document | Contents
 
 | link:docs/cli.adoc[CLI reference]
-| All flags and options
+| Split command map and migration from the old combined CLI
 
 | link:docs/macros.adoc[Macro language]
-| `%def`, `%if`, `%pydef`
+| `%def`, `%redef`, `%if`, `%pydef`, verbatim blocks
 
 | link:docs/noweb.adoc[Chunk syntax]
 | `@file`, named chunks, composition

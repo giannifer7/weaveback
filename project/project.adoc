@@ -489,7 +489,7 @@ it means the file was edited directly without updating this adoc source.
 [source,toml]
 ----
 # <<@file weaveback.toml>>=
-# weaveback.toml — multi-pass tangle configuration for `weaveback tangle`
+# weaveback.toml — multi-pass tangle configuration for `wb-tangle`
 # Each [[pass]] maps to one `weaveback` invocation.  Fields not present use
 # the weaveback CLI defaults: open_delim = "<[", close_delim = "]>",
 # chunk_end = "@", ext = "md".

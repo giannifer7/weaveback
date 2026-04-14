@@ -65,7 +65,7 @@ rationale(tangle, force_generated,
     "Explicit regeneration when literate source is authoritative.").
 safety_sensitive(tangle, force_generated).
 example(tangle, force_generated,
-    "weaveback tangle --force-generated").
+    "wb-tangle --force-generated").
 ----
 
 This is only a different view of data we already have.  The gain comes from the
@@ -274,7 +274,7 @@ My current bias is:
 Do not start by building the whole engine.
 
 Start by choosing a tiny fact set for one bounded surface, probably
-`weaveback tangle`, then express a few high-value checks:
+`wb-tangle`, then express a few high-value checks:
 
 * declared option has implementation
 * implementation has declaration

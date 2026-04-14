@@ -162,7 +162,7 @@ pub(crate) enum Commands {
     #[arg(long)]
 
     diagnostics_only: bool,
-        /// Cargo subcommand and arguments, passed through after `weaveback cargo`
+        /// Cargo subcommand and arguments, passed through after `wb-query cargo`
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
 
     args: Vec<String>,

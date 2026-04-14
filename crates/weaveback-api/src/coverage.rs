@@ -753,7 +753,7 @@ fn print_coverage_summary_to_writer(
             } else {
                 100.0 * covered as f64 / total as f64
             };
-            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed")?;
+            writeln!(out, "{src_file}: {covered}/{total} covered ({pct:.1}%%), {missed} missed")?;
             if let Some(sections) = source["sections"].as_array() {
                 for section in sections.iter().take(top_sections) {
                     let breadcrumb = section["source_section_breadcrumb"]
@@ -776,7 +776,7 @@ fn print_coverage_summary_to_writer(
                     };
                     writeln!(
                         out,
-                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                        "  {breadcrumb}: {covered}/{total} covered ({pct:.1}%%), {missed} missed"
                     )?;
                 }
             }
@@ -799,7 +799,7 @@ fn print_coverage_summary_to_writer(
                 };
                 writeln!(
                     out,
-                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%), {missed} missed"
+                    "  {generated_file}: {covered}/{total} covered ({pct:.1}%%), {missed} missed"
                 )?;
                 if file["has_noweb_entries"].as_bool().unwrap_or(false) {
                     let start = file["mapped_line_start"].as_u64().unwrap_or(0);
@@ -1564,7 +1564,7 @@ pub fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), C
 pub fn run_tags(file: Option<String>, db_path: PathBuf) -> Result<(), CoverageError> {
     let blocks = crate::query::list_block_tags(file.as_deref(), &db_path)?;
     if blocks.is_empty() {
-        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run weaveback tangle.");
+        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run wb-tangle.");
         return Ok(());
     }
     let mut current_file = String::new();

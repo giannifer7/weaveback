@@ -272,7 +272,7 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
   margin-left: auto;
 }
 
-/* ── Edit source button (weaveback serve) ─────────────────────── */
+/* ── Edit source button (wb-serve) ────────────────────────────── */
 #wb-edit-btn {
   position: fixed;
   bottom: 1.2rem;
@@ -290,8 +290,8 @@ hr { border: none !important; border-top: 1px solid var(--bg2) !important; margi
 }
 #wb-edit-btn:hover { background: var(--bg3); color: var(--fg); }
 
-/* ── Chunk inline editor (weaveback serve /__apply) ──────────── */
-/* ── AI assistant panel (weaveback serve /__ai) ──────────────── */
+/* ── Chunk inline editor (wb-serve /__apply) ─────────────────── */
+/* ── AI assistant panel (wb-serve /__ai) ─────────────────────── */
 .listingblock { position: relative; }
 
 .wb-chunk-btn {

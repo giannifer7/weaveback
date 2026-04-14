@@ -1585,7 +1585,7 @@ pub fn run_search(query: String, limit: usize, db_path: PathBuf) -> Result<(), C
 pub fn run_tags(file: Option<String>, db_path: PathBuf) -> Result<(), CoverageError> {
     let blocks = crate::query::list_block_tags(file.as_deref(), &db_path)?;
     if blocks.is_empty() {
-        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run weaveback tangle.");
+        println!("No tagged blocks found. Add a [tags] section to weaveback.toml and run wb-tangle.");
         return Ok(());
     }
     let mut current_file = String::new();

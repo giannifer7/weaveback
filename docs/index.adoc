@@ -363,7 +363,7 @@ and editor/IDE settings — all generated from a single literate source.
   `scripts/weaveback-graph/` Python package
 
 | link:../scripts/serve-ui/serve-ui.adoc[serve-ui.adoc]
-| TypeScript/CSS browser UI for the `weaveback serve` documentation server
+| TypeScript/CSS browser UI for the `wb-serve` documentation server
   (`src/`, `package.json`, `tsconfig.json`)
 |===
 

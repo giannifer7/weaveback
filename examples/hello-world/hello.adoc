@@ -63,5 +63,5 @@ int main(void) {
 ----
 
 To experiment with the bidirectional workflow, edit `hello.c` directly
-and run `weaveback apply-back` — weaveback finds the generated file and
+and run `wb-tangle apply-back` — weaveback finds the generated file and
 reports which literate source lines to update.

@@ -1384,7 +1384,7 @@ impl Clip {
     /// Skipped chunks do not expand or write; the source-map and chunk_deps
     /// entries for them are not updated (the previous run's entries remain).
     /// Chunk definitions for all chunks (including skipped ones) are still
-    /// recorded so `weaveback serve` navigation stays accurate.
+    /// recorded so `wb-serve` navigation stays accurate.
     pub fn write_files_incremental(
         &mut self,
         skip: &std::collections::HashSet<String>,
@@ -1511,7 +1511,7 @@ impl Clip {
                 .set_chunk_deps(&deps)
                 .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
         }
-        // Persist chunk definition line ranges for `weaveback serve` navigation.
+        // Persist chunk definition line ranges for `wb-serve` navigation.
         let chunk_def_entries = self.store.chunk_defs();
         self.writer
             .db_mut()

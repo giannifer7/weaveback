@@ -2,7 +2,7 @@
 :toc: left
 :source-highlighter: syntect
 
-`apply_back.rs` implements `weaveback apply-back`: it propagates edits made
+`apply_back.rs` implements `wb-tangle apply-back`: it propagates edits made
 directly in `gen/` back to the literate source.  It is also the backend for
 the `weaveback_apply_back` MCP tool in link:mcp.adoc[`mcp.rs`].
 

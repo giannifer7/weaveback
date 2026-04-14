@@ -195,7 +195,7 @@ exist or be illegible.
 === 2. Independent tracing
 
 The source map is two-layered: generated code → expanded line → original source
-line.  `weaveback trace` can report either level.  If expansion and tangle were
+line.  `wb-query trace` can report either level.  If expansion and tangle were
 fused, a single error or tracing query would need to disentangle which pass
 introduced a given line — harder to implement and harder to debug.
 
@@ -284,7 +284,7 @@ It is sandboxed: no filesystem I/O, no network, no subprocess spawning.
 A script macro can only transform strings.  This is a deliberate constraint.
 
 Separately, **code produced inside a scripted macro cannot be mapped back by
-`weaveback trace`**.  This is not a consequence of sandboxing — it is an
+`wb-query trace`**.  This is not a consequence of sandboxing — it is an
 inherent property of dynamic code generation: the source map can point to the
 `%pydef` call site, but there is no static source line inside the script body
 that corresponds to a particular output character.  This makes scripted macros
@@ -357,7 +357,7 @@ would require loading everything into memory and scanning.
 
 SQLite in WAL (Write-Ahead Logging) mode allows multiple readers concurrently
 with a single writer.  A `ninja -j8` build running eight weaveback passes in
-parallel, the `weaveback serve` HTTP server, and an MCP server attached to an
+parallel, the `wb-serve` HTTP server, and an MCP server attached to an
 editor can all read `weaveback.db` simultaneously without blocking each other.
 
 === Atomicity

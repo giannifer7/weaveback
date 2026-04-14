@@ -24,7 +24,7 @@ The database stores nine kinds of data:
 * `var_defs` / `macro_defs` — byte-offset records for every `%set`/`%def`
   call, enabling fast "where was this defined?" lookups.
 * `chunk_defs` — the line range of every chunk definition header and close
-  marker in each literate source file; used by `weaveback serve` to open the
+  marker in each literate source file; used by `wb-serve` to open the
   right editor location for a chunk.
 * `source_blocks` — logical blocks parsed from each literate source file
   (section headers, code/listing blocks, paragraphs), each with a BLAKE3
@@ -534,7 +534,7 @@ impl WeavebackDb {
 
 `set_noweb_entries` writes all source-map rows for one output file in a single
 transaction.  All file paths are interned before the transaction opens so the
-integer IDs are ready.  `get_noweb_entry` is used by the `weaveback where` and
+integer IDs are ready.  `get_noweb_entry` is used by the `wb-query where` and
 `trace` commands; it JOINs the `files` table to return path strings.
 
 [source,rust]
@@ -724,7 +724,7 @@ directly references (forward edges); `query_reverse_deps` returns everything
 that directly references a chunk (backward edges — "what would break if I edit
 this?").  `query_all_chunk_deps` returns every edge in the graph for DOT export.
 `query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
-lines to, enabling `weaveback impact` to report affected output files.
+lines to, enabling `wb-query impact` to report affected output files.
 
 [source,rust]
 ----
@@ -825,7 +825,7 @@ impl WeavebackDb {
     }
 
     /// Return the distinct output files that contain lines attributed to
-    /// `chunk_name`.  Used by `weaveback impact` to map terminal chunks to
+    /// `chunk_name`.  Used by `wb-query impact` to map terminal chunks to
     /// the `gen/` files they affect.
     pub fn query_chunk_output_files(
         &self,
@@ -848,7 +848,7 @@ impl WeavebackDb {
 `set_chunk_defs` replaces all definition records for every source file in the
 batch in a single transaction.  File paths are interned before the transaction;
 the unique-IDs list drives the delete pass.  `get_chunk_def` retrieves a single
-entry by `(src_file, chunk_name, nth)`, used by `weaveback serve` to open the
+entry by `(src_file, chunk_name, nth)`, used by `wb-serve` to open the
 correct editor location.
 
 [source,rust]

@@ -2,8 +2,9 @@
 """
 install.py — weaveback installer
 
-Installs the weaveback binary from GitHub releases (or builds from source).
-With --diagrams, also installs a JDK so you can use --plantuml-jar.
+Installs the public weaveback binaries from GitHub releases (or builds them
+from source). With --diagrams, also installs a JDK so you can use
+--plantuml-jar.
 
 Usage:
   python3 install.py [options]
@@ -23,6 +24,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -176,27 +178,22 @@ def install_system_deps(pf, diagrams):
 
 # ── Binary installation ────────────────────────────────────────────────────────
 
-def _asset_name(pf):
-    """Return the GitHub release asset name for this platform, or None."""
-    system, arch  = pf["system"], pf["arch"]
-    distro_id     = pf["distro_id"]
-    distro_like   = pf["distro_like"]
+PUBLIC_BINS = ["wb-tangle", "wb-query", "wb-serve", "wb-mcp"]
+ALL_RELEASE_BINS = PUBLIC_BINS + ["weaveback-macro", "weaveback-tangle", "weaveback-docgen"]
 
-    if system == "Windows":
-        return "weaveback.exe"
+
+def _asset_spec(pf):
+    """Return the preferred release asset type for this platform, or None."""
+    system, arch = pf["system"], pf["arch"]
+
+    if system == "Windows" and arch == "x86_64":
+        return "windows-mingw"
 
     if system == "Darwin":
         return None   # no macOS binaries yet
 
     if system == "Linux" and arch == "x86_64":
-        fedora_ids = {"fedora", "rhel", "centos", "rocky", "almalinux"}
-        if distro_id in fedora_ids or any(f in distro_like for f in ("fedora", "rhel")):
-            return "weaveback-fedora"
-        if distro_id in ("debian", "ubuntu", "linuxmint", "pop") \
-                or "debian" in distro_like or "ubuntu" in distro_like:
-            # prefer .deb — look for it in assets by suffix
-            return ".deb"
-        return "weaveback-glibc"
+        return "linux-glibc-tarball"
 
     return None
 
@@ -211,7 +208,7 @@ def _get_release(version):
 
 
 def install_binary_from_release(pf, prefix: Path, version=None):
-    print("\n\u2500\u2500 weaveback binary \u2500\u2500")
+    print("\n\u2500\u2500 weaveback binaries \u2500\u2500")
 
     # Arch: prefer AUR
     if pf["distro_id"] in ("arch", "manjaro", "endeavouros", "garuda") \
@@ -221,11 +218,11 @@ def install_binary_from_release(pf, prefix: Path, version=None):
         run([pm, "-S", "--needed", "--noconfirm", "weaveback-bin"])
         return
 
-    want = _asset_name(pf)
+    want = _asset_spec(pf)
     if want is None:
         if pf["system"] == "Darwin":
             warn("No macOS binary in releases \u2014 build from source:")
-            warn("  cargo install --git https://github.com/giannifer7/weaveback weaveback")
+            warn("  cargo build --release --workspace")
         else:
             warn(f"No pre-built binary for {pf['system']}/{pf['arch']} \u2014 use --source.")
         return
@@ -233,64 +230,62 @@ def install_binary_from_release(pf, prefix: Path, version=None):
     release = _get_release(version)
     tag     = release["tag_name"]
     assets  = {a["name"]: a["browser_download_url"] for a in release.get("assets", [])}
-
-    # .deb match by suffix
-    if want == ".deb":
-        deb_assets = [n for n in assets if n.endswith(".deb")]
-        if not deb_assets:
-            warn(f"No .deb asset found in release {tag} \u2014 falling back to glibc binary")
-            want = "weaveback-glibc"
-        else:
-            want = deb_assets[0]
-
-    if want not in assets:
-        die(f"Expected asset \u2018{want}\u2019 not found in release {tag}.\n"
-            f"Available: {sorted(assets)}")
-
-    url = assets[want]
     prefix.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as tmp:
-        dest = Path(tmp) / want
-        download(url, dest)
-
-        if want.endswith(".deb"):
-            run(["sudo", "apt-get", "install", "-y", str(dest)])
-
-        elif want == "weaveback-fedora":
-            run(["sudo", "dnf", "install", "-y", str(dest)])
-
-        elif want == "weaveback.exe":
-            target = prefix / "weaveback.exe"
-            shutil.copy2(dest, target)
-            ok(f"Installed to {target}")
-            _windows_add_to_path(prefix)
-
-        else:   # plain binary (glibc / musl)
-            target = prefix / "weaveback"
-            shutil.copy2(dest, target)
-            target.chmod(0o755)
-            ok(f"Installed to {target}")
+        if want == "linux-glibc-tarball":
+            asset = "weaveback-x86_64-linux.tar.gz"
+            if asset not in assets:
+                die(f"Expected asset \u2018{asset}\u2019 not found in release {tag}.\n"
+                    f"Available: {sorted(assets)}")
+            dest = Path(tmp) / asset
+            download(assets[asset], dest)
+            extract_dir = Path(tmp) / "untar"
+            extract_dir.mkdir()
+            with tarfile.open(dest, "r:gz") as tar:
+                tar.extractall(extract_dir)
+            for name in ALL_RELEASE_BINS:
+                src = extract_dir / name
+                if src.exists():
+                    target = prefix / name
+                    shutil.copy2(src, target)
+                    target.chmod(0o755)
+                    ok(f"Installed to {target}")
             _unix_path_hint(prefix)
+        elif want == "windows-mingw":
+            for name in ALL_RELEASE_BINS:
+                asset = f"{name}-mingw64.exe"
+                if asset not in assets:
+                    die(f"Expected asset \u2018{asset}\u2019 not found in release {tag}.\n"
+                        f"Available: {sorted(assets)}")
+                target = prefix / f"{name}.exe"
+                download(assets[asset], target)
+                ok(f"Installed to {target}")
+            _windows_add_to_path(prefix)
+        else:
+            die(f"Unhandled asset selection mode: {want}")
 
 
 def install_from_source(prefix: Path):
     print("\n\u2500\u2500 Building from source \u2500\u2500")
     if not which("cargo"):
         die("cargo not found \u2014 install Rust from https://rustup.rs")
-    run(["cargo", "build", "--release", "--package", "weaveback"])
-    src = Path("target/release") / ("weaveback.exe" if platform.system() == "Windows" else "weaveback")
-    if not src.exists():
-        die(f"Build succeeded but binary not found at {src}")
+    run(["cargo", "build", "--release", "--workspace"])
     prefix.mkdir(parents=True, exist_ok=True)
-    target = prefix / src.name
-    shutil.copy2(src, target)
+    ext = ".exe" if platform.system() == "Windows" else ""
+    for name in ALL_RELEASE_BINS:
+        src = Path("target/release") / f"{name}{ext}"
+        if not src.exists():
+            die(f"Build succeeded but binary not found at {src}")
+        target = prefix / src.name
+        shutil.copy2(src, target)
+        if platform.system() != "Windows":
+            target.chmod(0o755)
+        ok(f"Installed to {target}")
     if platform.system() != "Windows":
-        target.chmod(0o755)
         _unix_path_hint(prefix)
     else:
         _windows_add_to_path(prefix)
-    ok(f"Installed to {target}")
 
 
 def _unix_path_hint(prefix: Path):
@@ -336,7 +331,10 @@ def _windows_add_to_path(prefix: Path):
 def verify():
     print("\n\u2500\u2500 Verification \u2500\u2500")
     checks = [
-        ("weaveback", ["weaveback", "--version"]),
+        ("wb-tangle", ["wb-tangle", "--version"]),
+        ("wb-query", ["wb-query", "--version"]),
+        ("wb-serve", ["wb-serve", "--version"]),
+        ("wb-mcp", ["wb-mcp", "--version"]),
     ]
     all_ok = True
     for name, cmd in checks:
@@ -364,7 +362,7 @@ def default_prefix():
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Install weaveback.",
+        description="Install weaveback split binaries.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
@@ -377,9 +375,9 @@ Examples:
     ap.add_argument("--diagrams",  action="store_true",
                     help="Install JDK (for PlantUML support via --plantuml-jar)")
     ap.add_argument("--source",    action="store_true",
-                    help="Build weaveback from source (requires Rust/cargo)")
+                    help="Build weaveback binaries from source (requires Rust/cargo)")
     ap.add_argument("--prefix",    type=Path, default=None, metavar="DIR",
-                    help="Directory to install the weaveback binary")
+                    help="Directory to install the weaveback binaries")
     ap.add_argument("--version",   default=None, metavar="VER",
                     help="Release tag to install, e.g. v0.4.1 (default: latest)")
     args = ap.parse_args()

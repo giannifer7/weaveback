@@ -40,10 +40,13 @@ API         = "https://api.github.com"
 
 NEEDED_ASSETS = [
     "weaveback-x86_64-linux.tar.gz",
-    "weaveback-musl",
     "weaveback-macro-musl",
     "weaveback-tangle-musl",
     "weaveback-docgen-musl",
+    "wb-tangle-musl",
+    "wb-query-musl",
+    "wb-serve-musl",
+    "wb-mcp-musl",
 ]
 
 
@@ -136,8 +139,8 @@ def pkgbuild(version: str, tarball_sha256: str) -> str:
 # Maintainer: {MAINTAINER}
 #
 # AUR package for weaveback — bidirectional literate programming toolchain.
-# Installs weaveback (combined), weaveback-macro, and weaveback-tangle from
-# the pre-built x86_64 tarball on the GitHub release.
+# Installs the split CLI plus supporting tools from the pre-built x86_64
+# tarball on the GitHub release.
 #
 # Regenerate after each release:
 #   python packaging/update_release.py <version>
@@ -149,7 +152,7 @@ pkgdesc="{DESCRIPTION}"
 url="{HOMEPAGE}"
 license=('0BSD' 'MIT' 'Apache-2.0')
 arch=('x86_64')
-provides=('weaveback')
+provides=('weaveback' 'wb-tangle' 'wb-query' 'wb-serve' 'wb-mcp')
 conflicts=('weaveback' 'weaveback-git')
 depends=('gcc-libs' 'glibc')
 options=('!debug')
@@ -157,15 +160,18 @@ source=("weaveback-x86_64-linux.tar.gz::{source}")
 sha256sums=('{tarball_sha256}')
 
 package() {{
-    install -Dm755 weaveback        -t "${{pkgdir}}/usr/bin"
     install -Dm755 weaveback-macro  -t "${{pkgdir}}/usr/bin"
     install -Dm755 weaveback-tangle -t "${{pkgdir}}/usr/bin"
     install -Dm755 weaveback-docgen -t "${{pkgdir}}/usr/bin"
+    install -Dm755 wb-tangle        -t "${{pkgdir}}/usr/bin"
+    install -Dm755 wb-query         -t "${{pkgdir}}/usr/bin"
+    install -Dm755 wb-serve         -t "${{pkgdir}}/usr/bin"
+    install -Dm755 wb-mcp           -t "${{pkgdir}}/usr/bin"
 }}
 """
 
 
-def flake(version: str, sri: dict) -> str:
+def flake(version: str, tarball_sha256: str, sri: dict) -> str:
     base = f"{RELEASES}/v${{version}}"
     return f"""\
 {{
@@ -180,7 +186,7 @@ def flake(version: str, sri: dict) -> str:
       base    = "{base}";
 
       # Pre-built musl binaries are x86_64-linux only.
-      # They package the CLI tools, which are a good fit for Nix consumption.
+      # They package the split CLI and supporting tools.
       #
       # The PyO3 extension is intentionally *not* exposed here as a pre-built
       # Nix package because it is Python-ABI- and platform-specific: for that
@@ -201,13 +207,33 @@ def flake(version: str, sri: dict) -> str:
         installPhase = "install -Dm755 $src $out/bin/${{pname}}";
       }};
 
+      cliBundle = linuxPkgs.stdenv.mkDerivation {{
+        pname      = "weaveback-cli";
+        inherit version;
+        src        = linuxPkgs.fetchurl {{ url = "${{base}}/weaveback-x86_64-linux.tar.gz"; sha256 = "{tarball_sha256}"; }};
+        dontUnpack = false;
+        installPhase = ''
+          install -Dm755 wb-tangle        $out/bin/wb-tangle
+          install -Dm755 wb-query         $out/bin/wb-query
+          install -Dm755 wb-serve         $out/bin/wb-serve
+          install -Dm755 wb-mcp           $out/bin/wb-mcp
+          install -Dm755 weaveback-macro  $out/bin/weaveback-macro
+          install -Dm755 weaveback-tangle $out/bin/weaveback-tangle
+          install -Dm755 weaveback-docgen $out/bin/weaveback-docgen
+        '';
+      }};
+
     in {{
 
       packages.x86_64-linux = {{
-        default          = releaseBin {{ pname = "weaveback";         sha256 = "{sri['weaveback-musl']}"; }};
+        default          = cliBundle;
         weaveback-macro  = releaseBin {{ pname = "weaveback-macro";   sha256 = "{sri['weaveback-macro-musl']}"; }};
         weaveback-tangle = releaseBin {{ pname = "weaveback-tangle";  sha256 = "{sri['weaveback-tangle-musl']}"; }};
         weaveback-docgen = releaseBin {{ pname = "weaveback-docgen";  sha256 = "{sri['weaveback-docgen-musl']}"; }};
+        wb-tangle        = releaseBin {{ pname = "wb-tangle";         sha256 = "{sri['wb-tangle-musl']}"; }};
+        wb-query         = releaseBin {{ pname = "wb-query";          sha256 = "{sri['wb-query-musl']}"; }};
+        wb-serve         = releaseBin {{ pname = "wb-serve";          sha256 = "{sri['wb-serve-musl']}"; }};
+        wb-mcp           = releaseBin {{ pname = "wb-mcp";            sha256 = "{sri['wb-mcp-musl']}"; }};
       }};
 
       # Full documentation + development toolchain.
@@ -313,7 +339,7 @@ def main() -> None:
     (aur_dir / "PKGBUILD").write_text(pkgbuild(version, sha256_hex(tarball)))
     print("  Written aur-weaveback-bin/PKGBUILD")
 
-    (REPO_ROOT / "flake.nix").write_text(flake(version, sri))
+    (REPO_ROOT / "flake.nix").write_text(flake(version, sha256_sri(tarball), sri))
     print("  Written flake.nix")
 
     if args.dry_run:

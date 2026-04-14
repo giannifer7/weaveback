@@ -1,17 +1,27 @@
 = Installing weaveback
 :toc: left
 
-weaveback is a self-contained Rust binary (or a set of four binaries in the
-tarball release).  HTML documentation rendering is built in via
-`weaveback-docgen`, which uses the Rust `acdc` AsciiDoc parser directly —
-no Ruby or external AsciiDoc toolchain required.
+weaveback is distributed as a set of focused binaries:
+
+* `wb-tangle`
+* `wb-query`
+* `wb-serve`
+* `wb-mcp`
+* `weaveback-macro`
+* `weaveback-tangle`
+* `weaveback-docgen`
+
+HTML documentation rendering is built in via `weaveback-docgen`, which uses
+the Rust `acdc` AsciiDoc parser directly — no Ruby or external AsciiDoc
+toolchain required.
 
 Diagram support requires:
 - the `d2` CLI
 - a JDK and a `plantuml.jar` (pass `--plantuml-jar <path>` to
   `weaveback-docgen`)
 
-The installer script handles binary download and, optionally, JDK installation.
+The installer script installs the split binaries and, optionally, the diagram
+toolchain.
 
 == Installer script (recommended)
 
@@ -30,7 +40,7 @@ With diagram support:
 python3 scripts/install.py --diagrams
 ----
 
-Build from source instead of downloading a release binary:
+Build from source instead of downloading release binaries:
 
 [source,sh]
 ----
@@ -49,11 +59,11 @@ Full options:
 ----
 
 The script detects your package manager (paru/yay, apt, dnf, brew, winget,
-choco, scoop), downloads the right binary from GitHub releases, and
+choco, scoop), downloads the right release assets from GitHub, and
 (with `--diagrams`) installs D2 and a JDK for diagram rendering.
 
-On Arch Linux it installs the binary via `paru -S weaveback-bin` instead of
-downloading a tarball.
+On Arch Linux it installs the package via `paru -S weaveback-bin` instead of
+downloading release assets.
 
 == Manual installation
 
@@ -70,8 +80,7 @@ sudo pacman -S d2 jdk-openjdk
 
 [source,sh]
 ----
-# Download the .deb from https://github.com/giannifer7/weaveback/releases/latest
-sudo apt install ./weaveback_*.deb
+python3 scripts/install.py
 # with diagrams:
 sudo apt install default-jdk-headless
 curl -fsSL https://d2lang.com/install.sh | sh
@@ -81,7 +90,7 @@ curl -fsSL https://d2lang.com/install.sh | sh
 
 [source,sh]
 ----
-sudo dnf install ./weaveback-*.rpm
+python3 scripts/install.py
 # with diagrams:
 sudo dnf install java-latest-openjdk-headless
 curl -fsSL https://d2lang.com/install.sh | sh
@@ -93,17 +102,20 @@ No pre-built macOS binary is provided yet.  Build from source:
 
 [source,sh]
 ----
-cargo install --path crates/weaveback
+cargo build --release --workspace
 # with diagrams:
 brew install openjdk d2
 ----
 
 === Windows
 
-Download `weaveback.exe` from the
-https://github.com/giannifer7/weaveback/releases/latest[latest release]
-and place it somewhere on your `%PATH%`, or use the installer script which
-handles this automatically via winreg.
+Use the installer script, which downloads the current Windows `.exe` set and
+updates the user `%PATH%`:
+
+[source,powershell]
+----
+python scripts/install.py
+----
 
 [source,cmd]
 ----
@@ -114,12 +126,15 @@ winget install Terrastruct.D2
 
 === Any Linux (musl, no package manager)
 
-Quick one-liner for the binary only:
+Quick one-liner for the public split binaries:
 
 [source,sh]
 ----
-curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveback-musl \
-     -o ~/.local/bin/weaveback && chmod +x ~/.local/bin/weaveback
+base=https://github.com/giannifer7/weaveback/releases/latest/download
+for bin in wb-tangle wb-query wb-serve wb-mcp; do
+  curl -sL "$base/$bin-musl" -o "$HOME/.local/bin/$bin"
+  chmod +x "$HOME/.local/bin/$bin"
+done
 ----
 
 == Pre-built binary reference
@@ -128,14 +143,11 @@ curl -sL https://github.com/giannifer7/weaveback/releases/latest/download/weaveb
 |===
 | File | Platform | Notes
 
-| `weaveback-x86_64-linux.tar.gz` | Linux x86_64 | glibc — tarball with all four binaries
-| `weaveback-glibc` | Linux x86_64 | glibc, single binary
-| `weaveback-musl`  | Linux x86_64 | musl (fully static, works on any Linux)
-| `weaveback-fedora` | Fedora/RHEL |
-| `*.deb` | Debian/Ubuntu |
-| `*.rpm` | Fedora/RHEL |
-| `weaveback.exe` | Windows x86_64 | native MSVC build
-| `weaveback-mingw64.exe` | Windows x86_64 | MinGW cross-compiled
+| `weaveback-x86_64-linux.tar.gz` | Linux x86_64 | glibc tarball with all split binaries
+| `wb-tangle-musl`, `wb-query-musl`, `wb-serve-musl`, `wb-mcp-musl` | Linux x86_64 | public musl binaries
+| `weaveback-macro-musl`, `weaveback-tangle-musl`, `weaveback-docgen-musl` | Linux x86_64 | lower-level musl tools
+| `wb-tangle-mingw64.exe`, `wb-query-mingw64.exe`, `wb-serve-mingw64.exe`, `wb-mcp-mingw64.exe` | Windows x86_64 | public Windows binaries
+| `weaveback-macro-mingw64.exe`, `weaveback-tangle-mingw64.exe`, `weaveback-docgen-mingw64.exe` | Windows x86_64 | lower-level Windows tools
 |===
 
 The musl builds are fully statically linked — use them on old distros,
@@ -147,8 +159,8 @@ Alpine, or containers where glibc version is uncertain.
 ----
 git clone https://github.com/giannifer7/weaveback
 cd weaveback
-cargo build --release
-# binary: target/release/weaveback
+cargo build --release --workspace
+# binaries: target/release/wb-tangle, wb-query, wb-serve, wb-mcp, ...
 ----
 
 == Nix

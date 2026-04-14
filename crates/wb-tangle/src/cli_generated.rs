@@ -118,7 +118,7 @@ pub(crate) struct SinglePassCli {
 
     pub(crate) stamp: Option<PathBuf>,
     /// Skip rebuilding the prose full-text search index after this run.
-    /// Used internally by `weaveback tangle` to avoid concurrent FTS rebuilds;
+    /// Used internally by `wb-tangle` to avoid concurrent FTS rebuilds;
     /// the tangle command rebuilds the index once after all passes complete.
     #[arg(long, hide = true)]
 

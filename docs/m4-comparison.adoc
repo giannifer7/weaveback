@@ -324,7 +324,7 @@ pipeline.  It runs before the tangle pass; its output is the input to
 chunk extraction.  The special character is configurable so it never
 conflicts with any chunk syntax you choose.  Source locations from the
 macro expansion pass are stored in the database and surfaced by
-`weaveback trace`, so an agent or developer can trace an output line back
+`wb-query trace`, so an agent or developer can trace an output line back
 through both the chunk expansion and the macro expansion to the exact
 token in the original document.
 

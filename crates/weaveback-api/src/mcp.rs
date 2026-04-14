@@ -149,72 +149,72 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             "inputSchema": {
                                 "type": "object",
                                 "properties": {
-                                    "file": { "type": "string", "description": "Chunk name to look up" }
-                                    },
-                                    "required": ["name"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_definition",
-                                    "description": "Find the definition of a symbol at a given position in a generated file, and map it back to its original literate source. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
+                                    "name": { "type": "string", "description": "Chunk name to look up" }
+                                },
+                                "required": ["name"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_lsp_definition",
+                            "description": "Find the definition of a symbol at a given position in a generated file, and map it back to its original literate source. Requires rust-analyzer.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" },
                                     "line":     { "type": "integer", "description": "1-indexed line number" },
                                     "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_references",
-                                    "description": "Find all references to a symbol at a given position in a generated file, and map them back to their original literate sources. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
+                                },
+                                "required": ["out_file", "line", "col"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_lsp_references",
+                            "description": "Find all references to a symbol at a given position in a generated file, and map them back to their original literate sources. Requires rust-analyzer.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" },
                                     "line":     { "type": "integer", "description": "1-indexed line number" },
                                     "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_hover",
-                                    "description": "Get type information and documentation for a symbol at a given position in a generated file, mapped back to literate source. Requires rust-analyzer.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
+                                },
+                                "required": ["out_file", "line", "col"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_lsp_hover",
+                            "description": "Get type information and documentation for a symbol at a given position in a generated file, mapped back to literate source. Requires rust-analyzer.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" },
                                     "line":     { "type": "integer", "description": "1-indexed line number" },
                                     "col":      { "type": "integer", "description": "1-indexed character position" }
-                                    },
-                                    "required": ["out_file", "line", "col"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_diagnostics",
-                                    "description": "Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
+                                },
+                                "required": ["out_file", "line", "col"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_lsp_diagnostics",
+                            "description": "Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" }
-                                    },
-                                    "required": ["out_file"]
-                                    }
-                                    },
-                                    {
-                                    "name": "weaveback_lsp_symbols",
-                                    "description": "List all semantic symbols (functions, structs, etc.) in a generated file, with their original literate source locations.",
-                                    "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
+                                },
+                                "required": ["out_file"]
+                            }
+                        },
+                        {
+                            "name": "weaveback_lsp_symbols",
+                            "description": "List all semantic symbols (functions, structs, etc.) in a generated file, with their original literate source locations.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
                                     "out_file": { "type": "string", "description": "Path to the generated file" }
-                                    },
-                                    "required": ["out_file"]
-                                    }
-                                    },
+                                },
+                                "required": ["out_file"]
+                            }
+                        },
                                     {
                                         "name": "weaveback_search",
                                         "description": "Hybrid search over the prose in all literate source files. FTS5 and tags are always used; if prose embeddings were generated during tangle, semantic reranking is also applied. Returns ranked excerpts with file path, line range, tags, score, and contributing channels. Use this to discover which chunks or sections are relevant to a concept before calling weaveback_chunk_context. Supports FTS5 query syntax: AND, OR, NOT, phrase \"...\", prefix foo*.",

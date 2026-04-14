@@ -29,7 +29,7 @@ The current state is better than when this plan was first written.
 What now works in ordinary use:
 
 * `weaveback lint --json` is quiet on the current tree
-* `weaveback cargo --diagnostics-only clippy ...` preserves structured output
+* `wb-query cargo --diagnostics-only clippy ...` preserves structured output
   and completes cleanly
 * coverage can now be regrouped by owning `.adoc` at useful scale instead of
   only as a proof of concept
@@ -75,7 +75,7 @@ default.
 
 Near-term work:
 
-* keep improving `weaveback cargo`
+* keep improving `wb-query cargo`
 * preserve structured JSON output while attaching richer provenance
 * add grouped source summaries and span-level attribution where useful
 * extend the same approach later to other diagnostic surfaces

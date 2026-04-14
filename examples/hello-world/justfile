@@ -20,7 +20,7 @@ run: build
 
 # Propagate edits in hello.c back to hello.adoc
 apply-back:
-    ../../target/debug/weaveback apply-back
+    ../../target/debug/wb-tangle apply-back
 
 # Render this document to dark-themed HTML
 docs:

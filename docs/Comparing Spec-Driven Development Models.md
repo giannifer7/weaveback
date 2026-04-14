@@ -56,7 +56,7 @@ This is the answer to your worry about experimenting first: Weaveback supports a
 * You can write a basic scaffolding chunk in your `.adoc` file.
 * Run Weaveback to generate the Rust/Python file in the `src/` directory.
 * Open the `src/` file directly in your IDE (getting all your language server features, type checking, and autocomplete) to aggressively prototype and experiment. 
-* Once your experiment works, you run `weaveback apply-back`. Weaveback reads the changes you made in the generated file and automatically splices them back into the proper `<[chunks]>` in your literate source document!
+* Once your experiment works, you run `wb-tangle apply-back`. Weaveback reads the changes you made in the generated file and automatically splices them back into the proper `<[chunks]>` in your literate source document!
 
 **3. "One Source of Truth" via Macros**
 With Weaveback, you can write self-documenting macros. For example, if you are building an API, you can write a macro like `%http_endpoint`. When Weaveback parses this, it can spit out the API documentation right into the prose, and simultaneously generate the boilerplate routing code. Because the text and code are tangled from the exact same macro, your spec and code physically *cannot* drift.

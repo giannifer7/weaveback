@@ -606,7 +606,7 @@ For example:
 
 [source,bash]
 ----
-weaveback where gen/src/parser.rs:148
+wb-query where gen/src/parser.rs:148
 ----
 
 Could output something like:

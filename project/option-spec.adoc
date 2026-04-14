@@ -42,7 +42,7 @@ So this experiment should be judged harshly. If it merely relocates drift into
 The experiment stays intentionally narrow:
 
 - one renderer script in Python 3.14+
-- one sample command spec for `weaveback tangle`
+- one sample command spec for `wb-tangle`
 - four projections:
   - a Clap-like Rust snippet
   - an `argparse` snippet
@@ -391,9 +391,9 @@ name = "tangle"
 summary = "Run all tangle passes from weaveback.toml or an alternate config file."
 rationale = "This is the narrowest useful pilot because tangle already mixes parser semantics, recovery flags, and documentation drift."
 examples = [
-  "weaveback tangle",
-  "weaveback tangle --config alt.toml",
-  "weaveback tangle --force-generated",
+  "wb-tangle",
+  "wb-tangle --config alt.toml",
+  "wb-tangle --force-generated",
 ]
 
 [[options]]
@@ -405,7 +405,7 @@ default = "weaveback.toml"
 help_short = "Path to the tangle config file."
 rationale = "Lets the same binary operate on alternate roots and experimental pass graphs."
 doc = "Reads the pass list and parser settings from a specific config file instead of the default weaveback.toml."
-examples = ["weaveback tangle --config docs-only.toml"]
+examples = ["wb-tangle --config docs-only.toml"]
 
 [[options]]
 id = "force_generated"
@@ -415,7 +415,7 @@ default = false
 help_short = "Overwrite generated files even if they differ from the stored baseline."
 rationale = "Makes recovery explicit when literate source is authoritative and generated files have drifted locally."
 doc = "This is an escape hatch for regeneration workflows, not the default safety path."
-examples = ["weaveback tangle --force-generated"]
+examples = ["wb-tangle --force-generated"]
 # @
 ----
 

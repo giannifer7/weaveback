@@ -1,6 +1,6 @@
 = Source tracing
 
-`weaveback` records a source map on every run and stores it in `weaveback.db`.
+`wb-tangle` records a source map on every run and stores it in `weaveback.db`.
 Use it to answer _"where did this line in a generated file come from?"_
 
 Tracing is always on — no flag needed.
@@ -10,10 +10,10 @@ Tracing is always on — no flag needed.
 [source,bash]
 ----
 # Trace a line to its literate source
-weaveback trace <out_file> <line>
+wb-query trace <out_file> <line>
 
 # Pinpoint a specific token by column (1-indexed character position)
-weaveback trace <out_file> <line> --col <col>
+wb-query trace <out_file> <line> --col <col>
 ----
 
 Prints JSON to stdout. All line and column numbers are 1-indexed character
@@ -25,8 +25,8 @@ Reads `weaveback.db` from the current working directory.
 [source,bash]
 ----
 cd examples/c_enum
-weaveback status.md --gen .
-weaveback trace src/status.c 6
+wb-tangle status.md --gen .
+wb-query trace src/status.c 6
 ----
 
 [source,json]
@@ -47,7 +47,7 @@ the specific token you want to change:
 
 [source,bash]
 ----
-weaveback trace src/config.nim 178 --col 10
+wb-query trace src/config.nim 178 --col 10
 ----
 
 [source,json]
@@ -95,15 +95,15 @@ an intermediate call site.
 
 '''
 
-== MCP server (`weaveback mcp`)
+== MCP server (`wb-mcp`)
 
-`weaveback mcp` starts a https://modelcontextprotocol.io/[Model Context Protocol]
+`wb-mcp` starts a https://modelcontextprotocol.io/[Model Context Protocol]
 server over stdin/stdout, exposing tracing, editing, and context tools so IDE
 extensions and AI agents can work with the literate source without shelling out.
 
 [source,bash]
 ----
-weaveback --gen . mcp
+wb-mcp
 ----
 
 The server implements the MCP 2024-11-05 protocol over JSON-RPC 2.0 (one

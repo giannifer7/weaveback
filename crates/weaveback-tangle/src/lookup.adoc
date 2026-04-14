@@ -1,7 +1,7 @@
 == Source Lookup and Line Tracing
 
 The `lookup` module provides shared logic for mapping between generated files
-and their literate sources.  It is used by the `weaveback trace` command
+and their literate sources.  It is used by the `wb-query trace` command
 and the `apply-back` reconciliation tool.
 
 [source,rust]

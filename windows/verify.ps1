@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-Verify weaveback works correctly in a clean Windows environment.
+Verify the split weaveback CLI works correctly in a clean Windows environment.
 
 .DESCRIPTION
-Locates or downloads the weaveback binary, runs --version and a smoke test,
+Locates or downloads `wb-tangle`, runs --version and a smoke test,
 and reports any missing dependencies.
 #>
 
@@ -13,31 +13,31 @@ Write-Host "=== weaveback Windows verification ===" -ForegroundColor Cyan
 
 # ── Locate binary ─────────────────────────────────────────────────────────────
 
-$exeName  = "weaveback.exe"
+$exeName  = "wb-tangle.exe"
 $localExe = Join-Path $PSScriptRoot $exeName
 $devExe   = Join-Path $PSScriptRoot "..\target\release\$exeName"
-$mingwExe = Join-Path $PSScriptRoot "..\target\release\weaveback-mingw64.exe"
+$mingwExe = Join-Path $PSScriptRoot "..\target\x86_64-pc-windows-gnu\release\wb-tangle.exe"
 
 if (Test-Path $localExe) {
-    $weaveback = $localExe
-    Write-Host "Using local exe: $weaveback" -ForegroundColor Cyan
+    $wbTangle = $localExe
+    Write-Host "Using local exe: $wbTangle" -ForegroundColor Cyan
 } elseif (Test-Path $devExe) {
-    $weaveback = $devExe
-    Write-Host "Using dev build: $weaveback" -ForegroundColor Cyan
+    $wbTangle = $devExe
+    Write-Host "Using dev build: $wbTangle" -ForegroundColor Cyan
 } elseif (Test-Path $mingwExe) {
-    $weaveback = $mingwExe
-    Write-Host "Using MinGW build: $weaveback" -ForegroundColor Cyan
+    $wbTangle = $mingwExe
+    Write-Host "Using MinGW build: $wbTangle" -ForegroundColor Cyan
 } else {
     Write-Host "Downloading latest release..." -ForegroundColor Yellow
-    $url     = "https://github.com/giannifer7/weaveback/releases/latest/download/weaveback.exe"
-    $weaveback   = "$env:TEMP\weaveback.exe"
-    Invoke-WebRequest -Uri $url -OutFile $weaveback
+    $url      = "https://github.com/giannifer7/weaveback/releases/latest/download/wb-tangle-mingw64.exe"
+    $wbTangle = "$env:TEMP\wb-tangle.exe"
+    Invoke-WebRequest -Uri $url -OutFile $wbTangle
 }
 
 # ── --version ─────────────────────────────────────────────────────────────────
 
-Write-Host "`nRunning: weaveback --version" -ForegroundColor Yellow
-& $weaveback --version
+Write-Host "`nRunning: wb-tangle --version" -ForegroundColor Yellow
+& $wbTangle --version
 if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: --version returned $LASTEXITCODE" -ForegroundColor Red; exit 1 }
 Write-Host "OK" -ForegroundColor Green
 

@@ -3,7 +3,7 @@
 :source-highlighter: syntect
 
 `tag.rs` provides automatic LLM-based tagging of literate source blocks.
-It runs as an optional post-step at the end of `weaveback tangle`, after
+It runs as an optional post-step at the end of `wb-tangle`, after
 all passes complete and before `rebuild_prose_fts` is called.
 
 == Design
@@ -268,7 +268,7 @@ fn block_first_line(source: &str, line_start: u32, line_end: u32) -> String {
 
 == Orchestration
 
-`run_auto_tag` is the entry point called from `weaveback tangle`.
+`run_auto_tag` is the entry point called from `wb-tangle`.
 It queries the DB for blocks whose content hash has changed, groups them
 by source file (to load each snapshot once), calls the LLM in batches,
 and stores the resulting tags back into `block_tags`.
@@ -579,7 +579,7 @@ mod tests {
 // <<@file weaveback-api/src/tag.rs>>=
 //! Automatic LLM-based tagging of literate source blocks.
 //!
-//! Runs as an optional post-step after `weaveback tangle`.  Only blocks
+//! Runs as an optional post-step after `wb-tangle`.  Only blocks
 //! whose BLAKE3 content hash has changed since the last run are sent to
 //! the LLM; results are cached in `block_tags` and included in the FTS
 //! index by `rebuild_prose_fts`.

@@ -33,7 +33,7 @@ RETURN DISTINCT a.name, b.name
 
 This finds every chunk defined in `weaveback.adoc` and all chunks they transitively
 depend on, up to depth 3.
-The equivalent with `weaveback impact` is hardcoded imperative BFS;
+The equivalent with `wb-query impact` is hardcoded imperative BFS;
 the graph query is composable and explorable interactively.
 
 == Running it

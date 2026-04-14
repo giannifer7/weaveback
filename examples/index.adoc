@@ -245,7 +245,7 @@ cargo run
 * `chunk_defs` and `chunk_deps` tables expose the full dependency graph
 * `WeavebackDb::open_read_only()` for read-only access from Rust
 * Property graph queries let you explore transitive impact, shared chunks,
-  and file ownership patterns that the built-in `weaveback impact` command
+  and file ownership patterns that the built-in `wb-query impact` command
   expresses imperatively
 
 NOTE: This example is deliberately rough — it is a proof of concept for a

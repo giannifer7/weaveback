@@ -58,7 +58,7 @@ expander -> expander: "Detect cycles" {
 === 1. Why a intermediate database?
 Instead of expanding chunks in-memory during parsing, we populate a **Noweb Database** first.
 *   **Decoupling**: Parsing and Expanding are separate concerns.
-*   **Source Tracing**: The DB stores the exact file and line number for every fragment of text. This allows `weaveback trace` to work even through complex nested expansions.
+*   **Source Tracing**: The DB stores the exact file and line number for every fragment of text. This allows `wb-query trace` to work even through complex nested expansions.
 *   **Incrementalism**: In the future, the DB will allow us to only re-tangle files whose chunks have actually changed.
 
 === 2. Why Atomic Writing?

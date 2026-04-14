@@ -858,4 +858,242 @@ mod tests {
         assert!(output.contains("\"id\":101"));
         assert!(output.contains("weaveback_trace"));
     }
+
+    // ── Test helpers ──────────────────────────────────────────────────────────
+
+    struct McpWorkspace {
+        root: std::path::PathBuf,
+    }
+    impl McpWorkspace {
+        fn new() -> Self {
+            let id = format!(
+                "wb-mcp-tests-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let root = std::env::temp_dir().join(id);
+            std::fs::create_dir_all(&root).unwrap();
+            Self { root }
+        }
+        fn db_path(&self) -> PathBuf { self.root.join("weaveback.db") }
+        fn gen_dir(&self) -> PathBuf { self.root.join("gen") }
+        fn open_db(&self) -> WeavebackDb { WeavebackDb::open(self.db_path()).unwrap() }
+    }
+    impl Drop for McpWorkspace {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.root); }
+    }
+
+    fn mcp_drive(ws: &McpWorkspace, requests: &str) -> String {
+        let reader = std::io::Cursor::new(requests.to_string());
+        let mut writer = Vec::new();
+        run_mcp(reader, &mut writer, ws.db_path(), ws.gen_dir(), EvalConfig::default()).unwrap();
+        String::from_utf8(writer).unwrap()
+    }
+
+    // ── Protocol-level tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn mcp_notifications_initialized_is_silent() {
+        let ws = McpWorkspace::new();
+        let out = mcp_drive(&ws, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn mcp_empty_lines_are_skipped() {
+        let ws = McpWorkspace::new();
+        let out = mcp_drive(&ws, "\n  \n \n");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn mcp_invalid_json_is_skipped_and_valid_continues() {
+        let ws = McpWorkspace::new();
+        let input = "not json\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n";
+        let out = mcp_drive(&ws, input);
+        assert!(out.contains("\"id\":1"));
+        assert!(out.contains("protocolVersion"));
+    }
+
+    // ── tools/call – error paths ──────────────────────────────────────────────
+
+    #[test]
+    fn mcp_unknown_tool_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"no_such_tool\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Unknown tool"));
+        assert!(out.contains("\"isError\":true"));
+    }
+
+    #[test]
+    fn mcp_trace_missing_db_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_trace\",\"arguments\":{\"out_file\":\"foo.rs\",\"out_line\":1}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Database not found") || out.contains("isError"));
+    }
+
+    #[test]
+    fn mcp_trace_missing_arguments_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_trace\"}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("isError") || out.contains("Missing"));
+    }
+
+    #[test]
+    fn mcp_apply_fix_zero_src_line_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_fix\",\"arguments\":{\"src_file\":\"a.adoc\",\"src_line\":0,\"out_file\":\"a.rs\",\"out_line\":1,\"expected_output\":\"x\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("src_line must be"));
+    }
+
+    #[test]
+    fn mcp_apply_fix_inverted_range_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_fix\",\"arguments\":{\"src_file\":\"a.adoc\",\"src_line\":10,\"src_line_end\":5,\"out_file\":\"a.rs\",\"out_line\":1,\"expected_output\":\"x\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("src_line_end must be"));
+    }
+
+    #[test]
+    fn mcp_chunk_context_empty_args_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_chunk_context\",\"arguments\":{\"file\":\"\",\"name\":\"\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("isError"));
+    }
+
+    #[test]
+    fn mcp_list_chunks_missing_db_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_chunks\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Database not found"));
+    }
+
+    #[test]
+    fn mcp_find_chunk_empty_name_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_find_chunk\",\"arguments\":{\"name\":\"\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("isError") || out.contains("name is required"));
+    }
+
+    #[test]
+    fn mcp_search_empty_query_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_search\",\"arguments\":{\"query\":\"\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("isError") || out.contains("query is required"));
+    }
+
+    #[test]
+    fn mcp_list_tags_missing_db_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_tags\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Database not found"));
+    }
+
+    #[test]
+    fn mcp_coverage_missing_lcov_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_coverage\",\"arguments\":{\"lcov_path\":\"/nonexistent/lcov.info\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("lcov file not found") || out.contains("isError"));
+    }
+
+    #[test]
+    fn mcp_apply_back_missing_db_sends_response() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_back\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(!out.is_empty());
+        assert!(out.contains("\"id\":12"));
+    }
+
+    // ── tools/call – success paths (real DB) ─────────────────────────────────
+
+    #[test]
+    fn mcp_list_chunks_returns_seeded_chunk() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+                src_file:   "src/lib.adoc".to_string(),
+                chunk_name: "my-chunk".to_string(),
+                nth:        0,
+                def_start:  1,
+                def_end:    5,
+            }]).unwrap();
+        }
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_chunks\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("my-chunk"), "output was: {out}");
+        assert!(out.contains("src/lib.adoc"));
+    }
+
+    #[test]
+    fn mcp_find_chunk_returns_seeded_chunk() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+                src_file:   "src/lib.adoc".to_string(),
+                chunk_name: "search-target".to_string(),
+                nth:        0,
+                def_start:  10,
+                def_end:    20,
+            }]).unwrap();
+        }
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_find_chunk\",\"arguments\":{\"name\":\"search-target\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("src/lib.adoc"), "output was: {out}");
+    }
+
+    #[test]
+    fn mcp_list_tags_returns_empty_array_for_fresh_db() {
+        let ws = McpWorkspace::new();
+        ws.open_db(); // create db file
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_tags\",\"arguments\":{}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("\"content\""), "output was: {out}");
+        assert!(out.contains("[]"));
+    }
+
+    #[test]
+    fn mcp_search_missing_db_returns_error() {
+        let ws = McpWorkspace::new();
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_search\",\"arguments\":{\"query\":\"hello\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Database not found"));
+    }
+
+    #[test]
+    fn mcp_list_chunks_with_file_filter_returns_only_matching() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_chunk_defs(&[
+                weaveback_tangle::db::ChunkDefEntry {
+                    src_file: "a.adoc".to_string(), chunk_name: "chunk-a".to_string(),
+                    nth: 0, def_start: 1, def_end: 3,
+                },
+                weaveback_tangle::db::ChunkDefEntry {
+                    src_file: "b.adoc".to_string(), chunk_name: "chunk-b".to_string(),
+                    nth: 0, def_start: 1, def_end: 3,
+                },
+            ]).unwrap();
+        }
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_chunks\",\"arguments\":{\"file\":\"a.adoc\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("chunk-a"));
+        assert!(!out.contains("chunk-b"));
+    }
 }

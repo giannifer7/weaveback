@@ -52,10 +52,13 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir dist\windows-native
-          copy target\release\weaveback.exe        dist\windows-native\
           copy target\release\weaveback-macro.exe dist\windows-native\
           copy target\release\weaveback-tangle.exe  dist\windows-native\
           copy target\release\weaveback-docgen.exe dist\windows-native\
+          copy target\release\wb-tangle.exe dist\windows-native\
+          copy target\release\wb-query.exe dist\windows-native\
+          copy target\release\wb-serve.exe dist\windows-native\
+          copy target\release\wb-mcp.exe dist\windows-native\
 
       - uses: actions/upload-artifact@v7
         with:

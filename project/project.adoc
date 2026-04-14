@@ -727,10 +727,10 @@ target platforms: glibc (Debian), musl (Alpine), Windows (MinGW), Fedora.
 # Containerfile — multi-stage packaging builds for weaveback
 #
 # Stages:
-#   glibc   — Debian binary + .deb  (cargo-deb)  — includes Python/PyO3 + docs tooling
+#   glibc   — Debian binaries + tarball          — includes Python/PyO3 + docs tooling
 #   musl    — Alpine static CLI binaries         — Python wheels built separately
 #   windows — MinGW cross-compiled CLI .exe      — Python wheels built separately
-#   fedora  — Fedora binary + .rpm               — includes Python/PyO3 + docs tooling
+#   fedora  — Fedora binaries                    — includes Python/PyO3 + docs tooling
 #
 # Usage:
 #   podman build --target glibc  -t weaveback-glibc  .
@@ -775,26 +775,27 @@ RUN cargo install cargo-chef
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# ── dependency cacher (glibc / deb) ──────────────────────────────────────────
+# ── dependency cacher ────────────────────────────────────────────────────────
 FROM rust-base AS cacher
 WORKDIR /src
-RUN cargo install cargo-chef cargo-deb cargo-generate-rpm cargo-llvm-cov
+RUN cargo install cargo-chef cargo-llvm-cov
 COPY --from=planner /src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
-# ── glibc: Debian binary + .deb ──────────────────────────────────────────────
+# ── glibc: Linux binaries + tarball ──────────────────────────────────────────
 FROM cacher AS glibc
 COPY . .
 RUN cargo build --release --workspace
-RUN cargo deb -p weaveback --no-build
 RUN mkdir -p /out \
-    && cp target/release/weaveback           /out/weaveback-glibc \
     && cp target/release/weaveback-macro    /out/weaveback-macro-glibc \
     && cp target/release/weaveback-tangle   /out/weaveback-tangle-glibc \
     && cp target/release/weaveback-docgen   /out/weaveback-docgen-glibc \
-    && cp target/debian/*.deb               /out/ \
+    && cp target/release/wb-tangle          /out/wb-tangle-glibc \
+    && cp target/release/wb-query           /out/wb-query-glibc \
+    && cp target/release/wb-serve           /out/wb-serve-glibc \
+    && cp target/release/wb-mcp             /out/wb-mcp-glibc \
     && tar -czf /out/weaveback-x86_64-linux.tar.gz \
-         -C target/release weaveback weaveback-macro weaveback-tangle weaveback-docgen
+         -C target/release weaveback-macro weaveback-tangle weaveback-docgen wb-tangle wb-query wb-serve wb-mcp
 
 # ── musl: static CLI binaries (Alpine) ────────────────────────────────────────
 FROM alpine:latest AS musl
@@ -815,15 +816,21 @@ RUN uv tool install --python /usr/bin/python3 maturin \
 WORKDIR /src
 COPY . .
 RUN cargo build --release --target x86_64-unknown-linux-musl \
-        -p weaveback \
         -p weaveback-macro \
         -p weaveback-tangle \
-        -p weaveback-docgen
+        -p weaveback-docgen \
+        -p wb-tangle \
+        -p wb-query \
+        -p wb-serve \
+        -p wb-mcp
 RUN mkdir -p /out \
-    && cp target/x86_64-unknown-linux-musl/release/weaveback          /out/weaveback-musl \
     && cp target/x86_64-unknown-linux-musl/release/weaveback-macro   /out/weaveback-macro-musl \
     && cp target/x86_64-unknown-linux-musl/release/weaveback-tangle  /out/weaveback-tangle-musl \
-    && cp target/x86_64-unknown-linux-musl/release/weaveback-docgen  /out/weaveback-docgen-musl
+    && cp target/x86_64-unknown-linux-musl/release/weaveback-docgen  /out/weaveback-docgen-musl \
+    && cp target/x86_64-unknown-linux-musl/release/wb-tangle         /out/wb-tangle-musl \
+    && cp target/x86_64-unknown-linux-musl/release/wb-query          /out/wb-query-musl \
+    && cp target/x86_64-unknown-linux-musl/release/wb-serve          /out/wb-serve-musl \
+    && cp target/x86_64-unknown-linux-musl/release/wb-mcp            /out/wb-mcp-musl
 
 # ── windows: MinGW cross-compilation for CLI binaries ────────────────────────
 FROM fedora:latest AS windows
@@ -844,17 +851,23 @@ WORKDIR /src
 COPY . .
 RUN rustup target add x86_64-pc-windows-gnu \
     && cargo build --release --target x86_64-pc-windows-gnu \
-        -p weaveback \
         -p weaveback-macro \
         -p weaveback-tangle \
-        -p weaveback-docgen
+        -p weaveback-docgen \
+        -p wb-tangle \
+        -p wb-query \
+        -p wb-serve \
+        -p wb-mcp
 RUN mkdir -p /out \
-    && cp target/x86_64-pc-windows-gnu/release/weaveback.exe           /out/weaveback-mingw64.exe \
     && cp target/x86_64-pc-windows-gnu/release/weaveback-macro.exe    /out/weaveback-macro-mingw64.exe \
     && cp target/x86_64-pc-windows-gnu/release/weaveback-tangle.exe   /out/weaveback-tangle-mingw64.exe \
-    && cp target/x86_64-pc-windows-gnu/release/weaveback-docgen.exe   /out/weaveback-docgen-mingw64.exe
+    && cp target/x86_64-pc-windows-gnu/release/weaveback-docgen.exe   /out/weaveback-docgen-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/wb-tangle.exe          /out/wb-tangle-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/wb-query.exe           /out/wb-query-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/wb-serve.exe           /out/wb-serve-mingw64.exe \
+    && cp target/x86_64-pc-windows-gnu/release/wb-mcp.exe             /out/wb-mcp-mingw64.exe
 
-# ── fedora: RPM ───────────────────────────────────────────────────────────────
+# ── fedora: Linux binaries ───────────────────────────────────────────────────
 FROM fedora:latest AS fedora
 RUN dnf install -y curl gcc pkg-config git graphviz python3 python3-devel python3-virtualenv && dnf clean all
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -870,17 +883,17 @@ RUN curl -fsSL https://d2lang.com/install.sh | sh -s -- --prefix /usr/local
 RUN uv tool install --python /usr/bin/python3 maturin \
     && uv tool install --python /usr/bin/python3 mypy \
     && uv tool install --python /usr/bin/python3 pylint
-RUN cargo install cargo-generate-rpm
 WORKDIR /src
 COPY . .
 RUN cargo build --release --workspace
-RUN cargo generate-rpm -p crates/weaveback
 RUN mkdir -p /out \
-    && cp target/release/weaveback          /out/weaveback-fedora \
     && cp target/release/weaveback-macro   /out/weaveback-macro-fedora \
     && cp target/release/weaveback-tangle  /out/weaveback-tangle-fedora \
     && cp target/release/weaveback-docgen  /out/weaveback-docgen-fedora \
-    && cp target/generate-rpm/*.rpm        /out/
+    && cp target/release/wb-tangle         /out/wb-tangle-fedora \
+    && cp target/release/wb-query          /out/wb-query-fedora \
+    && cp target/release/wb-serve          /out/wb-serve-fedora \
+    && cp target/release/wb-mcp            /out/wb-mcp-fedora
 # @
 ----
 

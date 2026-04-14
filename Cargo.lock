@@ -2912,7 +2912,9 @@ dependencies = [
  "pythonize",
  "serde",
  "serde_json",
+ "tempfile",
  "weaveback-agent-core",
+ "weaveback-tangle",
 ]
 
 [[package]]

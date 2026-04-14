@@ -1,0 +1,1395 @@
+{
+  "attributed_records": 94,
+  "line_records": 94,
+  "sources": [
+    {
+      "chunks": [
+        "@file weaveback-py/src/lib.rs"
+      ],
+      "covered_lines": 87,
+      "missed_lines": 7,
+      "sections": [
+        {
+          "chunks": [
+            "@file weaveback-py/src/lib.rs"
+          ],
+          "covered_lines": 87,
+          "generated_lines": [
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 14,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 15,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 16,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 17,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 18,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 19,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 21,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 22,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 23,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 24,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 26,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 27,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 28,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 29,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 30,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 31,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 32,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 34,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 35,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 36,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 37,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 38,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 39,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 40,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 42,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 43,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 44,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 45,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 46,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 47,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 48,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 49,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 51,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 52,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 53,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 54,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 55,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 56,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 57,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 58,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 60,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 61,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 62,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 63,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 64,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 65,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 66,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 67,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 71,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 72,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 73,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": false,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 74,
+              "hit_count": 0
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 82,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 83,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 84,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 85,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 86,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 87,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 90,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 92,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 94,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 95,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 96,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 97,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 101,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 102,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 105,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 106,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 110,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 111,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 112,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 113,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 114,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 115,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 116,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 117,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 118,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 119,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 120,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 121,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 122,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 123,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 124,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 125,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 126,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 127,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 128,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 129,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 131,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 133,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 134,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 135,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 136,
+              "hit_count": 1
+            },
+            {
+              "chunk": "@file weaveback-py/src/lib.rs",
+              "covered": true,
+              "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+              "generated_line": 137,
+              "hit_count": 1
+            }
+          ],
+          "missed_lines": 7,
+          "source_section_breadcrumb": [
+            "weaveback-py — Python bindings",
+            "`PyWorkspace` class"
+          ],
+          "source_section_prose": "== `PyWorkspace` class\n\nWraps a `Workspace` instance.  All methods return JSON-serialisable\nPython objects via `pythonize`.\n\n[source,rust]",
+          "source_section_range": {
+            "end_line": 157,
+            "start_line": 10
+          },
+          "total_lines": 94
+        }
+      ],
+      "src_file": "crates/weaveback-py/src/lib.adoc",
+      "total_lines": 94
+    }
+  ],
+  "summary_view": {
+    "attributed_records": 94,
+    "line_records": 94,
+    "sources": [
+      {
+        "chunks": [
+          "@file weaveback-py/src/lib.rs"
+        ],
+        "covered_lines": 87,
+        "missed_lines": 7,
+        "sections": [
+          {
+            "chunks": [
+              "@file weaveback-py/src/lib.rs"
+            ],
+            "covered_lines": 87,
+            "generated_lines": [
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 14,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 15,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 16,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 17,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 18,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 19,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 21,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 22,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 23,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 24,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 26,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 27,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 28,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 29,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 30,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 31,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 32,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 34,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 35,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 36,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 37,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 38,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 39,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 40,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 42,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 43,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 44,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 45,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 46,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 47,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 48,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 49,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 51,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 52,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 53,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 54,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 55,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 56,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 57,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 58,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 60,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 61,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 62,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 63,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 64,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 65,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 66,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 67,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 71,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 72,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 73,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": false,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 74,
+                "hit_count": 0
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 82,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 83,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 84,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 85,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 86,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 87,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 90,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 92,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 94,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 95,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 96,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 97,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 101,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 102,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 105,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 106,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 110,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 111,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 112,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 113,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 114,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 115,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 116,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 117,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 118,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 119,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 120,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 121,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 122,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 123,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 124,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 125,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 126,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 127,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 128,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 129,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 131,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 133,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 134,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 135,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 136,
+                "hit_count": 1
+              },
+              {
+                "chunk": "@file weaveback-py/src/lib.rs",
+                "covered": true,
+                "generated_file": "/home/g4/_prj/weaveback/crates/weaveback-py/src/lib.rs",
+                "generated_line": 137,
+                "hit_count": 1
+              }
+            ],
+            "missed_lines": 7,
+            "source_section_breadcrumb": [
+              "weaveback-py — Python bindings",
+              "`PyWorkspace` class"
+            ],
+            "source_section_prose": "== `PyWorkspace` class\n\nWraps a `Workspace` instance.  All methods return JSON-serialisable\nPython objects via `pythonize`.\n\n[source,rust]",
+            "source_section_range": {
+              "end_line": 157,
+              "start_line": 10
+            },
+            "total_lines": 94
+          }
+        ],
+        "src_file": "crates/weaveback-py/src/lib.adoc",
+        "total_lines": 94
+      }
+    ],
+    "top_sections": 3,
+    "top_sources": 10,
+    "unattributed_files": [],
+    "unattributed_records": 0
+  },
+  "unattributed": [],
+  "unattributed_files": [],
+  "unattributed_records": 0
+}

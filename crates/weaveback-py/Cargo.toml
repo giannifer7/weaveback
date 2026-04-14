@@ -11,8 +11,17 @@ name = "_weaveback"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3.workspace = true
+pyo3 = { workspace = true }
 pythonize.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 weaveback-agent-core.workspace = true
+weaveback-tangle = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]

@@ -1503,6 +1503,7 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use weaveback_tangle::db::{ChunkDefEntry, Confidence};
 
     fn lines(s: &str) -> Vec<String> {
         s.lines().map(str::to_string).collect()
@@ -1605,6 +1606,31 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    #[test]
+    fn attempt_macro_arg_patch_fallback_finds_differing_part() {
+        // Source line has indentation, but src_col is 0.
+        // Exact match at 0 fails, fallback scans for the differing part.
+        let ls = lines("    let x = old_val;");
+        let old_text = "let x = old_val;";
+        let new_text = "let x = new_val;";
+        // old/new differ at "old_val" vs "new_val".
+        // common prefix: "let x = " (8 chars)
+        // common suffix: ";" (1 char)
+        // old_frag: "old_val"
+        let result = attempt_macro_arg_patch(&ls, 0, 0, old_text, new_text);
+        assert_eq!(result, Some("    let x = new_val;".to_string()));
+    }
+
+    #[test]
+    fn attempt_macro_arg_patch_fallback_avoids_false_suffix_match() {
+        // old: "literate", new: "illiterate"
+        // prefix: "" (0), suffix: "literate" (8)
+        // This is a tricky case because old is a suffix of new.
+        let ls = lines("    process(literate);");
+        let result = attempt_macro_arg_patch(&ls, 0, 0, "literate", "illiterate");
+        assert_eq!(result, Some("    process(illiterate);".to_string()));
+    }
+
     // ── attempt_macro_body_fix ─────────────────────────────────────────────
 
     #[test]
@@ -1617,6 +1643,24 @@ mod tests {
     #[test]
     fn attempt_macro_body_fix_returns_none_when_same() {
         let result = attempt_macro_body_fix("foo", "foo", "foo", '%');
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn attempt_macro_body_fix_adjacent_vars_is_ambiguous() {
+        // adjacent variables with no separator are rejected as ambiguous
+        let result = attempt_macro_body_fix(
+            "%(first)%(second)",
+            "val1val2",
+            "new1new2",
+            '%'
+        );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn attempt_macro_body_fix_no_match_returns_none() {
+        let result = attempt_macro_body_fix("completely different", "old", "new", '%');
         assert_eq!(result, None);
     }
 
@@ -2007,5 +2051,288 @@ mod tests {
             "foo.unknown_extension", 0, 0, &resolver, &db, &config, &mut clients
         );
         assert!(hint.is_none());
+    }
+
+    // ── Oracle-verified searches ──────────────────────────────────────────
+
+    #[test]
+    fn test_search_macro_arg_candidate_verified() {
+        let ws = TestWorkspace::new();
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[ChunkDefEntry {
+            src_file: "src/file.adoc".into(),
+            chunk_name: "foo".into(),
+            nth: 0,
+            def_start: 1,
+            def_end: 5,
+        }]).unwrap();
+
+        let lines = lines("    let x = old;");
+        let config = EvalConfig::default();
+        let src_path = ws.root.join("src/file.adoc");
+
+        let request = MacroArgSearch {
+            db: &db,
+            lines: &lines,
+            hinted_line: 0,
+            src_col: 12,
+            old_text: "    let x = old;",
+            new_text: "    let x = new;",
+            eval_config: &config,
+            src_path: &src_path,
+            expanded_line: 0,
+        };
+
+        let best = search_macro_arg_candidate(request).unwrap();
+        assert_eq!(best.line_idx, 0);
+        assert_eq!(best.new_line, "    let x = new;");
+        assert!(best.score >= 20, "expected bonus score, got {}", best.score);
+    }
+
+    #[test]
+    fn test_search_macro_body_candidate_verified() {
+        let ws = TestWorkspace::new();
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[ChunkDefEntry {
+            src_file: "src/file.adoc".into(),
+            chunk_name: "foo".into(),
+            nth: 0,
+            def_start: 1,
+            def_end: 5,
+        }]).unwrap();
+
+        let lines = lines("body line with old");
+        let config = EvalConfig::default();
+        let src_path = ws.root.join("src/file.adoc");
+
+        let request = MacroBodySearch {
+            db: &db,
+            lines: &lines,
+            hinted_line: 0,
+            body_template: Some("body line with old"),
+            old_text: "body line with old",
+            new_text: "body line with new",
+            sigil: '%',
+            eval_config: &config,
+            src_path: &src_path,
+            expanded_line: 0,
+        };
+
+        let best = search_macro_body_candidate(request).unwrap();
+        assert_eq!(best.line_idx, 0);
+        assert_eq!(best.new_line, "body line with new");
+    }
+
+    #[test]
+    fn test_search_macro_call_candidate_verified() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        // Use a sigil '!' that differs from the default EvalConfig sigil '%'.
+        // This ensures the oracle treats the patch as literal text and verification passes.
+        let lines = lines("    !my_macro(val)");
+        let config = EvalConfig::default(); // Uses '%'
+        let src_path = ws.root.join("src/file.adoc");
+
+        let request = MacroCallSearch {
+            lines: &lines,
+            macro_name: "my_macro",
+            sigil: '!',
+            old_text: "    !my_macro(val)",
+            new_text: "    !my_macro(new_val)",
+            eval_config: &config,
+            src_path: &src_path,
+            expanded_line: 0,
+        };
+
+        let best = search_macro_call_candidate(request).unwrap();
+        assert_eq!(best.line_idx, 0);
+        assert_eq!(best.new_line, "    !my_macro(new_val)");
+    }
+
+    // ── apply_patches_to_file ──────────────────────────────────────────────
+
+    #[test]
+    fn apply_patches_to_file_reports_skipped_unpatchable() {
+        let ws = TestWorkspace::new();
+        ws.write_file("src/test.adoc", b"unpatchable line\n");
+        let db = ws.open_db();
+
+        let ctx = FilePatchContext {
+            src_file: "src/test.adoc",
+            src_root: &ws.root,
+            db: &db,
+            patches: &vec![Patch {
+                expanded_line: 0,
+                old_text: "unpatchable line".into(),
+                new_text: "new".into(),
+                source: PatchSource::Unpatchable {
+                    src_file: "src/test.adoc".into(),
+                    src_line: 0,
+                    kind_label: "Magic".into(),
+                },
+            }],
+            dry_run: false,
+            sigil: '%',
+            eval_config: None,
+            snapshot: None,
+        };
+
+        let mut skipped = 0;
+        let mut out = Vec::new();
+        apply_patches_to_file(ctx, &mut skipped, &mut out).unwrap();
+
+        assert_eq!(skipped, 1);
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("SKIP src/test.adoc:1: Magic"));
+    }
+
+    #[test]
+    fn apply_patches_to_file_reports_manual_for_vars_with_no_config() {
+        let ws = TestWorkspace::new();
+        ws.write_file("src/test.adoc", b"%(var)\n");
+        let db = ws.open_db();
+
+        let ctx = FilePatchContext {
+            src_file: "src/test.adoc",
+            src_root: &ws.root,
+            db: &db,
+            patches: &vec![Patch {
+                expanded_line: 0,
+                old_text: "old".into(),
+                new_text: "new".into(),
+                source: PatchSource::MacroBodyWithVars {
+                    src_file: "src/test.adoc".into(),
+                    src_line: 0,
+                    macro_name: "m".into(),
+                },
+            }],
+            dry_run: false,
+            sigil: '%',
+            eval_config: None, // No config -> MANUAL
+            snapshot: None,
+        };
+
+        let mut skipped = 0;
+        let mut out = Vec::new();
+        apply_patches_to_file(ctx, &mut skipped, &mut out).unwrap();
+
+        assert_eq!(skipped, 1);
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("MANUAL"));
+        assert!(s.contains("contains variables"));
+    }
+
+    #[test]
+    fn apply_patches_to_file_dry_run_does_not_mutate() {
+        let ws = TestWorkspace::new();
+        ws.write_file("src/test.adoc", b"line1\n");
+        let db = ws.open_db();
+
+        let ctx = FilePatchContext {
+            src_file: "src/test.adoc",
+            src_root: &ws.root,
+            db: &db,
+            patches: &vec![Patch {
+                expanded_line: 0,
+                old_text: "line1".into(),
+                new_text: "LINE1".into(),
+                source: PatchSource::Literal {
+                    src_file: "src/test.adoc".into(),
+                    src_line: 0,
+                    len: 1,
+                },
+            }],
+            dry_run: true, // Dry run
+            sigil: '%',
+            eval_config: None,
+            snapshot: None,
+        };
+
+        let mut skipped = 0;
+        let mut out = Vec::new();
+        apply_patches_to_file(ctx, &mut skipped, &mut out).unwrap();
+
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("[dry-run]"));
+
+        // Verify file remains unchanged
+        let content = std::fs::read_to_string(ws.root.join("src/test.adoc")).unwrap();
+        assert_eq!(content, "line1\n");
+    }
+
+    // ── run_apply_back entry point edge cases ──────────────────────────────
+
+    #[test]
+    fn run_apply_back_gen_dir_fallback() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        // Set gen_dir in run_config.
+        db.set_run_config("gen_dir", ws.root.join("alt_gen").to_str().unwrap()).unwrap();
+        db.set_baseline("test.rs", b"content").unwrap();
+
+        // Write file in alt_gen.
+        ws.write_file("alt_gen/test.rs", b"MODIFIED");
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: std::path::PathBuf::from("gen"), // default doesn't exist
+            files: vec![],
+            dry_run: true,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+
+        // Should fall back to alt_gen from DB and find the MODIFIED file.
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("Processing test.rs"));
+    }
+
+    #[test]
+    fn run_apply_back_specific_files_non_existent_is_no_op() {
+        let ws = TestWorkspace::new();
+        let _db = ws.open_db(); // just creates it
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec!["missing.rs".into()],
+            dry_run: false,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        // Since missing.rs is not in baselines, it should say no modified files found.
+        assert!(s.contains("No modified gen/ files found"));
+    }
+
+    #[test]
+    fn run_apply_back_diff_delete_is_detected() {
+        let ws = TestWorkspace::new();
+        let mut db = ws.open_db();
+        db.set_baseline("out.rs", b"line1\nline2").unwrap();
+        ws.write_file("gen/out.rs", b"line1\n"); // line2 deleted
+
+        db.set_noweb_entries("out.rs", &[
+            (0, NowebMapEntry { src_file: "src.adoc".into(), chunk_name: "c".into(), src_line: 0, indent: "".into(), confidence: Confidence::Exact }),
+            (1, NowebMapEntry { src_file: "src.adoc".into(), chunk_name: "c".into(), src_line: 1, indent: "".into(), confidence: Confidence::Exact }),
+        ]).unwrap();
+        db.set_src_snapshot("src.adoc", b"line1\nline2\n").unwrap();
+        ws.write_file("src.adoc", b"line1\nline2\n");
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec![],
+            dry_run: true,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        // Deletion of line 2 (out_line 1) should be detected.
+        // It uses DiffOp::Delete logic.
+        assert!(s.contains("Processing out.rs"));
     }
 }

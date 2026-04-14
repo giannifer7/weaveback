@@ -88,15 +88,21 @@ fn get_or_spawn_lsp<'a>(
     Ok(clients.get_mut(&lsp_lang).unwrap())
 }
 
-pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W, db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), std::io::Error> {
+pub fn run_mcp<R: BufRead, W: Write>(
+    reader: R,
+    mut writer: W,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    project_root: PathBuf,
+    eval_config: EvalConfig,
+) -> Result<(), std::io::Error> {
     let mut lsp_clients: HashMap<String, LspClient> = HashMap::new();
     let agent_workspace = AgentWorkspace::open(AgentWorkspaceConfig {
-        project_root: std::env::current_dir().unwrap_or_default(),
+        project_root: project_root.clone(),
         db_path: db_path.clone(),
         gen_dir: gen_dir.clone(),
     });
     let agent_session = agent_workspace.session();
-    let project_root = std::env::current_dir().unwrap_or_default();
     let resolver = PathResolver::new(project_root, gen_dir.clone());
 
     for line in reader.lines() {
@@ -866,6 +872,7 @@ fn send_error<W: Write>(writer: &mut W, id: Option<Value>, msg: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::process;
 
     /// `get_or_spawn_lsp` must return an error immediately for unsupported
     /// extensions, without spawning any process.
@@ -918,7 +925,8 @@ mod tests {
         let gen_dir = PathBuf::from("gen");
         let eval_config = EvalConfig::default();
         
-        let result = run_mcp(reader, &mut writer, db_path, gen_dir, eval_config);
+        let project_root = std::env::current_dir().unwrap();
+        let result = run_mcp(reader, &mut writer, db_path, gen_dir, project_root, eval_config);
         assert!(result.is_ok());
         
         let output = String::from_utf8(writer).unwrap();
@@ -945,11 +953,19 @@ mod tests {
             );
             let root = std::env::temp_dir().join(id);
             std::fs::create_dir_all(&root).unwrap();
+            let root = root.canonicalize().unwrap();
             Self { root }
         }
         fn db_path(&self) -> PathBuf { self.root.join("weaveback.db") }
         fn gen_dir(&self) -> PathBuf { self.root.join("gen") }
         fn open_db(&self) -> WeavebackDb { WeavebackDb::open(self.db_path()).unwrap() }
+        fn write_file(&self, rel_path: &str, content: &[u8]) {
+            let p = self.root.join(rel_path);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(p, content).unwrap();
+        }
     }
     impl Drop for McpWorkspace {
         fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.root); }
@@ -958,7 +974,7 @@ mod tests {
     fn mcp_drive(ws: &McpWorkspace, requests: &str) -> String {
         let reader = std::io::Cursor::new(requests.to_string());
         let mut writer = Vec::new();
-        run_mcp(reader, &mut writer, ws.db_path(), ws.gen_dir(), EvalConfig::default()).unwrap();
+        run_mcp(reader, &mut writer, ws.db_path(), ws.gen_dir(), ws.root.clone(), EvalConfig::default()).unwrap();
         String::from_utf8(writer).unwrap()
     }
 
@@ -1164,6 +1180,52 @@ mod tests {
         let out = mcp_drive(&ws, req);
         assert!(out.contains("chunk-a"));
         assert!(!out.contains("chunk-b"));
+    }
+
+    #[test]
+    fn mcp_trace_returns_seeded_location() {
+        let ws = McpWorkspace::new();
+        let src_rel = "src/test.adoc";
+        ws.write_file(src_rel, "= Title\n\n<<@file pkg/src/test.rs>>=\nline1\n@\n".as_bytes());
+
+        let args = process::SinglePassArgs {
+            inputs: vec![src_rel.into()],
+            input_dir: ws.root.clone(),
+            gen_dir: ws.root.clone(),
+            db: ws.db_path(),
+            project_root: Some(ws.root.clone()),
+            no_fts: true,
+            ..process::SinglePassArgs::default_for_test()
+        };
+        process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_trace\",\"arguments\":{\"out_file\":\"pkg/src/test.rs\",\"out_line\":1}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("src/test.adoc"), "Trace failed. Output: {out}");
+    }
+
+    #[test]
+    fn mcp_search_returns_seeded_results() {
+        let ws = McpWorkspace::new();
+        let src_rel = "src/search.adoc";
+        ws.write_file(src_rel, "= Title\n\n[para]
+SearchMeKeyword\n".as_bytes());
+
+        let args = process::SinglePassArgs {
+            inputs: vec![src_rel.into()],
+            input_dir: ws.root.clone(),
+            gen_dir: ws.root.clone(),
+            db: ws.db_path(),
+            project_root: Some(ws.root.clone()),
+            no_fts: false,
+            ..process::SinglePassArgs::default_for_test()
+        };
+        process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":26,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_search\",\"arguments\":{\"query\":\"SearchMeKeyword\"}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("SearchMe"), "Search failed. Output: {out}");
+        assert!(out.contains("src/search.adoc"), "Search output missing file path: {out}");
     }
 
     // ── LSP integration tests (real rust-analyzer) ────────────────────────

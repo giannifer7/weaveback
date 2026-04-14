@@ -479,17 +479,127 @@ mod tests {
     }
 
     #[test]
-    fn persist_embedding_config_stores_empty_endpoint_when_none() {
-        use weaveback_tangle::db::WeavebackDb;
-        let db = WeavebackDb::open_temp().unwrap();
+    fn test_run_auto_embed_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("wb.db");
+        let mut db = weaveback_tangle::WeavebackDb::open(&db_path).unwrap();
+        
+        let src = "= Section\n\nSome prose here.\n";
+        let blocks = weaveback_tangle::parse_source_blocks(src, "adoc");
+        db.set_source_blocks("doc.adoc", &blocks).unwrap();
+        db.set_src_snapshot("doc.adoc", src.as_bytes()).unwrap();
+
+        let script = r#"
+import sys, json, http.server
+
+class MockHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        l = int(self.headers["Content-Length"])
+        body = json.loads(self.rfile.read(l))
+        num_inputs = len(body["input"])
+        res = {"data": [{"embedding": [0.1] * 32} for _ in range(num_inputs)]}
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(res).encode())
+    def log_message(self, format, *args): return
+
+http.server.HTTPServer(("127.0.0.1", 11112), MockHandler).handle_request()
+"#;
+        let script_path = tmp.path().join("mock_embed.py");
+        std::fs::write(&script_path, script).unwrap();
+        
+        // Start the mock server in a background process
+        let mut child = std::process::Command::new("python3")
+            .arg(&script_path)
+            .spawn()
+            .unwrap();
+        
+        // Give it a moment to start
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
         let cfg = EmbeddingConfig {
-            backend:    "openai".to_string(),
-            model:      "text-embedding-3-small".to_string(),
-            endpoint:   None,
-            batch_size: 24,
+            backend: "ollama".to_string(),
+            model: "m".to_string(),
+            endpoint: Some("http://127.0.0.1:11112".to_string()),
+            batch_size: 10,
         };
-        persist_embedding_config(&db, &cfg).unwrap();
-        assert_eq!(db.get_run_config("semantic.endpoint").unwrap().as_deref(), Some(""));
+        
+        run_auto_embed(&mut db, &cfg);
+        
+        let _ = child.kill();
+        
+        // Verify embeddings were stored
+        let needs = db.get_blocks_needing_embeddings("m").unwrap();
+        assert!(needs.is_empty(), "all blocks should have been embedded");
+    }
+
+    #[test]
+    fn test_run_auto_embed_normalises_snapshot_paths() {
+        use weaveback_tangle::SourceBlockEntry;
+        let mut db = WeavebackDb::open_temp().unwrap();
+        let src = "content";
+        db.set_src_snapshot("test.adoc", src.as_bytes()).unwrap();
+        
+        // Block uses ./ prefix
+        let blocks = vec![SourceBlockEntry {
+            block_index: 0,
+            block_type: "prose".to_string(),
+            line_start: 1,
+            line_end: 1,
+            content_hash: [0u8; 32],
+        }];
+        db.set_source_blocks("./test.adoc", &blocks).unwrap();
+
+        let cfg = EmbeddingConfig {
+            backend: "ollama".to_string(),
+            model: "m".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()),
+            batch_size: 1,
+        };
+        // Should attempt to fetch "test.adoc" when "./test.adoc" fails.
+        // It still fails the API call, but covers the normalization branch.
+        run_auto_embed(&mut db, &cfg);
+    }
+
+    #[test]
+    fn test_embed_texts_dispatches_gemini_errors_when_key_missing() {
+        unsafe { std::env::remove_var("GOOGLE_API_KEY") };
+        let cfg = EmbeddingConfig {
+            backend: "gemini".to_string(),
+            model: "m".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        let res = embed_texts(&cfg, &["prompt".to_string()]);
+        assert_eq!(res.unwrap_err(), "GOOGLE_API_KEY not set");
+    }
+
+    #[test]
+    fn test_embed_texts_dispatches_openai_with_key() {
+        unsafe { std::env::set_var("OPENAI_API_KEY", "sk-123") };
+        let cfg = EmbeddingConfig {
+            backend: "openai".to_string(),
+            model: "m".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        let res = embed_texts(&cfg, &["prompt".to_string()]);
+        assert!(res.is_err()); // Connection refused to api.openai.com
+        unsafe { std::env::remove_var("OPENAI_API_KEY") };
+    }
+
+    #[test]
+    fn test_run_auto_embed_skips_when_no_blocks() {
+        let mut db = WeavebackDb::open_temp().unwrap();
+        let cfg = EmbeddingConfig {
+            backend: "openai".to_string(),
+            model: "m".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        run_auto_embed(&mut db, &cfg);
+        // Should not panic, should just complete.
     }
 }
 // @

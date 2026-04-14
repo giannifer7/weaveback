@@ -90,7 +90,6 @@ mod tests {
         weaveback_tangle::db::WeavebackDb::open(&db_path).unwrap();
 
         Python::attach(|py| {
-            use pyo3::BoundObject;
             let ws = PyWorkspace::new(
                 tmp.path().to_string_lossy().to_string(),
                 db_path.to_string_lossy().to_string(),

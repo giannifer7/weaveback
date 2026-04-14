@@ -60,17 +60,11 @@ pub fn find_best_noweb_entry(
 
     // Try 3: Canonical on-disk path. This helps external tools like cargo and
     // llvm-cov that often report absolute paths.
-    let path = Path::new(out_file);
-    let abs = if path.is_absolute() {
-        Some(path.to_path_buf())
-    } else {
-        std::env::current_dir().ok().map(|cwd| cwd.join(path))
-    };
-    if let Some(abs) = abs
-        && let Ok(canon) = abs.canonicalize() {
-        let canon = canon.to_string_lossy().into_owned();
-        if canon != out_file && canon != norm
-            && let Some(entry) = db.get_noweb_entry(&canon, out_line_0)? {
+    let abs = resolver.resolve_gen(out_file);
+    if let Ok(canon) = abs.canonicalize() {
+        let canon_str = canon.to_string_lossy().into_owned();
+        if canon_str != out_file && canon_str != norm
+            && let Some(entry) = db.get_noweb_entry(&canon_str, out_line_0)? {
             return Ok(Some(entry));
         }
     }
@@ -78,6 +72,12 @@ pub fn find_best_noweb_entry(
     // Try 4: progressively strip leading path components and match by suffix.
     // This bridges current repo layouts like `crates/weaveback/src/main.rs`
     // to db keys like `weaveback/src/main.rs`.
+    let parts = normalized_path_components(out_file);
+    if parts.len() >= MIN_DISTINCTIVE_SUFFIX_COMPONENTS {
+        if let Some(entry) = db.get_noweb_entry_by_suffix(out_file, out_line_0)? {
+            return Ok(Some(entry));
+        }
+    }
     for sub_str in distinctive_suffix_candidates(out_file) {
         if sub_str != out_file
             && let Some(entry) = db.get_noweb_entry_by_suffix(&sub_str, out_line_0)? {

@@ -468,6 +468,87 @@ mod tests {
     }
 
     #[test]
+    fn test_run_auto_tag_normalises_snapshot_paths() {
+        let (mut db, _dir) = make_db();
+        let src = "content";
+        // Seed snapshot with normalized path
+        db.set_src_snapshot("test.adoc", src.as_bytes()).unwrap();
+
+        let blocks = vec![weaveback_tangle::SourceBlockEntry {
+            block_index: 0,
+            block_type: "prose".to_string(),
+            line_start: 1,
+            line_end: 1,
+            content_hash: [0u8; 32],
+        }];
+        db.set_source_blocks("./test.adoc", &blocks).unwrap();
+
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "dummy".to_string(),
+            endpoint: Some("http://127.0.0.1:9/v1".to_string()), // Unreachable
+            batch_size: 10,
+        };
+        // Should attempt to fetch "test.adoc" when "./test.adoc" fails.
+        // It still fails the LLM call, but it covers the normalization branch.
+        run_auto_tag(&mut db, &cfg);
+    }
+
+    #[test]
+    fn test_call_llm_dispatches_ollama_to_openai_compat() {
+        let cfg = TagConfig {
+            backend: "ollama".to_string(),
+            model: "m".to_string(),
+            endpoint: Some("http://localhost:11111".to_string()),
+            batch_size: 1,
+        };
+        // Should error with connection refused, but cover the dispatch branch
+        let res = call_llm(&cfg, "prompt");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_call_llm_dispatches_openai_with_env_key() {
+        unsafe { std::env::set_var("OPENAI_API_KEY", "sk-123") };
+        let cfg = TagConfig {
+            backend: "openai".to_string(),
+            model: "gpt-4".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        let res = call_llm(&cfg, "prompt");
+        assert!(res.is_err()); // Connection refused to api.openai.com
+        unsafe { std::env::remove_var("OPENAI_API_KEY") };
+    }
+
+    #[test]
+    fn test_call_llm_dispatches_gemini_with_env_key() {
+        unsafe { std::env::set_var("GOOGLE_API_KEY", "gk-123") };
+        let cfg = TagConfig {
+            backend: "gemini".to_string(),
+            model: "gemini-1.5".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        let res = call_llm(&cfg, "prompt");
+        assert!(res.is_err()); // Connection refused to googleapis.com
+        unsafe { std::env::remove_var("GOOGLE_API_KEY") };
+    }
+
+    #[test]
+    fn test_call_llm_errors_when_anthropic_key_missing() {
+        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
+        let cfg = TagConfig {
+            backend: "anthropic".to_string(),
+            model: "m".to_string(),
+            endpoint: None,
+            batch_size: 1,
+        };
+        let res = call_llm(&cfg, "prompt");
+        assert_eq!(res.unwrap_err(), "ANTHROPIC_API_KEY not set");
+    }
+
+    #[test]
     fn test_run_auto_tag_skips_file_without_snapshot() {
         // Blocks in db but no snapshot → file is skipped gracefully.
         use weaveback_tangle::parse_source_blocks;

@@ -26,7 +26,7 @@ fn test_fts_basic_search() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let results = db.search_prose("literate", 10).unwrap();
     assert!(!results.is_empty(), "should find 'literate' in para block");
@@ -46,7 +46,7 @@ fn test_fts_section_and_para_indexed_code_not() {
         block(2, "code",    5, 7),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("prose", 10).unwrap();
     assert!(!r.is_empty());
@@ -75,7 +75,7 @@ fn test_fts_multiple_files() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("feature", 10).unwrap();
     let files: Vec<&str> = r.iter().map(|x| x.src_file.as_str()).collect();
@@ -99,8 +99,8 @@ fn test_fts_rebuild_is_idempotent() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("searchable", 10).unwrap();
     assert_eq!(r.len(), 1, "duplicate rebuild must not produce duplicate results");
@@ -111,7 +111,7 @@ fn test_fts_empty_source_no_panic() {
     let mut db = WeavebackDb::open_temp().unwrap();
     db.set_src_snapshot("empty.adoc", b"").unwrap();
     // No source_blocks for this file -- must not panic or error.
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
     let r = db.search_prose("anything", 10).unwrap();
     assert!(r.is_empty());
 }
@@ -129,7 +129,7 @@ fn test_fts_normalises_dotslash_path() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("normalisation", 10).unwrap();
     assert!(!r.is_empty(), "dotslash prefix must be stripped before path lookup");
@@ -148,7 +148,7 @@ fn test_fts_deduplicates_same_path_stored_twice() {
         block(1, "para",    3, 3),
     ]).unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("once", 10).unwrap();
     assert_eq!(r.len(), 1, "same file stored twice must not produce duplicate FTS rows");
@@ -283,7 +283,7 @@ fn test_search_result_includes_tags() {
     ]).unwrap();
     db.set_block_tags("a.adoc", 1, &[0u8; 32], "testing,fts").unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("tags", 10).unwrap();
     assert!(!r.is_empty());
@@ -304,7 +304,7 @@ fn test_search_finds_block_by_tag_word() {
     ]).unwrap();
     db.set_block_tags("a.adoc", 1, &[0u8; 32], "incremental,build").unwrap();
 
-    db.rebuild_prose_fts().unwrap();
+    db.rebuild_prose_fts(None).unwrap();
 
     let r = db.search_prose("incremental", 10).unwrap();
     assert!(!r.is_empty(), "tag-only word should be findable via FTS");

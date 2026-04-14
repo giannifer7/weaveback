@@ -1365,13 +1365,14 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 impl WeavebackDb {
     /// Rebuild the `prose_fts` index from `src_snapshots` + `source_blocks`.
     /// Drops and re-inserts all rows so the index is always consistent.
-    pub fn rebuild_prose_fts(&mut self) -> Result<(), DbError> {
+    /// `root` overrides the CWD for path normalization.
+    pub fn rebuild_prose_fts(&mut self, root: Option<&std::path::Path>) -> Result<(), DbError> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM prose_fts", [])?;
 
         // Snapshot paths may be stored as "./rel", "rel", or absolute.
         // The files table uses plain relative paths.  Normalise here.
-        let cwd = std::env::current_dir().unwrap_or_default();
+        let cwd = root.map(|p| p.to_path_buf()).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
         // Load all snapshots; query block metadata per file.
         // Deduplicate after path normalisation: the same source file may be

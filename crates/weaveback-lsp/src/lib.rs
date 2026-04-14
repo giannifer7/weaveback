@@ -36,7 +36,13 @@ impl LspClient {
         root_dir: &Path,
         language_id: String,
     ) -> Result<Self, LspError> {
-        let mut child = Command::new(cmd)
+        let cmd_parts: Vec<&str> = cmd.split_whitespace().collect();
+        if cmd_parts.is_empty() {
+             return Err(LspError::Protocol("empty command string".into()));
+        }
+
+        let mut child = Command::new(cmd_parts[0])
+            .args(&cmd_parts[1..])
             .args(args)
             .current_dir(root_dir)
             .stdin(Stdio::piped())

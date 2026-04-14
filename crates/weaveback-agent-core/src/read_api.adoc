@@ -731,7 +731,7 @@ mod tests {
         .unwrap();
         db.set_block_tags("docs/alpha.adoc", 1, &tags_hash(1), "design,architecture")
             .unwrap();
-        db.rebuild_prose_fts().unwrap();
+        db.rebuild_prose_fts(None).unwrap();
         drop(db);
 
         let hits = search(&workspace.config(), "literate", 5).unwrap();

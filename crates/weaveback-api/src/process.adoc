@@ -88,7 +88,42 @@ pub struct SinglePassArgs {
     /// Skip rebuilding the prose FTS index after this run.
     pub no_fts: bool,
     /// Print macro-expanded text to stderr before tangle processing.
-    pub dump_expanded: bool,
+    pub dump_expanded:  bool,
+    /// Override project root (defaults to CWD).
+    pub project_root:   Option<PathBuf>,
+}
+
+impl SinglePassArgs {
+    #[cfg(test)]
+    pub fn default_for_test() -> Self {
+        Self {
+            inputs: vec![],
+            directory: None,
+            input_dir: PathBuf::new(),
+            gen_dir: PathBuf::new(),
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: "//,#".to_string(),
+            ext: vec!["adoc".to_string()],
+            no_macros: true,
+            dry_run: false,
+            db: PathBuf::new(),
+            depfile: None,
+            stamp: None,
+            strict: false,
+            warn_unused: false,
+            allow_env: false,
+            allow_home: true,
+            force_generated: false,
+            sigil: '%',
+            include: String::new(),
+            formatter: vec![],
+            no_fts: true,
+            dump_expanded: false,
+            project_root: None,
+        }
+    }
 }
 // @
 ----
@@ -245,11 +280,15 @@ pub fn compute_skip_set(
 [source,rust]
 ----
 // <<process-run>>=
+use weaveback_tangle::db::WeavebackDb;
+
 /// Run one tangle pass with the given arguments.
 ///
 /// Returns `Err` on file I/O errors, macro evaluation failures, or tangle
 /// errors.  Caller is responsible for printing a human-readable error.
-pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
+pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
+    let project_root = args.project_root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let _db = WeavebackDb::open(&args.db).map_err(|e| e.to_string())?;
     let pathsep: String = if cfg!(windows) { ";".to_string() } else { ":".to_string() };
     let include_paths: Vec<PathBuf> = args.include.split(&pathsep).map(PathBuf::from).collect();
 
@@ -281,7 +320,7 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
             force_generated: args.force_generated,
             ..SafeWriterConfig::default()
         },
-    ).map_err(WeavebackError::from)?;
+    ).map_err(|e| e.to_string())?;
     let mut clip = Clip::new(
         safe_writer,
         &args.open_delim,
@@ -294,7 +333,7 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
 
     let (drivers, all_adoc): (Vec<PathBuf>, Vec<PathBuf>) = if let Some(ref dir) = args.directory {
         let mut all = Vec::new();
-        find_files(dir, &args.ext, &mut all)?;
+        find_files(dir, &args.ext, &mut all).map_err(|e| e.to_string())?;
         all.sort();
 
         let mut included: HashSet<PathBuf> = HashSet::new();
@@ -328,10 +367,19 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
         None
     };
 
+    let normalize_path = |p: &PathBuf| -> String {
+        if let Ok(rel) = p.strip_prefix(&project_root) {
+            rel.to_string_lossy().to_string()
+        } else {
+            p.to_string_lossy().to_string()
+        }
+    };
+
     let mut source_contents: HashMap<String, String> = HashMap::new();
     for full_path in &drivers {
-        let content = std::fs::read_to_string(full_path)?;
-        source_contents.insert(full_path.to_string_lossy().into_owned(), content.clone());
+        let content = std::fs::read_to_string(full_path).map_err(|e| e.to_string())?;
+        let src_key = normalize_path(full_path);
+        source_contents.insert(src_key.clone(), content.clone());
 
         let tangle_cfg = weaveback_tangle::db::TangleConfig {
             sigil: args.sigil,
@@ -340,31 +388,33 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
             chunk_end: args.chunk_end.clone(),
             comment_markers: comment_markers.clone(),
         };
-        clip.db().set_source_config(&full_path.to_string_lossy(), &tangle_cfg).map_err(WeavebackError::from)?;
+        clip.db().set_source_config(&src_key, &tangle_cfg).map_err(|e| e.to_string())?;
 
         if args.no_macros {
-            clip.read(&content, &full_path.to_string_lossy());
+            clip.read(&content, &src_key);
         } else {
-            let expanded = process_string(&content, Some(full_path), &mut evaluator)?;
+            let expanded = process_string(&content, Some(full_path), &mut evaluator).map_err(|e| e.to_string())?;
             let expanded_str = String::from_utf8_lossy(&expanded);
             if args.dump_expanded {
-                eprintln!("=== expanded: {} ===", full_path.display());
+                eprintln!("=== expanded: {} ===", src_key);
                 eprintln!("{}", expanded_str);
-                eprintln!("=== end: {} ===", full_path.display());
+                eprintln!("=== end: {} ===", src_key);
             }
-            clip.read(&expanded_str, &full_path.to_string_lossy());
+            clip.read(&expanded_str, &src_key);
 
             let src_files = evaluator.sources().source_files().to_vec();
             let var_defs = evaluator.drain_var_defs();
             let macro_defs = evaluator.drain_macro_defs();
             for vd in var_defs {
                 if let Some(path) = src_files.get(vd.src as usize) {
-                    clip.db().record_var_def(&vd.var_name, &path.to_string_lossy(), vd.pos, vd.length).map_err(WeavebackError::from)?;
+                    let k = normalize_path(path);
+                    clip.db().record_var_def(&vd.var_name, &k, vd.pos, vd.length).map_err(|e| e.to_string())?;
                 }
             }
             for md in macro_defs {
                 if let Some(path) = src_files.get(md.src as usize) {
-                    clip.db().record_macro_def(&md.macro_name, &path.to_string_lossy(), md.pos, md.length).map_err(WeavebackError::from)?;
+                    let k = normalize_path(path);
+                    clip.db().record_macro_def(&md.macro_name, &k, md.pos, md.length).map_err(|e| e.to_string())?;
                 }
             }
         }
@@ -378,9 +428,9 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
     }
 
     let skip_set = compute_skip_set(&source_contents, &prev_db, clip.db_mut(), &args.gen_dir);
-    clip.write_files_incremental(&skip_set)?;
+    clip.write_files_incremental(&skip_set).map_err(|e| e.to_string())?;
 
-    (|| -> Result<(), WeavebackError> {
+    {
         let paths: Vec<PathBuf> = if args.no_macros {
             drivers.clone()
         } else {
@@ -388,19 +438,21 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
         };
         for path in &paths {
             if let Ok(content) = std::fs::read(path) {
-                let key = path.to_string_lossy();
-                clip.db().set_src_snapshot(key.as_ref(), &content)?;
+                let key = normalize_path(path);
+                clip.db().set_src_snapshot(&key, &content).map_err(|e| e.to_string())?;
             }
         }
-        Ok(())
-    })()?;
+    }
 
-    clip.finish(&args.db)?;
+    clip.finish(&args.db).map_err(|e| e.to_string())?;
 
+    // Re-open for final configs and FTS rebuild
     if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
         let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
-        if !args.no_fts && let Err(e) = db.rebuild_prose_fts() {
-            eprintln!("warning: FTS index rebuild failed: {e}");
+        if !args.no_fts {
+            if let Err(e) = db.rebuild_prose_fts(Some(&project_root)) {
+                eprintln!("warning: FTS index rebuild failed: {e}");
+            }
         }
     }
 
@@ -413,11 +465,11 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), ProcessError> {
             evaluator.source_files().to_vec()
         };
         let stamp_path = args.stamp.clone().unwrap_or_else(|| depfile_path.clone());
-        write_depfile(depfile_path, &stamp_path, &deps)?;
+        write_depfile(depfile_path, &stamp_path, &deps).map_err(|e| e.to_string())?;
     }
 
     if let Some(ref stamp_path) = args.stamp {
-        std::fs::write(stamp_path, b"")?;
+        std::fs::write(stamp_path, b"").map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -530,15 +582,63 @@ mod tests {
             allow_env: false,
             allow_home: true,
             force_generated: false,
-            sigil: '%%',
+            sigil: '%',
             include: String::new(),
             formatter: vec![],
             no_fts: true,
             dump_expanded: false,
+            project_root: None,
         };
         run_single_pass(args).unwrap();
         let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
         assert_eq!(out.trim(), "hello world");
+    }
+
+    #[test]
+    fn test_run_single_pass_force_generated() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        let gen_dir = tmp.path().join("gen_out");
+        fs::create_dir(&gen_dir).unwrap();
+
+        fs::write(&src, "// <<@file output.txt>>=\ncontent\n// @\n").unwrap();
+        let out_file = gen_dir.join("output.txt");
+        fs::write(&out_file, "old").unwrap();
+
+        let db_path = tmp.path().join("wb.db");
+        let args = SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            directory: None,
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: "//,#".to_string(),
+            ext: vec!["adoc".to_string()],
+            no_macros: true,
+            dry_run: false,
+            db: db_path,
+            depfile: None,
+            stamp: None,
+            strict: false,
+            warn_unused: false,
+            allow_env: false,
+            allow_home: true,
+            force_generated: true, // Force!
+            sigil: '%',
+            include: String::new(),
+            formatter: vec![],
+            no_fts: true,
+            dump_expanded: false,
+            project_root: None,
+        };
+        run_single_pass(args).unwrap();
+        assert_eq!(fs::read_to_string(&out_file).unwrap().trim(), "content");
+
+        // Now run without force, but modify the file to differ from baseline.
+        // Wait, without force, it should still write if it's new or changed.
+        // force_generated is for when it *matches* the baseline but we want to write anyway.
     }
 }
 // @

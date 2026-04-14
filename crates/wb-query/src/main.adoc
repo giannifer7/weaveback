@@ -116,7 +116,7 @@ fn run_tag_only(
     match weaveback_tangle::db::WeavebackDb::open(&db_path) {
         Ok(mut db) => {
             tag::run_auto_tag(&mut db, &tag_cfg);
-            if let Err(e) = db.rebuild_prose_fts() {
+            if let Err(e) = db.rebuild_prose_fts(None) {
                 eprintln!("warning: FTS index rebuild failed: {e}");
             }
         }
@@ -394,7 +394,7 @@ mod tests {
     fn run_search_success() {
         let mut ws = TestWorkspace::new();
         let mut db = ws.open_db();
-        db.rebuild_prose_fts().unwrap();
+        db.rebuild_prose_fts(None).unwrap();
         let cli = Cli {
             db: ws.db(),
             gen_dir: ws.gen_dir(),

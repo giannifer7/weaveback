@@ -24,4 +24,4 @@ pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]
+default = []

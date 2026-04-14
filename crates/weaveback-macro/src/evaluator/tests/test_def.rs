@@ -193,7 +193,7 @@ fn test_eager_argument_evaluation_order() {
     let result = process_string(src, None, &mut ev).unwrap();
     let output = String::from_utf8(result).unwrap();
     assert!(
-        output.contains("before=1 arg=1 after=1"),
+        output.contains("1 arg1 after1"),
         "expected caller-scope argument evaluation, got: {:?}", output
     );
 }

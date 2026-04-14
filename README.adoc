@@ -35,8 +35,7 @@ Weaveback is useful only if it helps with that higher-level problem:
 
 As code templates, many classic "design patterns" are cheaper than ever for an
 agent to emit.  As a vocabulary for *why* a structure exists, they still
-matter.  The project is built on the assumption that `Pensare non ha
-sostituti`: thinking still has no substitute.
+matter.
 
 If the tool does not reduce cognitive load and improve auditability, it is just
 cleverness.  If it carries the why together with the code strongly enough that

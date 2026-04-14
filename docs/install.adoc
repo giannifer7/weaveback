@@ -6,8 +6,10 @@ tarball release).  HTML documentation rendering is built in via
 `weaveback-docgen`, which uses the Rust `acdc` AsciiDoc parser directly —
 no Ruby or external AsciiDoc toolchain required.
 
-PlantUML diagram support requires a JDK and a `plantuml.jar` (pass
-`--plantuml-jar <path>` to `weaveback-docgen`).
+Diagram support requires:
+- the `d2` CLI
+- a JDK and a `plantuml.jar` (pass `--plantuml-jar <path>` to
+  `weaveback-docgen`)
 
 The installer script handles binary download and, optionally, JDK installation.
 
@@ -21,7 +23,7 @@ Python 3 is required.  It is available on every supported platform.
 python3 scripts/install.py
 ----
 
-With PlantUML support (installs JDK):
+With diagram support:
 
 [source,sh]
 ----
@@ -38,7 +40,7 @@ python3 scripts/install.py --source
 Full options:
 
 ----
-  --diagrams          Install JDK (for PlantUML via --plantuml-jar)
+  --diagrams          Install D2 and a JDK (for PlantUML via --plantuml-jar)
   --source            Build from source (requires cargo / Rust toolchain)
   --prefix DIR        Install binary to DIR
                         default: ~/.local/bin          (Linux/macOS)
@@ -48,7 +50,7 @@ Full options:
 
 The script detects your package manager (paru/yay, apt, dnf, brew, winget,
 choco, scoop), downloads the right binary from GitHub releases, and
-(with `--diagrams`) installs a JDK for PlantUML rendering.
+(with `--diagrams`) installs D2 and a JDK for diagram rendering.
 
 On Arch Linux it installs the binary via `paru -S weaveback-bin` instead of
 downloading a tarball.
@@ -61,7 +63,7 @@ downloading a tarball.
 ----
 paru -S weaveback-bin       # or: yay -S weaveback-bin
 # with diagrams:
-sudo pacman -S jdk-openjdk
+sudo pacman -S d2 jdk-openjdk
 ----
 
 === Debian / Ubuntu
@@ -72,6 +74,7 @@ sudo pacman -S jdk-openjdk
 sudo apt install ./weaveback_*.deb
 # with diagrams:
 sudo apt install default-jdk-headless
+curl -fsSL https://d2lang.com/install.sh | sh
 ----
 
 === Fedora / RHEL
@@ -81,6 +84,7 @@ sudo apt install default-jdk-headless
 sudo dnf install ./weaveback-*.rpm
 # with diagrams:
 sudo dnf install java-latest-openjdk-headless
+curl -fsSL https://d2lang.com/install.sh | sh
 ----
 
 === macOS
@@ -91,7 +95,7 @@ No pre-built macOS binary is provided yet.  Build from source:
 ----
 cargo install --path crates/weaveback
 # with diagrams:
-brew install openjdk
+brew install openjdk d2
 ----
 
 === Windows
@@ -105,6 +109,7 @@ handles this automatically via winreg.
 ----
 rem with diagrams:
 winget install Microsoft.OpenJDK.21
+winget install Terrastruct.D2
 ----
 
 === Any Linux (musl, no package manager)

@@ -144,9 +144,11 @@ jobs:
       - name: Build serve-ui assets
         run: node scripts/serve-ui/build.mjs
 
-      - name: Install PlantUML
+      - name: Install diagram toolchain
         run: |
           sudo apt-get install -y default-jre-headless graphviz
+          curl -fsSL https://d2lang.com/install.sh | sh -s -- --prefix /usr/local
+          d2 --version
           mkdir -p /opt/plantuml
           curl -L https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
                -o /opt/plantuml/plantuml.jar

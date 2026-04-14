@@ -473,6 +473,28 @@ mod tests {
         let content = std::fs::read_to_string(&svg_path).unwrap();
         assert!(content.contains("background:transparent;"));
     }
+
+    #[test]
+    fn collect_plantuml_blocks_extracts_plantuml_blocks() {
+        let src = "= Title\n\n[source,plantuml]\n----\nA -> B\n----\n";
+        let blocks = collect_plantuml_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].2.contains("A -> B"));
+    }
+
+    #[test]
+    fn collect_plantuml_blocks_ignores_non_plantuml_blocks() {
+        let src = "[source,rust]\n----\nfn main() {}\n----\n";
+        let blocks = collect_plantuml_blocks(src, "test");
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn raw_block_language_identifies_plantuml() {
+        let src = "[plantuml]\n----\nx\n----\n";
+        let blocks = collect_plantuml_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+    }
 }
 // @@
 ----

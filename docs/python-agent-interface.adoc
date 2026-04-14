@@ -1,0 +1,54 @@
+= Python Agent Interface
+:toc: left
+:source-highlighter: syntect
+
+The Python interface to Weaveback is designed specifically to allow coding agents to safely interact with a literate programming codebase. In literate programming, source files (`.adoc` or `.md`) generate actual code blocks (`.rs`, `.py`, etc.) through "tangling", so agents cannot simply use raw file writes to modify generated code without corrupting the build process or the document structure.
+
+The Python interface solves this by providing a highly structured, typed boundary between agent logic and the Weaveback Rust core backend. It lives in the `weaveback-agent` package (`python/weaveback-agent`).
+
+== Architecture Overview
+
+The Python interface establishes a strict separation of concerns:
+
+1. **Rust (`weaveback-py` via PyO3/Maturin)**: Owns SQLite database management, cross-referencing, tracing output coordinates back to doc sources, and safely verifying code edits dynamically.
+2. **Python (`weaveback-agent`)**: Owns the orchestration loop, typed Pydantic models for LLM tool calling, and agent loop composition.
+
+== Key Components for Coding Agents
+
+=== 1. Pydantic Type Models
+
+The `models.py` file exposes strict Pydantic definitions that agents can output via Structured Outputs or Tool Calling. For example, instead of emitting a standard file patch, agents generate a `ChangePlan`:
+
+*   **`ChangePlan`**: A complete description of a multi-file, multi-step modification.
+*   **`PlannedEdit`**: Represents a single surgical change, containing:
+    *   **`ChangeTarget`**: The lines inside the literate document that will be edited (`src_file`, `src_line`, `src_line_end`).
+    *   **`OutputAnchor`**: The critical "Oracle safety" feature. This contains the `out_file`, `out_line`, and `expected_output`.
+    *   **`new_src_lines`**: The new source lines to insert into the document.
+
+The `OutputAnchor` acts as an oracle verification check. When an agent proposes an edit, the Rust backend tangles the output in memory. If the resulting generated string at `out_line` does not exactly match the `expected_output` proposed by the agent, the system rejects the change. This guarantees agents can't silently break macros or chunk definitions.
+
+=== 2. The `AgentLoop` Orchestrator
+
+Inside `agent.py`, an `AgentLoop` class wraps the raw Rust FFI (`PyWorkspace`) into high-level Python methods that directly map to standard agent loops (Plan -> Validate -> Execute):
+
+*   **`inspect_trace(out_file, out_line, out_col)`**: Plugs into LSP/Error diagnostics. An agent sees an error in `gen/foo.rs:42`, passes it to `inspect_trace`, and the Weaveback trace engine returns exactly which `.adoc` document, line, block, and macro parameter generated that specific error.
+*   **`validate_plan(plan: ChangePlan)`**: Agents can dry-run their proposed edits. It returns a `PlanValidation` that lists any structural issues before running the compiler.
+*   **`preview_plan(plan: ChangePlan)`**: Invokes the Rust oracle to run the tangler with the proposed changes in memory, ensuring that the generated code output is exactly what the agent intended.
+
+=== 3. Crate `weaveback-py`
+
+Underneath, the AgentLoop delegates zero-cost execution down to the Rust core via:
+
+*   `PyWorkspace.trace(...)`
+*   `PyWorkspace.validate_change_plan(...)`
+*   `PyWorkspace.preview_change_plan(...)`
+*   `PyWorkspace.apply_change_plan(...)`
+
+== How an Agent Should Use It
+
+1. **Locate Context**: An agent explores the codebase using tools like `weaveback_chunk_context` or `weaveback_search` (accessible via the MCP server interface) to find which prose blocks explain the necessary logic.
+2. **Trace Issues**: If an error is caught in a generated file or the agent is reading a generated `.rs` file, it calls `inspect_trace` to map the line back to the `.adoc` source.
+3. **Formulate a Plan**: The agent synthesizes a `ChangePlan` specifying `PlannedEdit`s. The agent maps what the source doc *should* be (`new_src_lines`) AND what the expected output *needs* to be (`OutputAnchor`).
+4. **Validation Pipeline**: The driver script takes the `ChangePlan`, invokes `preview_plan()` to verify tangling integrity, and then executes it using `apply_change_plan(...)`.
+
+By forcing agents through this strictly typed interface, Weaveback ensures LLMs cannot unintentionally corrupt the narrative documentation structures that drive the project repository.

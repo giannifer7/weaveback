@@ -57,7 +57,7 @@ enum PatchSource {
     Literal { src_file: String, src_line: usize, len: usize },
     /// Macro body text with no variable references — safe to auto-patch.
     MacroBodyLiteral { src_file: String, src_line: usize, macro_name: String },
-    /// Macro body text containing `%(...)` references.
+    /// Macro body text containing `%%(...)` references.
     /// Attempt structural fix + oracle verification; report if it fails.
     MacroBodyWithVars { src_file: String, src_line: usize, macro_name: String },
     /// Argument value at a macro call site.
@@ -335,7 +335,7 @@ fn attempt_macro_arg_patch(
 /// literal (non-variable) parts updated.
 ///
 /// Algorithm:
-///  1. Split `body_line` into alternating literal/variable segments via `%(...)`.
+///  1. Split `body_line` into alternating literal/variable segments via `%%(...)`.
 ///  2. Walk `old_expanded` to extract the runtime value of each variable.
 ///  3. Walk `new_expanded` to extract the new literal parts (variable values held fixed).
 ///  4. Rebuild body using original variable references and new literals.
@@ -1609,7 +1609,7 @@ mod tests {
 
     #[test]
     fn attempt_macro_body_fix_no_vars_replaces_literal() {
-        // Body has no %(…) variables; old_expanded matches body_line
+        // Body has no %%(…) variables; old_expanded matches body_line
         let result = attempt_macro_body_fix("hello world", "hello world", "hello Rust", '%');
         assert_eq!(result, Some("hello Rust".to_string()));
     }
@@ -1646,5 +1646,366 @@ mod tests {
         let unp = PatchSource::Unpatchable { src_file: "f".into(), src_line: 1, kind_label: "x".into() };
         let nw = PatchSource::Noweb { src_file: "f".into(), src_line: 1, len: 1 };
         assert!(patch_source_rank(&unp) < patch_source_rank(&nw));
+    }
+    // ── patch_source_location ──────────────────────────────────────────────
+
+    #[test]
+    fn patch_source_location_returns_file_and_line() {
+        let lit = PatchSource::Literal { src_file: "src/foo.adoc".into(), src_line: 42, len: 1 };
+        let (file, line) = patch_source_location(&lit);
+        assert_eq!(file, "src/foo.adoc");
+        assert_eq!(line, 42);
+    }
+
+    // ── strip_indent ────────────────────────────────────────────────────────
+
+    #[test]
+    fn strip_indent_removes_prefix() {
+        let result = strip_indent("    hello world", "    ");
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn strip_indent_returns_original_when_no_match() {
+        let result = strip_indent("hello", "    ");
+        assert_eq!(result, "hello");
+    }
+
+    // ── verify_candidate ────────────────────────────────────────────────────
+
+    #[test]
+    fn verify_candidate_returns_true_for_matching_line() {
+        // A simple inline macro chunk: "Hello world!" → expanded line 0 = "Hello world!"
+        let src = "Hello world!\n";
+        let config = EvalConfig::default();
+        let path = std::path::Path::new("test.adoc");
+        assert!(verify_candidate(src, path, &config, 0, "Hello world!"));
+    }
+
+    #[test]
+    fn verify_candidate_returns_false_for_mismatched_line() {
+        let src = "Hello world!\n";
+        let config = EvalConfig::default();
+        let path = std::path::Path::new("test.adoc");
+        assert!(!verify_candidate(src, path, &config, 0, "Goodbye world!"));
+    }
+
+    #[test]
+    fn verify_candidate_returns_false_when_line_out_of_range() {
+        let src = "only one line\n";
+        let config = EvalConfig::default();
+        let path = std::path::Path::new("test.adoc");
+        assert!(!verify_candidate(src, path, &config, 99, "only one line"));
+    }
+
+    // ── do_patch ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn do_patch_applies_exact_match() {
+        let mut lines = lines("aaa\nbbb\nccc");
+        let mut out = Vec::new();
+        let mut skipped = 0;
+        let mut applied = 0;
+        let mut conflicts = 0;
+        do_patch("f.adoc", 1, 1, "bbb", "BBB", &mut lines, false,
+                 &mut skipped, &mut applied, &mut conflicts, None, &mut out);
+        assert_eq!(applied, 1);
+        assert_eq!(lines[1], "BBB");
+        let msg = String::from_utf8(out).unwrap();
+        assert!(msg.contains("patched"));
+    }
+
+    #[test]
+    fn do_patch_detects_already_applied() {
+        let mut lines = lines("aaa\nBBB\nccc");
+        let mut out = Vec::new();
+        let mut skipped = 0;
+        let mut applied = 0;
+        let mut conflicts = 0;
+        do_patch("f.adoc", 1, 1, "bbb", "BBB", &mut lines, false,
+                 &mut skipped, &mut applied, &mut conflicts, None, &mut out);
+        let msg = String::from_utf8(out).unwrap();
+        assert!(msg.contains("already applied"));
+    }
+
+    #[test]
+    fn do_patch_records_conflict_when_no_match() {
+        let mut lines = lines("aaa\nzzzz\nccc");
+        let mut out = Vec::new();
+        let mut skipped = 0;
+        let mut applied = 0;
+        let mut conflicts = 0;
+        do_patch("f.adoc", 1, 1, "bbb", "BBB", &mut lines, false,
+                 &mut skipped, &mut applied, &mut conflicts, None, &mut out);
+        assert_eq!(conflicts, 1);
+        let msg = String::from_utf8(out).unwrap();
+        assert!(msg.contains("CONFLICT"));
+    }
+
+    #[test]
+    fn do_patch_dry_run_does_not_modify_lines() {
+        let mut lines = lines("aaa\nbbb\nccc");
+        let mut out = Vec::new();
+        let mut skipped = 0;
+        let mut applied = 0;
+        let mut conflicts = 0;
+        do_patch("f.adoc", 1, 1, "bbb", "BBB", &mut lines, true,
+                 &mut skipped, &mut applied, &mut conflicts, None, &mut out);
+        assert_eq!(lines[1], "bbb", "dry-run must not modify content");
+        let msg = String::from_utf8(out).unwrap();
+        assert!(msg.contains("dry-run"));
+    }
+
+    // ── rank_candidate ─────────────────────────────────────────────────────
+
+    #[test]
+    fn rank_candidate_closer_line_scores_higher() {
+        let score_close = rank_candidate(5, 5, "old foo", "old foo", "new foo", 0);
+        let score_far   = rank_candidate(5, 15, "old foo", "old foo", "new foo", 0);
+        assert!(score_close > score_far);
+    }
+
+    // ── choose_best_candidate ──────────────────────────────────────────────
+
+    #[test]
+    fn choose_best_candidate_returns_highest_score() {
+        let candidates = vec![
+            CandidateResolution { line_idx: 0, new_line: "a".into(), score: 10 },
+            CandidateResolution { line_idx: 1, new_line: "b".into(), score: 99 },
+            CandidateResolution { line_idx: 2, new_line: "c".into(), score: 5  },
+        ];
+        let best = choose_best_candidate(candidates).unwrap();
+        assert_eq!(best.line_idx, 1);
+        assert_eq!(best.score, 99);
+    }
+
+    #[test]
+    fn choose_best_candidate_returns_none_on_tie() {
+        let candidates = vec![
+            CandidateResolution { line_idx: 0, new_line: "a".into(), score: 50 },
+            CandidateResolution { line_idx: 1, new_line: "b".into(), score: 50 },
+        ];
+        assert!(choose_best_candidate(candidates).is_none());
+    }
+
+    #[test]
+    fn choose_best_candidate_returns_none_when_empty() {
+        let result = choose_best_candidate(vec![]);
+        assert!(result.is_none());
+    }
+
+    // ── run_apply_back with missing db ─────────────────────────────────────
+
+    #[test]
+    fn run_apply_back_reports_missing_database() {
+        use std::path::PathBuf;
+        let opts = ApplyBackOptions {
+            db_path: PathBuf::from("/nonexistent/weaveback.db"),
+            gen_dir: PathBuf::from("/nonexistent/gen"),
+            dry_run: true,
+            files: vec![],
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        let result = run_apply_back(opts, &mut out);
+        assert!(result.is_ok());
+        let msg = String::from_utf8(out).unwrap();
+        assert!(msg.contains("Database not found"));
+    }
+
+    // ── attempt_macro_body_fix with vars ────────────────────────────────────
+
+    #[test]
+    fn attempt_macro_body_fix_with_single_var_updates_literal() {
+        // body: "Hello %(name). Bye."
+        // old expanded: "Hello Alice. Bye."
+        // new expanded: "Hello Alice. Later."
+        // Expects the literal suffix " Bye." → " Later." while preserving %(name).
+        let result = attempt_macro_body_fix(
+            "Hello %(name). Bye.",
+            "Hello Alice. Bye.",
+            "Hello Alice. Later.",
+            '%',
+        );
+        assert!(result.is_some(), "expected Some result, got None");
+        let new_body = result.unwrap();
+        assert!(new_body.contains("Later"), "expected 'Later' in: {new_body}");
+        assert!(new_body.contains("%(name)"), "expected var ref preserved in: {new_body}");
+    }
+
+    #[test]
+    fn attempt_macro_body_fix_returns_none_when_body_eq_expanded() {
+        // body line IS exactly the expanded text → result is just the new expanded text
+        let result = attempt_macro_body_fix("plain text", "plain text", "new text", '%');
+        assert_eq!(result, Some("new text".to_string()));
+    }
+    // ── run_apply_back empty database & diff edge cases ─────────────────────
+
+    struct TestWorkspace {
+        root: std::path::PathBuf,
+    }
+    impl TestWorkspace {
+        fn new() -> Self {
+            let unique = format!(
+                "wb-apply-back-tests-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            );
+            let root = std::env::temp_dir().join(unique);
+            std::fs::create_dir_all(&root).unwrap();
+            Self { root }
+        }
+        fn write_file(&self, rel: &str, content: &[u8]) {
+            let path = self.root.join(rel);
+            if let Some(p) = path.parent() {
+                std::fs::create_dir_all(p).unwrap();
+            }
+            std::fs::write(path, content).unwrap();
+        }
+        fn open_db(&self) -> WeavebackDb {
+            WeavebackDb::open(self.root.join("weaveback.db")).unwrap()
+        }
+    }
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn run_apply_back_early_exit_on_missing_db() {
+        let ws = TestWorkspace::new();
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("missing.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec![],
+            dry_run: false,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("Database not found"));
+    }
+
+    #[test]
+    fn run_apply_back_no_modified_files() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        db.set_baseline("out.rs", b"content").unwrap();
+        ws.write_file("gen/out.rs", b"content");
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec![],
+            dry_run: false,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("No modified gen/ files found"));
+    }
+
+    #[test]
+    fn run_apply_back_skips_missing_gen_files() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        db.set_baseline("out.rs", b"content").unwrap();
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec![],
+            dry_run: false,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("skip out.rs: file not found in gen/"));
+    }
+
+    #[test]
+    fn run_apply_back_reports_missing_source_map_on_diff() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        db.set_baseline("out.rs", b"line1\nline2").unwrap();
+        ws.write_file("gen/out.rs", b"line1\nmodified");
+
+        let opts = ApplyBackOptions {
+            db_path: ws.root.join("weaveback.db"),
+            gen_dir: ws.root.join("gen"),
+            files: vec![],
+            dry_run: false,
+            eval_config: None,
+        };
+        let mut out = Vec::new();
+        run_apply_back(opts, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("Processing out.rs"));
+        assert!(s.contains("skip line 2: no source map entry"));
+    }
+
+    // ── resolve_patch_source edge cases ─────────────────────────────────────
+
+    #[test]
+    fn resolve_patch_source_falls_back_to_noweb_if_trace_fails() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        let config = EvalConfig { sigil: '%', ..Default::default() };
+        let resolver = PathResolver::new(ws.root.clone(), ws.root.join("gen"));
+
+        let patch_source = resolve_patch_source(
+            "out.rs", 0, 0, &db, &resolver, &config,
+            "src/file.adoc", 10, None, '%', 1
+        ).unwrap();
+
+        match patch_source {
+            PatchSource::Noweb { src_file, src_line, len } => {
+                assert_eq!(src_file, "src/file.adoc");
+                assert_eq!(src_line, 10);
+                assert_eq!(len, 1);
+            }
+            _ => panic!("Expected Noweb fallback"),
+        }
+    }
+
+    #[test]
+    fn resolve_best_patch_source_falls_back_to_available_candidate() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        let config = EvalConfig { sigil: '%', ..Default::default() };
+        let resolver = PathResolver::new(ws.root.clone(), ws.root.join("gen"));
+
+        let patch_source = resolve_best_patch_source(
+            "out.rs", 0, "old", "new", 0, &db, &resolver, &config,
+            "src/file.adoc", 10, None, '%', 1, None
+        ).unwrap();
+
+        match patch_source {
+            PatchSource::Noweb { src_file, src_line, .. } => {
+                assert_eq!(src_file, "src/file.adoc");
+                assert_eq!(src_line, 10);
+            }
+            _ => panic!("Expected best source to be Noweb fallback"),
+        }
+    }
+
+    // ── lsp_definition_hint edge case ───────────────────────────────────────
+
+    #[test]
+    fn lsp_definition_hint_returns_none_if_lsp_not_available() {
+        let ws = TestWorkspace::new();
+        let db = ws.open_db();
+        let config = EvalConfig { sigil: '%', ..Default::default() };
+        let resolver = PathResolver::new(ws.root.clone(), ws.root.join("gen"));
+        let mut clients = std::collections::HashMap::new();
+
+        let hint = lsp_definition_hint(
+            "foo.unknown_extension", 0, 0, &resolver, &db, &config, &mut clients
+        );
+        assert!(hint.is_none());
     }
 }

@@ -2459,6 +2459,279 @@ build = "build.rs"
         );
         assert_eq!(summary["sources"][1]["src_file"], "src/b.adoc");
     }
+    #[test]
+    fn test_parse_lcov_records_simple() {
+        let lcov = "SF:file.rs\nDA:1,10\nDA:2,0\nend_of_record\nSF:other.rs\nDA:5,1\nend_of_record\n";
+        let records = parse_lcov_records(lcov);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0], ("file.rs".to_string(), 1, 10));
+        assert_eq!(records[1], ("file.rs".to_string(), 2, 0));
+        assert_eq!(records[2], ("other.rs".to_string(), 5, 1));
+    }
+
+    #[test]
+    fn test_compute_unmapped_ranges() {
+        let lines = vec![
+            json!({"generated_line": 1, "hit_count": 5}),
+            json!({"generated_line": 2, "hit_count": 0}),
+            json!({"generated_line": 3, "hit_count": 0}),
+            json!({"generated_line": 5, "hit_count": 1}),
+        ];
+        let ranges = compute_unmapped_ranges(&lines);
+        let arr = ranges.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["start"], 1);
+        assert_eq!(arr[0]["end"], 3);
+        assert_eq!(arr[0]["missed_count"], 2);
+        assert_eq!(arr[1]["start"], 5);
+        assert_eq!(arr[1]["missed_count"], 0);
+    }
+    // ── open_db ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn open_db_errors_when_database_missing() {
+        let result = open_db(std::path::Path::new("/nonexistent/weaveback.db"));
+        assert!(result.is_err());
+        let msg = format!("{}", result.err().unwrap());
+        assert!(msg.contains("Database not found") || msg.contains("not found"), "got: {msg}");
+    }
+
+    // ── parse_generated_location errors ────────────────────────────────────
+
+    #[test]
+    fn parse_generated_location_errors_on_missing_colon() {
+        let result = parse_generated_location("nocolon");
+        assert!(result.is_err(), "expected Err for missing colon");
+    }
+
+    #[test]
+    fn parse_generated_location_errors_on_bad_line_number() {
+        let result = parse_generated_location("file.rs:abc");
+        assert!(result.is_err(), "expected Err for non-numeric line");
+    }
+
+    #[test]
+    fn parse_generated_location_errors_on_bad_col_number() {
+        let result = parse_generated_location("file.rs:10:xyz");
+        assert!(result.is_err(), "expected Err for non-numeric column");
+    }
+
+    #[test]
+    fn parse_generated_location_parses_file_line_col() {
+        let result = parse_generated_location("src/lib.rs:42:7").unwrap();
+        assert_eq!(result.0, "src/lib.rs");
+        assert_eq!(result.1, 42);
+        assert_eq!(result.2, 7);
+    }
+
+    #[test]
+    fn parse_generated_location_parses_file_line_only() {
+        let result = parse_generated_location("src/lib.rs:42").unwrap();
+        assert_eq!(result.0, "src/lib.rs");
+        assert_eq!(result.1, 42);
+        assert_eq!(result.2, 1); // defaults col to 1
+    }
+
+    // ── CoverageError conversions ──────────────────────────────────────────
+
+    #[test]
+    fn coverage_error_io_displays_message() {
+        let e = CoverageError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "gone"));
+        assert!(format!("{e}").contains("gone"));
+    }
+
+    // ── print_coverage_summary_to_writer ──────────────────────────────────
+
+    #[test]
+    fn print_coverage_summary_shows_attributed_vs_total() {
+        let summary = json!({
+            "attributed_records": 80,
+            "line_records": 100,
+            "sources": [],
+            "unattributed_records": 0,
+            "unattributed_files": []
+        });
+        let mut out = Vec::new();
+        print_coverage_summary_to_writer(&summary, 10, 5, false, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("80 attributed"), "got: {s}");
+        assert!(s.contains("100 total"), "got: {s}");
+    }
+
+    #[test]
+    fn print_coverage_summary_prints_source_stats() {
+        let summary = json!({
+            "attributed_records": 4,
+            "line_records": 10,
+            "unattributed_records": 0,
+            "unattributed_files": [],
+            "sources": [{
+                "src_file": "src/foo.adoc",
+                "covered_lines": 6,
+                "missed_lines": 4,
+                "total_lines": 10,
+                "sections": [{
+                    "source_section_breadcrumb": ["Module", "Parser"],
+                    "covered_lines": 3,
+                    "missed_lines": 2,
+                    "total_lines": 5
+                }]
+            }]
+        });
+        let mut out = Vec::new();
+        print_coverage_summary_to_writer(&summary, 10, 5, false, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("src/foo.adoc"), "got: {s}");
+        assert!(s.contains("Module / Parser"), "got: {s}");
+        assert!(s.contains("60.0%"), "got: {s}");
+    }
+
+    #[test]
+    fn print_coverage_summary_reports_unattributed_files() {
+        let summary = json!({
+            "attributed_records": 0,
+            "line_records": 5,
+            "unattributed_records": 5,
+            "sources": [],
+            "unattributed_files": [{
+                "generated_file": "gen/out.rs",
+                "covered_lines": 0,
+                "missed_lines": 5,
+                "total_lines": 5,
+                "has_noweb_entries": false,
+                "unmapped_ranges": []
+            }]
+        });
+        let mut out = Vec::new();
+        print_coverage_summary_to_writer(&summary, 10, 5, false, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("Unattributed"), "got: {s}");
+        assert!(s.contains("gen/out.rs"), "got: {s}");
+        assert!(s.contains("no noweb mapping"), "got: {s}");
+    }
+
+    // ── explain_unattributed_file ──────────────────────────────────────────
+
+    #[test]
+    fn explain_unattributed_file_emits_ranges() {
+        let file = json!({
+            "generated_file": "gen/out.rs",
+            "unmapped_ranges": [{"start": 10, "end": 12, "missed_count": 2}]
+        });
+        let mut out = Vec::new();
+        explain_unattributed_file(&file, false, &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("10-12"), "got: {s}");
+        assert!(s.contains("2 missed"), "got: {s}");
+    }
+
+    #[test]
+    fn explain_unattributed_file_skips_empty_ranges() {
+        let file = json!({"unmapped_ranges": []});
+        let mut out = Vec::new();
+        explain_unattributed_file(&file, false, &mut out).unwrap();
+        assert!(out.is_empty());
+    }
+
+    // ── build_coverage_summary_view ───────────────────────────────────────
+
+    #[test]
+    fn build_coverage_summary_view_truncates_sources_and_sections() {
+        let summary = json!({
+            "attributed_records": 10,
+            "unattributed_records": 0,
+            "line_records": 10,
+            "unattributed_files": [],
+            "sources": [
+                {"src_file": "a.adoc", "sections": [{"s": 1}, {"s": 2}, {"s": 3}]},
+                {"src_file": "b.adoc", "sections": [{"s": 4}]},
+                {"src_file": "c.adoc", "sections": []},
+            ]
+        });
+        let view = build_coverage_summary_view(&summary, 2, 1);
+        let sv = &view["summary_view"];
+        let srcs = sv["sources"].as_array().unwrap();
+        assert_eq!(srcs.len(), 2, "top_sources=2 → 2 sources");
+        // First source should have at most 1 section
+        let secs = srcs[0]["sections"].as_array().unwrap();
+        assert_eq!(secs.len(), 1, "top_sections=1 → 1 section");
+    }
+
+    #[test]
+    fn build_coverage_summary_view_preserves_metadata_fields() {
+        let summary = json!({
+            "attributed_records": 7,
+            "line_records": 10,
+            "unattributed_records": 3,
+            "unattributed_files": [],
+            "sources": []
+        });
+        let view = build_coverage_summary_view(&summary, 5, 5);
+        let sv = &view["summary_view"];
+        assert_eq!(sv["attributed_records"], 7);
+        assert_eq!(sv["line_records"], 10);
+        assert_eq!(sv["unattributed_records"], 3);
+    }
+
+    // ── emit_cargo_summary_message ────────────────────────────────────────
+
+    #[test]
+    fn emit_cargo_summary_message_outputs_json_with_reason() {
+        let mut out = Vec::new();
+        emit_cargo_summary_message(5, &[], &mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        let val: serde_json::Value = serde_json::from_str(s.trim()).unwrap();
+        assert_eq!(val["reason"], "weaveback-summary");
+        assert_eq!(val["compiler_message_count"], 5);
+        assert_eq!(val["generated_span_count"], 0);
+    }
+
+    // ── build_location_attribution_summary ────────────────────────────────
+
+    #[test]
+    fn build_location_attribution_summary_groups_by_source_and_section() {
+        let records = vec![
+            json!({
+                "location": "gen/a.rs:1:1",
+                "ok": true,
+                "trace": {
+                    "src_file": "src/foo.adoc",
+                    "chunk": "alpha",
+                    "source_section_breadcrumb": ["Root", "Foo"]
+                }
+            }),
+            json!({
+                "location": "gen/a.rs:2:1",
+                "ok": true,
+                "trace": {
+                    "src_file": "src/foo.adoc",
+                    "chunk": "alpha",
+                    "source_section_breadcrumb": ["Root", "Foo"]
+                }
+            }),
+            json!({
+                "location": "gen/b.rs:1:1",
+                "ok": true,
+                "trace": {
+                    "src_file": "src/bar.adoc",
+                    "chunk": "beta",
+                    "source_section_breadcrumb": ["Root", "Bar"]
+                }
+            }),
+        ];
+        let summary = build_location_attribution_summary(&records);
+        let sources = summary["sources"].as_array().unwrap();
+        assert_eq!(sources.len(), 2);
+        let foo = sources.iter().find(|s| s["src_file"] == "src/foo.adoc").unwrap();
+        assert_eq!(foo["count"], 2);
+    }
+
+    #[test]
+    fn build_location_attribution_summary_returns_empty_for_no_records() {
+        let summary = build_location_attribution_summary(&[]);
+        assert_eq!(summary["count"], 0);
+        assert!(summary["sources"].as_array().unwrap().is_empty());
+    }
 }
 // @
 ----

@@ -21,7 +21,7 @@ fn main() {
         ..Default::default()
     };
 
-    if let Err(e) = weaveback_api::mcp::run_mcp(cli.db, cli.gen_dir, eval_config) {
+    if let Err(e) = weaveback_api::mcp::run_mcp(std::io::stdin().lock(), std::io::stdout(), cli.db, cli.gen_dir, eval_config) {
         eprintln!("wb-mcp: {e}");
         std::process::exit(1);
     }

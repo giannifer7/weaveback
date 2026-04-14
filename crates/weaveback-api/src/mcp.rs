@@ -11,7 +11,7 @@ use weaveback_lsp::LspClient;
 use weaveback_core::PathResolver;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{self, BufRead};
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 fn get_or_spawn_lsp<'a>(
@@ -37,8 +37,7 @@ fn get_or_spawn_lsp<'a>(
     Ok(clients.get_mut(&lsp_lang).unwrap())
 }
 
-pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), std::io::Error> {
-    let stdin = io::stdin();
+pub fn run_mcp<R: BufRead, W: Write>(reader: R, mut writer: W, db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> Result<(), std::io::Error> {
     let mut lsp_clients: HashMap<String, LspClient> = HashMap::new();
     let agent_workspace = AgentWorkspace::open(AgentWorkspaceConfig {
         project_root: std::env::current_dir().unwrap_or_default(),
@@ -49,7 +48,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
     let project_root = std::env::current_dir().unwrap_or_default();
     let resolver = PathResolver::new(project_root, gen_dir.clone());
 
-    for line in stdin.lock().lines() {
+    for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
             Err(_) => break,
@@ -66,7 +65,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 
         match method {
             "initialize" => {
-                send_response(id, json!({
+                send_response(&mut writer, id, json!({
                     "protocolVersion": "2024-11-05",
                     "capabilities": { "tools": {} },
                     "serverInfo": { "name": "Weaveback Trace Server", "version": "0.1.0" }
@@ -74,7 +73,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
             }
 
             "tools/list" => {
-                send_response(id, json!({
+                send_response(&mut writer, id, json!({
                     "tools": [
                         {
                             "name": "weaveback_trace",
@@ -236,10 +235,20 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                                 "file": { "type": "string", "description": "Optional: filter to this source file (plain relative path, e.g. crates/weaveback-tangle/src/db.adoc)" }
                                             }
                                         }
+                                    },
+                                    {
+                                        "name": "weaveback_coverage",
+                                        "description": "Get test coverage summary grouped by literate source chunks and sections, sorted by missed lines. Use this to prioritize what to test. Requires a valid lcov.info file. Note: if no lcov_path is provided, defaults to 'lcov.info'.",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "lcov_path": { "type": "string", "description": "Path to the lcov.info file (defaults to lcov.info in the root directory)" }
+                                            }
+                                        }
                                     }
-                                    ]
-                                    }));
-                                    }
+                                ]
+                            }));
+                        }
 
             "tools/call" => {
                 let params = req.get("params").and_then(|p| p.as_object());
@@ -249,7 +258,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                 match tool_name {
                     Some("weaveback_trace") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|f| f.as_str()).unwrap_or("");
@@ -257,7 +266,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let out_col  = input.get("out_col") .and_then(|c| c.as_u64()).unwrap_or(0) as u32;
 
                         if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
                             continue;
                         }
                         match agent_session.trace(out_file, out_line, out_col) {
@@ -271,10 +280,10 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 if let Some(v) = res.kind { obj.insert("kind".into(), json!(v)); }
                                 if let Some(v) = res.macro_name { obj.insert("macro_name".into(), json!(v)); }
                                 if let Some(v) = res.param_name { obj.insert("param_name".into(), json!(v)); }
-                                send_text(id, &serde_json::to_string(&Value::Object(obj)).unwrap())
+                                send_text(&mut writer, id, &serde_json::to_string(&Value::Object(obj)).unwrap())
                             }
-                            Ok(None) => send_error(id, &format!("No mapping found for {}:{}", out_file, out_line)),
-                            Err(e) => send_error(id, &format!("Lookup error: {e}")),
+                            Ok(None) => send_error(&mut writer, id, &format!("No mapping found for {}:{}", out_file, out_line)),
+                            Err(e) => send_error(&mut writer, id, &format!("Lookup error: {e}")),
                         }
                     }
 
@@ -295,14 +304,14 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         };
                         let mut buf: Vec<u8> = Vec::new();
                         match apply_back::run_apply_back(opts, &mut buf) {
-                            Ok(()) => send_text(id, &String::from_utf8_lossy(&buf)),
-                            Err(e) => send_error(id, &format!("{:?}", e)),
+                            Ok(()) => send_text(&mut writer, id, &String::from_utf8_lossy(&buf)),
+                            Err(e) => send_error(&mut writer, id, &format!("{:?}", e)),
                         }
                     }
 
                     Some("weaveback_apply_fix") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let src_file   = input.get("src_file")       .and_then(|v| v.as_str()).unwrap_or("");
@@ -320,11 +329,11 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let expected   = input.get("expected_output") .and_then(|v| v.as_str()).unwrap_or("");
 
                         if src_line_1 == 0 {
-                            send_error(id, "src_line must be >= 1");
+                            send_error(&mut writer, id, "src_line must be >= 1");
                             continue;
                         }
                         if src_line_end_1 < src_line_1 {
-                            send_error(id, "src_line_end must be >= src_line");
+                            send_error(&mut writer, id, "src_line_end must be >= src_line");
                             continue;
                         }
 
@@ -349,7 +358,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             }],
                         };
                         match agent_session.apply_change_plan(&plan) {
-                            Ok(result) if result.applied => send_text(
+                            Ok(result) if result.applied => send_text(&mut writer,
                                 id,
                                 &format!(
                                     "Applied ChangePlan {} with edits: {}",
@@ -357,7 +366,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     result.applied_edit_ids.join(", ")
                                 ),
                             ),
-                            Ok(result) => send_error(
+                            Ok(result) => send_error(&mut writer,
                                 id,
                                 &format!(
                                     "Failed ChangePlan {}. Failed edits: {}",
@@ -365,20 +374,20 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     result.failed_edit_ids.join(", ")
                                 ),
                             ),
-                            Err(e)  => send_error(id, &e),
+                            Err(e)  => send_error(&mut writer, id, &e),
                         }
                     }
 
                     Some("weaveback_chunk_context") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let file = input.get("file").and_then(|v| v.as_str()).unwrap_or("");
                         let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         let nth  = input.get("nth").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                         if file.is_empty() || name.is_empty() {
-                            send_error(id, "file and name are required");
+                            send_error(&mut writer, id, "file and name are required");
                             continue;
                         }
                         match agent_session.chunk_context(file, name, nth) {
@@ -393,9 +402,9 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     "dependencies": ctx.direct_dependencies,
                                     "output_files": ctx.outputs,
                                 });
-                                send_text(id, &serde_json::to_string_pretty(&obj).unwrap());
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&obj).unwrap());
                             }
-                            Err(_) => send_error(id, &format!("Chunk not found: {}#{}[{}]", file, name, nth)),
+                            Err(_) => send_error(&mut writer, id, &format!("Chunk not found: {}#{}[{}]", file, name, nth)),
                         }
                     }
 
@@ -404,13 +413,13 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             .and_then(|i| i.get("file"))
                             .and_then(|v| v.as_str());
                         if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
                             continue;
                         }
                         match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Err(e) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
                             Ok(db) => match db.list_chunk_defs(file_filter) {
-                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
+                                Err(e) => send_error(&mut writer, id, &format!("Query error: {e:?}")),
                                 Ok(defs) => {
                                     let arr: Vec<Value> = defs.iter().map(|d| json!({
                                         "file":      d.src_file,
@@ -419,7 +428,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                         "def_start": d.def_start,
                                         "def_end":   d.def_end,
                                     })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                    send_text(&mut writer, id, &serde_json::to_string_pretty(&arr).unwrap());
                                 }
                             },
                         }
@@ -427,22 +436,22 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 
                     Some("weaveback_find_chunk") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         if name.is_empty() {
-                            send_error(id, "name is required");
+                            send_error(&mut writer, id, "name is required");
                             continue;
                         }
                         if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
                             continue;
                         }
                         match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Err(e) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
                             Ok(db) => match db.find_chunk_defs_by_name(name) {
-                                Err(e) => send_error(id, &format!("Query error: {e:?}")),
+                                Err(e) => send_error(&mut writer, id, &format!("Query error: {e:?}")),
                                 Ok(defs) => {
                                     let arr: Vec<Value> = defs.iter().map(|d| json!({
                                         "file":      d.src_file,
@@ -450,7 +459,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                         "def_start": d.def_start,
                                         "def_end":   d.def_end,
                                     })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                    send_text(&mut writer, id, &serde_json::to_string_pretty(&arr).unwrap());
                                 }
                             },
                         }
@@ -458,7 +467,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
 
                     Some("weaveback_lsp_definition") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
@@ -466,21 +475,21 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let col      = input.get("col").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
                         if out_file.is_empty() || line == 0 || col == 0 {
-                            send_error(id, "out_file, line, and col are required and must be > 0");
+                            send_error(&mut writer, id, "out_file, line, and col are required and must be > 0");
                             continue;
                         }
 
                         let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
                         let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
                             Ok(c) => c,
-                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                            Err(e) => { send_error(&mut writer, id, &format!("LSP error: {e}")); continue; }
                         };
 
                         match client.goto_definition(std::path::Path::new(out_file), line - 1, col - 1) {
                             Ok(Some(loc)) => {
                                 if let Ok(target_path) = loc.uri.to_file_path() {
                                     let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
-                                    let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+                                    let db = match db { Some(d) => d, None => { send_error(&mut writer, id, "Database not found"); continue; } };
 
                                     match lookup::perform_trace(
                                         target_path.to_string_lossy().as_ref(),
@@ -490,27 +499,27 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                         &resolver,
                                         eval_config.clone(),
                                     ) {
-                                        Ok(Some(res)) => send_text(id, &serde_json::to_string_pretty(&res).unwrap()),
-                                        Ok(None) => send_text(id, &serde_json::to_string_pretty(&json!({
+                                        Ok(Some(res)) => send_text(&mut writer, id, &serde_json::to_string_pretty(&res).unwrap()),
+                                        Ok(None) => send_text(&mut writer, id, &serde_json::to_string_pretty(&json!({
                                             "out_file": target_path.to_string_lossy(),
                                             "out_line": loc.range.start.line + 1,
                                             "out_col":  loc.range.start.character + 1,
                                             "note": "LSP result could not be mapped to source"
                                         })).unwrap()),
-                                        Err(e) => send_error(id, &format!("Mapping error: {e:?}")),
+                                        Err(e) => send_error(&mut writer, id, &format!("Mapping error: {e:?}")),
                                     }
                                 } else {
-                                    send_error(id, "LSP returned non-file URI");
+                                    send_error(&mut writer, id, "LSP returned non-file URI");
                                 }
                             }
-                            Ok(None) => send_text(id, "No definition found."),
-                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                            Ok(None) => send_text(&mut writer, id, "No definition found."),
+                            Err(e) => send_error(&mut writer, id, &format!("LSP call failed: {e}")),
                         }
                     }
 
                     Some("weaveback_lsp_references") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
@@ -518,21 +527,21 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let col      = input.get("col").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
                         if out_file.is_empty() || line == 0 || col == 0 {
-                            send_error(id, "out_file, line, and col are required and must be > 0");
+                            send_error(&mut writer, id, "out_file, line, and col are required and must be > 0");
                             continue;
                         }
 
                         let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
                         let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
                             Ok(c) => c,
-                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                            Err(e) => { send_error(&mut writer, id, &format!("LSP error: {e}")); continue; }
                         };
 
                         match client.find_references(std::path::Path::new(out_file), line - 1, col - 1) {
                             Ok(locs) => {
                                 let mut results = Vec::new();
                                 let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
-                                let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+                                let db = match db { Some(d) => d, None => { send_error(&mut writer, id, "Database not found"); continue; } };
 
                                 for loc in locs {
                                     if let Ok(target_path) = loc.uri.to_file_path() {
@@ -554,15 +563,15 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                         }
                                     }
                                 }
-                                send_text(id, &serde_json::to_string_pretty(&results).unwrap());
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&results).unwrap());
                             }
-                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                            Err(e) => send_error(&mut writer, id, &format!("LSP call failed: {e}")),
                         }
                     }
 
                     Some("weaveback_lsp_hover") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
@@ -570,20 +579,20 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                         let col      = input.get("col").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
                         if out_file.is_empty() || line == 0 || col == 0 {
-                            send_error(id, "out_file, line, and col are required and must be > 0");
+                            send_error(&mut writer, id, "out_file, line, and col are required and must be > 0");
                             continue;
                         }
 
                         let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
                         let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
                             Ok(c) => c,
-                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                            Err(e) => { send_error(&mut writer, id, &format!("LSP error: {e}")); continue; }
                         };
 
                         match client.hover(std::path::Path::new(out_file), line - 1, col - 1) {
                             Ok(Some(hover)) => {
                                 let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
-                                let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+                                let db = match db { Some(d) => d, None => { send_error(&mut writer, id, "Database not found"); continue; } };
 
                                 // Also trace the current point to show which chunk we are in
                                 let trace = lookup::perform_trace(out_file, line, col, &db, &resolver, eval_config.clone()).ok().flatten();
@@ -594,33 +603,33 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 if let Some(t) = trace {
                                     res.as_object_mut().unwrap().insert("source".into(), t);
                                 }
-                                send_text(id, &serde_json::to_string_pretty(&res).unwrap());
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&res).unwrap());
                             }
-                            Ok(None) => send_text(id, "No hover info found."),
-                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                            Ok(None) => send_text(&mut writer, id, "No hover info found."),
+                            Err(e) => send_error(&mut writer, id, &format!("LSP call failed: {e}")),
                         }
                     }
 
                     Some("weaveback_lsp_diagnostics") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
                         if out_file.is_empty() {
-                            send_error(id, "out_file is required");
+                            send_error(&mut writer, id, "out_file is required");
                             continue;
                         }
 
                         let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
                         let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
                             Ok(c) => c,
-                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                            Err(e) => { send_error(&mut writer, id, &format!("LSP error: {e}")); continue; }
                         };
 
                         let diags = client.get_diagnostics(std::path::Path::new(out_file));
                         let db = if db_path.exists() { WeavebackDb::open_read_only(&db_path).ok() } else { None };
-                        let db = match db { Some(d) => d, None => { send_error(id, "Database not found"); continue; } };
+                        let db = match db { Some(d) => d, None => { send_error(&mut writer, id, "Database not found"); continue; } };
 
                         let mut mapped = Vec::new();
                         for d in diags {
@@ -632,31 +641,31 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                 "source": trace,
                             }));
                         }
-                        send_text(id, &serde_json::to_string_pretty(&mapped).unwrap());
+                        send_text(&mut writer, id, &serde_json::to_string_pretty(&mapped).unwrap());
                     }
 
                     Some("weaveback_lsp_symbols") => {
                         let Some(input) = input else {
-                            send_error(id, "Missing arguments");
+                            send_error(&mut writer, id, "Missing arguments");
                             continue;
                         };
                         let out_file = input.get("out_file").and_then(|v| v.as_str()).unwrap_or("");
                         if out_file.is_empty() {
-                            send_error(id, "out_file is required");
+                            send_error(&mut writer, id, "out_file is required");
                             continue;
                         }
 
                         let ext = std::path::Path::new(out_file).extension().and_then(|e| e.to_str()).unwrap_or("");
                         let client = match get_or_spawn_lsp(&mut lsp_clients, ext) {
                             Ok(c) => c,
-                            Err(e) => { send_error(id, &format!("LSP error: {e}")); continue; }
+                            Err(e) => { send_error(&mut writer, id, &format!("LSP error: {e}")); continue; }
                         };
 
                         match client.document_symbols(std::path::Path::new(out_file)) {
                             Ok(symbols) => {
-                                send_text(id, &serde_json::to_string_pretty(&symbols).unwrap());
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&symbols).unwrap());
                             }
-                            Err(e) => send_error(id, &format!("LSP call failed: {e}")),
+                            Err(e) => send_error(&mut writer, id, &format!("LSP call failed: {e}")),
                         }
                     }
 
@@ -666,7 +675,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
                         if query.is_empty() {
-                            send_error(id, "query is required");
+                            send_error(&mut writer, id, "query is required");
                             continue;
                         }
                         let limit = input.as_ref()
@@ -674,11 +683,11 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             .and_then(|v| v.as_u64())
                             .unwrap_or(10) as usize;
                         if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
                             continue;
                         }
                         match agent_session.search(query, limit) {
-                            Err(e) => send_error(id, &format!("Search error: {e}")),
+                            Err(e) => send_error(&mut writer, id, &format!("Search error: {e}")),
                             Ok(results) => {
                                 let arr: Vec<Value> = results.iter().map(|r| {
                                     let mut obj = json!({
@@ -695,7 +704,7 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                     }
                                     obj
                                 }).collect();
-                                send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&arr).unwrap());
                             }
                         }
                     }
@@ -705,13 +714,13 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                             .and_then(|v| v.get("file"))
                             .and_then(|v| v.as_str());
                         if !db_path.exists() {
-                            send_error(id, "Database not found. Run weaveback on your source files first.");
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
                             continue;
                         }
                         match WeavebackDb::open_read_only(&db_path) {
-                            Err(e) => send_error(id, &format!("Database error: {e:?}")),
+                            Err(e) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
                             Ok(db) => match db.list_block_tags(file_filter) {
-                                Err(e) => send_error(id, &format!("Tag list error: {e:?}")),
+                                Err(e) => send_error(&mut writer, id, &format!("Tag list error: {e:?}")),
                                 Ok(blocks) => {
                                     let arr: Vec<Value> = blocks.iter().map(|b| json!({
                                         "src_file":    b.src_file,
@@ -720,13 +729,39 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
                                         "line_start":  b.line_start,
                                         "tags":        b.tags,
                                     })).collect();
-                                    send_text(id, &serde_json::to_string_pretty(&arr).unwrap());
+                                    send_text(&mut writer, id, &serde_json::to_string_pretty(&arr).unwrap());
                                 }
                             },
                         }
                     }
 
-                    other => send_error(id, &format!("Unknown tool: {:?}", other)),
+                    Some("weaveback_coverage") => {
+                        let lcov_path = input.as_ref()
+                            .and_then(|v| v.get("lcov_path"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("lcov.info");
+                        let path = std::path::Path::new(lcov_path);
+                        if !path.exists() {
+                            send_error(&mut writer, id, &format!("lcov file not found at {}", path.display()));
+                            continue;
+                        }
+                        if !db_path.exists() {
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match (std::fs::read_to_string(path), WeavebackDb::open_read_only(&db_path)) {
+                            (Ok(lcov_text), Ok(db)) => {
+                                let records = crate::coverage::parse_lcov_records(&lcov_text);
+                                let prj_root = std::env::current_dir().unwrap_or_default();
+                                let summary = crate::coverage::build_coverage_summary(&records, &db, &prj_root, &resolver);
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&summary).unwrap());
+                            }
+                            (Err(e), _) => send_error(&mut writer, id, &format!("Error reading {lcov_path}: {e}")),
+                            (_, Err(e)) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
+                        }
+                    }
+
+                    other => send_error(&mut writer, id, &format!("Unknown tool: {:?}", other)),
                 }
             }
 
@@ -737,23 +772,23 @@ pub fn run_mcp(db_path: PathBuf, gen_dir: PathBuf, eval_config: EvalConfig) -> R
     Ok(())
 }
 
-fn send_response(id: Option<Value>, result: Value) {
+fn send_response<W: Write>(writer: &mut W, id: Option<Value>, result: Value) {
     let mut resp = json!({ "jsonrpc": "2.0" });
     if let Some(id) = id {
         resp.as_object_mut().unwrap().insert("id".to_string(), id);
         resp.as_object_mut().unwrap().insert("result".to_string(), result);
     }
-    println!("{}", serde_json::to_string(&resp).unwrap());
+    let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap());
 }
 
-fn send_text(id: Option<Value>, text: &str) {
-    send_response(id, json!({
+fn send_text<W: Write>(writer: &mut W, id: Option<Value>, text: &str) {
+    send_response(writer, id, json!({
         "content": [{ "type": "text", "text": text }]
     }));
 }
 
-fn send_error(id: Option<Value>, msg: &str) {
-    send_response(id, json!({
+fn send_error<W: Write>(writer: &mut W, id: Option<Value>, msg: &str) {
+    send_response(writer, id, json!({
         "isError": true,
         "content": [{ "type": "text", "text": msg }]
     }));
@@ -802,5 +837,25 @@ mod tests {
         assert!(names.contains(&"weaveback_trace"));
         assert!(names.contains(&"weaveback_apply_fix"));
         assert!(names.contains(&"weaveback_chunk_context"));
+    }
+    #[test]
+    fn test_run_mcp_loop() {
+        let input = r#"{"jsonrpc":"2.0","id":100,"method":"initialize"}
+{"jsonrpc":"2.0","id":101,"method":"tools/list"}
+"#;
+        let reader = std::io::Cursor::new(input);
+        let mut writer = Vec::new();
+        let db_path = PathBuf::from("nonexistent.db");
+        let gen_dir = PathBuf::from("gen");
+        let eval_config = EvalConfig::default();
+
+        let result = run_mcp(reader, &mut writer, db_path, gen_dir, eval_config);
+        assert!(result.is_ok());
+
+        let output = String::from_utf8(writer).unwrap();
+        assert!(output.contains("\"id\":100"));
+        assert!(output.contains("\"protocolVersion\":\"2024-11-05\""));
+        assert!(output.contains("\"id\":101"));
+        assert!(output.contains("weaveback_trace"));
     }
 }

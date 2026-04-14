@@ -1096,4 +1096,105 @@ mod tests {
         assert!(out.contains("chunk-a"));
         assert!(!out.contains("chunk-b"));
     }
+
+    // ── LSP integration tests (real rust-analyzer) ────────────────────────
+    //
+    // These tests spin up the real `rust-analyzer` binary against the live
+    // workspace so that the LSP dispatch arms in `run_mcp` are exercised.
+    // They are marked `#[ignore]` so `cargo test` skips them by default;
+    // run with `cargo test -- --ignored` to include them.
+
+    fn mcp_workspace_root() -> std::path::PathBuf {
+        let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        loop {
+            let candidate = dir.join("Cargo.toml");
+            if candidate.exists() {
+                if let Ok(txt) = std::fs::read_to_string(&candidate) {
+                    if txt.contains("[workspace]") { return dir; }
+                }
+            }
+            if !dir.pop() { break; }
+        }
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    fn mcp_rs_path() -> std::path::PathBuf {
+        mcp_workspace_root().join("crates/weaveback-api/src/mcp.rs")
+    }
+
+    fn lsp_mcp_drive(ws: &McpWorkspace, req: &str) -> String {
+        // Use real db so DB presence check passes for LSP tools.
+        ws.open_db();
+        mcp_drive(ws, req)
+    }
+
+    #[test]
+    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
+    fn mcp_lsp_hover_reaches_handler() {
+        let ws = McpWorkspace::new();
+        let mcp_rs = mcp_rs_path();
+        if !mcp_rs.exists() { return; } // tangle not run yet
+        let out_file = mcp_rs.to_string_lossy().into_owned();
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_hover\",\"arguments\":{{\"out_file\":\"{out_file}\",\"line\":40,\"col\":8}}}}}}\n"
+        );
+        let out = lsp_mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":40"), "unexpected output: {out}");
+    }
+
+    #[test]
+    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
+    fn mcp_lsp_symbols_reaches_handler() {
+        let ws = McpWorkspace::new();
+        let mcp_rs = mcp_rs_path();
+        if !mcp_rs.exists() { return; }
+        let out_file = mcp_rs.to_string_lossy().into_owned();
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_symbols\",\"arguments\":{{\"out_file\":\"{out_file}\"}}}}}}\n"
+        );
+        let out = lsp_mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":50"), "unexpected output: {out}");
+    }
+
+    #[test]
+    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
+    fn mcp_lsp_definition_reaches_handler() {
+        let ws = McpWorkspace::new();
+        let mcp_rs = mcp_rs_path();
+        if !mcp_rs.exists() { return; }
+        let out_file = mcp_rs.to_string_lossy().into_owned();
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":60,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_definition\",\"arguments\":{{\"out_file\":\"{out_file}\",\"line\":40,\"col\":8}}}}}}\n"
+        );
+        let out = lsp_mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":60"), "unexpected output: {out}");
+    }
+
+    #[test]
+    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
+    fn mcp_lsp_references_reaches_handler() {
+        let ws = McpWorkspace::new();
+        let mcp_rs = mcp_rs_path();
+        if !mcp_rs.exists() { return; }
+        let out_file = mcp_rs.to_string_lossy().into_owned();
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":70,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_references\",\"arguments\":{{\"out_file\":\"{out_file}\",\"line\":40,\"col\":8}}}}}}\n"
+        );
+        let out = lsp_mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":70"), "unexpected output: {out}");
+    }
+
+    #[test]
+    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
+    fn mcp_lsp_diagnostics_reaches_handler() {
+        let ws = McpWorkspace::new();
+        let mcp_rs = mcp_rs_path();
+        if !mcp_rs.exists() { return; }
+        let out_file = mcp_rs.to_string_lossy().into_owned();
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_diagnostics\",\"arguments\":{{\"out_file\":\"{out_file}\"}}}}}}\n"
+        );
+        let out = lsp_mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":80"), "unexpected output: {out}");
+    }
 }

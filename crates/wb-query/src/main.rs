@@ -18,7 +18,7 @@ enum Error {
     #[error("{0}")]
     Lint(String),
     #[error("{0}")]
-    Coverage(#[from] weaveback_api::coverage::CoverageError),
+    Coverage(#[from] weaveback_api::coverage::CoverageApiError),
 }
 
 impl From<weaveback_tangle::db::DbError> for Error {

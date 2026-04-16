@@ -479,6 +479,6 @@ way to keep the tool honest.
   the macro expander in detail: lexer, parser, evaluator, scripting
 * link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle] —
   chunk extraction, safe writer, database schema
-* link:../crates/weaveback/src/apply_back.adoc[apply-back] — how bidirectional
+* link:../crates/weaveback-api/src/apply_back.adoc[apply-back] — how bidirectional
   propagation works in detail
 * link:../docs/m4-comparison.adoc[m4-comparison] — why not m4, point by point

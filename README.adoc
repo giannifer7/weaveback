@@ -192,7 +192,7 @@ rather than blind generation.
 editing, and an AI assistant panel that receives full chunk context: source
 body, surrounding prose and design notes, dependency bodies.
 
-image::docs/ai-panel.png[AI assistant panel,width=700]
+image::../ai-panel.png[AI assistant panel,width=700]
 
 ---
 

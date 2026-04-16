@@ -12,7 +12,7 @@ Each example is its own working project: run it, read it, modify it.
 
 == hello-world — first steps
 
-link:../docs/html/examples/hello-world/hello.html[Read the literate source]
+link:hello-world/hello.html[Read the literate source]
 
 The smallest possible weaveback program.
 Introduces the two building blocks: a *macro* that wraps a `printf` call, and a
@@ -35,7 +35,7 @@ just run       # tangle → compile → execute
 
 == c_enum — single source of truth
 
-link:../docs/html/examples/c_enum/status.html[Read the literate source]
+link:c_enum/status.html[Read the literate source]
 
 A C enum whose values are declared *exactly once*.
 A single `%enum_val` call simultaneously appends one line to the enum body
@@ -79,7 +79,7 @@ const char *status_as_string(Status s) {
 
 == events — fan-out from a single declaration
 
-link:../docs/html/examples/events/events.html[Read the literate source]
+link:events/events.html[Read the literate source]
 
 The centrepiece example.
 One `%event(id, ns, name, description)` call fans out simultaneously into:
@@ -112,7 +112,7 @@ weaveback events.adoc --gen .
 
 == memory_safe_c — structural macros and @reversed
 
-link:../docs/html/examples/memory_safe_c/memory.html[Read the literate source]
+link:memory_safe_c/memory.html[Read the literate source]
 
 A session-management library in C where `malloc`/`free` pairs are guaranteed
 to match because both are generated from the same `%def_member` call.
@@ -147,7 +147,7 @@ Freeing pointer field: username
 
 == python_tool — querying weaveback.db
 
-link:../docs/html/examples/python_tool/tool.html[Read the literate source]
+link:python_tool/tool.html[Read the literate source]
 
 Generates a Python CLI tool that queries `weaveback.db` directly — the SQLite
 database that weaveback writes after every run.
@@ -170,7 +170,7 @@ just list    # list source files and chunk names
 
 == visualization — interactive chunk graph
 
-link:../docs/html/examples/visualization/visualize.html[Read the literate source]
+link:visualization/visualize.html[Read the literate source]
 
 Generates a D3.js force-directed graph of the chunk dependency graph from any
 `weaveback.db`.
@@ -192,7 +192,7 @@ just serve   # tangle → generate graph.json → open http://localhost:8000
 
 == nim-adoc — real-world use
 
-link:../docs/html/examples/nim-adoc/config.nim.html[Read the literate source]
+link:nim-adoc/config.nim.html[Read the literate source]
 
 A configuration module from the link:https://github.com/giannifer7/rompla[rompla]
 project, kept in weaveback literate source.
@@ -214,7 +214,7 @@ just example-nim-adoc
 
 == graph-prototype — chunk graph as a property graph
 
-link:../docs/html/examples/graph-prototype/graph-prototype.html[Read the documentation]
+link:graph-prototype/graph-prototype.html[Read the documentation]
 
 An experimental Rust program that reads `weaveback.db` and imports the chunk
 dependency graph into link:https://github.com/kuzudb/kuzu[LadybugDB] — a
@@ -225,16 +225,16 @@ SQL joins:
 
 [source,cypher]
 ----
--- find all chunks defined in weaveback.adoc and their transitive dependencies
+-- find all chunks defined in weaveback_tangle.adoc and their transitive dependencies
 MATCH (f:File)-[:DEFINES]->(a:Chunk)-[:REFERENCES*1..3]->(b:Chunk)
-WHERE f.path = 'crates/weaveback/src/weaveback.adoc'
+WHERE f.path = 'crates/weaveback-tangle/src/weaveback_tangle.adoc'
 RETURN DISTINCT a.name, b.name
 ----
 
 [source,sh]
 ----
 # run weaveback first so weaveback.db exists
-weaveback crates/weaveback/src/weaveback.adoc --gen crates/weaveback/src
+weaveback crates/weaveback-tangle/src/weaveback_tangle.adoc --gen crates/weaveback/src
 cd examples/graph-prototype
 cargo run
 ----
@@ -256,6 +256,6 @@ future `weaveback graph --format lbdb` export mode, not a finished tool.
 == Further reading
 
 [horizontal]
-link:../docs/html/docs/index.html[Documentation]:: architecture, CLI reference, apply-back workflow
-link:../docs/html/crates/weaveback/src/weaveback.html[weaveback source]:: the tool itself, written in weaveback
+link:../docs/index.html[Documentation]:: architecture, CLI reference, apply-back workflow
+link:../crates/weaveback-tangle/src/weaveback_tangle.html[weaveback source]:: the tool itself, written in weaveback
 Agent skill:: `.agent/skills/weaveback_literate_programming/SKILL.md` — MCP tool reference for AI assistants

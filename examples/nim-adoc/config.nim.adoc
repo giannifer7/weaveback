@@ -6,7 +6,7 @@
 
 This module loads, validates, and provides defaults for all application
 configuration sourced from a TOML file. It is imported by
-link:main.nim.html[`main.nim`] during startup and by other modules that need
+`main.nim` during startup and by other modules that need
 path or playback settings.
 
 .Section index
@@ -260,7 +260,7 @@ macro pattern and stays manual.
 == Types
 
 `ConfigNotFoundError` is raised by `createDefaultConfig` when no config file
-exists; link:main.nim.html[`main.nim`] catches it to display a helpful
+exists; `main.nim` catches it to display a helpful
 first-run message.
 
 The `Config` type groups fields by section. The macro-generated slots
@@ -485,7 +485,7 @@ macro-generated slots inject entries in macro-call order from
 <<sec-db-fields>>, <<sec-path-fields>>, and <<sec-playback-fields>>.
 
 `createDefaultConfig` writes the template to the XDG config home and raises
-`ConfigNotFoundError` so link:main.nim.html[`main.nim`] can show a
+`ConfigNotFoundError` so `main.nim` can show a
 first-run message.
 
 [source,nim]

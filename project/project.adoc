@@ -901,7 +901,7 @@ RUN mkdir -p /out \
 
 Nix flake: pre-built musl binaries for x86_64-linux + dev shell.
 
-NOTE: `flake.nix` is owned by link:../packaging/update_release.py[packaging/update_release.py]
+NOTE: `flake.nix` is owned by link:https://github.com/giannifer7/weaveback/blob/main/packaging/update_release.py[packaging/update_release.py]
 (`flake()` function), which rewrites it on each release with fresh SHA-256 hashes.
 It is not tangled from this document — the block below is a snapshot for reference only.
 

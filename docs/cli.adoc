@@ -133,9 +133,9 @@ wb-mcp
 
 For full flag-by-flag details, read the tool-specific pages:
 
-* link:../crates/wb-tangle/src/main.html[`wb-tangle`]
-* link:../crates/wb-query/src/main.html[`wb-query`]
-* link:../crates/wb-serve/src/main.html[`wb-serve`]
-* link:../crates/wb-mcp/src/main.html[`wb-mcp`]
-* link:../cli-spec/macros.html[`cli-spec/macros.adoc`] for the shared option
+* link:../crates/wb-tangle/src/main.adoc[`wb-tangle`]
+* link:../crates/wb-query/src/main.adoc[`wb-query`]
+* link:../crates/wb-serve/src/main.adoc[`wb-serve`]
+* link:../crates/wb-mcp/src/main.adoc[`wb-mcp`]
+* link:../cli-spec/macros.adoc[`cli-spec/macros.adoc`] for the shared option
   families used by the generated CLI code

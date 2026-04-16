@@ -4,17 +4,17 @@
 This directory no longer defines one combined `weaveback` binary. The CLI is
 split across four focused tools:
 
-* link:../crates/wb-tangle/src/main.html[`wb-tangle`] for tangling and
+* link:../crates/wb-tangle/src/main.adoc[`wb-tangle`] for tangling and
   apply-back
-* link:../crates/wb-query/src/main.html[`wb-query`] for attribution, search,
+* link:../crates/wb-query/src/main.adoc[`wb-query`] for attribution, search,
   coverage, cargo diagnostics, tagging, and LSP queries
-* link:../crates/wb-serve/src/main.html[`wb-serve`] for the local docs server
-* link:../crates/wb-mcp/src/main.html[`wb-mcp`] for MCP / agent integration
+* link:../crates/wb-serve/src/main.adoc[`wb-serve`] for the local docs server
+* link:../crates/wb-mcp/src/main.adoc[`wb-mcp`] for MCP / agent integration
 
 The role of `cli-spec/` is now narrower and easier to read, but it is still
 fully generative:
 
-1. link:macros.html[`macros.adoc`] defines shared option-family macros
+1. link:macros.adoc[`macros.adoc`] defines shared option-family macros
 2. each standalone CLI spec imports those macros and generates its own
    `cli_generated.rs`
 3. this file generates the public cross-binary CLI reference page
@@ -192,11 +192,11 @@ wb-mcp
 
 For full flag-by-flag details, read the tool-specific pages:
 
-* link:../crates/wb-tangle/src/main.html[`wb-tangle`]
-* link:../crates/wb-query/src/main.html[`wb-query`]
-* link:../crates/wb-serve/src/main.html[`wb-serve`]
-* link:../crates/wb-mcp/src/main.html[`wb-mcp`]
-* link:../cli-spec/macros.html[`cli-spec/macros.adoc`] for the shared option
+* link:../crates/wb-tangle/src/main.adoc[`wb-tangle`]
+* link:../crates/wb-query/src/main.adoc[`wb-query`]
+* link:../crates/wb-serve/src/main.adoc[`wb-serve`]
+* link:../crates/wb-mcp/src/main.adoc[`wb-mcp`]
+* link:../cli-spec/macros.adoc[`cli-spec/macros.adoc`] for the shared option
   families used by the generated CLI code
 // @
 ----

@@ -6,11 +6,11 @@
   outputs = { self, nixpkgs }:
     let
       lib     = nixpkgs.lib;
-      version = "0.11.0";
+      version = "0.12.4";
       base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
 
       # Pre-built musl binaries are x86_64-linux only.
-      # They package the CLI tools, which are a good fit for Nix consumption.
+      # They package the split CLI and supporting tools.
       #
       # The PyO3 extension is intentionally *not* exposed here as a pre-built
       # Nix package because it is Python-ABI- and platform-specific: for that
@@ -31,13 +31,33 @@
         installPhase = "install -Dm755 $src $out/bin/${pname}";
       };
 
+      cliBundle = linuxPkgs.stdenv.mkDerivation {
+        pname      = "weaveback-cli";
+        inherit version;
+        src        = linuxPkgs.fetchurl { url = "${base}/weaveback-x86_64-linux.tar.gz"; sha256 = "sha256-cb6dnpgOtycx9Ta82Fm9Y48rEAqBAo5PISbCfJfUi7c="; };
+        dontUnpack = false;
+        installPhase = ''
+          install -Dm755 wb-tangle        $out/bin/wb-tangle
+          install -Dm755 wb-query         $out/bin/wb-query
+          install -Dm755 wb-serve         $out/bin/wb-serve
+          install -Dm755 wb-mcp           $out/bin/wb-mcp
+          install -Dm755 weaveback-macro  $out/bin/weaveback-macro
+          install -Dm755 weaveback-tangle $out/bin/weaveback-tangle
+          install -Dm755 weaveback-docgen $out/bin/weaveback-docgen
+        '';
+      };
+
     in {
 
       packages.x86_64-linux = {
-        default          = releaseBin { pname = "weaveback";         sha256 = "sha256-w3ZyV2Bg1NIZcA7esAK9uqnOo8Uhu33nPlCaGGHGBvw="; };
-        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-kOxI4YF9sE/Qi6qdxhCvchR/kb7YGp07biw8ZUMcgGY="; };
-        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-GjbtVejX4HxpyTobPJsSdd5x7xCeATbXCLZAaQ6l0E4="; };
-        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-2rtQtC6/MgfxO9rJwFPy5FIDpOmdYaoz+ycN4XlX+6Q="; };
+        default          = cliBundle;
+        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-26zsZgH109HQIXEKZETqqY1Ww6dSkw6RiQH97gvxKsg="; };
+        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-bzq8ScdKT5Y+JhNXpH6bVOPRCa+Te5WT1w7h/DIYEhY="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-5dem2Z2aiJSCTCUfzoq2oa6T2ZJekYSmTY4UOgsSEE8="; };
+        wb-tangle        = releaseBin { pname = "wb-tangle";         sha256 = "sha256-b/Fo/SuksFXha6J3ygTufE1zIbJ31Y2vng3iKHv6bck="; };
+        wb-query         = releaseBin { pname = "wb-query";          sha256 = "sha256-F8RKJvCkMMwNtLIVWo5FHHy2ZnU261bWVbBQo5eYZPE="; };
+        wb-serve         = releaseBin { pname = "wb-serve";          sha256 = "sha256-pmlyM5z6E8l/H/rxdhRGxklRn38GfM9IPiaP7FVxxRA="; };
+        wb-mcp           = releaseBin { pname = "wb-mcp";            sha256 = "sha256-oxrQTmHKZcVBGks0MJtF16me9bPGe4OaNPTD/FnkzJA="; };
       };
 
       # Full documentation + development toolchain.

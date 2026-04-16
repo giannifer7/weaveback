@@ -34,7 +34,7 @@
       cliBundle = linuxPkgs.stdenv.mkDerivation {
         pname      = "weaveback-cli";
         inherit version;
-        src        = linuxPkgs.fetchurl { url = "${base}/weaveback-x86_64-linux.tar.gz"; sha256 = "sha256-cb6dnpgOtycx9Ta82Fm9Y48rEAqBAo5PISbCfJfUi7c="; };
+        src        = linuxPkgs.fetchurl { url = "${base}/weaveback-x86_64-linux.tar.gz"; sha256 = "sha256-hIuMi3Br6jBNJxTctkDMc3Dgx4I1L3DyIv5zDybhJQI="; };
         dontUnpack = false;
         installPhase = ''
           install -Dm755 wb-tangle        $out/bin/wb-tangle

@@ -244,7 +244,7 @@ use weaveback_tangle::db::WeavebackDb;
 /// errors.  Caller is responsible for printing a human-readable error.
 pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
     let project_root = args.project_root.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let mut db = WeavebackDb::open(&args.db).map_err(|e| e.to_string())?;
+    let _db = WeavebackDb::open(&args.db).map_err(|e| e.to_string())?;
     let pathsep: String = if cfg!(windows) { ";".to_string() } else { ":".to_string() };
     let include_paths: Vec<PathBuf> = args.include.split(&pathsep).map(PathBuf::from).collect();
 
@@ -405,10 +405,8 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
     // Re-open for final configs and FTS rebuild
     if let Ok(mut db) = weaveback_tangle::db::WeavebackDb::open(&args.db) {
         let _ = db.set_run_config("gen_dir", &args.gen_dir.to_string_lossy());
-        if !args.no_fts {
-            if let Err(e) = db.rebuild_prose_fts(Some(&project_root)) {
-                eprintln!("warning: FTS index rebuild failed: {e}");
-            }
+        if !args.no_fts && let Err(e) = db.rebuild_prose_fts(Some(&project_root)) {
+            eprintln!("warning: FTS index rebuild failed: {e}");
         }
     }
 
@@ -554,7 +552,7 @@ mod tests {
         fs::write(&out_file, "old").unwrap();
 
         let db_path = tmp.path().join("wb.db");
-        let mut args = SinglePassArgs {
+        let args = SinglePassArgs {
             inputs: vec![src.file_name().unwrap().into()],
             directory: None,
             input_dir: tmp.path().to_path_buf(),
@@ -584,8 +582,310 @@ mod tests {
         run_single_pass(args).unwrap();
         assert_eq!(fs::read_to_string(&out_file).unwrap().trim(), "content");
 
-        // Now run without force, but modify the file to differ from baseline.
-        // Wait, without force, it should still write if it's new or changed.
         // force_generated is for when it *matches* the baseline but we want to write anyway.
+    }
+
+    #[test]
+    fn run_single_pass_respects_include_paths() {
+        let tmp = tempdir().unwrap();
+        let lib_dir = tmp.path().join("lib");
+        fs::create_dir(&lib_dir).unwrap();
+        fs::write(lib_dir.join("macros.adoc"), "%set(test_macro, library content)\n").unwrap();
+
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "%include(macros.adoc)\n<<@file output.txt>>=\n%(test_macro)\n@@\n").unwrap();
+
+        let gen_dir = tmp.path().join("gen_out");
+        fs::create_dir(&gen_dir).unwrap();
+
+        let args = SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            include: lib_dir.to_string_lossy().into_owned(),
+            gen_dir: gen_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            no_fts: true,
+            no_macros: false,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
+        assert!(out.contains("library content"), "Output should contain 'library content', got: '{}'", out);
+    }
+
+
+        #[test]
+    fn run_single_pass_with_custom_sigil() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        // Use '%' instead of default '<<'
+        fs::write(&src, "%@file output.txt%=\ncontent\n%@\n").unwrap();
+
+        let gen_dir = tmp.path().join("gen_out");
+        fs::create_dir(&gen_dir).unwrap();
+
+        let db_path = tmp.path().join("wb.db");
+        let args = SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            sigil: '%',
+            open_delim: "%".into(),
+            close_delim: "%".into(),
+            chunk_end: "%@".into(),
+            db: db_path,
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
+        assert_eq!(out.trim(), "content");
+    }
+
+    #[test]
+    fn compute_skip_set_propagates_dirty_chunks() {
+        let tmp = tempdir().unwrap();
+        let db_path = tmp.path().join("prev.db");
+
+        let mut prev_db = WeavebackDb::open(&db_path).unwrap();
+        // Chunk B depends on Chunk A
+        prev_db.set_chunk_defs(&[
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "src.adoc".into(),
+                chunk_name: "A".into(),
+                nth: 0,
+                def_start: 1,
+                def_end: 10,
+            },
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "src.adoc".into(),
+                chunk_name: "B".into(),
+                nth: 0,
+                def_start: 11,
+                def_end: 20,
+            },
+        ]).unwrap();
+        prev_db.set_chunk_deps(&[("B".into(), "A".into(), "src.adoc".into())]).unwrap();
+
+        // Block 0 covers lines 1-10 (Chunk A)
+        let block_a = weaveback_tangle::block_parser::SourceBlockEntry {
+            block_index: 0,
+            block_type: "code".into(),
+            line_start: 1,
+            line_end: 10,
+            content_hash: [0u8; 32],
+        };
+        prev_db.set_source_blocks("src.adoc", &[block_a.clone()]).unwrap();
+
+        let mut current_db = WeavebackDb::open_temp().unwrap();
+        let mut source_contents = HashMap::new();
+        // Use content that will trigger the same block index but different hash
+        // We'll mock the blocks directly because compute_skip_set calls parse_source_blocks
+        // which we can't easily mock across crates without real content.
+        source_contents.insert("src.adoc".to_string(), "<<A>>=\nnew content\n@".to_string());
+
+        let skip = compute_skip_set(&source_contents, &Some(prev_db), &mut current_db, tmp.path());
+
+        // Since original blocks were [1,2,3] and new will be different,
+        // Chunk A becomes dirty, and Chunk B becomes dirty via reverse deps.
+        assert!(!skip.contains("A"));
+        assert!(!skip.contains("B"));
+    }
+
+    #[test]
+    fn run_single_pass_directory_mode() {
+        let tmp = tempdir().unwrap();
+        let src_a = tmp.path().join("a.adoc");
+        let src_b = tmp.path().join("b.adoc");
+        fs::write(&src_a, "<<@file a.txt>>=\nA\n@").unwrap();
+        fs::write(&src_b, "<<@file b.txt>>=\nB\n@").unwrap();
+
+        let gen_dir = tmp.path().join("gen");
+        fs::create_dir(&gen_dir).unwrap();
+
+        let args = SinglePassArgs {
+            directory: Some(tmp.path().to_path_buf()),
+            ext: vec!["adoc".to_string()],
+            gen_dir: gen_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).expect("run_single_pass failed");
+
+        assert_eq!(fs::read_to_string(gen_dir.join("a.txt")).unwrap().trim(), "A");
+        assert_eq!(fs::read_to_string(gen_dir.join("b.txt")).unwrap().trim(), "B");
+    }
+
+    #[test]
+    fn run_single_pass_depfile_and_stamp() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "<<@file out.txt>>=\ncontent\n@").unwrap();
+
+        let gen_dir = tmp.path().join("gen");
+        fs::create_dir(&gen_dir).unwrap();
+        let depfile = tmp.path().join("out.d");
+        let stamp = tmp.path().join("out.stamp");
+
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("input.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir,
+            db: tmp.path().join("wb.db"),
+            depfile: Some(depfile.clone()),
+            stamp: Some(stamp.clone()),
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        assert!(depfile.exists());
+        assert!(stamp.exists());
+        let dep_content = fs::read_to_string(depfile).unwrap();
+        assert!(dep_content.contains("input.adoc"));
+    }
+
+    #[test]
+    fn run_single_pass_dry_run_no_writes() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "<<@file out.txt>>=\ncontent\n@").unwrap();
+
+        let gen_dir = tmp.path().join("gen");
+        fs::create_dir(&gen_dir).unwrap();
+
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("input.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            dry_run: true,
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        assert!(!gen_dir.join("out.txt").exists(), "Dry run should not write files");
+    }
+
+    #[test]
+    fn run_single_pass_error_missing_input() {
+        let tmp = tempdir().unwrap();
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("missing.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: tmp.path().join("gen"),
+            db: tmp.path().join("wb.db"),
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        let res = run_single_pass(args);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("No such file or directory") || err.contains("not found"));
+    }
+
+    #[test]
+    fn run_single_pass_with_macro_expansion() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "%set(V, expanded)\n<<@file out.txt>>=\n%(V)\n@").unwrap();
+
+        let gen_dir = tmp.path().join("gen");
+        fs::create_dir(&gen_dir).unwrap();
+
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("input.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            no_macros: false, // Enable macros!
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).expect("run_single_pass failed with macros");
+        let out = fs::read_to_string(gen_dir.join("out.txt")).unwrap();
+        assert_eq!(out.trim(), "expanded");
+    }
+
+    #[test]
+    fn run_single_pass_with_var_defs_recording() {
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "%set(MYVAR, value)\n<<@file out.txt>>=\n%(MYVAR)\n@").unwrap();
+
+        let db_path = tmp.path().join("wb.db");
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("input.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: tmp.path().join("gen"),
+            db: db_path.clone(),
+            no_macros: false,
+            no_fts: true,
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        let db = weaveback_tangle::db::WeavebackDb::open(&db_path).unwrap();
+        let vars = db.query_var_defs("MYVAR").unwrap();
+        assert!(!vars.is_empty(), "Should have recorded MYVAR definition");
+        assert!(vars[0].0.contains("input.adoc"));
+    }
+
+    #[test]
+    fn find_files_error_on_missing_dir() {
+        let res = find_files(std::path::Path::new("/non/existent/path/for/weaveback/test"), &["adoc".to_string()], &mut Vec::new());
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_compute_skip_set_with_dependencies() {
+        let tmp = tempdir().unwrap();
+        let db_path = tmp.path().join("wb.db");
+        let mut db = weaveback_tangle::db::WeavebackDb::open(&db_path).unwrap();
+
+        let path = "test.adoc";
+        let content = "base content";
+        let blocks = weaveback_tangle::parse_source_blocks(content, "adoc");
+        db.set_source_blocks(path, &blocks).unwrap();
+        db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+            src_file: path.to_string(),
+            chunk_name: "base".to_string(),
+            nth: 0,
+            def_start: 1,
+            def_end: 1,
+        }]).unwrap();
+        db.set_chunk_deps(&[("dep".to_string(), "base".to_string(), path.to_string())]).unwrap();
+
+        let mut source_contents = HashMap::new();
+        source_contents.insert(path.to_string(), "changed content".to_string());
+
+        let mut current_db = weaveback_tangle::db::WeavebackDb::open_temp().unwrap();
+        let skip_set = compute_skip_set(&source_contents, &Some(db), &mut current_db, tmp.path());
+
+        // "base" is dirty because content changed.
+        // "dep" should be dirty via reverse dependency.
+        assert!(!skip_set.contains("base"));
+        assert!(!skip_set.contains("dep"));
+    }
+
+    #[test]
+    fn run_single_pass_bench_no_fts() {
+        // Just verify it doesn't crash when no_fts is false and db is present
+        let tmp = tempdir().unwrap();
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "<<@file out.txt>>=\n@").unwrap();
+        let args = SinglePassArgs {
+            inputs: vec![PathBuf::from("input.adoc")],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: tmp.path().join("gen"),
+            db: tmp.path().join("wb.db"),
+            no_fts: false, // Rebuild FTS!
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
     }
 }

@@ -12,6 +12,8 @@ enum Error {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Process(#[from] weaveback_api::process::ProcessError),
+    #[error("{0}")]
+    Generic(String),
 }
 mod cli_generated;
 use cli_generated::{Cli, Commands, SinglePassCli};
@@ -47,7 +49,8 @@ fn run_single_pass_from_cli(s: SinglePassCli, force_generated: bool) -> Result<(
         formatter:       s.formatter,
         no_fts:          s.no_fts,
         dump_expanded:   s.dump_expanded,
-    })?;
+        project_root:    None,
+    }).map_err(Error::Generic)?;
     Ok(())
 }
 

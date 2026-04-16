@@ -87,8 +87,9 @@ fn apply_fix_impl(
         .ok_or_else(|| format!("No noweb map entry for {}:{}", request.out_file, request.out_line_1))?;
 
     let expanded_line_1 = nw_entry.src_line as usize + 1;
-    let content = std::fs::read_to_string(request.src_file)
-        .map_err(|e| format!("Cannot read {}: {e}", request.src_file))?;
+    let full_src_path = resolver.resolve_src(request.src_file);
+    let content = std::fs::read_to_string(&full_src_path)
+        .map_err(|e| format!("Cannot read {}: {e}", full_src_path.display()))?;
     let orig_lines: Vec<&str> = content.lines().collect();
     let file_len = orig_lines.len();
 
@@ -140,8 +141,8 @@ fn apply_fix_impl(
     }
 
     if request.write_changes {
-        std::fs::write(request.src_file, &patched)
-            .map_err(|e| format!("Cannot write {}: {e}", request.src_file))?;
+        std::fs::write(&full_src_path, &patched)
+            .map_err(|e| format!("Cannot write {}: {e}", full_src_path.display()))?;
     }
 
     Ok(PreviewedEdit {

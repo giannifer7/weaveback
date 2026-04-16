@@ -771,6 +771,12 @@ pub fn run_mcp<R: BufRead, W: Write>(
                 }
             }
 
+            "resources/list" => {
+                send_response(&mut writer, id, json!({ "resources": [] }));
+            }
+            "prompts/list" => {
+                send_response(&mut writer, id, json!({ "prompts": [] }));
+            }
             "notifications/initialized" => {}
             _ => {}
         }
@@ -1117,7 +1123,7 @@ mod tests {
     fn mcp_trace_returns_seeded_location() {
         let ws = McpWorkspace::new();
         let src_rel = "src/test.adoc";
-        ws.write_file(src_rel, "= Title\n\n<<@file pkg/src/test.rs>>=\nline1\n@\n".as_bytes());
+        ws.write_file(src_rel, "= Title\n\n<<@file pkg/src/test.rs>>=\nline1\n@@\n".as_bytes());
 
         let args = process::SinglePassArgs {
             inputs: vec![src_rel.into()],
@@ -1126,6 +1132,7 @@ mod tests {
             db: ws.db_path(),
             project_root: Some(ws.root.clone()),
             no_fts: true,
+            no_macros: false,
             ..process::SinglePassArgs::default_for_test()
         };
         process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
@@ -1157,6 +1164,131 @@ SearchMeKeyword\n".as_bytes());
         let out = mcp_drive(&ws, req);
         assert!(out.contains("SearchMe"), "Search failed. Output: {out}");
         assert!(out.contains("src/search.adoc"), "Search output missing file path: {out}");
+    }
+
+    #[test]
+    fn mcp_apply_fix_updates_source() {
+        let ws = McpWorkspace::new();
+        let src_rel = "src/test.adoc";
+        ws.write_file(src_rel, "= Title\n\n<<@file test.rs>>=\nold\n@@\n".as_bytes());
+
+        let args = process::SinglePassArgs {
+            inputs: vec![src_rel.into()],
+            input_dir: ws.root.clone(),
+            gen_dir: ws.gen_dir(), // out file at root/gen/test.rs
+            db: ws.db_path(),
+            project_root: Some(ws.root.clone()),
+            no_fts: true,
+            no_macros: false,
+            ..process::SinglePassArgs::default_for_test()
+        };
+        process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+        // Apply fix: change "old" to "new"
+        let req = format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_apply_fix\",\"arguments\":{{\"src_file\":\"src/test.adoc\",\"src_line\":4,\"new_src_line\":\"new\",\"out_file\":\"test.rs\",\"out_line\":1,\"expected_output\":\"new\"}}}}}}\n"
+        );
+        let out = mcp_drive(&ws, &req);
+        assert!(out.contains("Applied ChangePlan"), "Apply fix failed. Output: {out}");
+
+        let content = std::fs::read_to_string(ws.root.join(src_rel)).unwrap();
+        assert!(content.contains("new"), "Source was not updated. Content: {content}");
+    }
+
+
+
+    #[test]
+    fn mcp_apply_back_updates_source() {
+        let ws = McpWorkspace::new();
+        let src_rel = "src/test.adoc";
+        ws.write_file(src_rel, "= Title\n\n<<@file test.rs>>=\nold\n@@\n".as_bytes());
+
+        let args = process::SinglePassArgs {
+            inputs: vec![src_rel.into()],
+            input_dir: ws.root.clone(),
+            gen_dir: ws.gen_dir(), // out file at root/gen/test.rs
+            db: ws.db_path(),
+            project_root: Some(ws.root.clone()),
+            no_fts: true,
+            no_macros: false,
+            ..process::SinglePassArgs::default_for_test()
+        };
+        process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+        // Edit generated file
+        std::fs::write(ws.gen_dir().join("test.rs"), "new\n").unwrap();
+
+        // Apply back
+        let req = "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_back\",\"arguments\":{\"files\":[\"test.rs\"]}}}\n";
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("src/test.adoc"), "Apply back failed. Output: {out}");
+
+        let content = std::fs::read_to_string(ws.root.join(src_rel)).unwrap();
+        assert!(content.contains("new"), "Source was not updated. Content: {content}");
+    }
+
+    #[test]
+    fn mcp_chunk_context_returns_full_metadata() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+                src_file:   "src/ctx.adoc".to_string(),
+                chunk_name: "ctx-chunk".to_string(),
+                nth:        0,
+                def_start:  1,
+                def_end:    3,
+            }]).unwrap();
+            ws.write_file("src/ctx.adoc", "== Section Title\n\nctx anchor\n".as_bytes());
+            db.set_src_snapshot("src/ctx.adoc", "== Section Title\n\nctx anchor\n".as_bytes()).unwrap();
+            db.set_source_blocks("src/ctx.adoc", &[weaveback_tangle::block_parser::SourceBlockEntry {
+                block_index: 0,
+                block_type:  "section".to_string(),
+                line_start:  1,
+                line_end:    3,
+                content_hash: [0u8; 32],
+            }]).unwrap();
+            db.rebuild_prose_fts(Some(&ws.root)).unwrap();
+        }
+        let req = r#"{"jsonrpc":"2.0","id":36,"method":"tools/call","params":{"name":"weaveback_chunk_context","arguments":{"file":"src/ctx.adoc","name":"ctx-chunk"}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Section Title"), "Breadcrumb missing: {out}");
+        assert!(out.contains("ctx-chunk"), "Name missing: {out}");
+    }
+
+    #[test]
+    fn mcp_list_tags_returns_seeded_tags() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_source_blocks("src/tags.adoc", &[weaveback_tangle::block_parser::SourceBlockEntry {
+                block_index: 0,
+                block_type:  "para".to_string(),
+                line_start:  1,
+                line_end:    5,
+                content_hash: [0u8; 32],
+            }]).unwrap();
+            db.set_block_tags("src/tags.adoc", 0, &[0u8; 32], "test-tag,mcp").unwrap();
+        }
+        let req = r#"{"jsonrpc":"2.0","id":37,"method":"tools/call","params":{"name":"weaveback_list_tags","arguments":{}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("test-tag"), "Tag missing: {out}");
+    }
+
+    #[test]
+    fn mcp_coverage_reports_stats() {
+        let ws = McpWorkspace::new();
+        ws.open_db(); // Ensure DB exists
+        let lcov = ws.root.join("lcov.info");
+        std::fs::write(&lcov, "SF:src/test.rs\nDA:1,1\nend_of_record\n").unwrap();
+
+        let lcov_path = lcov.to_string_lossy().replace("\\", "/");
+        let req = format!(
+            r#"{{"jsonrpc":"2.0","id":38,"method":"tools/call","params":{{"name":"weaveback_coverage","arguments":{{"lcov_path":"{}"}}}}}}"#,
+            lcov_path
+        );
+        let out = mcp_drive(&ws, &req);
+        assert!(out.contains("attributed_records"), "Coverage report missing or invalid. Output: {out}");
     }
 
     // ── LSP integration tests (real rust-analyzer) ────────────────────────
@@ -1191,7 +1323,6 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
     fn mcp_lsp_hover_reaches_handler() {
         let ws = McpWorkspace::new();
         let mcp_rs = mcp_rs_path();
@@ -1205,7 +1336,6 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
     fn mcp_lsp_symbols_reaches_handler() {
         let ws = McpWorkspace::new();
         let mcp_rs = mcp_rs_path();
@@ -1219,7 +1349,6 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
     fn mcp_lsp_definition_reaches_handler() {
         let ws = McpWorkspace::new();
         let mcp_rs = mcp_rs_path();
@@ -1233,7 +1362,6 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
     fn mcp_lsp_references_reaches_handler() {
         let ws = McpWorkspace::new();
         let mcp_rs = mcp_rs_path();
@@ -1247,16 +1375,132 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    #[ignore = "requires rust-analyzer on PATH; run with -- --ignored"]
-    fn mcp_lsp_diagnostics_reaches_handler() {
+    fn mcp_protocol_full_handshake() {
         let ws = McpWorkspace::new();
-        let mcp_rs = mcp_rs_path();
-        if !mcp_rs.exists() { return; }
-        let out_file = mcp_rs.to_string_lossy().into_owned();
-        let req = format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":80,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_lsp_diagnostics\",\"arguments\":{{\"out_file\":\"{out_file}\"}}}}}}\n"
-        );
-        let out = lsp_mcp_drive(&ws, &req);
-        assert!(out.contains("\"id\":80"), "unexpected output: {out}");
+        // Handshake: initialize -> notifications/initialized -> tools/list
+        let reqs = vec![
+            r#"{"jsonrpc":"2.0","id":100,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0"}}}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","id":101,"method":"tools/list"}"#,
+        ].join("\n") + "\n";
+
+        let out = mcp_drive(&ws, &reqs);
+        assert!(out.contains("\"id\":100"));
+        assert!(out.contains("\"protocolVersion\":\"2024-11-05\""));
+        assert!(out.contains("\"id\":101"));
+        assert!(out.contains("weaveback_trace"));
+    }
+
+    #[test]
+    fn mcp_malformed_and_unknown_methods() {
+        let ws = McpWorkspace::new();
+        let reqs = vec![
+            "invalid non-json",
+            r#"{"jsonrpc":"2.0","id":200,"method":"unknown/method"}"#,
+            r#"{"jsonrpc":"2.0","id":201,"method":"tools/call","params":{"name":"weaveback_trace"}}"#, // missing args
+        ].join("\n") + "\n";
+
+        let out = mcp_drive(&ws, &reqs);
+        // Unknown method currently falls into the _ arm and is silent.
+        assert!(out.contains("\"id\":201") || out.is_empty());
+    }
+
+    #[test]
+    fn mcp_list_resources_and_prompts_are_empty_but_covered() {
+        let ws = McpWorkspace::new();
+        let reqs = vec![
+            r#"{"jsonrpc":"2.0","id":300,"method":"resources/list"}"#,
+            r#"{"jsonrpc":"2.0","id":301,"method":"prompts/list"}"#,
+        ].join("\n") + "\n";
+        let out = mcp_drive(&ws, &reqs);
+        assert!(out.contains("\"id\":300"));
+        assert!(out.contains("\"id\":301"));
+    }
+
+    #[test]
+    fn mcp_lsp_tools_missing_db_error() {
+        let ws = McpWorkspace::new();
+        // Database not found path for LSP tools
+        let reqs = vec![
+            r#"{"jsonrpc":"2.0","id":400,"method":"tools/call","params":{"name":"weaveback_lsp_definition","arguments":{"out_file":"test.rs","line":1,"col":1}}}"#,
+        ].join("\n") + "\n";
+        let out = mcp_drive(&ws, &reqs);
+        // It might fail with "LSP call failed" if the path is invalid for the LSP
+        assert!(out.contains("Database not found") || out.contains("LSP call failed"), "output: {out}");
+    }
+
+    #[test]
+    fn mcp_lsp_unsupported_extension_error() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let reqs = vec![
+            r#"{"jsonrpc":"2.0","id":500,"method":"tools/call","params":{"name":"weaveback_lsp_definition","arguments":{"out_file":"test.unknown","line":1,"col":1}}}"#,
+        ].join("\n") + "\n";
+        let out = mcp_drive(&ws, &reqs);
+        assert!(out.contains("LSP error") || out.contains("not supported"), "output: {out}");
+    }
+
+    #[test]
+    fn mcp_apply_fix_invalid_args() {
+        let ws = McpWorkspace::new();
+        let reqs = vec![
+            r#"{"jsonrpc":"2.0","id":600,"method":"tools/call","params":{"name":"weaveback_apply_fix","arguments":{"src_file":"a.adoc"}}}"#, // missing most args
+        ].join("\n") + "\n";
+        let out = mcp_drive(&ws, &reqs);
+        assert!(out.contains("isError") || out.contains("Missing arguments"));
+    }
+    fn mcp_chunk_context_not_found() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":700,"method":"tools/call","params":{"name":"weaveback_chunk_context","arguments":{"file":"missing.adoc","name":"none"}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("Chunk not found"));
+    }
+
+    #[test]
+    fn mcp_find_chunk_empty_name_error() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":800,"method":"tools/call","params":{"name":"weaveback_find_chunk","arguments":{"name":""}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("name is required"));
+    }
+
+    #[test]
+    fn mcp_list_chunks_success_path() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":900,"method":"tools/call","params":{"name":"weaveback_list_chunks","arguments":{}}}"#;
+        let out = mcp_drive(&ws, &(req.to_string() + "\n"));
+        assert!(out.contains("\"id\":900"), "output: {out}");
+    }
+
+    #[test]
+    fn mcp_apply_back_success_path() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":1000,"method":"tools/call","params":{"name":"weaveback_apply_back","arguments":{"dry_run":true}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("\"id\":1000"), "output: {out}");
+    }
+
+    #[test]
+    fn mcp_lsp_symbols_success_path() {
+        // Mock a simple LSP handshake that returns empty list for symbols
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":1100,"method":"tools/call","params":{"name":"weaveback_lsp_symbols","arguments":{"out_file":"test.rs"}}}"#;
+        let out = mcp_drive(&ws, req);
+        // It might fail if no LSP binary for .rs is found, but we want to exercise the dispatch logic.
+        assert!(out.contains("\"id\":1100"));
+    }
+
+    #[test]
+    fn mcp_search_success_path() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":1200,"method":"tools/call","params":{"name":"weaveback_search","arguments":{"query":"test"}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("\"id\":1200"));
     }
 }

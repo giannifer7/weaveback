@@ -73,10 +73,9 @@ pub fn find_best_noweb_entry(
     // This bridges current repo layouts like `crates/weaveback/src/main.rs`
     // to db keys like `weaveback/src/main.rs`.
     let parts = normalized_path_components(out_file);
-    if parts.len() >= MIN_DISTINCTIVE_SUFFIX_COMPONENTS {
-        if let Some(entry) = db.get_noweb_entry_by_suffix(out_file, out_line_0)? {
-            return Ok(Some(entry));
-        }
+    if parts.len() >= MIN_DISTINCTIVE_SUFFIX_COMPONENTS
+        && let Some(entry) = db.get_noweb_entry_by_suffix(out_file, out_line_0)? {
+        return Ok(Some(entry));
     }
     for sub_str in distinctive_suffix_candidates(out_file) {
         if sub_str != out_file

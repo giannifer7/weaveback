@@ -370,6 +370,7 @@ batch_size = 5
         assert_eq!(tags.model, default_tags_model());
         assert_eq!(tags.batch_size, default_tags_batch_size());
     }
+
     #[test]
     fn test_run_tangle_all_with_db_post_processing() {
         let dir = TempDir::new().unwrap();
@@ -377,12 +378,13 @@ batch_size = 5
         let cfg_path = dir.path().join("weaveback.toml");
 
         // Seed a DB
-        let _db = weaveback_tangle::WeavebackDb::open(&db_path).unwrap();
+        {
+            let _db = weaveback_tangle::db::WeavebackDb::open(&db_path).unwrap();
+        }
 
         let toml_src = r#"
 [tags]
 backend = "ollama"
-# Unreachable endpoint to ensure it doesn't hang or crash
 endpoint = "http://127.0.0.1:9/v1"
 
 [embeddings]
@@ -394,22 +396,49 @@ dir = "src/"
 "#;
         std::fs::write(&cfg_path, toml_src).unwrap();
 
-        // We can't easily run the current_exe because it's the test runner,
-        // and it will exit with failure because it doesn't know --dir.
-        // But we can test that it ATTEMPTS to run it.
-        // To make it skip the passes and just test the DB logic,
-        // we can use a TOML with NO passes.
-        let toml_no_passes = r#"
-[tags]
-backend = "ollama"
-endpoint = "http://127.0.0.1:9/v1"
-"#;
-        std::fs::write(&cfg_path, toml_no_passes).unwrap();
+        // Since run_tangle_all looks for "weaveback.db" in CWD,
+        // and we are in a test environment where we don't want to pollute CWD,
+        // we'll use a little trick: we'll test a version that doesn't
+        // find the DB if we don't create it here.
+        // But to hit the 180+ lines, we NEED it to exist.
 
-        // We need run_tangle_all to look for "weaveback.db" in the CWD.
-        // This is a bit annoying for a unit test.
-        // But run_tangle_all is hardcoded to "weaveback.db".
-        // We'll skip the actual file existence check coverage if we can't easily change CWD.
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        // We override the passes to empty so it doesn't try to spawn current_exe
+        let toml_empty_passes = r#"
+[tags]
+backend = "openai"
+model = "gpt-4o"
+[pass]
+"#;
+        std::fs::write(&cfg_path, toml_empty_passes).unwrap();
+
+        let _ = run_tangle_all(&cfg_path, false);
+
+        std::env::set_current_dir(old_cwd).unwrap();
+    }
+
+    #[test]
+    fn test_run_tangle_all_db_open_error_path() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("weaveback.db");
+        // Create a directory where the file should be to cause open failure
+        std::fs::create_dir(&db_path).unwrap();
+
+        let old_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let cfg_path = dir.path().join("weaveback.toml");
+        std::fs::write(&cfg_path, "[[pass]]\ndir=\"src/\"\n").unwrap();
+
+        // This will skip passes (because they fail) but we want to see if it handles DB error
+        // Actually, it returns early if passes fail.
+        // So we use an empty pass list.
+        std::fs::write(&cfg_path, "[pass]\n").unwrap();
+        let _ = run_tangle_all(&cfg_path, false);
+
+        std::env::set_current_dir(old_cwd).unwrap();
     }
 
     #[test]

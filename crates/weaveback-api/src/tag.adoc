@@ -649,6 +649,31 @@ mod tests {
         run_auto_tag(&mut db, &cfg);
         assert!(db.list_block_tags(None).unwrap().is_empty());
     }
+
+    #[test]
+    fn test_call_llm_unknown_backend_defaults_to_openai() {
+        let cfg = TagConfig {
+            backend: "unknown".to_string(),
+            model: "m".to_string(),
+            endpoint: Some("http://localhost:11111".to_string()),
+            batch_size: 1,
+        };
+        // Should try to call OpenAI compat and fail with connection refused
+        let res = call_llm(&cfg, "prompt");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_gemini_response_errors_on_empty_candidates() {
+        let v = serde_json::json!({ "candidates": [] });
+        assert!(parse_gemini_response(&v).is_err());
+    }
+
+    #[test]
+    fn test_parse_openai_response_errors_on_empty_choices() {
+        let v = serde_json::json!({ "choices": [] });
+        assert!(parse_openai_response(&v).is_err());
+    }
 }
 // @
 ----

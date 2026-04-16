@@ -137,6 +137,5 @@ For full flag-by-flag details, read the tool-specific pages:
 * link:../crates/wb-query/src/main.html[`wb-query`]
 * link:../crates/wb-serve/src/main.html[`wb-serve`]
 * link:../crates/wb-mcp/src/main.html[`wb-mcp`]
-* See link:architecture.adoc[architecture.adoc] for the high-level overview.
 * link:../cli-spec/macros.html[`cli-spec/macros.adoc`] for the shared option
   families used by the generated CLI code

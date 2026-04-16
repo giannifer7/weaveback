@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.12.3"
+version = "0.12.4"
 edition = "2024"
 authors = ["Gianni Ferrarotti <gianni.ferrarotti@gmail.com>"]
 license = "0BSD OR MIT OR Apache-2.0"
@@ -77,7 +77,7 @@ syn = { version = "2", features = ["full"] }
 walkdir = "2"
 lsp-types = "0.95"
 url = "2.4"
-pyo3 = { version = "0.28" }
+pyo3 = { version = "0.28", features = ["extension-module"] }
 pythonize = "0.28"
 
 # Internal crate dependencies (points to the sub-crate on disk)

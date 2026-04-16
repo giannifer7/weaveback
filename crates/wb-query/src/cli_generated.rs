@@ -158,7 +158,7 @@ pub(crate) enum Commands {
     },
     /// Run cargo and annotate diagnostics with literate source locations.
     Cargo {
-        /// Emit only compiler messages and the final weaveback summary, not Cargo artifact chatter
+        /// Emit only compiler messages and the final source-of-truth summary, not Cargo artifact chatter
     #[arg(long)]
 
     diagnostics_only: bool,

@@ -16,5 +16,4 @@ log = "0.4"
 url = "2.4"
 
 [dev-dependencies]
-tempfile.workspace = true
 # Add if needed

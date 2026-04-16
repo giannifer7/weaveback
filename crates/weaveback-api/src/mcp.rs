@@ -1496,11 +1496,33 @@ SearchMeKeyword\n".as_bytes());
     }
 
     #[test]
-    fn mcp_search_success_path() {
+    fn mcp_lsp_formatting_success_path() {
         let ws = McpWorkspace::new();
         ws.open_db();
-        let req = r#"{"jsonrpc":"2.0","id":1200,"method":"tools/call","params":{"name":"weaveback_search","arguments":{"query":"test"}}}"#;
+        let req = r#"{"jsonrpc":"2.0","id":1300,"method":"tools/call","params":{"name":"weaveback_lsp_formatting","arguments":{"out_file":"test.rs"}}}"#;
         let out = mcp_drive(&ws, req);
-        assert!(out.contains("\"id\":1200"));
+        assert!(out.contains("\"id\":1300"));
+    }
+
+    #[test]
+    fn mcp_list_tags_success_path() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let req = r#"{"jsonrpc":"2.0","id":1400,"method":"tools/call","params":{"name":"weaveback_list_tags","arguments":{}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("\"id\":1400"));
+    }
+
+    #[test]
+    fn mcp_coverage_success_path() {
+        let ws = McpWorkspace::new();
+        ws.open_db();
+        let tmp = tempfile::tempdir().unwrap();
+        let lcov = tmp.path().join("test.lcov");
+        std::fs::write(&lcov, "SF:src/a.rs\nend_of_record\n").unwrap();
+
+        let req = format!(r#"{{"jsonrpc":"2.0","id":1500,"method":"tools/call","params":{{"name":"weaveback_coverage","arguments":{{"lcov_path":"{}"}}}}}}"#, lcov.display());
+        let out = mcp_drive(&ws, &req);
+        assert!(out.contains("\"id\":1500"));
     }
 }

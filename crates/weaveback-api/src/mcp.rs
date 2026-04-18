@@ -233,6 +233,16 @@ pub fn run_mcp<R: BufRead, W: Write>(
                                         }
                                     },
                                     {
+                                        "name": "weaveback_list_blocks",
+                                        "description": "List all source blocks (code chunks and prose sections) in the project, including their types and line ranges. Optionally filter to a single source file.",
+                                        "inputSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "file": { "type": "string", "description": "Optional: filter to this source file" }
+                                            }
+                                        }
+                                    },
+                                    {
                                         "name": "weaveback_list_tags",
                                         "description": "List all LLM-generated tags for prose blocks in the project. Returns each block's source file, line, block type, and comma-separated tags. Optionally filter to a single source file. Use this to explore the semantic landscape of the project or to find all blocks tagged with a given concept.",
                                         "inputSchema": {
@@ -764,6 +774,28 @@ pub fn run_mcp<R: BufRead, W: Write>(
                             }
                             (Err(e), _) => send_error(&mut writer, id, &format!("Error reading {lcov_path}: {e}")),
                             (_, Err(e)) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
+                        }
+                    }
+
+                    Some("weaveback_list_blocks") => {
+                        let file = input.as_ref().and_then(|v| v.get("file")).and_then(|v| v.as_str()).unwrap_or("");
+                        if !db_path.exists() {
+                            send_error(&mut writer, id, "Database not found. Run weaveback on your source files first.");
+                            continue;
+                        }
+                        match WeavebackDb::open_read_only(&db_path) {
+                            Ok(db) => {
+                                let blocks = db.query_all_source_blocks(file).unwrap_or_default();
+                                let arr: Vec<Value> = blocks.iter().map(|b| json!({
+                                    "src_file":    b.src_file,
+                                    "block_index": b.block_index,
+                                    "block_type":  b.block_type,
+                                    "line_start":  b.line_start,
+                                    "tags":        b.tags,
+                                })).collect();
+                                send_text(&mut writer, id, &serde_json::to_string_pretty(&arr).unwrap());
+                            }
+                            Err(e) => send_error(&mut writer, id, &format!("Database error: {e:?}")),
                         }
                     }
 
@@ -1449,6 +1481,7 @@ SearchMeKeyword\n".as_bytes());
         let out = mcp_drive(&ws, &reqs);
         assert!(out.contains("isError") || out.contains("Missing arguments"));
     }
+    #[test]
     fn mcp_chunk_context_not_found() {
         let ws = McpWorkspace::new();
         ws.open_db();
@@ -1524,5 +1557,23 @@ SearchMeKeyword\n".as_bytes());
         let req = format!(r#"{{"jsonrpc":"2.0","id":1500,"method":"tools/call","params":{{"name":"weaveback_coverage","arguments":{{"lcov_path":"{}"}}}}}}"#, lcov.display());
         let out = mcp_drive(&ws, &req);
         assert!(out.contains("\"id\":1500"));
+    }
+
+    #[test]
+    fn mcp_list_blocks_returns_seeded_blocks() {
+        let ws = McpWorkspace::new();
+        {
+            let mut db = ws.open_db();
+            db.set_source_blocks("src/blocks.adoc", &[weaveback_tangle::block_parser::SourceBlockEntry {
+                block_index: 0,
+                block_type:  "section".to_string(),
+                line_start:  1,
+                line_end:    5,
+                content_hash: [0u8; 32],
+            }]).unwrap();
+        }
+        let req = r#"{"jsonrpc":"2.0","id":1600,"method":"tools/call","params":{"name":"weaveback_list_blocks","arguments":{"file":"src/blocks.adoc"}}}"#;
+        let out = mcp_drive(&ws, req);
+        assert!(out.contains("section") && out.contains("src/blocks.adoc"), "output was: {}", out);
     }
 }

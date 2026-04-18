@@ -365,4 +365,51 @@ mod tests {
         let blocks = collect_plantuml_blocks(src, "test");
         assert_eq!(blocks.len(), 1);
     }
+
+    #[test]
+    fn test_batch_render_mock_java() {
+        let tmp = TempDir::new().unwrap();
+        let bin_dir = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let java_p = bin_dir.join("java");
+        // Mock java that identifies the output dir from -o and touches files there
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&java_p, r#"#!/bin/sh
+out_dir="."
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then out_dir="$2"; shift; fi
+  shift
+done
+for i in 0 1 2; do touch "${out_dir}/${i}.svg"; done
+"#).unwrap();
+            let mut perms = std::fs::metadata(&java_p).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&java_p, perms).unwrap();
+        }
+
+        let old_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut new_path = bin_dir.to_string_lossy().into_owned();
+        new_path.push_str(":");
+        new_path.push_str(&old_path.to_string_lossy());
+        
+        unsafe { std::env::set_var("PATH", new_path); }
+
+        let diagrams = vec![
+            ("A -> B".to_string(), tmp.path().join("1.svg")),
+        ];
+        let jar = std::path::Path::new("plantuml.jar");
+        
+        // We only mock for unix for now to avoid complexity with cmd/batch
+        #[cfg(unix)]
+        {
+            let res = batch_render_plantuml(&diagrams, jar);
+            assert!(res.is_ok(), "batch_render failed: {:?}", res.err());
+            assert!(tmp.path().join("1.svg").exists());
+        }
+
+        unsafe { std::env::set_var("PATH", old_path); }
+    }
 }

@@ -265,7 +265,7 @@ mod bin_tests {
 
     #[test]
     fn test_bin_run_dir_scan() {
-        let mut ws = TestWorkspace::new();
+        let ws = TestWorkspace::new();
         // Create a driver and a fragment
         ws.write("driver.md", "include %include(frag.md)");
         ws.write("frag.md", "fragment content");

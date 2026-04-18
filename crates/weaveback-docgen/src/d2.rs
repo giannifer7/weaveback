@@ -220,4 +220,37 @@ mod tests {
         assert!(e.to_string().contains("/tmp/x.svg"));
     }
 
+    #[test]
+    fn test_render_d2_mock() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bin_dir = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let d2_p = bin_dir.join("d2");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&d2_p, "#!/bin/sh\nprintf '<svg>d2-svg</svg>'\n").unwrap();
+            let mut perms = std::fs::metadata(&d2_p).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&d2_p, perms).unwrap();
+        }
+
+        let old_path = std::env::var_os("PATH").unwrap_or_default();
+        let mut new_path = bin_dir.to_string_lossy().into_owned();
+        new_path.push_str(":");
+        new_path.push_str(&old_path.to_string_lossy());
+        
+        unsafe { std::env::set_var("PATH", new_path); }
+
+        #[cfg(unix)]
+        {
+            let res = render_d2_diagram("a -> b", 0, 0, "dagre");
+            assert!(res.is_ok());
+            let svg = res.unwrap();
+            assert_eq!(svg, b"<svg>d2-svg</svg>");
+        }
+
+        unsafe { std::env::set_var("PATH", old_path); }
+    }
 }

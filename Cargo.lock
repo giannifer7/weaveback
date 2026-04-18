@@ -2877,6 +2877,7 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "url",
  "weaveback-core",

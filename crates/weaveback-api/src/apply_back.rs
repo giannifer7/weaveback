@@ -2695,7 +2695,7 @@ mod tests {
     #[test]
     fn test_run_apply_back_size_changing_replace_rejection() {
         let ws = TestWorkspace::new();
-        let mut db = ws.open_db();
+        let db = ws.open_db();
         db.set_baseline("out.rs", b"line1\n").unwrap();
         ws.write_file("gen/out.rs", b"mod1\nmod2\n"); // 1 -> 2
 
@@ -2715,7 +2715,7 @@ mod tests {
     #[test]
     fn test_run_apply_back_skips_insert_and_delete() {
         let ws = TestWorkspace::new();
-        let mut db = ws.open_db();
+        let db = ws.open_db();
         db.set_baseline("out.rs", b"line1\nline2\n").unwrap();
 
         let gen_rel = "gen/out.rs";
@@ -2801,5 +2801,56 @@ mod tests {
         let mut out = Vec::new();
         apply_patches_to_file(ctx, &mut skipped, &mut out).unwrap();
         assert_eq!(std::fs::read_to_string(ws.root.join("src/test.adoc")).unwrap(), "patched body\n");
+    }
+
+    #[test]
+    fn test_fuzzy_find_line_variations() {
+        let lines = vec![
+            "  let x = 1;  ".to_string(),
+            "fn main() {".to_string(),
+        ];
+        assert_eq!(super::fuzzy_find_line(&lines, 0, "let x = 1;", 1), Some(0));
+        assert_eq!(super::fuzzy_find_line(&lines, 0, "fn main()", 2), None);
+        assert_eq!(super::fuzzy_find_line(&lines, 1, "fn main() {", 1), Some(1));
+    }
+
+    #[test]
+    fn test_attempt_macro_arg_patch_fallbacks() {
+        let lines = vec!["  call(arg1, arg2)".to_string()];
+        assert_eq!(
+            super::attempt_macro_arg_patch(&lines, 0, 7, "arg1", "newarg"),
+            Some("  call(newarg, arg2)".to_string())
+        );
+        
+        // Fallback matching
+        assert_eq!(
+            super::attempt_macro_arg_patch(&lines, 0, 0, "  call(arg1, arg2)", "  call(arg1, NEW)"),
+            Some("  call(arg1, NEW)".to_string())
+        );
+    }
+
+    #[test]
+    fn test_attempt_macro_body_fix_with_vars() {
+        let body_line = "fixed_prefix %(var) = 1;";
+        let old_expanded = "fixed_prefix old_val = 1;";
+        let new_expanded = "new_prefix old_val = 1;";
+        let res = super::attempt_macro_body_fix(body_line, old_expanded, new_expanded, '%');
+        assert_eq!(res, Some("new_prefix %(var) = 1;".to_string())); 
+        // Wait, if old_expanded and new_expanded both result in the same body line (since var is not changed), it returns None if new_body == body_line.
+        // Actually, if var is the literal part...
+        
+        let body_line_2 = "const X = %(v);";
+        let old_exp_2 = "const X = 10;";
+        let new_exp_2 = "const Y = 10;"; // Change literal 'X' to 'Y'
+        let res_2 = super::attempt_macro_body_fix(body_line_2, old_exp_2, new_exp_2, '%');
+        assert_eq!(res_2, Some("const Y = %(v);".to_string()));
+    }
+
+    #[test]
+    fn test_patch_source_helpers() {
+        let ps = super::PatchSource::Literal { src_file: "a.adoc".into(), src_line: 10, len: 1 };
+        assert_eq!(ps.src_file(), "a.adoc");
+        assert_eq!(super::patch_source_rank(&ps), 40);
+        assert_eq!(super::patch_source_location(&ps), ("a.adoc", 10));
     }
 }

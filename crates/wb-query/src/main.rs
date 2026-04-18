@@ -448,4 +448,98 @@ mod tests {
         let res = run(cli);
         assert!(res.is_ok());
     }
+
+    #[test]
+    fn run_trace_success() {
+        let mut ws = TestWorkspace::new();
+        let mut db = ws.open_db();
+        // Seed some data for perform_trace
+        db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+            src_file: "test.adoc".to_string(),
+            chunk_name: "test".to_string(),
+            nth: 0,
+            def_start: 1,
+            def_end: 10,
+        }]).unwrap();
+        db.set_baseline("test.rs", b"content").unwrap();
+
+        let cli = Cli {
+            db: ws.db(),
+            gen_dir: ws.gen_dir(),
+            command: Commands::Trace {
+                out_file: "test.rs".to_string(),
+                line: 1,
+                col: 1,
+                sigil: '%',
+                include: ".".to_string(),
+                allow_env: false,
+            },
+        };
+        let res = run(cli);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn run_cargo_success() {
+        let mut ws = TestWorkspace::new();
+        ws.open_db();
+        
+        // Mock cargo binary to avoid requiring real cargo or failing on version flags
+        let bin_dir = ws.root.join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let cargo_p = bin_dir.join("cargo");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&cargo_p, "#!/bin/sh\nexit 0\n").unwrap();
+            let mut perms = std::fs::metadata(&cargo_p).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&cargo_p, perms).unwrap();
+            unsafe { std::env::set_var("WEAVEBACK_CARGO_BIN", &cargo_p); }
+        }
+
+        let cli = Cli {
+            db: ws.db(),
+            gen_dir: ws.gen_dir(),
+            command: Commands::Cargo {
+                diagnostics_only: true,
+                args: vec!["test".to_string()],
+                sigil: '%',
+                include: ".".to_string(),
+                allow_env: false,
+            },
+        };
+        let res = run(cli);
+        #[cfg(unix)]
+        res.expect("run_cargo_annotated failed");
+
+        #[cfg(unix)]
+        unsafe { std::env::remove_var("WEAVEBACK_CARGO_BIN"); }
+    }
+
+    #[test]
+    fn run_lsp_list_success() {
+        let mut ws = TestWorkspace::new();
+        ws.open_db();
+        let cli = Cli {
+            db: ws.db(),
+            gen_dir: ws.gen_dir(),
+            command: Commands::Lsp {
+                lsp_cmd: None,
+                lsp_lang: None,
+                sigil: '%',
+                include: ".".to_string(),
+                allow_env: false,
+                cmd: LspCommands::Definition {
+                    out_file: "test.rs".to_string(),
+                    line: 1,
+                    col: 1,
+                },
+            },
+        };
+        // This will likely fail or return error because no real LSP is running,
+        // but it exercises the Lsp command dispatch path.
+        // weaveback_api::lsp_runner::run_lsp returns error if lsp can't be spawned.
+        let _ = run(cli);
+    }
 }

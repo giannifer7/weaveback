@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_bin_run_single_pass() {
-        let mut ws = TestWorkspace::new();
+        let ws = TestWorkspace::new();
         let adoc = ws.root.join("test.adoc");
         // Ensure no spaces between comment and delimiter to avoid regex ambiguity
         // AND add the missing '=' suffix required for chunk definitions.
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_bin_run_apply_back() {
-        let mut ws = TestWorkspace::new();
+        let ws = TestWorkspace::new();
         let mut db = ws.open_db();
         db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
             src_file: "test.adoc".to_string(),

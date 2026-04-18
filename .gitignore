@@ -29,6 +29,7 @@ coverage_raw.txt
 coverage_summary.txt
 full_test_output.log
 *.so
+**/_weaveback.*.so
 
 *.db
 *.db-shm

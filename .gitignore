@@ -25,6 +25,10 @@ new_coverage.log
 summary.log
 tangle_output.txt
 big_chunks.txt
+coverage_raw.txt
+coverage_summary.txt
+full_test_output.log
+*.so
 
 *.db
 *.db-shm
@@ -67,3 +71,4 @@ weaveback_*.log
 scripts/serve-ui/node_modules/
 scripts/serve-ui/.npm/
 scripts/serve-ui/.pnpm-store/
+/weaveback-guarded-agent/

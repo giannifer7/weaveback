@@ -6,7 +6,7 @@
   outputs = { self, nixpkgs }:
     let
       lib     = nixpkgs.lib;
-      version = "0.12.5";
+      version = "0.13.4";
       base    = "https://github.com/giannifer7/weaveback/releases/download/v${version}";
 
       # Pre-built musl binaries are x86_64-linux only.
@@ -34,7 +34,7 @@
       cliBundle = linuxPkgs.stdenv.mkDerivation {
         pname      = "weaveback-cli";
         inherit version;
-        src        = linuxPkgs.fetchurl { url = "${base}/weaveback-x86_64-linux.tar.gz"; sha256 = "sha256-/naYsf9v2ch1OsFy3pqpD/Ry77ieCL13C9gYnAxSbnM="; };
+        src        = linuxPkgs.fetchurl { url = "${base}/weaveback-x86_64-linux.tar.gz"; sha256 = "sha256-6o7Vb+CNiPuuXQTTpkbe/bjdIqvY6fehRUodwwDySww="; };
         dontUnpack = false;
         installPhase = ''
           install -Dm755 wb-tangle        $out/bin/wb-tangle
@@ -51,13 +51,13 @@
 
       packages.x86_64-linux = {
         default          = cliBundle;
-        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-Kn67dOBPG36rsFrM/Buos4F6/8sW1rEC0LNO55hVpVI="; };
-        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-1d/CoJ7pyZ6Vqw6MDyvfN60woUzdAF5M1JqSBLlDUFo="; };
-        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-rVTndwgjlJKsEJ8gpoPBAi4Aj8JAh+AuLxVv2TCnMpY="; };
-        wb-tangle        = releaseBin { pname = "wb-tangle";         sha256 = "sha256-T7ELWL+QQ8nTKCljmRgnvagQSgFHvlc5CplxLanGOl4="; };
-        wb-query         = releaseBin { pname = "wb-query";          sha256 = "sha256-trLJd9S/lSx547w7BtAijAgJn43OuAZuU8G3tiNbo7w="; };
-        wb-serve         = releaseBin { pname = "wb-serve";          sha256 = "sha256-8qQyW8N63CTyX0CnQTRj026dELQhfoVJhqpRYt6wSkw="; };
-        wb-mcp           = releaseBin { pname = "wb-mcp";            sha256 = "sha256-ZB/D0PO7muEO2h8CzMBnLhl76JoqRRjgYednoVze6bI="; };
+        weaveback-macro  = releaseBin { pname = "weaveback-macro";   sha256 = "sha256-dS5NoM8M0r6eelhr7WLt/4paQlCF+YEvF7ytcyk/TjM="; };
+        weaveback-tangle = releaseBin { pname = "weaveback-tangle";  sha256 = "sha256-V8YrvjdMh+mwbOsrh43j1gZcmloZrBsc7CzFmMTelcI="; };
+        weaveback-docgen = releaseBin { pname = "weaveback-docgen";  sha256 = "sha256-bDRAB/etRbi/LuO9o6fmaC03sXcpQo6JqGy03JNzKuI="; };
+        wb-tangle        = releaseBin { pname = "wb-tangle";         sha256 = "sha256-dW2F8ZVHLTTgPPQjFhE3f0yI5T8yf+zrxew3aLtFsu4="; };
+        wb-query         = releaseBin { pname = "wb-query";          sha256 = "sha256-tJs4pYR22MtRfaafEWYCwPlthht3AIOSdli23n7xSQ8="; };
+        wb-serve         = releaseBin { pname = "wb-serve";          sha256 = "sha256-mFMdaDcK6IA2gY3mIGL+FLqUApxRDwBqg+phsGSo1tU="; };
+        wb-mcp           = releaseBin { pname = "wb-mcp";            sha256 = "sha256-Fs/FsLqpKIKJKI2/6Q4s2XiAKP5vqmDEx9H9k01hcBY="; };
       };
 
       # Full documentation + development toolchain.

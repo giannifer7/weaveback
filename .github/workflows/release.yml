@@ -106,7 +106,7 @@ jobs:
 
       - name: Build wheel
         run: |
-          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel cibuildwheel --platform linux python/weaveback-agent
+          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel python -m cibuildwheel python/weaveback-agent --platform linux
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber
@@ -136,7 +136,7 @@ jobs:
       - name: Build wheel
         run: |
           $env:CIBW_BUILD='cp314-win_amd64'
-          uv run --with cibuildwheel cibuildwheel --platform windows python/weaveback-agent
+          uv run --with cibuildwheel python -m cibuildwheel python/weaveback-agent --platform windows
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber

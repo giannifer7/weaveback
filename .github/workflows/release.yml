@@ -101,15 +101,16 @@ jobs:
 
       - name: Clean local wheel residue
         run: |
-          rm -rf python/weaveback-agent/.venv
+          rm -rf python/.venv
           rm -f python/weaveback-agent/src/weaveback_agent/_weaveback*.so
 
       - name: Build wheel
         run: |
-          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel python -m cibuildwheel python/weaveback-agent --platform linux
+          cd python
+          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel python -m cibuildwheel . --platform linux
 
       - name: Upload release assets
-        run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber
+        run: gh release upload "${{ github.ref_name }}" python/wheelhouse/* --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -130,15 +131,16 @@ jobs:
 
       - name: Clean local wheel residue
         run: |
-          Remove-Item -Recurse -Force python/weaveback-agent/.venv -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force python/.venv -ErrorAction SilentlyContinue
           Remove-Item -Force python/weaveback-agent/src/weaveback_agent/_weaveback*.so -ErrorAction SilentlyContinue
 
       - name: Build wheel
         run: |
+          cd python
           $env:CIBW_BUILD='cp314-win_amd64'
-          uv run --with cibuildwheel python -m cibuildwheel python/weaveback-agent --platform windows
+          uv run --with cibuildwheel python -m cibuildwheel . --platform windows
 
       - name: Upload release assets
-        run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber
+        run: gh release upload "${{ github.ref_name }}" python/wheelhouse/* --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

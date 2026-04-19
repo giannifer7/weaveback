@@ -7,7 +7,7 @@ _wb_tangle := if path_exists("target/release/wb-tangle") == "true" { \
                   "./target/debug/wb-tangle" \
               } else { "wb-tangle" }
 
-_pyproj := "python/weaveback-agent"
+_pyproj := "python"
 
 # Default: list available recipes
 default:
@@ -33,15 +33,15 @@ py-wheel:
 
 # Build Linux wheels via cibuildwheel
 py-wheel-ci:
-    cd {{_pyproj}} && uv run --with cibuildwheel cibuildwheel --platform linux
+    cd {{_pyproj}} && uv run --with cibuildwheel python -m cibuildwheel . --platform linux
 
 # Build a manylinux wheel for CPython 3.14
 py-wheel-manylinux:
-    cd {{_pyproj}} && CIBW_BUILD='cp314-manylinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+    cd {{_pyproj}} && CIBW_BUILD='cp314-manylinux_x86_64' uv run --with cibuildwheel python -m cibuildwheel . --platform linux
 
 # Build a musllinux wheel for CPython 3.14
 py-wheel-musllinux:
-    cd {{_pyproj}} && CIBW_BUILD='cp314-musllinux_x86_64' uv run --with cibuildwheel cibuildwheel --platform linux
+    cd {{_pyproj}} && CIBW_BUILD='cp314-musllinux_x86_64' uv run --with cibuildwheel python -m cibuildwheel . --platform linux
 
 # Sync the Python project environment
 py-sync:
@@ -99,8 +99,8 @@ lint:
 lint-python:
     cd {{_pyproj}} && uv run ruff check .
     cd {{_pyproj}} && uv run pyright
-    cd {{_pyproj}} && uv run --with mypy mypy src
-    cd {{_pyproj}} && uv run --with pylint pylint src/weaveback_agent
+    cd {{_pyproj}} && uv run --with mypy mypy weaveback-agent/src
+    cd {{_pyproj}} && uv run --with pylint pylint weaveback-agent/src/weaveback_agent
 
 # Format check
 fmt-check:
@@ -205,19 +205,19 @@ install *ARGS:
 PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
 
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
-# --sigil %% de-escapes %%%% in files that use %% as the macro sigil
+# --sigil % de-escapes %% in files that use % as the macro sigil
 # --sigil ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as sigil)
 docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil %% --sigil ^ \
+        --sigil % --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil %% --sigil ^ \
+        --sigil % --sigil ^ \
         --plantuml-jar {{PLANTUML_JAR}} \
         --ai-xref
 

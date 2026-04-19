@@ -84,9 +84,9 @@
             echo "  just serve      live-reload server with inline editor"
             echo "  just test       run all tests"
             echo "  just py-check   build + lint + test the Python agent bridge"
-            if [ -f python/weaveback-agent/pyproject.toml ]; then
-              echo "  syncing python/weaveback-agent with uv..."
-              if ! uv sync --project python/weaveback-agent --all-groups; then
+            if [ -f python/pyproject.toml ]; then
+              echo "  syncing python with uv..."
+              if ! uv sync --project python --all-groups; then
                 echo "  warning: uv sync failed; continuing with the shell environment"
               fi
             fi

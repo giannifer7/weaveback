@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "weaveback-agent"
 version = "0.1.0"
 description = "Typed Python agent APIs for weaveback"
-readme = "README.md"
+readme = "weaveback-agent/README.md"
 requires-python = ">=3.14"
 dependencies = [
   "pydantic>=2.11",
@@ -14,7 +14,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-  "maturin>=1.13.1",
   "pyright>=1.1.400",
   "pytest>=8.3",
   "ruff>=0.11",
@@ -22,8 +21,8 @@ dev = [
 
 [tool.maturin]
 module-name = "weaveback_agent._weaveback"
-python-source = "src"
-manifest-path = "../../crates/weaveback-py/Cargo.toml"
+python-source = "weaveback-agent/src"
+manifest-path = "../crates/weaveback-py/Cargo.toml"
 
 [tool.ruff]
 line-length = 100

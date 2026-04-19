@@ -51,6 +51,8 @@ asciidoc-parser/
 
 chats
 python/*
+!python/pyproject.toml
+!python/uv.lock
 !python/weaveback-agent/
 !python/weaveback-agent/**
 resume.txt

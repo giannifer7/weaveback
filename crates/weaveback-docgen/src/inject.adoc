@@ -366,7 +366,7 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(&html).expect("read html"),
-            r#"<a href="guide.adoc#intro">Guide</a>"#
+            r#"<a href="guide.html#intro">Guide</a>"#
         );
         assert_eq!(fs::read_to_string(&txt).expect("read txt"), "guide.adoc");
     }

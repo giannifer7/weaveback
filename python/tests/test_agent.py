@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from weaveback_agent import AgentLoop, WorkspaceConfig
 from weaveback_agent._weaveback import PyWorkspace
 
@@ -11,11 +13,11 @@ def test_pyworkspace_basic(tmp_path: Path) -> None:
 
     ws = PyWorkspace(str(tmp_path), str(db_path), str(gen_dir))
 
-    search = ws.search("test", 10)
-    assert isinstance(search, list)
+    with pytest.raises(RuntimeError, match="Database not found"):
+        ws.search("test", 10)
 
-    trace = ws.trace("nonexistent.rs", 1, 1)
-    assert trace is None or isinstance(trace, dict)
+    with pytest.raises(RuntimeError, match="Database not found"):
+        ws.trace("nonexistent.rs", 1, 1)
 
 
 def test_agent_loop_trace_and_summary(tmp_path: Path) -> None:
@@ -31,7 +33,8 @@ def test_agent_loop_trace_and_summary(tmp_path: Path) -> None:
         )
     )
 
-    assert loop.inspect_trace("nonexistent.rs", 1, 1) is None
+    with pytest.raises(RuntimeError, match="Database not found"):
+        loop.inspect_trace("nonexistent.rs", 1, 1)
 
     response = loop.run_once("do nothing", planner=object())
     assert "Planner integration belongs here" in response.summary

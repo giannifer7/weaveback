@@ -357,6 +357,25 @@ clean:
 # @
 ----
 
+== mise.toml
+
+Project-local mise environment configuration. This keeps Cargo build outputs
+under a shared external root while still isolating this repository from other
+projects by using the project root name.
+
+[source,toml]
+----
+# <<@file mise.toml>>=
+[env]
+# This tells mise to load variables from a .env file in the same directory
+_.file = ".env"
+
+# Keep Cargo build artifacts outside the repository while avoiding a single
+# global target directory shared by unrelated workspaces.
+CARGO_TARGET_DIR = "/mnt/sda3/target/{{ config_root | basename }}"
+# @
+----
+
 == .gitignore
 
 [source]
@@ -389,6 +408,11 @@ new_coverage.log
 summary.log
 tangle_output.txt
 big_chunks.txt
+coverage_raw.txt
+coverage_summary.txt
+full_test_output.log
+*.so
+**/_weaveback.*.so
 
 *.db
 *.db-shm
@@ -431,6 +455,7 @@ weaveback_*.log
 scripts/serve-ui/node_modules/
 scripts/serve-ui/.npm/
 scripts/serve-ui/.pnpm-store/
+/weaveback-guarded-agent/
 # @
 ----
 

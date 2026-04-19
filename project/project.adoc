@@ -436,6 +436,8 @@ chats
 python/*
 !python/weaveback-agent/
 !python/weaveback-agent/**
+!python/tests/
+!python/tests/**
 resume.txt
 
 gen/

@@ -135,3 +135,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --exclude weaveback-py
       - run: cargo clippy --workspace --exclude weaveback-py -- -D warnings
+
+  test-python-agent:
+    name: Tests (python agent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --all-groups
+      - run: uv run maturin develop
+      - run: uv run pytest python/tests

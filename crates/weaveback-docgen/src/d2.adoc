@@ -100,6 +100,9 @@ fn raw_block_language<'src>(
 Invoke the `d2` CLI with `--layout` and `--theme`, piping diagram source on
 stdin and reading SVG bytes from stdout.
 
+Tests can override the executable path via `WEAVEBACK_D2_BIN` so they do not
+need to mutate global `PATH` inside a parallel test process.
+
 [source,rust]
 ----
 // <[d2-render]>=
@@ -109,7 +112,8 @@ pub fn render_d2_diagram(
     theme: u32,
     layout: &str,
 ) -> Result<Vec<u8>, D2Error> {
-    let mut child = std::process::Command::new("d2")
+    let d2_bin = std::env::var("WEAVEBACK_D2_BIN").unwrap_or_else(|_| "d2".to_string());
+    let mut child = std::process::Command::new(&d2_bin)
         .args([
             "--layout", layout,
             "--theme", &theme.to_string(),
@@ -267,6 +271,35 @@ mod tests {
             source: std::io::Error::other("disk full"),
         };
         assert!(e.to_string().contains("/tmp/x.svg"));
+    }
+
+    #[test]
+    fn test_render_d2_mock() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let bin_dir = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        let d2_p = bin_dir.join("d2");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&d2_p, "#!/bin/sh\nprintf '<svg>d2-svg</svg>'\n").unwrap();
+            let mut perms = std::fs::metadata(&d2_p).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&d2_p, perms).unwrap();
+        }
+
+        unsafe { std::env::set_var("WEAVEBACK_D2_BIN", &d2_p); }
+
+        #[cfg(unix)]
+        {
+            let res = render_d2_diagram("a -> b", 0, 0, "dagre");
+            assert!(res.is_ok());
+            let svg = res.unwrap();
+            assert_eq!(svg, b"<svg>d2-svg</svg>");
+        }
+
+        unsafe { std::env::remove_var("WEAVEBACK_D2_BIN"); }
     }
 
 }

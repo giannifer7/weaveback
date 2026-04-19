@@ -76,7 +76,8 @@ pub fn render_d2_diagram(
     theme: u32,
     layout: &str,
 ) -> Result<Vec<u8>, D2Error> {
-    let mut child = std::process::Command::new("d2")
+    let d2_bin = std::env::var("WEAVEBACK_D2_BIN").unwrap_or_else(|_| "d2".to_string());
+    let mut child = std::process::Command::new(&d2_bin)
         .args([
             "--layout", layout,
             "--theme", &theme.to_string(),
@@ -236,12 +237,7 @@ mod tests {
             std::fs::set_permissions(&d2_p, perms).unwrap();
         }
 
-        let old_path = std::env::var_os("PATH").unwrap_or_default();
-        let mut new_path = bin_dir.to_string_lossy().into_owned();
-        new_path.push(':');
-        new_path.push_str(&old_path.to_string_lossy());
-        
-        unsafe { std::env::set_var("PATH", new_path); }
+        unsafe { std::env::set_var("WEAVEBACK_D2_BIN", &d2_p); }
 
         #[cfg(unix)]
         {
@@ -251,6 +247,6 @@ mod tests {
             assert_eq!(svg, b"<svg>d2-svg</svg>");
         }
 
-        unsafe { std::env::set_var("PATH", old_path); }
+        unsafe { std::env::remove_var("WEAVEBACK_D2_BIN"); }
     }
 }

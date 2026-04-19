@@ -99,10 +99,14 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Clean local wheel residue
+        run: |
+          rm -rf python/weaveback-agent/.venv
+          rm -f python/weaveback-agent/src/weaveback_agent/_weaveback*.so
+
       - name: Build wheel
         run: |
-          cd python/weaveback-agent
-          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel cibuildwheel --platform linux
+          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel cibuildwheel --platform linux python/weaveback-agent
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber
@@ -124,11 +128,15 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Clean local wheel residue
+        run: |
+          Remove-Item -Recurse -Force python/weaveback-agent/.venv -ErrorAction SilentlyContinue
+          Remove-Item -Force python/weaveback-agent/src/weaveback_agent/_weaveback*.so -ErrorAction SilentlyContinue
+
       - name: Build wheel
         run: |
-          cd python/weaveback-agent
           $env:CIBW_BUILD='cp314-win_amd64'
-          uv run --with cibuildwheel cibuildwheel --platform windows
+          uv run --with cibuildwheel cibuildwheel --platform windows python/weaveback-agent
 
       - name: Upload release assets
         run: gh release upload "${{ github.ref_name }}" python/weaveback-agent/wheelhouse/* --clobber

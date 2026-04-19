@@ -1,6 +1,6 @@
 = Weaveback
 
-link:https://giannifer7.github.io/weaveback/[Documentation]
+link:https://giannifer7.github.io/weaveback/docs/index.html[Documentation]
 | link:https://giannifer7.github.io/weaveback/crates/weaveback-tangle/src/weaveback_tangle.html[weaveback-tangle source]
 | link:https://giannifer7.github.io/weaveback/crates/weaveback-macro/src/weaveback_macro.html#literate-sources[weaveback-macro source]
 

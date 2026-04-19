@@ -269,9 +269,9 @@ def flake(version: str, tarball_sha256: str, sri: dict) -> str:
             echo "  just serve      live-reload server with inline editor"
             echo "  just test       run all tests"
             echo "  just py-check   build + lint + test the Python agent bridge"
-            if [ -f python/pyproject.toml ]; then
-              echo "  syncing python with uv..."
-              if ! uv sync --project python --all-groups; then
+            if [ -f pyproject.toml ]; then
+              echo "  syncing Python project with uv..."
+              if ! uv sync --project . --all-groups; then
                 echo "  warning: uv sync failed; continuing with the shell environment"
               fi
             fi

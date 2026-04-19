@@ -129,7 +129,7 @@ _wb_tangle := if path_exists("target/release/wb-tangle") == "true" { \
                   "./target/debug/wb-tangle" \
               } else { "wb-tangle" }
 
-_pyproj := "python"
+_pyproj := "."
 
 # Default: list available recipes
 default:
@@ -221,8 +221,8 @@ lint:
 lint-python:
     cd {{_pyproj}} && uv run ruff check .
     cd {{_pyproj}} && uv run pyright
-    cd {{_pyproj}} && uv run --with mypy mypy weaveback-agent/src
-    cd {{_pyproj}} && uv run --with pylint pylint weaveback-agent/src/weaveback_agent
+    cd {{_pyproj}} && uv run --with mypy mypy python/weaveback-agent/src
+    cd {{_pyproj}} && uv run --with pylint pylint python/weaveback-agent/src/weaveback_agent
 
 # Format check
 fmt-check:
@@ -434,8 +434,6 @@ asciidoc-parser/
 
 chats
 python/*
-!python/pyproject.toml
-!python/uv.lock
 !python/weaveback-agent/
 !python/weaveback-agent/**
 resume.txt
@@ -1000,9 +998,9 @@ It is not tangled from this document — the block below is a snapshot for refer
             echo "  just serve      live-reload server with inline editor"
             echo "  just test       run all tests"
             echo "  just py-check   build + lint + test the Python agent bridge"
-            if [ -f python/pyproject.toml ]; then
-              echo "  syncing python with uv..."
-              if ! uv sync --project python --all-groups; then
+            if [ -f pyproject.toml ]; then
+              echo "  syncing Python project with uv..."
+              if ! uv sync --project . --all-groups; then
                 echo "  warning: uv sync failed; continuing with the shell environment"
               fi
             fi

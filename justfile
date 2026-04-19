@@ -7,7 +7,7 @@ _wb_tangle := if path_exists("target/release/wb-tangle") == "true" { \
                   "./target/debug/wb-tangle" \
               } else { "wb-tangle" }
 
-_pyproj := "python"
+_pyproj := "."
 
 # Default: list available recipes
 default:
@@ -99,8 +99,8 @@ lint:
 lint-python:
     cd {{_pyproj}} && uv run ruff check .
     cd {{_pyproj}} && uv run pyright
-    cd {{_pyproj}} && uv run --with mypy mypy weaveback-agent/src
-    cd {{_pyproj}} && uv run --with pylint pylint weaveback-agent/src/weaveback_agent
+    cd {{_pyproj}} && uv run --with mypy mypy python/weaveback-agent/src
+    cd {{_pyproj}} && uv run --with pylint pylint python/weaveback-agent/src/weaveback_agent
 
 # Format check
 fmt-check:

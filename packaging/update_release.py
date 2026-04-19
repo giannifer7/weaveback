@@ -49,6 +49,12 @@ NEEDED_ASSETS = [
     "wb-mcp-musl",
 ]
 
+NEEDED_ASSET_PATTERNS = [
+    r"^weaveback_agent-.*-cp314-cp314-manylinux.*_x86_64\.whl$",
+    r"^weaveback_agent-.*-cp314-cp314-musllinux.*_x86_64\.whl$",
+    r"^weaveback_agent-.*-cp314-cp314-win_amd64\.whl$",
+]
+
 
 # ── auth ───────────────────────────────────────────────────────────────────────
 
@@ -101,7 +107,10 @@ def wait_for_release(version: str, token: str, timeout: int = 1800, poll: int = 
         try:
             data = api_get(f"/repos/{REPO}/releases/tags/{tag}", token)
             names = {a["name"] for a in data.get("assets", [])}
-            if all(a in names for a in NEEDED_ASSETS):
+            if (
+                all(a in names for a in NEEDED_ASSETS)
+                and all(any(re.match(pattern, name) for name in names) for pattern in NEEDED_ASSET_PATTERNS)
+            ):
                 print(" ready.")
                 return data
         except (urllib.error.URLError, TimeoutError):

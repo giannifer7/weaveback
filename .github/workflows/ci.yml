@@ -94,6 +94,31 @@ jobs:
           name: weaveback-python-${{ matrix.wheel }}
           path: python/weaveback-agent/wheelhouse/*
 
+  python-wheels-windows:
+    name: Python wheels (cp314-win_amd64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build wheel
+        run: |
+          cd python/weaveback-agent
+          $env:CIBW_BUILD='cp314-win_amd64'
+          uv run --with cibuildwheel cibuildwheel --platform windows
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: weaveback-python-cp314-win_amd64
+          path: python/weaveback-agent/wheelhouse/*
+
   test:
     name: Tests
     runs-on: ubuntu-latest

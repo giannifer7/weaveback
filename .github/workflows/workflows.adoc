@@ -79,6 +79,35 @@ jobs:
           name: weaveback-windows-native
           path: dist/windows-native
 
+  python-wheels:
+    name: Python wheels (${{ matrix.wheel }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        wheel: [ cp314-manylinux_x86_64, cp314-musllinux_x86_64 ]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build wheel
+        run: |
+          cd python/weaveback-agent
+          CIBW_BUILD='${{ matrix.wheel }}' uv run --with cibuildwheel cibuildwheel --platform linux
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: weaveback-python-${{ matrix.wheel }}
+          path: python/weaveback-agent/wheelhouse/*
+
   test:
     name: Tests
     runs-on: ubuntu-latest

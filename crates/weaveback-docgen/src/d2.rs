@@ -249,4 +249,5 @@ mod tests {
 
         unsafe { std::env::remove_var("WEAVEBACK_D2_BIN"); }
     }
+
 }

@@ -1254,9 +1254,9 @@ SearchMeKeyword\n".as_bytes());
         process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
 
         // Apply fix: change "old" to "new"
-        let req = format!(
-            "{{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{{\"name\":\"weaveback_apply_fix\",\"arguments\":{{\"src_file\":\"src/test.adoc\",\"src_line\":4,\"new_src_line\":\"new\",\"out_file\":\"test.rs\",\"out_line\":1,\"expected_output\":\"new\"}}}}}}\n"
-        );
+        let req =
+            "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_fix\",\"arguments\":{\"src_file\":\"src/test.adoc\",\"src_line\":4,\"new_src_line\":\"new\",\"out_file\":\"test.rs\",\"out_line\":1,\"expected_output\":\"new\"}}}\n"
+                .to_string();
         let out = mcp_drive(&ws, &req);
         assert!(out.contains("Applied ChangePlan"), "Apply fix failed. Output: {out}");
 
@@ -1371,10 +1371,10 @@ SearchMeKeyword\n".as_bytes());
         let mut dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         loop {
             let candidate = dir.join("Cargo.toml");
-            if candidate.exists() {
-                if let Ok(txt) = std::fs::read_to_string(&candidate) {
-                    if txt.contains("[workspace]") { return dir; }
-                }
+            if candidate.exists()
+                && let Ok(txt) = std::fs::read_to_string(&candidate)
+                && txt.contains("[workspace]") {
+                return dir;
             }
             if !dir.pop() { break; }
         }
@@ -1447,7 +1447,7 @@ SearchMeKeyword\n".as_bytes());
     fn mcp_protocol_full_handshake() {
         let ws = McpWorkspace::new();
         // Handshake: initialize -> notifications/initialized -> tools/list
-        let reqs = vec![
+        let reqs = [
             r#"{"jsonrpc":"2.0","id":100,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0"}}}"#,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
             r#"{"jsonrpc":"2.0","id":101,"method":"tools/list"}"#,
@@ -1463,7 +1463,7 @@ SearchMeKeyword\n".as_bytes());
     #[test]
     fn mcp_malformed_and_unknown_methods() {
         let ws = McpWorkspace::new();
-        let reqs = vec![
+        let reqs = [
             "invalid non-json",
             r#"{"jsonrpc":"2.0","id":200,"method":"unknown/method"}"#,
             r#"{"jsonrpc":"2.0","id":201,"method":"tools/call","params":{"name":"weaveback_trace"}}"#, // missing args
@@ -1477,7 +1477,7 @@ SearchMeKeyword\n".as_bytes());
     #[test]
     fn mcp_list_resources_and_prompts_are_empty_but_covered() {
         let ws = McpWorkspace::new();
-        let reqs = vec![
+        let reqs = [
             r#"{"jsonrpc":"2.0","id":300,"method":"resources/list"}"#,
             r#"{"jsonrpc":"2.0","id":301,"method":"prompts/list"}"#,
         ].join("\n") + "\n";
@@ -1490,7 +1490,7 @@ SearchMeKeyword\n".as_bytes());
     fn mcp_lsp_tools_missing_db_error() {
         let ws = McpWorkspace::new();
         // Database not found path for LSP tools
-        let reqs = vec![
+        let reqs = [
             r#"{"jsonrpc":"2.0","id":400,"method":"tools/call","params":{"name":"weaveback_lsp_definition","arguments":{"out_file":"test.rs","line":1,"col":1}}}"#,
         ].join("\n") + "\n";
         let out = mcp_drive(&ws, &reqs);
@@ -1502,7 +1502,7 @@ SearchMeKeyword\n".as_bytes());
     fn mcp_lsp_unsupported_extension_error() {
         let ws = McpWorkspace::new();
         ws.open_db();
-        let reqs = vec![
+        let reqs = [
             r#"{"jsonrpc":"2.0","id":500,"method":"tools/call","params":{"name":"weaveback_lsp_definition","arguments":{"out_file":"test.unknown","line":1,"col":1}}}"#,
         ].join("\n") + "\n";
         let out = mcp_drive(&ws, &reqs);
@@ -1512,12 +1512,14 @@ SearchMeKeyword\n".as_bytes());
     #[test]
     fn mcp_apply_fix_invalid_args() {
         let ws = McpWorkspace::new();
-        let reqs = vec![
+        let reqs = [
             r#"{"jsonrpc":"2.0","id":600,"method":"tools/call","params":{"name":"weaveback_apply_fix","arguments":{"src_file":"a.adoc"}}}"#, // missing most args
         ].join("\n") + "\n";
         let out = mcp_drive(&ws, &reqs);
         assert!(out.contains("isError") || out.contains("Missing arguments"));
     }
+
+    #[test]
     fn mcp_chunk_context_not_found() {
         let ws = McpWorkspace::new();
         ws.open_db();

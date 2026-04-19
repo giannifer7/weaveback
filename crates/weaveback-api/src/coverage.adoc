@@ -3017,7 +3017,7 @@ build = "build.rs"
     #[test]
     fn test_coverage_error_conversions() {
         use rusqlite;
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "io");
+        let io_err = std::io::Error::other("io");
         let ce_io = CoverageApiError::from(io_err);
         assert!(ce_io.to_string().contains("io"));
 

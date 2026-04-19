@@ -2423,7 +2423,7 @@ mod tests {
             src_file: "src/test.adoc",
             src_root: &ws.root,
             db: &db,
-            patches: &vec![Patch {
+            patches: &[Patch {
                 expanded_line: 0,
                 old_text: "unpatchable line".into(),
                 new_text: "new".into(),
@@ -2458,7 +2458,7 @@ mod tests {
             src_file: "src/test.adoc",
             src_root: &ws.root,
             db: &db,
-            patches: &vec![Patch {
+            patches: &[Patch {
                 expanded_line: 0,
                 old_text: "old".into(),
                 new_text: "new".into(),
@@ -2494,7 +2494,7 @@ mod tests {
             src_file: "src/test.adoc",
             src_root: &ws.root,
             db: &db,
-            patches: &vec![Patch {
+            patches: &[Patch {
                 expanded_line: 0,
                 old_text: "line1".into(),
                 new_text: "LINE1".into(),
@@ -2897,7 +2897,7 @@ mod tests {
             db: &db,
             src_file: src_rel,
             src_root: &ws.root,
-            patches: &vec![Patch {
+            patches: &[Patch {
                 expanded_line: 0,
                 old_text: "old_val".into(),
                 new_text: "new_val".into(),
@@ -2955,7 +2955,7 @@ mod tests {
     #[test]
     fn test_run_apply_back_size_changing_replace_rejection() {
         let ws = TestWorkspace::new();
-        let mut db = ws.open_db();
+        let db = ws.open_db();
         db.set_baseline("out.rs", b"line1\n").unwrap();
         ws.write_file("gen/out.rs", b"mod1\nmod2\n"); // 1 -> 2
         
@@ -2975,7 +2975,7 @@ mod tests {
     #[test]
     fn test_run_apply_back_skips_insert_and_delete() {
         let ws = TestWorkspace::new();
-        let mut db = ws.open_db();
+        let db = ws.open_db();
         db.set_baseline("out.rs", b"line1\nline2\n").unwrap();
         
         let gen_rel = "gen/out.rs";
@@ -3042,7 +3042,7 @@ mod tests {
             src_file: "src/test.adoc",
             src_root: &ws.root,
             db: &db,
-            patches: &vec![Patch {
+            patches: &[Patch {
                 expanded_line: 0,
                 old_text: "macro body".into(),
                 new_text: "patched body".into(),

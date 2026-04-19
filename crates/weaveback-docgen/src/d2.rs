@@ -238,7 +238,7 @@ mod tests {
 
         let old_path = std::env::var_os("PATH").unwrap_or_default();
         let mut new_path = bin_dir.to_string_lossy().into_owned();
-        new_path.push_str(":");
+        new_path.push(':');
         new_path.push_str(&old_path.to_string_lossy());
         
         unsafe { std::env::set_var("PATH", new_path); }

@@ -729,7 +729,7 @@ mod tests {
             line_end: 10,
             content_hash: [0u8; 32],
         };
-        prev_db.set_source_blocks("src.adoc", &[block_a.clone()]).unwrap();
+        prev_db.set_source_blocks("src.adoc", std::slice::from_ref(&block_a)).unwrap();
         
         let mut current_db = WeavebackDb::open_temp().unwrap();
         let mut source_contents = HashMap::new();

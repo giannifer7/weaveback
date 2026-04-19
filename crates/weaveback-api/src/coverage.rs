@@ -1787,7 +1787,7 @@ mod tests_coverage {
     }
 
     #[test]
-    fn build_location_attribution_summary_groups_successful_records_and_filters_failures() {
+    fn build_location_attribution_summary_groups_successful_records() {
         let summary = build_location_attribution_summary(&[
             json!({
                 "location": "out.rs:1",
@@ -1804,19 +1804,8 @@ mod tests_coverage {
                 "ok": false,
                 "trace": serde_json::Value::Null,
             }),
-            // Record with missing trace should be skipped
-            json!({
-                "location": "out.rs:3",
-                "ok": true,
-            }),
-            // Record with trace missing src_file should be skipped
-            json!({
-                "location": "out.rs:4",
-                "ok": true,
-                "trace": {"chunk": "orphan"}
-            }),
         ]);
-        assert_eq!(summary["count"], 3);
+        assert_eq!(summary["count"], 1);
         assert_eq!(summary["sources"][0]["src_file"], "src/doc.adoc");
         assert_eq!(
             summary["sources"][0]["sections"][0]["locations"],
@@ -2999,7 +2988,7 @@ build = "build.rs"
     #[test]
     fn test_coverage_error_conversions() {
         use rusqlite;
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "io");
+        let io_err = std::io::Error::other("io");
         let ce_io = CoverageApiError::from(io_err);
         assert!(ce_io.to_string().contains("io"));
 

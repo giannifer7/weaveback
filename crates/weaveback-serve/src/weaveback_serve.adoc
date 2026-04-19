@@ -2424,7 +2424,7 @@ mod tests {
     #[test]
     fn parse_query_handles_empty_query_string() {
         let params = parse_query("/__chunk?");
-        assert!(params.is_empty() || params.get("").is_some());
+        assert!(params.is_empty() || params.contains_key(""));
     }
 
     // ── SseReader EOF ─────────────────────────────────────────────────────

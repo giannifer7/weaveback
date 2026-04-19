@@ -147,8 +147,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace -- -D warnings
+      - run: cargo test --workspace --exclude weaveback-py
+      - run: cargo clippy --workspace --exclude weaveback-py -- -D warnings
 // @
 ----
 

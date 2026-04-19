@@ -1425,8 +1425,14 @@ SearchMeKeyword\n".as_bytes());
             r#"{"jsonrpc":"2.0","id":400,"method":"tools/call","params":{"name":"weaveback_lsp_definition","arguments":{"out_file":"test.rs","line":1,"col":1}}}"#,
         ].join("\n") + "\n";
         let out = mcp_drive(&ws, &reqs);
-        // It might fail with "LSP call failed" if the path is invalid for the LSP
-        assert!(out.contains("Database not found") || out.contains("LSP call failed"), "output: {out}");
+        // Depending on the environment, this may fail before any DB-backed
+        // operation with an LSP initialization error.
+        assert!(
+            out.contains("Database not found")
+                || out.contains("LSP call failed")
+                || out.contains("failed to initialize LSP"),
+            "output: {out}"
+        );
     }
 
     #[test]

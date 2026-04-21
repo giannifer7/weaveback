@@ -1,5 +1,4 @@
 = weaveback-api
-:toc: left
 
 Shared business logic for the weaveback toolchain.
 
@@ -9,9 +8,12 @@ from Python via PyO3, and from MCP tool handlers.
 
 == Modules
 
+
+
 [source,rust]
 ----
-// <<weaveback-api-lib>>=
+
+// <[weaveback-api-lib]>=
 pub mod apply_back;
 pub mod coverage;
 pub mod lint;
@@ -24,13 +26,22 @@ pub mod semantic;
 pub mod tag;
 pub mod tangle;
 // @
+
 ----
+
+
 
 == Assembly
 
+
+
 [source,rust]
 ----
-// <<@file weaveback-api/src/lib.rs>>=
-// <<weaveback-api-lib>>
+
+// <[@file weaveback-api/src/lib.rs]>=
+// <[weaveback-api-lib]>
 // @
+
 ----
+
+

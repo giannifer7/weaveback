@@ -1,9 +1,11 @@
 = weaveback-agent-core change_plan
-:source-highlighter: syntect
+
+
 
 [source,rust]
 ----
-// <<@file weaveback-agent-core/src/change_plan.rs>>=
+
+// <[@file weaveback-agent-core/src/change_plan.rs]>=
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,4 +39,7 @@ pub struct OutputAnchor {
     pub expected_output: String,
 }
 // @
+
 ----
+
+

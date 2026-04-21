@@ -4,7 +4,7 @@
 
 ```rust
 
-// <<@file weaveback-agent-core/src/lib.rs>>=
+// <[@file weaveback-agent-core/src/lib.rs]>=
 pub mod apply;
 pub mod change_plan;
 pub mod read_api;

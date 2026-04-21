@@ -87,7 +87,7 @@ Commit `gen/` to version control; add `weaveback.db` to `.gitignore`.
 == Path normalization (`PathResolver`)
 
 Weaveback uses a centralized `PathResolver` (implemented in
-link:../crates/weaveback-core/src/weaveback_core.adoc[`weaveback-core`]) to
+link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[`weaveback-core`]) to
 ensure consistency between how humans, agents, and language servers see the
 project directory.
 
@@ -492,7 +492,7 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 |===
 | Document | Generates
 
-| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core crate index]
+| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core crate index]
 | `crates/weaveback-core/src/lib.rs`
 |===
 

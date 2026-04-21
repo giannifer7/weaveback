@@ -537,6 +537,29 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/weaveback-core/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc/crates/weaveback-core/src"
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
+dir = "crates/weaveback-core/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md/crates/weaveback-core/src"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
 dir = "crates/weaveback-agent-core/"
 ext = "adoc"
 no_macros = true
@@ -551,8 +574,8 @@ sigil = "¤"
 macro_prelude = ["prelude/asciidoc.wvb"]
 expanded_ext = "adoc"
 expanded_adoc_dir = "expanded-adoc/crates/weaveback-agent-core/src"
-open_delim = "<<"
-close_delim = ">>"
+open_delim = "<["
+close_delim = "]>"
 
 [[pass]]
 dir = "crates/weaveback-agent-core/src-wvb/"
@@ -563,8 +586,8 @@ macro_prelude = ["prelude/markdown.wvb"]
 expanded_ext = "md"
 expanded_md_dir = "expanded-md/crates/weaveback-agent-core/src"
 macro_only = true
-open_delim = "<<"
-close_delim = ">>"
+open_delim = "<["
+close_delim = "]>"
 
 [[pass]]
 dir = "crates/weaveback-macro/"
@@ -613,6 +636,29 @@ ext = "adoc"
 no_macros = true
 open_delim = "<<"
 close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-api/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc/crates/weaveback-api/src"
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
+dir = "crates/weaveback-api/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md/crates/weaveback-api/src"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
 
 [[pass]]
 dir = "crates/weaveback-serve/src/"

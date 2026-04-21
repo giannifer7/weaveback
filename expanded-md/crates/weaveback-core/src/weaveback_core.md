@@ -1,27 +1,31 @@
-= Weaveback Core
-:toc: left
+# Weaveback Core
 
-`weaveback-core` contains shared constants and basic types used by both the 
+`weaveback-core` contains shared constants and basic types used by both the
 macro expander and the noweb tangle tool. By keeping these here, we ensure
 consistency across the entire pipeline without creating a circular dependency
 between the macro and tangle crates.
 
-== Shared Constants
+## Shared Constants
 
-[source,rust]
-----
-// <<core-constants>>=
+
+
+```rust
+
+// <[core-constants]>=
 /// Maximum recursion depth for macro expansion and noweb chunk expansion.
 pub const MAX_RECURSION_DEPTH: usize = 100;
 // @
-----
 
-== Path Resolution
+```
+
+
+
+## Path Resolution
 
 `PathResolver` maps between the two path spaces the toolchain works with:
 
 * *gen paths* — keys stored in the database, relative to `gen_dir`
-* *source paths* — paths to literate `.adoc` files, relative to `project_root`
+* *source paths* — paths to literate source files, relative to `project_root`
 
 `project_root` should be set to the directory containing `weaveback.db`, which
 is also the directory from which weaveback was originally run.  Using the db
@@ -29,9 +33,11 @@ location (rather than the current working directory) ensures that paths resolve
 correctly when subcommands like `apply-back` are invoked from a different
 directory.
 
-[source,rust]
-----
-// <<core-path>>=
+
+
+```rust
+
+// <[core-path]>=
 use std::path::{Path, PathBuf};
 
 pub struct PathResolver {
@@ -91,14 +97,22 @@ impl PathResolver {
     }
 }
 // @
-----
 
-== Assembly
+```
 
-[source,rust]
-----
-// <<@file weaveback-core/src/lib.rs>>=
-// <<core-constants>>
-// <<core-path>>
+
+
+## Assembly
+
+
+
+```rust
+
+// <[@file weaveback-core/src/lib.rs]>=
+// <[core-constants]>
+// <[core-path]>
 // @
-----
+
+```
+
+

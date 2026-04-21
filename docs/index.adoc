@@ -96,7 +96,7 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
 
-| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core]
+| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core]
 | Shared constants, configuration, and path resolution logic
 
 | link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp]
@@ -280,7 +280,7 @@ for the module map and error hierarchy, then follow the dependency order:
 |===
 | Document | Generates
 
-| link:../crates/weaveback-core/src/weaveback_core.adoc[weaveback-core index]
+| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core index]
 | `crates/weaveback-core/src/lib.rs`
 
 | link:../crates/weaveback-core/manifest.adoc[Cargo manifest]

@@ -19,6 +19,12 @@ documentation and generation model:
   source of truth
 * smaller generated modules and smaller test units
 
+The practical migration mechanism is the two-pass `.wvb` authoring model
+described in link:two-pass-markup-migration.adoc[two-pass markup migration].
+Moving a document to `.wvb` should not be a mechanical syntax conversion.
+Each migration is also a review gate for source ownership, module boundaries,
+test placement, and generated-file size.
+
 == Problem Statement
 
 The current failure mode is not just "bugs exist". It is structural:
@@ -113,6 +119,50 @@ Rules:
 * should be easy to delete or rewrite later
 
 == Workstreams
+
+== Execution Model: `.wvb` As The Cleanup Vehicle
+
+The two-pass migration and this complexity plan are one workstream, not two.
+For each document selected for `.wvb` conversion, perform these checks before
+accepting the migration:
+
+. **Ownership check** — confirm the document is the canonical implementation
+  owner. If not, convert it to architecture/user documentation instead.
+. **Output check** — list every generated file and decide whether each output
+  still belongs in the same document.
+. **Split check** — if a generated Rust file is too large, split the Rust module
+  during the `.wvb` migration rather than preserving the bad shape.
+. **Test check** — move large test tails into separate generated test files
+  while keeping links from the runtime module and crate index.
+. **Projection check** — generate both `expanded-adoc/` and `expanded-md/` when
+  the document is code-producing, and verify both projections tangle to the same
+  generated source.
+. **Drift check** — run a retangle and inspect tracked diffs before committing.
+
+This keeps the migration honest: `.wvb` is not another documentation layer on
+top of complexity; it is the tool used to remove complexity.
+
+== Candidate Ordering
+
+Use small, leaf documents first to validate workflow, then move toward files
+where the structural payoff is high.
+
+. **Pilot / calibration**
+  * `crates/weaveback-agent-core/src-wvb/lib.wvb` is the first completed pilot.
+  * It validates projection parity without changing generated Rust.
+. **Small crate indexes and module maps**
+  * Convert low-risk files that mostly assemble `lib.rs` or `mod.rs`.
+  * Use these to stabilize `¤` component macros and output-directory policy.
+. **Medium runtime modules**
+  * Convert modules around 500-900 lines when they have clear boundaries.
+  * Split tests out during conversion if they are attached as large tails.
+. **Large generated files**
+  * Convert only with a module-splitting plan.
+  * Do not preserve a 2000+ line generated Rust file just because the old
+    `.adoc` did so.
+. **Architecture and overview pages**
+  * Do not convert mechanically.
+  * First decide whether the page owns code or merely explains code.
 
 == Workstream A: Restore Source-Of-Truth Boundaries
 

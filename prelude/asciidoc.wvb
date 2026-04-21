@@ -1,5 +1,7 @@
 ¤redef(h1, title, ¤{= ¤(title)¤})
 
+¤redef(h2, title, ¤{== ¤(title)¤})
+
 ¤redef(code_block, language, body, ¤{
 [source,¤(language)]
 ----
@@ -7,8 +9,10 @@
 ----
 ¤})
 
-¤redef(rust_code_block, body, ¤{
-¤code_block(rust, ¤(body))
+¤redef(rust_chunk, name, body, ¤{
+¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @
+¤})
 ¤})
 
 ¤redef(graph, format, name, body, ¤{
@@ -33,18 +37,16 @@ NOTE: ¤(body)
 ¤redef(pastafarian_warning, ¤{I'd Really Rather You Didn't edit this generated file.¤})
 
 ¤redef(rust_file, path, content, ¤{
-¤rust_code_block(¤{
-// <[@file ¤(path)]>=
+¤rust_chunk(@file ¤(path), ¤{
 // ¤(path)
 // ¤pastafarian_warning()
 
 // <[¤(path) head]>
 // <[¤(path) body]>
 // <[¤(path) tail]>
-// @
+¤})
 
-// <[¤(path) body]>=
+¤rust_chunk(¤(path) body, ¤{
 ¤(content)
-// @
 ¤})
 ¤})

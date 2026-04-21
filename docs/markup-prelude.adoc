@@ -56,7 +56,8 @@ Both prelude implementations define the same names:
 
 * `¤code_block(language, body)`
 * `¤h1(title)`
-* `¤rust_code_block(body)`
+* `¤h2(title)`
+* `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
 * `¤xref(target, label)`
 * `¤note(body)`
@@ -93,6 +94,6 @@ listing block containing noweb chunks.  The tangle phase then extracts
 * Use `¤` only for the markup-prelude layer.
 * Keep ordinary project macros on `%` or the crate-specific sigil they already
   use.
-* Prefer verbatim blocks for bodies: `¤rust_code_block(¤[ ... ¤])`.
+* Prefer verbatim blocks for bodies: `¤rust_chunk(name, ¤[ ... ¤])`.
 * Do not abstract prose.  Abstract only markup that affects portability:
   code blocks, diagrams, links, admonitions, and document/code references.

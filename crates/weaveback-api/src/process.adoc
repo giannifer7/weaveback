@@ -18,7 +18,7 @@ by the `wb-tangle` binary for its single-pass mode.
 [source,rust]
 ----
 // <<process-args>>=
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::collections::{HashMap, HashSet};
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
 use weaveback_macro::macro_api::{discover_includes_in_string, process_string};
@@ -61,6 +61,16 @@ pub struct SinglePassArgs {
     pub ext: Vec<String>,
     /// Skip macro expansion and feed raw source directly to tangle.
     pub no_macros: bool,
+    /// Prelude files evaluated before pass inputs in macro-enabled mode.
+    pub macro_prelude: Vec<PathBuf>,
+    /// Extension assigned to macro-expanded virtual documents before tangling.
+    pub expanded_ext: Option<String>,
+    /// Directory for expanded `.adoc` intermediates.
+    pub expanded_adoc_dir: PathBuf,
+    /// Directory for expanded `.md` intermediates.
+    pub expanded_md_dir: PathBuf,
+    /// Stop after macro expansion and write expanded documents.
+    pub macro_only: bool,
     /// Print discovered `@file` chunk names and exit (no writes).
     pub dry_run: bool,
     /// Path to the weaveback SQLite database.
@@ -107,6 +117,11 @@ impl SinglePassArgs {
             comment_markers: "//,#".to_string(),
             ext: vec!["adoc".to_string()],
             no_macros: true,
+            macro_prelude: vec![],
+            expanded_ext: None,
+            expanded_adoc_dir: PathBuf::from("expanded-adoc"),
+            expanded_md_dir: PathBuf::from("expanded-md"),
+            macro_only: false,
             dry_run: false,
             db: PathBuf::new(),
             depfile: None,
@@ -163,6 +178,83 @@ pub fn write_depfile(path: &std::path::Path, target: &std::path::Path, deps: &[P
     }
     out.push('\n');
     std::fs::write(path, out)
+}
+// @
+----
+
+== Macro Prelude Helpers
+
+[source,rust]
+----
+// <<process-macro-prelude>>=
+fn evaluate_macro_preludes(
+    evaluator: &mut Evaluator,
+    preludes: &[PathBuf],
+) -> Result<(), String> {
+    for prelude in preludes {
+        let content = std::fs::read_to_string(prelude)
+            .map_err(|e| format!("{}: {e}", prelude.display()))?;
+        process_string(&content, Some(prelude), evaluator)
+            .map_err(|e| format!("{}: {e}", prelude.display()))?;
+    }
+    Ok(())
+}
+
+fn with_replaced_extension(path: &Path, expanded_ext: Option<&str>) -> PathBuf {
+    let mut out = path.to_path_buf();
+    if let Some(ext) = expanded_ext.filter(|ext| !ext.is_empty()) {
+        out.set_extension(ext.trim_start_matches('.'));
+    }
+    out
+}
+
+fn expanded_source_key(
+    full_path: &Path,
+    project_root: &Path,
+    expanded_ext: Option<&str>,
+) -> String {
+    let expanded = with_replaced_extension(full_path, expanded_ext);
+    if let Ok(rel) = expanded.strip_prefix(project_root) {
+        rel.to_string_lossy().to_string()
+    } else {
+        expanded.to_string_lossy().to_string()
+    }
+}
+
+fn expanded_output_path(
+    full_path: &Path,
+    base_dir: &Path,
+    expanded_dir: &Path,
+    expanded_ext: Option<&str>,
+) -> PathBuf {
+    let rel = if let Ok(path) = full_path.strip_prefix(base_dir) {
+        path.to_path_buf()
+    } else if let Some(name) = full_path.file_name() {
+        PathBuf::from(name)
+    } else {
+        full_path.to_path_buf()
+    };
+    expanded_dir.join(with_replaced_extension(&rel, expanded_ext))
+}
+
+fn write_expanded_document(
+    full_path: &Path,
+    base_dir: &Path,
+    expanded_adoc_dir: &Path,
+    expanded_md_dir: &Path,
+    expanded_ext: Option<&str>,
+    expanded: &[u8],
+) -> Result<PathBuf, String> {
+    let expanded_dir = match expanded_ext.unwrap_or_default().trim_start_matches('.') {
+        "md" | "markdown" => expanded_md_dir,
+        _ => expanded_adoc_dir,
+    };
+    let out_path = expanded_output_path(full_path, base_dir, expanded_dir, expanded_ext);
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&out_path, expanded).map_err(|e| e.to_string())?;
+    Ok(out_path)
 }
 // @
 ----
@@ -299,6 +391,9 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
         ..EvalConfig::default()
     };
     let mut evaluator = Evaluator::new(eval_config.clone());
+    if !args.no_macros {
+        evaluate_macro_preludes(&mut evaluator, &args.macro_prelude)?;
+    }
 
     let comment_markers: Vec<String> = args
         .comment_markers
@@ -340,6 +435,9 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
         for adoc in &all {
             if let Ok(text) = std::fs::read_to_string(adoc) {
                 let mut disc = Evaluator::new(eval_config.clone());
+                if evaluate_macro_preludes(&mut disc, &args.macro_prelude).is_err() {
+                    continue;
+                }
                 if let Ok(paths) = discover_includes_in_string(&text, Some(adoc), &mut disc) {
                     for p in paths {
                         included.insert(p.canonicalize().unwrap_or(p));
@@ -374,12 +472,16 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
             p.to_string_lossy().to_string()
         }
     };
+    let expanded_ext = args.expanded_ext.as_deref();
 
     let mut source_contents: HashMap<String, String> = HashMap::new();
     for full_path in &drivers {
         let content = std::fs::read_to_string(full_path).map_err(|e| e.to_string())?;
-        let src_key = normalize_path(full_path);
-        source_contents.insert(src_key.clone(), content.clone());
+        let src_key = if args.no_macros {
+            normalize_path(full_path)
+        } else {
+            expanded_source_key(full_path, &project_root, expanded_ext)
+        };
 
         let tangle_cfg = weaveback_tangle::db::TangleConfig {
             sigil: args.sigil,
@@ -391,6 +493,7 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
         clip.db().set_source_config(&src_key, &tangle_cfg).map_err(|e| e.to_string())?;
 
         if args.no_macros {
+            source_contents.insert(src_key.clone(), content.clone());
             clip.read(&content, &src_key);
         } else {
             let expanded = process_string(&content, Some(full_path), &mut evaluator).map_err(|e| e.to_string())?;
@@ -400,6 +503,21 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
                 eprintln!("{}", expanded_str);
                 eprintln!("=== end: {} ===", src_key);
             }
+            if args.macro_only || args.expanded_ext.is_some() {
+                let base_dir = args.directory.as_deref().unwrap_or(&args.input_dir);
+                write_expanded_document(
+                    full_path,
+                    base_dir,
+                    &args.expanded_adoc_dir,
+                    &args.expanded_md_dir,
+                    expanded_ext,
+                    expanded.as_slice(),
+                )?;
+            }
+            if args.macro_only {
+                continue;
+            }
+            source_contents.insert(src_key.clone(), expanded_str.to_string());
             clip.read(&expanded_str, &src_key);
 
             let src_files = evaluator.sources().source_files().to_vec();
@@ -424,6 +542,10 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
         for path in clip.list_output_files() {
             println!("{}", path.display());
         }
+        return Ok(());
+    }
+
+    if args.macro_only {
         return Ok(());
     }
 
@@ -571,6 +693,11 @@ mod tests {
             comment_markers: "//,#".to_string(),
             ext: vec!["adoc".to_string()],
             no_macros: true,
+            macro_prelude: vec![],
+            expanded_ext: None,
+            expanded_adoc_dir: PathBuf::from("expanded-adoc"),
+            expanded_md_dir: PathBuf::from("expanded-md"),
+            macro_only: false,
             dry_run: false,
             db: db_path,
             depfile: None,
@@ -615,6 +742,11 @@ mod tests {
             comment_markers: "//,#".to_string(),
             ext: vec!["adoc".to_string()],
             no_macros: true,
+            macro_prelude: vec![],
+            expanded_ext: None,
+            expanded_adoc_dir: PathBuf::from("expanded-adoc"),
+            expanded_md_dir: PathBuf::from("expanded-md"),
+            macro_only: false,
             dry_run: false,
             db: db_path,
             depfile: None,
@@ -645,7 +777,7 @@ mod tests {
         fs::write(lib_dir.join("macros.adoc"), "%set(test_macro, library content)\n").unwrap();
         
         let src = tmp.path().join("input.adoc");
-        fs::write(&src, "%include(macros.adoc)\n<<@file output.txt>>=\n%(test_macro)\n@@\n").unwrap();
+        fs::write(&src, "%include(macros.adoc)\n<<@file output.txt>>=\n%(test_macro)\n@\n").unwrap();
         
         let gen_dir = tmp.path().join("gen_out");
         fs::create_dir(&gen_dir).unwrap();
@@ -664,6 +796,192 @@ mod tests {
         
         let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
         assert!(out.contains("library content"), "Output should contain 'library content', got: '{}'", out);
+    }
+
+    #[test]
+    fn run_single_pass_import_change_invalidates_incremental_output() {
+        let tmp = tempdir().unwrap();
+        let lib_dir = tmp.path().join("lib");
+        fs::create_dir(&lib_dir).unwrap();
+        let macros = lib_dir.join("macros.adoc");
+        fs::write(&macros, "%set(test_macro, first)\n").unwrap();
+
+        let src = tmp.path().join("input.adoc");
+        fs::write(&src, "%include(macros.adoc)\n<<@file output.txt>>=\n%(test_macro)\n@\n").unwrap();
+
+        let gen_dir = tmp.path().join("gen_out");
+        fs::create_dir(&gen_dir).unwrap();
+        let db = tmp.path().join("wb.db");
+
+        let make_args = || SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            include: lib_dir.to_string_lossy().into_owned(),
+            gen_dir: gen_dir.clone(),
+            db: db.clone(),
+            no_fts: true,
+            no_macros: false,
+            force_generated: true,
+            ..SinglePassArgs::default_for_test()
+        };
+
+        run_single_pass(make_args()).unwrap();
+        assert_eq!(fs::read_to_string(gen_dir.join("output.txt")).unwrap().trim(), "first");
+
+        fs::write(&macros, "%set(test_macro, second)\n").unwrap();
+        run_single_pass(make_args()).unwrap();
+        assert_eq!(fs::read_to_string(gen_dir.join("output.txt")).unwrap().trim(), "second");
+    }
+
+    #[test]
+    fn run_single_pass_uses_macro_prelude_and_expanded_ext() {
+        let tmp = tempdir().unwrap();
+        let prelude = tmp.path().join("asciidoc.wvb");
+        fs::write(&prelude, concat!(r#"
+¤redef(rust_file, path, content, ¤{
+[source,rust]
+----
+// <[@file ¤(path)]>=
+¤(content)
+"#, "// ", "@", r#"
+----
+¤})
+"#)).unwrap();
+
+        let src = tmp.path().join("input.wvb");
+        fs::write(&src, "¤rust_file(output.rs, ¤[pub fn answer() -> u8 { 42 }\n¤])").unwrap();
+
+        let gen_dir = tmp.path().join("gen_out");
+        fs::create_dir(&gen_dir).unwrap();
+        let expanded_adoc_dir = tmp.path().join("expanded-adoc-out");
+        let expanded_md_dir = tmp.path().join("expanded-md-out");
+
+        let args = SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            no_fts: true,
+            no_macros: false,
+            macro_prelude: vec![prelude],
+            expanded_ext: Some("adoc".to_string()),
+            sigil: '¤',
+            open_delim: "<[".to_string(),
+            close_delim: "]>".to_string(),
+            comment_markers: "//".to_string(),
+            expanded_adoc_dir: expanded_adoc_dir.clone(),
+            expanded_md_dir: expanded_md_dir.clone(),
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        let out = fs::read_to_string(gen_dir.join("output.rs")).unwrap();
+        assert!(out.contains("pub fn answer() -> u8 { 42 }"));
+        let expanded = fs::read_to_string(expanded_adoc_dir.join("input.adoc")).unwrap();
+        assert!(expanded.contains("<[@file output.rs]>"));
+        assert!(!expanded_md_dir.join("input.adoc").exists());
+    }
+
+    #[test]
+    fn adoc_and_markdown_preludes_tangle_to_same_output() {
+        let tmp = tempdir().unwrap();
+        let adoc_prelude = tmp.path().join("asciidoc.wvb");
+        fs::write(&adoc_prelude, concat!(r#"
+¤redef(rust_file, path, content, ¤{
+[source,rust]
+----
+// <[@file ¤(path)]>=
+¤(content)
+"#, "// ", "@", r#"
+----
+¤})
+"#)).unwrap();
+
+        let md_prelude = tmp.path().join("markdown.wvb");
+        fs::write(&md_prelude, concat!(r#"
+¤redef(rust_file, path, content, ¤{
+```rust
+// <[@file ¤(path)]>=
+¤(content)
+"#, "// ", "@", r#"
+```
+¤})
+"#)).unwrap();
+
+        let src = tmp.path().join("input.wvb");
+        fs::write(&src, "¤rust_file(output.rs, ¤[pub fn answer() -> u8 {\n    42\n}\n¤])").unwrap();
+
+        let adoc_gen = tmp.path().join("gen-adoc");
+        let md_gen = tmp.path().join("gen-md");
+        let expanded_adoc_dir = tmp.path().join("expanded-adoc");
+        let expanded_md_dir = tmp.path().join("expanded-md");
+
+        let common = |gen_dir: PathBuf, db_name: &str, prelude: PathBuf, ext: &str| SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir,
+            expanded_adoc_dir: expanded_adoc_dir.clone(),
+            expanded_md_dir: expanded_md_dir.clone(),
+            db: tmp.path().join(db_name),
+            no_fts: true,
+            no_macros: false,
+            macro_prelude: vec![prelude],
+            expanded_ext: Some(ext.to_string()),
+            sigil: '¤',
+            open_delim: "<[".to_string(),
+            close_delim: "]>".to_string(),
+            comment_markers: "//".to_string(),
+            ..SinglePassArgs::default_for_test()
+        };
+
+        run_single_pass(common(adoc_gen.clone(), "adoc.db", adoc_prelude, "adoc")).unwrap();
+        run_single_pass(common(md_gen.clone(), "md.db", md_prelude, "md")).unwrap();
+
+        let adoc_out = fs::read_to_string(adoc_gen.join("output.rs")).unwrap();
+        let md_out = fs::read_to_string(md_gen.join("output.rs")).unwrap();
+        assert_eq!(adoc_out, md_out);
+        assert!(expanded_adoc_dir.join("input.adoc").exists());
+        assert!(expanded_md_dir.join("input.md").exists());
+    }
+
+    #[test]
+    fn run_single_pass_macro_only_writes_expanded_documents() {
+        let tmp = tempdir().unwrap();
+        let prelude = tmp.path().join("asciidoc.wvb");
+        fs::write(&prelude, "¤redef(doc, body, ¤{= Generated\n\n¤(body)¤})").unwrap();
+
+        let src = tmp.path().join("input.wvb");
+        fs::write(&src, "¤doc(hello)").unwrap();
+
+        let gen_dir = tmp.path().join("gen");
+        let expanded_adoc_dir = tmp.path().join("expanded-adoc");
+        let expanded_md_dir = tmp.path().join("expanded-md");
+        fs::create_dir(&gen_dir).unwrap();
+        fs::create_dir(&expanded_adoc_dir).unwrap();
+        fs::create_dir(&expanded_md_dir).unwrap();
+
+        let args = SinglePassArgs {
+            inputs: vec![src.file_name().unwrap().into()],
+            input_dir: tmp.path().to_path_buf(),
+            gen_dir: gen_dir.clone(),
+            expanded_adoc_dir: expanded_adoc_dir.clone(),
+            expanded_md_dir: expanded_md_dir.clone(),
+            db: tmp.path().join("wb.db"),
+            no_fts: true,
+            no_macros: false,
+            macro_prelude: vec![prelude],
+            expanded_ext: Some("adoc".to_string()),
+            macro_only: true,
+            sigil: '¤',
+            ..SinglePassArgs::default_for_test()
+        };
+        run_single_pass(args).unwrap();
+
+        let expanded = fs::read_to_string(expanded_adoc_dir.join("input.adoc")).unwrap();
+        assert!(expanded.contains("= Generated"));
+        assert!(expanded.contains("hello"));
+        assert!(!gen_dir.join("input.adoc").exists());
+        assert!(!expanded_md_dir.join("input.adoc").exists());
     }
 
 
@@ -951,6 +1269,7 @@ mod tests {
 // <<@file weaveback-api/src/process.rs>>=
 // <<process-args>>
 // <<process-fs>>
+// <<process-macro-prelude>>
 // <<process-skip>>
 // <<process-run>>
 // <<process-tests>>

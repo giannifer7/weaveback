@@ -14,7 +14,7 @@ See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
 [source,rust]
 ----
 // <[render-exclude]>=
-const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "asciidoc-parser"];
+const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
 // @@
 ----
 

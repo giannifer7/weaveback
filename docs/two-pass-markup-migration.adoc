@@ -1,0 +1,320 @@
+= Two-Pass Markup Migration Plan
+:toc: left
+
+This document defines the migration from direct one-pass `.adoc` literate
+sources to a two-pass, markup-neutral authoring model.
+
+The goal is not to hide AsciiDoc.  The goal is to move project-specific
+literate intent into a small `¤` macro layer, then project that intent to
+ordinary AsciiDoc and Markdown documents that can both be inspected, rendered,
+and tangled.
+
+== Current Model
+
+Most sources are currently authored directly as `.adoc` files:
+
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 13
+skinparam ArrowColor #83a598
+skinparam RectangleBorderColor #504945
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam FileBorderColor #504945
+skinparam FileBackgroundColor #282828
+skinparam FileFontColor #ebdbb2
+skinparam FolderBorderColor #504945
+skinparam FolderBackgroundColor #282828
+skinparam FolderFontColor #ebdbb2
+skinparam DatabaseBorderColor #504945
+skinparam DatabaseBackgroundColor #282828
+skinparam DatabaseFontColor #ebdbb2
+
+file "source.adoc" as source
+component "macro expansion\n(optional %, ^)" as macro
+component "tangle" as tangle
+folder "generated source" as gen
+database "weaveback.db" as db
+
+source --> macro
+macro --> tangle
+tangle --> gen
+tangle --> db
+@enduml
+----
+
+This is simple and bootstraps well, but it couples authoring to AsciiDoc syntax.
+It also makes Markdown output a conversion problem instead of a first-class
+projection.
+
+== Target Model
+
+The target source format is `.wvb`: a markup-neutral weaveback document that
+uses `¤` macros for portable structural constructs.
+
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 13
+skinparam ArrowColor #83a598
+skinparam RectangleBorderColor #504945
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam FileBorderColor #504945
+skinparam FileBackgroundColor #282828
+skinparam FileFontColor #ebdbb2
+skinparam FolderBorderColor #504945
+skinparam FolderBackgroundColor #282828
+skinparam FolderFontColor #ebdbb2
+skinparam DatabaseBorderColor #504945
+skinparam DatabaseBackgroundColor #282828
+skinparam DatabaseFontColor #ebdbb2
+
+file "source.wvb" as source
+file "prelude/asciidoc.wvb" as adoc_prelude
+file "prelude/markdown.wvb" as md_prelude
+component "¤ macro-only expansion" as expand
+folder "expanded-adoc/\nsource.adoc" as adoc
+folder "expanded-md/\nsource.md" as md
+component "tangle expanded text" as tangle
+folder "generated source" as gen
+database "weaveback.db" as db
+
+adoc_prelude --> expand
+md_prelude --> expand
+source --> expand
+expand --> adoc
+expand --> md
+adoc --> tangle
+md --> tangle
+tangle --> gen
+tangle --> db
+@enduml
+----
+
+The `.wvb` source is the canonical authoring file.  The expanded `.adoc` and
+`.md` files are generated artifacts, but they are intentionally visible and may
+be committed when useful for browsing the repository.
+
+== Invariants
+
+The migration is safe only if these invariants hold:
+
+* `.wvb` files contain author intent; `.adoc` and `.md` expanded files contain
+  rendered markup projections of that intent.
+* `prelude/asciidoc.wvb` and `prelude/markdown.wvb` expose the same macro names
+  and argument contracts.
+* The `¤` pass is macro-only.  It should not write final source files directly.
+* Final tangling operates on the expanded text, not on hidden evaluator state.
+* The same `.wvb` source expanded through AsciiDoc and Markdown must tangle to
+  the same generated source for code-producing documents.
+* Expanded directories are visible, not hidden.  They are review artifacts, not
+  implementation scratch space.
+* Existing `.adoc` sources remain valid during migration.  Bootstrapping must
+  not require the unfinished two-pass layer.
+
+== Prelude Contract
+
+Both prelude implementations currently define:
+
+* `¤code_block(language, body)`
+* `¤h1(title)`
+* `¤rust_code_block(body)`
+* `¤graph(format, name, body)`
+* `¤xref(target, label)`
+* `¤note(body)`
+* `¤code_doc(path, title, language, body)`
+* `¤pastafarian_warning()`
+* `¤rust_file(path, content)`
+
+`¤rust_file(path, content)` is the first component macro.  It emits a full Rust
+`@file` skeleton with accumulating chunks:
+
+[source,text]
+----
+¤rust_file(crates/demo/src/lib.rs, ¤[
+pub fn answer() -> u8 {
+    42
+}
+¤])
+----
+
+The AsciiDoc projection emits a source block.  The Markdown projection emits a
+fenced code block.  Both contain equivalent noweb chunks.
+
+== Pass Configuration
+
+AsciiDoc projection:
+
+[source,toml]
+----
+[[pass]]
+dir = "src-wvb/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc"
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@"
+----
+
+Markdown projection:
+
+[source,toml]
+----
+[[pass]]
+dir = "src-wvb/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md"
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@"
+----
+
+During normal tangle mode, `wb-tangle` writes the expanded document and then
+tangles the expanded text in the same logical pass.  With `macro_only = true`,
+it writes the expanded document and stops before tangling.
+
+== Migration Strategy
+
+=== Phase 0: Stabilize the Two-Pass Mechanism
+
+Status: in progress.
+
+Required before converting real modules:
+
+* Keep `prelude/asciidoc.wvb` and `prelude/markdown.wvb` small and parallel.
+* Keep `docs/markup-prelude.adoc` as the reference for the macro surface.
+* Keep a regression test proving that AsciiDoc and Markdown projections from
+  the same `.wvb` source tangle to identical generated Rust.
+* Ensure imported prelude changes invalidate incremental tangle output.
+* Keep current one-pass `.adoc` sources working.
+
+=== Phase 1: Convert One Small Leaf Document
+
+Pick a low-risk document that generates one small Rust file and has few custom
+macros.
+
+Conversion steps:
+
+1. Copy `foo.adoc` to `foo.wvb`.
+2. Replace only structural markup with `¤` macros.
+3. Preserve prose as plain text where possible.
+4. Configure two projections for that directory: one AsciiDoc, one Markdown.
+5. Generate `expanded-adoc/foo.adoc` and `expanded-md/foo.md`.
+6. Verify both projections tangle to byte-identical generated source.
+7. Keep the original `.adoc` until the `.wvb` path is stable.
+
+Do not start with `process.adoc`, `block_parser.adoc`, `cli-spec`, or any other
+large control-plane file.
+
+=== Phase 2: Add Component Macros Only Where They Reduce Noise
+
+Component macros should encode recurring file structure, not hide logic.
+
+Good candidates:
+
+* Rust file skeletons with standard generated-file warnings.
+* Python file skeletons, if Python sources remain generated from literate docs.
+* CLI option tables, if the data model remains readable in source.
+* Diagram blocks and cross-reference links.
+
+Bad candidates:
+
+* Large prose sections.
+* Arbitrary Rust implementation bodies.
+* Control flow that makes the source harder to grep.
+* Macros whose only purpose is saving one or two lines.
+
+=== Phase 3: Convert Medium Modules
+
+After one leaf document survives normal development, convert modules with clear
+file boundaries:
+
+* keep tests in separate chunks from implementation;
+* use accumulating chunks to avoid 2000+ line generated Rust files in one
+  unreadable literate block;
+* keep `// <[chunk]>=` and `// @` visually on their own lines;
+* ensure both projections preserve identical chunk names and chunk order.
+
+Each converted module must include a parity check, either by a unit test or by
+a repeatable local command documented next to the pass.
+
+=== Phase 4: Convert Documentation-Heavy Sources
+
+Only after code-producing sources are stable should we convert docs that are
+mostly prose.
+
+This phase decides whether Markdown becomes a committed public browsing format
+for the repository.  If yes, `expanded-md/` should be treated like generated
+documentation: reproducible, reviewable, and periodically regenerated.
+
+=== Phase 5: Retire Direct `.adoc` Authoring Where It No Longer Helps
+
+Direct `.adoc` should remain available for files where AsciiDoc-specific
+features are the point.  The migration is not successful if it merely replaces
+clear AsciiDoc with opaque macro calls.
+
+Retire direct `.adoc` only when:
+
+* the `.wvb` source is shorter or clearer;
+* both projections are useful;
+* generated source maps remain understandable;
+* the expanded output is deterministic;
+* bootstrap from a clean checkout is documented and tested.
+
+== Parity Checks
+
+For every converted code-producing `.wvb` source, the required check is:
+
+[source,text]
+----
+source.wvb + prelude/asciidoc.wvb  -> expanded-adoc/source.adoc -> generated file
+source.wvb + prelude/markdown.wvb  -> expanded-md/source.md    -> generated file
+
+generated file from AsciiDoc == generated file from Markdown
+----
+
+The current API regression test exercises this shape for a small Rust file.
+Larger converted modules should either reuse that helper pattern or gain a
+CLI-level smoke test.
+
+== Open Decisions
+
+These should be decided by using the first migrated modules, not by guessing:
+
+* Whether `expanded-adoc/` and `expanded-md/` are committed globally or only for
+  selected public-facing documents.
+* Whether `.wvb` should allow raw AsciiDoc/Markdown sections, or whether all
+  markup-specific syntax should be isolated behind `¤` macros.
+* Whether component macros should live in one shared prelude or in per-language
+  preludes such as `prelude/rust.wvb` and `prelude/python.wvb`.
+* Whether the doc renderer should render canonical `.wvb`, expanded `.adoc`,
+  expanded `.md`, or all three.
+
+== First Candidate
+
+The first real migration should be a small Rust leaf module with:
+
+* one generated `@file`;
+* simple tests;
+* no Python, LSP, SQLite, or CLI side effects;
+* no custom macro stack;
+* enough structure to benefit from `¤rust_file`.
+
+The purpose of the first migration is to validate the workflow, not to maximize
+coverage.

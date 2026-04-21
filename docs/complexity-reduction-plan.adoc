@@ -1,0 +1,361 @@
+= Complexity Reduction Plan
+:toc: left
+
+This note records the cleanup plan for the current state of the project:
+
+* too many documents try to explain behavior authoritatively
+* some generated files drift from their literate sources
+* some overview pages duplicate code without owning it
+* some generated Rust files are too large to review or maintain sanely
+* tests are often physically attached to giant implementation files instead of
+  being separated but still linked
+
+The goal is not cosmetic cleanup. The goal is to restore a believable
+documentation and generation model:
+
+* one implementation source of truth per boundary
+* architecture pages that explain, not impersonate code owners
+* generated files that are valid bootstrap artifacts but never an independent
+  source of truth
+* smaller generated modules and smaller test units
+
+== Problem Statement
+
+The current failure mode is not just "bugs exist". It is structural:
+
+. complexity grew faster than the document model
+. source-of-truth boundaries blurred
+. generated files became sticky enough that drift could survive
+. overview pages accumulated stale code examples and pseudo-assembly sections
+. some files became too large for local reasoning
+
+That produces a delusional self-documentation effect:
+
+* documents describe the intended system better than the actual one
+* humans trust the prose too much
+* CI becomes the first place where reality pushes back
+
+== Desired Invariants
+
+After the cleanup, these statements should be true:
+
+. Every implementation file has one canonical literate owner, or is explicitly
+  non-literate ordinary source.
+. Generated files may be checked in for bootstrap, but they are never treated
+  as authoritative over canonical source.
+. Retangling the repository is expected to be a meaningful drift check.
+. Overview and architecture pages do not embed large non-canonical code bodies
+  unless they are clearly marked as excerpts.
+. Large generated Rust files are split into smaller modules and separate test
+  files.
+. Tests are physically separate from large runtime files while still linked in
+  the literate layer by module maps and references.
+
+== Document Taxonomy
+
+Every document should belong to one class only.
+
+=== 1. Canonical implementation source
+
+Examples:
+
+* crate-level `.adoc` files that generate `.rs`
+* root/project `.adoc` files that generate real workspace files
+
+Rules:
+
+* may assemble files
+* may contain noweb chunks
+* must stay mechanically in sync with generated outputs
+* should be local to the code they own
+
+=== 2. Architecture / rationale
+
+Examples:
+
+* high-level design notes
+* subsystem architecture pages
+* sequencing and tradeoff documents
+
+Rules:
+
+* do not assemble files
+* do not pretend to own implementation
+* use links to canonical sources
+* embedded code should be short excerpts, not duplicated file bodies
+
+=== 3. User documentation
+
+Examples:
+
+* install docs
+* CLI overview
+* README
+
+Rules:
+
+* explain supported workflows
+* avoid implementation detail unless it directly helps the user
+* avoid copying large implementation fragments
+
+=== 4. Planning / notes
+
+Examples:
+
+* roadmap
+* linter plan
+* this document
+
+Rules:
+
+* may be incomplete
+* must not describe themselves as settled truth
+* should be easy to delete or rewrite later
+
+== Workstreams
+
+== Workstream A: Restore Source-Of-Truth Boundaries
+
+Goal:
+
+* eliminate hybrid documents that both explain and pretend to own code they no
+  longer generate
+
+Tasks:
+
+. Audit `project/`, `docs/`, and `cli-spec/` for pages that embed large
+  non-canonical code bodies.
+. For each such page, choose exactly one direction:
+  * make it canonical again
+  * or convert it into pure architecture/user documentation
+. Prefer local crate-level ownership over cross-crate "god spec" ownership.
+
+Acceptance criteria:
+
+* no page should contain wording like "canonical sources live elsewhere" while
+  still embedding large fake file-assembly blocks
+* no page should mix architecture prose with non-authoritative full-file code
+
+Initial targets:
+
+* `project/agent-python.adoc`
+* any remaining cross-crate overview pages with code duplication
+
+== Workstream B: Make Retangle a Real Drift Check
+
+Goal:
+
+* make full retangle a reliable detector of source/generated mismatch
+
+Tasks:
+
+. Add a routine local/CI check that retangles and inspects whether tracked
+  generated files changed.
+. Classify every post-retangle diff as one of:
+  * expected source change catch-up
+  * generation bug
+  * stale generated artifact previously committed
+. Investigate any file that repeatedly drifts after clean retangle.
+
+Important nuance:
+
+* generated files are legitimate bootstrap artifacts
+* but regeneration must still be authoritative
+
+Acceptance criteria:
+
+* retangle-driven diffs are rare and explainable
+* repeated source/generated desync is treated as a bug, not normal background
+  noise
+
+Likely follow-up work:
+
+* continue auditing places where generated `.rs` was manually patched
+* tighten the workflow around checked-in generated files
+
+== Workstream C: Split Giant Generated Rust Files
+
+Goal:
+
+* no unreviewable monster files
+
+Hard rule:
+
+* a 2700-line generated Rust file is not acceptable design, even if generated
+  correctly
+
+Tasks:
+
+. Identify the largest generated Rust files by line count.
+. For each file, split by concern into smaller modules.
+. Keep the module map in the crate index `.adoc`.
+. Avoid using chunks merely to accumulate into one giant output file.
+
+Desired output shape:
+
+* smaller `src/*.rs` runtime modules
+* separate `tests/*.rs` or `src/tests/*.rs` files
+* no giant `#[cfg(test)] mod tests` tail on a massive runtime file
+
+Likely first targets:
+
+* `crates/weaveback-serve/src/lib.rs`
+* any large `weaveback-macro` or `weaveback-tangle` modules that have grown
+  beyond sane review size
+
+Acceptance criteria:
+
+* each major runtime concern lives in its own generated module
+* test code is no longer a giant tail attached to a runtime file
+
+== Workstream D: Separate Tests But Keep Them Linked
+
+Goal:
+
+* preserve literate linkage without forcing tests into giant implementation
+  files
+
+Tasks:
+
+. For each large subsystem, create dedicated test-oriented `.adoc` files.
+. Keep tests near the crate/module map via links and explicit "see also"
+  sections.
+. Generate separate test files rather than appending all tests to the main
+  module.
+
+Recommended pattern:
+
+* crate index `.adoc`
+  - explains module map
+  - assembles `lib.rs` / `mod.rs`
+* runtime module `.adoc`
+  - one concern each
+* test module `.adoc`
+  - dedicated tests for that concern
+
+Acceptance criteria:
+
+* tests remain traceable to prose and rationale
+* test files are separated physically
+* runtime files become shorter and clearer
+
+== Workstream E: Reduce Documentation Claims
+
+Goal:
+
+* remove claims that are not continuously checked
+
+Tasks:
+
+. Audit phrases like:
+  * "generates"
+  * "canonical"
+  * "single source of truth"
+  * "this page assembles"
+. Keep such wording only where it is mechanically true.
+. Downgrade other wording to:
+  * "architecture note"
+  * "overview"
+  * "example excerpt"
+
+Acceptance criteria:
+
+* no misleading authority claims remain in overview pages
+* generated docs describe the system honestly, even if more modestly
+
+== Workstream F: CI and Validation Alignment
+
+Goal:
+
+* make CI validate the actual intended boundaries
+
+Tasks:
+
+. Keep generic Rust tests separate from Python-specific extension validation.
+. Add targeted tests for source/generated-sensitive areas.
+. When a test depends on environment-specific tooling, avoid process-global
+  tricks like mutating `PATH` in parallel test suites.
+
+Recent examples already fixed:
+
+* Python agent tests split into their own job
+* D2 mock test stopped mutating global `PATH`
+
+Acceptance criteria:
+
+* CI failures localize quickly
+* fewer tests fail because of global environment races
+
+== Immediate Sequence
+
+This is the recommended order of execution.
+
+=== Phase 1: stop the obvious lying
+
+. Convert hybrid overview pages into true overview pages.
+. Remove non-canonical file-assembly sections.
+. Add explicit canonical-source links where needed.
+
+Exit condition:
+
+* no major page still pretends to own code it does not generate
+
+=== Phase 2: clean generated drift
+
+. Run full retangle.
+. Classify every diff.
+. Commit only legitimate catch-up or source fixes.
+. Open issues/notes for any recurring generator defect.
+
+Exit condition:
+
+* full retangle no longer produces surprising diffs
+
+=== Phase 3: split the worst large files
+
+. Pick the largest generated Rust offender.
+. Split runtime modules first.
+. Split tests second.
+. Validate each split with targeted tests before moving to the next crate.
+
+Suggested first target:
+
+* `weaveback-serve`
+
+Suggested second targets:
+
+* whichever generated files are still largest after that
+
+=== Phase 4: institutionalize the boundary
+
+. Add/document a retangle drift check.
+. Keep architecture docs architecture-only.
+. Keep crate docs canonical and local.
+
+Exit condition:
+
+* the project has fewer authoritative surfaces and more trustworthy ones
+
+== Candidate Issue List
+
+These are good cleanup tickets to spin out later.
+
+* Convert remaining hybrid docs to architecture-only pages.
+* Add a documented "retangle and inspect diff" maintenance command.
+* Split `weaveback-serve` into smaller runtime modules and separate test files.
+* Audit all generated Rust files above a chosen line-count threshold.
+* Add a linter/check for pages that combine assembly markers with non-canonical
+  wording.
+* Document the bootstrap-artifact rule explicitly.
+
+== Non-Goals
+
+This plan is not trying to:
+
+* remove checked-in generated files unconditionally
+* eliminate all overview pages
+* make every source literate immediately
+* redesign the entire macro/tangle architecture in one pass
+
+The point is to reduce delusion and restore trust, not to start another
+explosion in scope.

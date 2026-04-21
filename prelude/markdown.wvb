@@ -1,0 +1,50 @@
+¤redef(h1, title, ¤{# ¤(title)¤})
+
+¤redef(code_block, language, body, ¤{
+```¤(language)
+¤(body)
+```
+¤})
+
+¤redef(rust_code_block, body, ¤{
+¤code_block(rust, ¤(body))
+¤})
+
+¤redef(graph, format, name, body, ¤{
+<!-- graph: ¤(name) -->
+```¤(format)
+¤(body)
+```
+¤})
+
+¤redef(xref, target, label, ¤{[¤(label)](¤(target))¤})
+
+¤redef(note, body, ¤{
+> [!NOTE]
+> ¤(body)
+¤})
+
+¤redef(code_doc, path, title, language, body, ¤{
+¤xref(¤(path), ¤(title))
+
+¤code_block(¤(language), ¤(body))
+¤})
+
+¤redef(pastafarian_warning, ¤{I'd Really Rather You Didn't edit this generated file.¤})
+
+¤redef(rust_file, path, content, ¤{
+¤rust_code_block(¤{
+// <[@file ¤(path)]>=
+// ¤(path)
+// ¤pastafarian_warning()
+
+// <[¤(path) head]>
+// <[¤(path) body]>
+// <[¤(path) tail]>
+// @
+
+// <[¤(path) body]>=
+¤(content)
+// @
+¤})
+¤})

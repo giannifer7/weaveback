@@ -73,6 +73,11 @@ fn run_single_pass_from_cli(s: SinglePassCli, force_generated: bool) -> Result<(
         comment_markers: s.comment_markers,
         ext:             s.ext,
         no_macros:       s.no_macros,
+        macro_prelude:   s.macro_prelude,
+        expanded_ext:    s.expanded_ext,
+        expanded_adoc_dir: s.expanded_adoc_dir,
+        expanded_md_dir: s.expanded_md_dir,
+        macro_only:      s.macro_only,
         dry_run:         s.dry_run,
         db:              s.db,
         depfile:         s.depfile,
@@ -201,6 +206,11 @@ mod tests {
             input_dir: PathBuf::from("."),
             sigil: '%',
             no_macros: false,
+            macro_prelude: vec![],
+            expanded_ext: None,
+            expanded_adoc_dir: root.root.join("expanded-adoc"),
+            expanded_md_dir: root.root.join("expanded-md"),
+            macro_only: false,
             include: ".".to_string(),
             db: root.db(),
             dump_expanded: false,
@@ -225,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_bin_run_single_pass() {
-        let mut ws = TestWorkspace::new();
+        let ws = TestWorkspace::new();
         let adoc = ws.root.join("test.adoc");
         // Ensure no spaces between comment and delimiter to avoid regex ambiguity
         // AND add the missing '=' suffix required for chunk definitions.
@@ -266,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_bin_run_apply_back() {
-        let mut ws = TestWorkspace::new();
+        let ws = TestWorkspace::new();
         let mut db = ws.open_db();
         db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
             src_file: "test.adoc".to_string(),

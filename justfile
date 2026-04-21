@@ -207,17 +207,18 @@ PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
 # --sigil % de-escapes %% in files that use % as the macro sigil
 # --sigil ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as sigil)
+# --sigil ¤ de-escapes ¤¤ in markup-prelude documents
 docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil % --sigil ^ \
+        --sigil % --sigil ^ --sigil ¤ \
         --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil % --sigil ^ \
+        --sigil % --sigil ^ --sigil ¤ \
         --plantuml-jar {{PLANTUML_JAR}} \
         --ai-xref
 

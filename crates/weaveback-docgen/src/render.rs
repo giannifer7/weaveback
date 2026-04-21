@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv", "asciidoc-parser"];
+const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
 fn mtime(path: &Path) -> SystemTime {
     path.metadata()
         .and_then(|m| m.modified())

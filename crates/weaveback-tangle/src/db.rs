@@ -1665,29 +1665,6 @@ impl WeavebackDb {
         results.truncate(limit);
         Ok(results)
     }
-
-    pub fn query_all_source_blocks(&self, file_filter: &str) -> Result<Vec<TaggedBlock>, DbError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT f.path, sb.block_index, sb.block_type, sb.line_start, bt.tags
-             FROM source_blocks sb
-             JOIN files f ON f.id = sb.src_file
-             LEFT JOIN block_tags bt ON bt.src_file = sb.src_file AND bt.block_index = sb.block_index
-             WHERE (?1 = '' OR f.path = ?1)
-             ORDER BY f.path, sb.line_start",
-        )?;
-        let rows = stmt.query_map(params![file_filter], |row| {
-            Ok(TaggedBlock {
-                src_file:    row.get(0)?,
-                block_index: row.get(1)?,
-                block_type:  row.get(2)?,
-                line_start:  row.get(3)?,
-                tags:        row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            })
-        })?;
-        let mut results = Vec::new();
-        for r in rows { results.push(r?); }
-        Ok(results)
-    }
 }
 #[cfg(test)]
 mod tests {

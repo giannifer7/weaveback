@@ -104,7 +104,6 @@ weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }
 weaveback-lsp = { path = "crates/weaveback-lsp" }
 weaveback-agent-core = { path = "crates/weaveback-agent-core" }
-asciidoc-parser = { git = "https://github.com/giannifer7/asciidoc-parser", rev = "d0411b9" } # PR#498 pending merge
 acdc-parser = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-core = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-html = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978", features = ["highlighting"] }
@@ -327,19 +326,20 @@ install *ARGS:
 PLANTUML_JAR := "/usr/share/java/plantuml/plantuml.jar"
 
 # Render all .adoc files to dark-themed HTML under docs/html/ (with Rust xref)
-# --sigil %% de-escapes %%%% in files that use %% as the macro sigil
+# --sigil % de-escapes %% in files that use % as the macro sigil
 # --sigil ^ de-escapes ^^ in weaveback-macro adocs (which use ^ as sigil)
+# --sigil ¤ de-escapes ¤¤ in markup-prelude documents
 docs:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil %% --sigil ^ \
+        --sigil % --sigil ^ --sigil ¤ \
         --plantuml-jar {{PLANTUML_JAR}}
 
 # Generate documentation with precise LSP-based cross-references (requires rust-analyzer)
 docs-ai:
     node scripts/serve-ui/build.mjs
     cargo run --release --package weaveback-docgen -- \
-        --sigil %% --sigil ^ \
+        --sigil % --sigil ^ --sigil ¤ \
         --plantuml-jar {{PLANTUML_JAR}} \
         --ai-xref
 
@@ -430,7 +430,6 @@ gemini-resume.txt
 .codex
 .gemini/
 docs/.plantuml-cache/
-asciidoc-parser/
 
 chats
 python/*
@@ -545,11 +544,34 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/weaveback-agent-core/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc/crates/weaveback-agent-core/src"
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
+dir = "crates/weaveback-agent-core/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md/crates/weaveback-agent-core/src"
+macro_only = true
+open_delim = "<<"
+close_delim = ">>"
+
+[[pass]]
 dir = "crates/weaveback-macro/"
 ext = "adoc"
 open_delim = "<<"
 close_delim = ">>"
-sigil = ["^"]
+sigil = "^"
 
 [[pass]]
 dir = "crates/weaveback-tangle/"

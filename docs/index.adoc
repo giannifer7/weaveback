@@ -87,6 +87,12 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../docs/cli.adoc[split CLI overview]
 | Public command surface: `wb-tangle`, `wb-query`, `wb-serve`, and `wb-mcp`
 
+| link:../docs/markup-prelude.adoc[markup prelude]
+| `¤`-sigil document macros for markup-portable code blocks, diagrams, links
+
+| link:../docs/two-pass-markup-migration.adoc[two-pass markup migration]
+| Migration plan from direct `.adoc` sources to `.wvb` sources with AsciiDoc and Markdown projections
+
 | link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
 
@@ -118,6 +124,9 @@ the main Rust crates.
 
 | link:../project/option-spec.adoc[CLI option-spec experiment]
 | `scripts/option_spec/` prototype for multi-projection CLI metadata
+
+| link:../docs/complexity-reduction-plan.adoc[complexity reduction plan]
+| Cleanup plan for reducing source/generated drift and oversized modules
 
 | link:../cli-spec/cli-spec.adoc[split CLI specification]
 | `docs/cli.adoc` (generated cross-binary CLI reference)
@@ -153,6 +162,8 @@ notes are meant to preserve them without pretending they are settled.
 * link:agent-smoothness.adoc[agent smoothness]
 * link:stability-first.adoc[stability first]
 * link:roadmap.adoc[near-term engineering plan]
+* link:complexity-reduction-plan.adoc[complexity reduction plan]
+* link:two-pass-markup-migration.adoc[two-pass markup migration plan]
 * link:macro-language-critique-prep.adoc[macro language critique prep]
 * link:macro-language-tightening-plan.adoc[macro language tightening plan]
 * link:linter-plan.adoc[linter planning notes]

@@ -47,7 +47,6 @@ gemini-resume.txt
 .codex
 .gemini/
 docs/.plantuml-cache/
-asciidoc-parser/
 
 chats
 python/*

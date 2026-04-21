@@ -42,77 +42,187 @@ pub fn parse_source_blocks(source: &str, extension: &str) -> Vec<SourceBlockEntr
         })
         .collect()
 }
-/// Parse an AsciiDoc document using `asciidoc-parser`, falling back to the
-/// simple line scanner if the parser panics.
+/// Parse an AsciiDoc document using ACDC, falling back to the simple line
+/// scanner if parsing fails.
 fn parse_adoc_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
-    let source_owned = source.to_owned();
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-        parse_adoc_with_parser(&source_owned)
-    }));
-    match result {
-        Ok(blocks) if !blocks.is_empty() => blocks,
+    if has_unclosed_adoc_fence(source) {
+        return parse_adoc_raw_simple(source);
+    }
+
+    match parse_adoc_with_parser(source) {
+        Some(blocks) if !blocks.is_empty() => blocks,
         _ => parse_adoc_raw_simple(source),
     }
 }
 
-fn parse_adoc_with_parser(source: &str) -> Vec<(u32, u32, &'static str, String)> {
-    use asciidoc_parser::{Parser, blocks::IsBlock as _};
-
+fn parse_adoc_with_parser(source: &str) -> Option<Vec<(u32, u32, &'static str, String)>> {
     let line_of_byte = build_line_table(source);
-    let doc = Parser::default().parse(source);
+    let masked = mask_preprocessor_directives(source);
+    let doc = acdc_parser::Parser::new(&masked).parse().ok()?;
     let mut blocks = Vec::new();
-    collect_adoc_blocks(doc.nested_blocks(), &line_of_byte, &mut blocks);
+    collect_adoc_blocks(&doc.blocks, source, &line_of_byte, &mut blocks);
     if blocks.is_empty() {
         let n = source.lines().count().max(1) as u32;
         blocks.push((1, n, "text", source.to_string()));
     }
-    blocks
+    Some(blocks)
 }
 
-fn collect_adoc_blocks<'src>(
-    iter: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
+fn collect_adoc_blocks(
+    blocks: &[acdc_parser::Block],
+    source: &str,
     line_of_byte: &[usize],
     out: &mut Vec<(u32, u32, &'static str, String)>,
 ) {
-    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock as _}};
+    use acdc_parser::Block;
 
-    for block in iter {
+    for block in blocks {
         match block {
             Block::Section(s) => {
                 // Emit the title line as "section", then recurse into children.
-                let title = s.section_title_source();
-                let tstart = byte_to_line(line_of_byte, title.byte_offset());
-                let tend = byte_to_line(
-                    line_of_byte,
-                    title.byte_offset() + title.data().len().saturating_sub(1),
-                );
-                out.push((tstart, tend, "section", title.data().to_string()));
-                collect_adoc_blocks(s.nested_blocks(), line_of_byte, out);
+                let line = byte_to_line(line_of_byte, s.location.absolute_start);
+                out.push((line, line, "section", source_line(source, line).to_string()));
+                collect_adoc_blocks(&s.content, source, line_of_byte, out);
             }
-            Block::RawDelimited(rdb) => {
-                let span = rdb.span();
-                let start = byte_to_line(line_of_byte, span.byte_offset());
-                let end = byte_to_line(
-                    line_of_byte,
-                    span.byte_offset() + span.data().len().saturating_sub(1),
-                );
-                out.push((start, end, "code", span.data().to_string()));
+            Block::DelimitedBlock(d) if is_code_delimited_block(d) => {
+                push_location_block(source, line_of_byte, &d.location, "code", out);
             }
             other => {
-                let span = other.span();
-                let start = byte_to_line(line_of_byte, span.byte_offset());
-                let end = byte_to_line(
-                    line_of_byte,
-                    span.byte_offset() + span.data().len().saturating_sub(1),
-                );
-                out.push((start, end, "para", span.data().to_string()));
+                if let Some(location) = block_location(other) {
+                    out.push(location_to_block(source, line_of_byte, location, "para"));
+                }
             }
         }
     }
 }
 
-/// Fallback: simple line-by-line AsciiDoc scanner used when `asciidoc-parser`
-/// panics.  Splits on `----`/`....`/`++++` fences and `== …` section headers.
+fn is_code_delimited_block(block: &acdc_parser::DelimitedBlock) -> bool {
+    matches!(
+        block.inner,
+        acdc_parser::DelimitedBlockType::DelimitedListing(_)
+            | acdc_parser::DelimitedBlockType::DelimitedLiteral(_)
+            | acdc_parser::DelimitedBlockType::DelimitedPass(_)
+    )
+}
+
+fn push_location_block(
+    source: &str,
+    line_of_byte: &[usize],
+    location: &acdc_parser::Location,
+    block_type: &'static str,
+    out: &mut Vec<(u32, u32, &'static str, String)>,
+) {
+    out.push(location_to_block(source, line_of_byte, location, block_type));
+}
+
+fn location_to_block(
+    source: &str,
+    line_of_byte: &[usize],
+    location: &acdc_parser::Location,
+    block_type: &'static str,
+) -> (u32, u32, &'static str, String) {
+    let start = location.absolute_start.min(source.len());
+    let end = location.absolute_end.saturating_add(1).min(source.len());
+    let line_start = byte_to_line(line_of_byte, start);
+    let line_end = byte_to_line(line_of_byte, end.saturating_sub(1));
+    let content = if source.is_char_boundary(start) && source.is_char_boundary(end) && start <= end {
+        source[start..end].to_string()
+    } else {
+        String::new()
+    };
+    (line_start, line_end, block_type, content)
+}
+
+fn block_location(block: &acdc_parser::Block) -> Option<&acdc_parser::Location> {
+    use acdc_parser::Block;
+
+    match block {
+        Block::TableOfContents(block) => Some(&block.location),
+        Block::Admonition(block) => Some(&block.location),
+        Block::DiscreteHeader(block) => Some(&block.location),
+        Block::DocumentAttribute(block) => Some(&block.location),
+        Block::ThematicBreak(block) => Some(&block.location),
+        Block::PageBreak(block) => Some(&block.location),
+        Block::UnorderedList(block) => Some(&block.location),
+        Block::OrderedList(block) => Some(&block.location),
+        Block::CalloutList(block) => Some(&block.location),
+        Block::DescriptionList(block) => Some(&block.location),
+        Block::Section(block) => Some(&block.location),
+        Block::DelimitedBlock(block) => Some(&block.location),
+        Block::Paragraph(block) => Some(&block.location),
+        Block::Image(block) => Some(&block.location),
+        Block::Audio(block) => Some(&block.location),
+        Block::Video(block) => Some(&block.location),
+        Block::Comment(block) => Some(&block.location),
+        _ => None,
+    }
+}
+
+fn source_line(source: &str, line: u32) -> &str {
+    source
+        .lines()
+        .nth(line.saturating_sub(1) as usize)
+        .unwrap_or_default()
+}
+
+fn mask_preprocessor_directives(source: &str) -> String {
+    let mut masked = String::with_capacity(source.len());
+
+    for segment in source.split_inclusive('\n') {
+        let line = segment.strip_suffix('\n').unwrap_or(segment);
+        if is_preprocessor_directive(line) {
+            masked.push_str(&neutralize_preprocessor_directive(line));
+        } else {
+            masked.push_str(line);
+        }
+        if segment.ends_with('\n') {
+            masked.push('\n');
+        }
+    }
+
+    masked
+}
+
+fn is_preprocessor_directive(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('\\') || trimmed.starts_with("//") {
+        return false;
+    }
+
+    let Some((name, rest)) = trimmed.split_once("::") else {
+        return false;
+    };
+    matches!(
+        name,
+        "include"
+            | "ifdef"
+            | "ifndef"
+            | "ifeval"
+            | "endif"
+            | "else"
+            | "elsifdef"
+            | "elsifndef"
+    ) && rest.ends_with(']')
+}
+
+fn neutralize_preprocessor_directive(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut replaced = false;
+
+    for ch in line.chars() {
+        if !replaced && !ch.is_whitespace() {
+            out.push('x');
+            replaced = true;
+        } else {
+            out.push(ch);
+        }
+    }
+
+    out
+}
+
+/// Fallback: simple line-by-line AsciiDoc scanner used when ACDC cannot parse
+/// the file.  Splits on `----`/`....`/`++++` fences and `== …` section headers.
 fn parse_adoc_raw_simple(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     let mut blocks: Vec<(u32, u32, &'static str, String)> = Vec::new();
 
@@ -200,6 +310,25 @@ fn is_adoc_section_header(line: &str) -> bool {
     let rest: String = chars.collect();
     let trimmed = rest.trim_start_matches('=');
     trimmed.starts_with(' ') || trimmed.is_empty()
+}
+
+fn has_unclosed_adoc_fence(source: &str) -> bool {
+    let mut current: Option<&str> = None;
+
+    for line in source.lines() {
+        if !is_adoc_fence(line) {
+            continue;
+        }
+
+        let fence = line.trim_end();
+        match current {
+            Some(open) if open == fence => current = None,
+            Some(_) => {}
+            None => current = Some(fence),
+        }
+    }
+
+    current.is_some()
 }
 /// Parse Markdown using pulldown-cmark's offset iterator.
 ///
@@ -349,6 +478,12 @@ mod tests {
     }
 
     #[test]
+    fn detects_unclosed_adoc_fence() {
+        assert!(has_unclosed_adoc_fence("----\ncode\n"));
+        assert!(!has_unclosed_adoc_fence("----\ncode\n----\n"));
+    }
+
+    #[test]
     fn markdown_paragraphs_are_emitted() {
         let src = "# Heading\n\nAlpha paragraph.\n\nBeta paragraph.\n";
         let blocks = parse_source_blocks(src, "md");
@@ -442,6 +577,24 @@ mod tests {
         let blocks = parse_source_blocks("", "adoc");
         assert!(!blocks.is_empty());
         assert_eq!(blocks[0].line_start, 1);
+    }
+
+    #[test]
+    fn adoc_include_before_code_does_not_shift_line_range() {
+        let src = "include::missing.adoc[]\n\n[source,rust]\n----\nfn main() {}\n----\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+        assert_eq!(code.line_start, 3);
+        assert_eq!(code.line_end, 6);
+    }
+
+    #[test]
+    fn adoc_utf8_before_code_keeps_line_range() {
+        let src = "éèø\n\n[source,rust]\n----\nfn main() {}\n----\n";
+        let blocks = parse_source_blocks(src, "adoc");
+        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+        assert_eq!(code.line_start, 3);
+        assert_eq!(code.line_end, 6);
     }
 
     #[test]

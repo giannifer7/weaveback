@@ -60,6 +60,31 @@ pub(crate) struct SinglePassCli {
     #[arg(long)]
 
     pub(crate) no_macros: bool,
+    /// Prelude file evaluated before source files in macro-enabled mode.
+    /// Repeatable. Intended for markup prelude files such as prelude/asciidoc.wvb.
+    #[arg(long = "macro-prelude")]
+
+    pub(crate) macro_prelude: Vec<PathBuf>,
+    /// Extension assigned to macro-expanded virtual documents before tangling.
+    /// Example: --expanded-ext adoc lets .wvb sources expand to AsciiDoc.
+    #[arg(long = "expanded-ext")]
+
+    pub(crate) expanded_ext: Option<String>,
+    /// Directory for macro-expanded .adoc intermediate documents.
+    /// Normal mode writes these files and then tangles them; --macro-only stops there.
+    #[arg(long = "expanded-adoc-dir", default_value = "expanded-adoc")]
+
+    pub(crate) expanded_adoc_dir: PathBuf,
+    /// Directory for macro-expanded .md intermediate documents.
+    /// Separate from .adoc so both products can be generated and inspected.
+    #[arg(long = "expanded-md-dir", default_value = "expanded-md")]
+
+    pub(crate) expanded_md_dir: PathBuf,
+    /// Stop after macro expansion after writing expanded documents.
+    /// This is the first-stage expansion pass for .wvb authoring sources.
+    #[arg(long = "macro-only")]
+
+    pub(crate) macro_only: bool,
     /// Include paths for %include/%import (colon-separated on Unix)
     #[arg(long, default_value = ".")]
 

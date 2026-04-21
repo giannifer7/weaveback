@@ -1,0 +1,98 @@
+= Markup Prelude
+:toc: left
+
+The markup prelude is a macro-only authoring layer.  It uses `¤` (`U+00A4`) as
+its sigil so it does not collide with ordinary `%` project macros or the `^`
+sigil used by `weaveback-macro` sources.
+
+The implementation is intentionally split by output markup:
+
+* link:../prelude/asciidoc.wvb[`prelude/asciidoc.wvb`] emits AsciiDoc.
+* link:../prelude/markdown.wvb[`prelude/markdown.wvb`] emits Markdown.
+
+The `.wvb` files contain only macro definitions.  They are meant to be injected
+before document sources by `weaveback.toml`, then the `¤` expansion produces
+ordinary `.adoc` or `.md` text that the same logical tangle pass consumes.
+
+See link:two-pass-markup-migration.adoc[two-pass markup migration] for the
+project migration plan, parity requirements, and staged conversion policy.
+
+== Config Shape
+
+The intended pass shape is:
+
+[source,toml]
+----
+[[pass]]
+dir = "docs-src/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc"
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@"
+----
+
+For Markdown output, use:
+
+[source,toml]
+----
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md"
+----
+
+The expanded directories are intentionally visible, not hidden.  Normal tangle
+mode writes expanded `.adoc` or `.md` files there and then tangles the same
+expanded text.  `macro_only = true` writes the expanded documents and stops
+before tangling.
+
+== Macro Surface
+
+Both prelude implementations define the same names:
+
+* `¤code_block(language, body)`
+* `¤h1(title)`
+* `¤rust_code_block(body)`
+* `¤graph(format, name, body)`
+* `¤xref(target, label)`
+* `¤note(body)`
+* `¤code_doc(path, title, language, body)`
+* `¤pastafarian_warning()`
+* `¤rust_file(path, content)`
+
+`¤rust_file(path, content)` emits a Rust `@file` chunk with these stable slots:
+
+* `path head`
+* `path body`
+* `path tail`
+
+The supplied `content` fills the body slot.  Head and tail remain available for
+later accumulating chunks.
+
+== Example
+
+[source,text]
+----
+¤rust_file(crates/demo/src/lib.rs, ¤[
+pub fn answer() -> u8 {
+    42
+}
+¤])
+----
+
+With the AsciiDoc prelude, the macro-only expansion produces a normal AsciiDoc
+listing block containing noweb chunks.  The tangle phase then extracts
+`crates/demo/src/lib.rs`.
+
+== Authoring Rules
+
+* Use `¤` only for the markup-prelude layer.
+* Keep ordinary project macros on `%` or the crate-specific sigil they already
+  use.
+* Prefer verbatim blocks for bodies: `¤rust_code_block(¤[ ... ¤])`.
+* Do not abstract prose.  Abstract only markup that affects portability:
+  code blocks, diagrams, links, admonitions, and document/code references.

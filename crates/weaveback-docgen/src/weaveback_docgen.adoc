@@ -408,6 +408,7 @@ fn main() {
 [source,rust]
 ----
 // <[@file weaveback-docgen/src/main.rs]>=
+mod adoc_scan;
 mod d2;
 mod inject;
 mod literate_index;

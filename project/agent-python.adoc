@@ -190,7 +190,7 @@ representative code excerpts, but it does not assemble files.
 The canonical literate sources live with the crates they explain:
 
 * `weaveback-agent-core`
-  - link:../crates/weaveback-agent-core/src/lib.adoc[lib.adoc]
+  - link:../crates/weaveback-agent-core/src-wvb/lib.wvb[lib.wvb]
   - link:../crates/weaveback-agent-core/src/workspace.adoc[workspace.adoc]
   - link:../crates/weaveback-agent-core/src/read_api.adoc[read_api.adoc]
   - link:../crates/weaveback-agent-core/src/change_plan.adoc[change_plan.adoc]

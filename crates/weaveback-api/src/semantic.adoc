@@ -490,7 +490,7 @@ mod tests {
         db.set_src_snapshot("doc.adoc", src.as_bytes()).unwrap();
 
         let script = r#"
-import sys, json, http.server
+import sys, json, http.server, threading
 
 class MockHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
@@ -502,9 +502,17 @@ class MockHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(res).encode())
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
     def log_message(self, format, *args): return
 
-http.server.HTTPServer(("127.0.0.1", 11112), MockHandler).handle_request()
+httpd = http.server.HTTPServer(("127.0.0.1", 11112), MockHandler)
+t = threading.Thread(target=httpd.serve_forever)
+t.daemon = True
+t.start()
+import time
+while True: time.sleep(1)
 "#;
         let script_path = tmp.path().join("mock_embed.py");
         std::fs::write(&script_path, script).unwrap();
@@ -515,8 +523,18 @@ http.server.HTTPServer(("127.0.0.1", 11112), MockHandler).handle_request()
             .spawn()
             .unwrap();
         
-        // Give it a moment to start
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Wait for the mock server to start by attempting to connect in a loop.
+        let mut started = false;
+        for _ in 0..50 {
+            if std::net::TcpStream::connect("127.0.0.1:11112").is_ok() {
+                started = true;
+                break;
+            }
+            if let Ok(Some(_)) = child.try_wait() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
 
         let cfg = EmbeddingConfig {
             backend: "ollama".to_string(),
@@ -525,7 +543,9 @@ http.server.HTTPServer(("127.0.0.1", 11112), MockHandler).handle_request()
             batch_size: 10,
         };
         
-        run_auto_embed(&mut db, &cfg);
+        if started {
+            run_auto_embed(&mut db, &cfg);
+        }
         
         let _ = child.kill();
         

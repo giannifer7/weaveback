@@ -1,3 +1,4 @@
+mod adoc_scan;
 mod d2;
 mod inject;
 mod literate_index;

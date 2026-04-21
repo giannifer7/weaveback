@@ -432,14 +432,13 @@ while True: time.sleep(1)
             .spawn()
             .unwrap();
 
-        // Wait for the mock server to start by attempting to connect in a loop
+        // Wait for the mock server to start by attempting to connect in a loop.
         let mut started = false;
         for _ in 0..50 {
             if std::net::TcpStream::connect("127.0.0.1:11112").is_ok() {
                 started = true;
                 break;
             }
-            // Also check if child died early
             if let Ok(Some(_)) = child.try_wait() {
                 break;
             }

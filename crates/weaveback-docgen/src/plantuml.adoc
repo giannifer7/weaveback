@@ -14,8 +14,8 @@ copies from the now-warm cache — no further JVM invocations.
 
 == Design
 
-* **Parser-driven**: `asciidoc-parser` locates plantuml blocks exactly.
-  No regex rescan of text we already parsed.
+* **Parser-driven**: ACDC locates plantuml blocks exactly through the shared
+  offset-stable AsciiDoc scanner.  No regex rescan of text we already parsed.
 * **Content-addressed cache**: SVG files are named `<blake3-hex>.svg`.
   An unchanged diagram is never re-rendered, even across clean builds.
 * **Single JVM startup**: `batch_render_plantuml` writes all uncached diagrams
@@ -61,10 +61,9 @@ pub enum PlantUmlError {
 `(byte_start, byte_end, diagram_source)` tuples for every plantuml block,
 ordered by byte position.
 
-Blocks are found by recursively walking all `Block` variants via
-`nested_blocks()`.  For each `Block::RawDelimited` whose language resolves to
-`"plantuml"`, we record. This accepts both `[plantuml]` and
-`[source,plantuml]`.
+Blocks are found by recursively walking the ACDC block tree.  For each
+delimited listing/pass block whose language resolves to `"plantuml"`, we
+record. This accepts both `[plantuml]` and `[source,plantuml]`.
 
 * `span.byte_offset()` — start of the full block (including `[plantuml]` line
   and opening `----` delimiter)
@@ -76,60 +75,10 @@ Blocks are found by recursively walking all `Block` variants via
 ----
 // <[plantuml-collect]>=
 fn collect_plantuml_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
-    use asciidoc_parser::{Parser, blocks::IsBlock};
-
-    // asciidoc-parser is experimental and may panic on some input.
-    // Treat a panic as "no plantuml blocks found" so the file is still processed.
-    let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Parser::default().parse(source)
-    }));
-    let doc = match parse_result {
-        Ok(d) => d,
-        Err(_) => {
-            eprintln!("plantuml: {label}: asciidoc-parser panicked while scanning for plantuml blocks — skipping plantuml pre-processing for this file");
-            return Vec::new();
-        }
-    };
-    let mut results = Vec::new();
-    collect_from_blocks(doc.nested_blocks(), &mut results);
-    results
-}
-
-fn collect_from_blocks<'src>(
-    blocks: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
-    out: &mut Vec<(usize, usize, String)>,
-) {
-    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock}};
-
-    for block in blocks {
-        if let Block::RawDelimited(rdb) = block {
-            let is_plantuml = raw_block_language(rdb.attrlist())
-                .map(|s| s == "plantuml")
-                .unwrap_or(false);
-            if is_plantuml {
-                let span = rdb.span();
-                let start = span.byte_offset();
-                let end = start + span.data().len();
-                let diagram_src = rdb.content().original().data().to_owned();
-                out.push((start, end, diagram_src));
-                continue; // no nested blocks inside a raw delimited block
-            }
-        }
-        collect_from_blocks(block.nested_blocks(), out);
-    }
-}
-
-fn raw_block_language<'src>(
-    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
-) -> Option<&'src str> {
-    let attrlist = attrlist?;
-    let mut attrs = attrlist.attributes();
-    let style = attrs.next()?.value();
-    if style == "source" {
-        attrs.next().map(|attr| attr.value())
-    } else {
-        Some(style)
-    }
+    crate::adoc_scan::collect_listing_blocks_by_language(source, "plantuml", label)
+        .into_iter()
+        .map(|block| (block.start, block.end, block.content))
+        .collect()
 }
 // @@
 ----
@@ -490,10 +439,18 @@ mod tests {
     }
 
     #[test]
-    fn raw_block_language_identifies_plantuml() {
+    fn style_only_block_identifies_plantuml() {
         let src = "[plantuml]\n----\nx\n----\n";
         let blocks = collect_plantuml_blocks(src, "test");
         assert_eq!(blocks.len(), 1);
+    }
+
+    #[test]
+    fn collect_plantuml_blocks_offsets_survive_include_directive() {
+        let src = "include::missing.adoc[]\n\n[source,plantuml]\n----\nA -> B\n----\n";
+        let blocks = collect_plantuml_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(&src[blocks[0].0..blocks[0].1], "[source,plantuml]\n----\nA -> B\n----");
     }
 }
 // @@

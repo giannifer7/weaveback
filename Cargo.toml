@@ -88,7 +88,6 @@ weaveback-macro = { path = "crates/weaveback-macro" }
 weaveback-tangle = { path = "crates/weaveback-tangle" }
 weaveback-lsp = { path = "crates/weaveback-lsp" }
 weaveback-agent-core = { path = "crates/weaveback-agent-core" }
-asciidoc-parser = { git = "https://github.com/giannifer7/asciidoc-parser", rev = "d0411b9" } # PR#498 pending merge
 acdc-parser = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-core = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978" }
 acdc-converters-html = { git = "https://github.com/nlopes/acdc", rev = "56000a96343809a4d7ae7d09c71680b101d1a978", features = ["highlighting"] }

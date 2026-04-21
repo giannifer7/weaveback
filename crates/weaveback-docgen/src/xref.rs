@@ -542,15 +542,13 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let root = dir.path();
         let crates_dir = root.join("crates");
-        
-        // Crate A
+
         let crate_a = crates_dir.join("crate-a");
         fs::create_dir_all(crate_a.join("src")).unwrap();
         fs::write(crate_a.join("Cargo.toml"), "[package]\nname = \"crate-a\"\n").unwrap();
         fs::write(crate_a.join("src/lib.rs"), "pub mod sub;").unwrap();
         fs::write(crate_a.join("src/sub.rs"), "pub struct Alpha;").unwrap();
-        
-        // Crate B depends on A
+
         let crate_b = crates_dir.join("crate-b");
         fs::create_dir_all(crate_b.join("src")).unwrap();
         fs::write(crate_b.join("Cargo.toml"), "[package]\nname = \"crate-b\"\n").unwrap();
@@ -559,7 +557,7 @@ mod tests {
         let xref = build_xref(root, false);
         assert!(xref.contains_key("crate_a/sub"));
         assert!(xref.contains_key("crate_b/lib"));
-        
+
         let a = xref.get("crate_a/sub").unwrap();
         assert!(a.symbols.contains(&"Alpha".to_string()));
         assert!(a.imported_by.iter().any(|l| l.key == "crate_b/lib"));

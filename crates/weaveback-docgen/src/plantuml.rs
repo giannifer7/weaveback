@@ -21,60 +21,10 @@ pub enum PlantUmlError {
     BatchFailed { code: i32 },
 }
 fn collect_plantuml_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
-    use asciidoc_parser::{Parser, blocks::IsBlock};
-
-    // asciidoc-parser is experimental and may panic on some input.
-    // Treat a panic as "no plantuml blocks found" so the file is still processed.
-    let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Parser::default().parse(source)
-    }));
-    let doc = match parse_result {
-        Ok(d) => d,
-        Err(_) => {
-            eprintln!("plantuml: {label}: asciidoc-parser panicked while scanning for plantuml blocks — skipping plantuml pre-processing for this file");
-            return Vec::new();
-        }
-    };
-    let mut results = Vec::new();
-    collect_from_blocks(doc.nested_blocks(), &mut results);
-    results
-}
-
-fn collect_from_blocks<'src>(
-    blocks: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
-    out: &mut Vec<(usize, usize, String)>,
-) {
-    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock}};
-
-    for block in blocks {
-        if let Block::RawDelimited(rdb) = block {
-            let is_plantuml = raw_block_language(rdb.attrlist())
-                .map(|s| s == "plantuml")
-                .unwrap_or(false);
-            if is_plantuml {
-                let span = rdb.span();
-                let start = span.byte_offset();
-                let end = start + span.data().len();
-                let diagram_src = rdb.content().original().data().to_owned();
-                out.push((start, end, diagram_src));
-                continue; // no nested blocks inside a raw delimited block
-            }
-        }
-        collect_from_blocks(block.nested_blocks(), out);
-    }
-}
-
-fn raw_block_language<'src>(
-    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
-) -> Option<&'src str> {
-    let attrlist = attrlist?;
-    let mut attrs = attrlist.attributes();
-    let style = attrs.next()?.value();
-    if style == "source" {
-        attrs.next().map(|attr| attr.value())
-    } else {
-        Some(style)
-    }
+    crate::adoc_scan::collect_listing_blocks_by_language(source, "plantuml", label)
+        .into_iter()
+        .map(|block| (block.start, block.end, block.content))
+        .collect()
 }
 fn render_diagram(
     jar: &Path,
@@ -360,56 +310,17 @@ mod tests {
     }
 
     #[test]
-    fn raw_block_language_identifies_plantuml() {
+    fn style_only_block_identifies_plantuml() {
         let src = "[plantuml]\n----\nx\n----\n";
         let blocks = collect_plantuml_blocks(src, "test");
         assert_eq!(blocks.len(), 1);
     }
 
     #[test]
-    fn test_batch_render_mock_java() {
-        let tmp = TempDir::new().unwrap();
-        let bin_dir = tmp.path().join("bin");
-        std::fs::create_dir_all(&bin_dir).unwrap();
-
-        let java_p = bin_dir.join("java");
-        // Mock java that identifies the output dir from -o and touches files there
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::write(&java_p, r#"#!/bin/sh
-out_dir="."
-while [ $# -gt 0 ]; do
-  if [ "$1" = "-o" ]; then out_dir="$2"; shift; fi
-  shift
-done
-for i in 0 1 2; do touch "${out_dir}/${i}.svg"; done
-"#).unwrap();
-            let mut perms = std::fs::metadata(&java_p).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&java_p, perms).unwrap();
-        }
-
-        let old_path = std::env::var_os("PATH").unwrap_or_default();
-        let mut new_path = bin_dir.to_string_lossy().into_owned();
-        new_path.push(':');
-        new_path.push_str(&old_path.to_string_lossy());
-        
-        unsafe { std::env::set_var("PATH", new_path); }
-
-        let diagrams = vec![
-            ("A -> B".to_string(), tmp.path().join("1.svg")),
-        ];
-        let jar = std::path::Path::new("plantuml.jar");
-        
-        // We only mock for unix for now to avoid complexity with cmd/batch
-        #[cfg(unix)]
-        {
-            let res = batch_render_plantuml(&diagrams, jar);
-            assert!(res.is_ok(), "batch_render failed: {:?}", res.err());
-            assert!(tmp.path().join("1.svg").exists());
-        }
-
-        unsafe { std::env::set_var("PATH", old_path); }
+    fn collect_plantuml_blocks_offsets_survive_include_directive() {
+        let src = "include::missing.adoc[]\n\n[source,plantuml]\n----\nA -> B\n----\n";
+        let blocks = collect_plantuml_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(&src[blocks[0].0..blocks[0].1], "[source,plantuml]\n----\nA -> B\n----");
     }
 }

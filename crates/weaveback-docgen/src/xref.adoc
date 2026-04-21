@@ -708,6 +708,35 @@ mod tests {
         assert!(is_excluded(Path::new("/tmp/project/node_modules/pkg/index.js")));
         assert!(!is_excluded(Path::new("/tmp/project/crates/demo/src/lib.rs")));
     }
+
+    #[test]
+    fn test_build_xref_orchestration() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        let crates_dir = root.join("crates");
+
+        let crate_a = crates_dir.join("crate-a");
+        fs::create_dir_all(crate_a.join("src")).unwrap();
+        fs::write(crate_a.join("Cargo.toml"), "[package]\nname = \"crate-a\"\n").unwrap();
+        fs::write(crate_a.join("src/lib.rs"), "pub mod sub;").unwrap();
+        fs::write(crate_a.join("src/sub.rs"), "pub struct Alpha;").unwrap();
+
+        let crate_b = crates_dir.join("crate-b");
+        fs::create_dir_all(crate_b.join("src")).unwrap();
+        fs::write(crate_b.join("Cargo.toml"), "[package]\nname = \"crate-b\"\n").unwrap();
+        fs::write(crate_b.join("src/lib.rs"), "use crate_a::sub::Alpha; pub struct Beta;").unwrap();
+
+        let xref = build_xref(root, false);
+        assert!(xref.contains_key("crate_a/sub"));
+        assert!(xref.contains_key("crate_b/lib"));
+
+        let a = xref.get("crate_a/sub").unwrap();
+        assert!(a.symbols.contains(&"Alpha".to_string()));
+        assert!(a.imported_by.iter().any(|l| l.key == "crate_b/lib"));
+
+        let b = xref.get("crate_b/lib").unwrap();
+        assert!(b.imports.iter().any(|l| l.key == "crate_a/sub"));
+    }
 }
 // @@
 ----

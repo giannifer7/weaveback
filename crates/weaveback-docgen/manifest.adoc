@@ -22,7 +22,6 @@ serde_json.workspace = true
 toml.workspace = true
 regex.workspace = true
 weaveback-lsp.workspace = true
-asciidoc-parser.workspace = true
 blake3.workspace = true
 rayon.workspace = true
 tempfile.workspace = true

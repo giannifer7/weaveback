@@ -83,6 +83,61 @@ doc_descr = %{Skip macro expansion and feed source files directly to the tangle 
 )
 %emit_option(
 chunk_name = %(chunk_name),
+field = macro_prelude,
+rust_type = Vec<PathBuf>,
+arg_attr = %{long = "macro-prelude"%},
+doc_block = %{    /// Prelude file evaluated before source files in macro-enabled mode.
+    /// Repeatable. Intended for markup prelude files such as prelude/asciidoc.wvb.%},
+doc_flag = %{`--macro-prelude <PATH>`%},
+doc_default = %{none%},
+doc_descr = %{Evaluate a macro prelude before source files.%},
+)
+%emit_option(
+chunk_name = %(chunk_name),
+field = expanded_ext,
+rust_type = Option<String>,
+arg_attr = %{long = "expanded-ext"%},
+doc_block = %{    /// Extension assigned to macro-expanded virtual documents before tangling.
+    /// Example: --expanded-ext adoc lets .wvb sources expand to AsciiDoc.%},
+doc_flag = %{`--expanded-ext <EXT>`%},
+doc_default = %{input extension%},
+doc_descr = %{Parse macro-expanded virtual documents as this extension.%},
+)
+%emit_option(
+chunk_name = %(chunk_name),
+field = expanded_adoc_dir,
+rust_type = PathBuf,
+arg_attr = %{long = "expanded-adoc-dir", default_value = "expanded-adoc"%},
+doc_block = %{    /// Directory for macro-expanded .adoc intermediate documents.
+    /// Normal mode writes these files and then tangles them; --macro-only stops there.%},
+doc_flag = %{`--expanded-adoc-dir <PATH>`%},
+doc_default = %{`expanded-adoc`%},
+doc_descr = %{Directory for macro-expanded AsciiDoc intermediate documents.%},
+)
+%emit_option(
+chunk_name = %(chunk_name),
+field = expanded_md_dir,
+rust_type = PathBuf,
+arg_attr = %{long = "expanded-md-dir", default_value = "expanded-md"%},
+doc_block = %{    /// Directory for macro-expanded .md intermediate documents.
+    /// Separate from .adoc so both products can be generated and inspected.%},
+doc_flag = %{`--expanded-md-dir <PATH>`%},
+doc_default = %{`expanded-md`%},
+doc_descr = %{Directory for macro-expanded Markdown intermediate documents.%},
+)
+%emit_option(
+chunk_name = %(chunk_name),
+field = macro_only,
+rust_type = bool,
+arg_attr = %{long = "macro-only"%},
+doc_block = %{    /// Stop after macro expansion after writing expanded documents.
+    /// This is the first-stage expansion pass for .wvb authoring sources.%},
+doc_flag = %{`--macro-only`%},
+doc_default = %{off%},
+doc_descr = %{Write macro-expanded documents and skip tangling.%},
+)
+%emit_option(
+chunk_name = %(chunk_name),
 field = include,
 rust_type = String,
 arg_attr = %{long, default_value = "."%},

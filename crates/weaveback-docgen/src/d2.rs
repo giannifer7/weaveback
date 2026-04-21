@@ -17,58 +17,10 @@ pub enum D2Error {
 }
 
 fn collect_d2_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
-    use asciidoc_parser::{Parser, blocks::IsBlock};
-
-    let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        Parser::default().parse(source)
-    }));
-    let doc = match parse_result {
-        Ok(d) => d,
-        Err(_) => {
-            eprintln!("d2: {label}: asciidoc-parser panicked while scanning for d2 blocks — skipping d2 pre-processing for this file");
-            return Vec::new();
-        }
-    };
-    let mut results = Vec::new();
-    collect_from_blocks(doc.nested_blocks(), &mut results);
-    results
-}
-
-fn collect_from_blocks<'src>(
-    blocks: std::slice::Iter<'src, asciidoc_parser::blocks::Block<'src>>,
-    out: &mut Vec<(usize, usize, String)>,
-) {
-    use asciidoc_parser::{HasSpan, blocks::{Block, IsBlock as _}};
-
-    for block in blocks {
-        if let Block::RawDelimited(rdb) = block {
-            let is_d2 = raw_block_language(rdb.attrlist())
-                .map(|s| s == "d2")
-                .unwrap_or(false);
-            if is_d2 {
-                let span = rdb.span();
-                let start = span.byte_offset();
-                let end = start + span.data().len();
-                let diagram_src = rdb.content().original().data().to_owned();
-                out.push((start, end, diagram_src));
-                continue;
-            }
-        }
-        collect_from_blocks(block.nested_blocks(), out);
-    }
-}
-
-fn raw_block_language<'src>(
-    attrlist: Option<&'src asciidoc_parser::attributes::Attrlist<'src>>,
-) -> Option<&'src str> {
-    let attrlist = attrlist?;
-    let mut attrs = attrlist.attributes();
-    let style = attrs.next()?.value();
-    if style == "source" {
-        attrs.next().map(|attr| attr.value())
-    } else {
-        Some(style)
-    }
+    crate::adoc_scan::collect_listing_blocks_by_language(source, "d2", label)
+        .into_iter()
+        .map(|block| (block.start, block.end, block.content))
+        .collect()
 }
 pub fn render_d2_diagram(
     diagram_source: &str,
@@ -185,6 +137,22 @@ mod tests {
         let blocks = collect_d2_blocks(src, "test");
         assert_eq!(blocks.len(), 1, "expected one d2 block, got {:?}", blocks.len());
         assert!(blocks[0].2.contains("a -> b"));
+    }
+
+    #[test]
+    fn collect_d2_blocks_finds_d2_style_block() {
+        let src = "= Title\n\n[d2]\n----\na -> b\n----\n";
+        let blocks = collect_d2_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].2.contains("a -> b"));
+    }
+
+    #[test]
+    fn collect_d2_blocks_offsets_survive_include_directive() {
+        let src = "include::missing.adoc[]\n\n[source,d2]\n----\na -> b\n----\n";
+        let blocks = collect_d2_blocks(src, "test");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(&src[blocks[0].0..blocks[0].1], "[source,d2]\n----\na -> b\n----");
     }
 
     #[test]

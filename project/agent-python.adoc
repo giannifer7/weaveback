@@ -191,10 +191,10 @@ The canonical literate sources live with the crates they explain:
 
 * `weaveback-agent-core`
   - link:../crates/weaveback-agent-core/src-wvb/lib.wvb[lib.wvb]
-  - link:../crates/weaveback-agent-core/src/workspace.adoc[workspace.adoc]
-  - link:../crates/weaveback-agent-core/src/read_api.adoc[read_api.adoc]
+  - link:../crates/weaveback-agent-core/src-wvb/workspace.wvb[workspace.wvb]
+  - link:../crates/weaveback-agent-core/src-wvb/read_api.wvb[read_api.wvb]
   - link:../crates/weaveback-agent-core/src-wvb/change_plan.wvb[change_plan.wvb]
-  - link:../crates/weaveback-agent-core/src/apply.adoc[apply.adoc]
+  - link:../crates/weaveback-agent-core/src-wvb/apply.wvb[apply.wvb]
 * `weaveback-py`
   - link:../crates/weaveback-py/src/lib.adoc[lib.adoc]
 

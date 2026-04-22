@@ -12,7 +12,7 @@ Cross-reference analysis defaults to a built-in Rust scanner (requires a
 
 See link:render.adoc[render.adoc] for acdc rendering,
 link:xref.adoc[xref.adoc] for the xref graph builder,
-link:inject.adoc[inject.adoc] for HTML post-processing, and
+link:../src-wvb/inject.wvb[inject.wvb] for HTML post-processing, and
 link:literate_index.adoc[literate_index.adoc] for literate source index
 injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
 the broader weaveback pipeline that this tool documents.
@@ -93,7 +93,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 | link:xref.adoc[xref.rs]
 | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph
 
-| link:inject.adoc[inject.rs]
+| link:../src-wvb/inject.wvb[inject.rs]
 | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>`
 
 | link:literate_index.adoc[literate_index.rs]

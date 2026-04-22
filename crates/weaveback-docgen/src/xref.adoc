@@ -8,7 +8,7 @@ workspace Rust source files.  It uses `syn` to parse each `.rs` file, collects
 module keys, and produces a `HashMap<String, XrefEntry>` mapping each module
 key to its import edges and public symbols.
 
-The graph is consumed by link:inject.adoc[`inject_xref`] to embed
+The graph is consumed by link:../src-wvb/inject.wvb[`inject_xref`] to embed
 `window.__xref` data in generated HTML pages, and serialised to `xref.json`
 for the JavaScript side panel.
 

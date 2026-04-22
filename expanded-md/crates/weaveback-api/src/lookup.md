@@ -1,6 +1,22 @@
-// weaveback-api/src/lookup.rs
-// I'd Really Rather You Didn't edit this generated file.
+# Source Lookup
 
+`lookup.rs` answers two questions about a generated file line:
+
+* _Where_ — which noweb chunk and expanded-text source produced it?
+* _Trace_ — which original literate source token (file/line/col) produced it,
+  what is the token's macro-level kind, and which source section/prose context
+  contains it?
+
+Both entry points are called by link:../../wb-tangle/src/main.adoc[`main.rs`] for the `where`
+and `trace` subcommands, and by link:../../wb-mcp/src/main.adoc[`main.rs`] for the `mcp` subcommand.
+
+See link:lib.adoc[lib.adoc] for the module map.
+
+## Error type
+
+
+```rust
+// <[lookup-types]>=
 use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
 use weaveback_macro::macro_api::process_string_precise;
@@ -18,6 +34,19 @@ pub enum LookupError {
     #[error("{0}")]
     InvalidInput(String),
 }
+// @
+```
+
+
+## perform_where
+
+`perform_where` does a single noweb-map lookup and returns a JSON object with
+the chunk name and expanded-text source location.  It does not re-evaluate
+the macro expander — it only consults the stored `noweb_map` table.
+
+
+```rust
+// <[lookup-where]>=
 pub fn perform_where(
     out_file: &str,
     line: u32,
@@ -43,6 +72,28 @@ pub fn perform_where(
         Ok(None)
     }
 }
+// @
+```
+
+
+## perform_trace
+
+`perform_trace` goes two levels deep:
+
+. The noweb-map lookup (same as `perform_where`) gives the expanded-text line.
+. The macro expander is re-run in _precise tracing_ mode on the driver file
+  that produced that expanded line.  The span covering the requested column
+  pinpoints the original literate source location and token kind.
+
+The driver file content is read from the stored `src_snapshots` entry for
+reproducibility; it falls back to the current file on disk.
+
+`col` is a 1-indexed character position in the *output* file line.  The
+noweb-induced indent is subtracted before querying the span map.
+
+
+```rust
+// <[lookup-trace]>=
 fn trace_warnings_enabled() -> bool {
     std::env::var_os("WB_TRACE_WARNINGS").is_some()
 }
@@ -177,6 +228,26 @@ pub fn perform_trace(
 
     Ok(Some(result))
 }
+// @
+```
+
+
+## Span helpers
+
+`span_at_line` converts a 0-indexed `(line, col_char)` pair to a byte offset
+and delegates to `PreciseTracingOutput::span_at_byte`.
+
+`append_span_fields` enriches the result JSON with the macro-level source
+location, token kind, and source-section context, looking up the source file
+path and content from the evaluator's source manager.
+
+`append_def_locations` queries the database for all definition sites of a
+variable or macro name and appends them as a JSON array.  Each entry carries
+`file`, `line` (1-indexed), and `col` (1-indexed UTF-8 character position).
+
+
+```rust
+// <[lookup-span]>=
 /// Find the `SourceSpan` covering `col_char_0` (0-indexed character position)
 /// of 0-indexed `line_0` in the given expanded text and span ranges.
 fn span_at_line<'a>(
@@ -408,6 +479,210 @@ fn append_def_locations(
         obj.insert(field.into(), Value::Array(locations));
     }
 }
+// @
+```
+
+
+## Tests
+
+
+```rust
+// <[@file weaveback-api/src/lookup/tests.rs]>=
+// weaveback-api/src/lookup/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use std::path::PathBuf;
+use weaveback_tangle::db::{Confidence, NowebMapEntry};
+
+fn resolver() -> PathResolver {
+    PathResolver::new(PathBuf::from("."), PathBuf::from("gen"))
+}
+
+#[test]
+fn perform_where_validates_line_and_returns_none_when_unmapped() {
+    let db = WeavebackDb::open_temp().expect("db");
+    let resolver = resolver();
+
+    let err = perform_where("out.rs", 0, &db, &resolver).expect_err("invalid line");
+    assert!(matches!(err, LookupError::InvalidInput(_)));
+    assert!(perform_where("out.rs", 1, &db, &resolver).expect("lookup").is_none());
+}
+
+#[test]
+fn perform_where_returns_normalized_mapping() {
+    let mut db = WeavebackDb::open_temp().expect("db");
+    db.set_noweb_entries(
+        "out.rs",
+        &[(
+            0,
+            NowebMapEntry {
+                src_file: "src/doc.adoc".to_string(),
+                chunk_name: "main".to_string(),
+                src_line: 4,
+                indent: "    ".to_string(),
+                confidence: Confidence::HashMatch,
+            },
+        )],
+    )
+    .expect("noweb");
+
+    let value = perform_where("gen/out.rs", 1, &db, &resolver())
+        .expect("where")
+        .expect("mapped");
+    assert_eq!(value["chunk"], "main");
+    assert_eq!(value["expanded_file"], "src/doc.adoc");
+    assert_eq!(value["expanded_line"], 5);
+    assert_eq!(value["confidence"], "hash_match");
+}
+
+#[test]
+fn append_def_locations_uses_snapshots_for_line_and_column() {
+    let db = WeavebackDb::open_temp().expect("db");
+    db.set_src_snapshot("src/doc.adoc", b"first\nlet answer = 42;\n")
+        .expect("snapshot");
+    db.record_var_def("answer", "src/doc.adoc", 10, 6)
+        .expect("var def");
+    db.record_macro_def("emit", "src/doc.adoc", 6, 3)
+        .expect("macro def");
+
+    let mut obj = serde_json::Map::new();
+    append_def_locations(&mut obj, "set_locations", "answer", &db, true);
+    append_def_locations(&mut obj, "def_locations", "emit", &db, false);
+
+    let set_locations = obj["set_locations"].as_array().expect("set locations");
+    assert_eq!(set_locations.len(), 1);
+    assert_eq!(set_locations[0]["file"], "src/doc.adoc");
+    assert_eq!(set_locations[0]["line"], 2);
+    assert_eq!(set_locations[0]["col"], 5);
+
+    let def_locations = obj["def_locations"].as_array().expect("def locations");
+    assert_eq!(def_locations.len(), 1);
+    assert_eq!(def_locations[0]["line"], 2);
+}
+
+#[test]
+fn perform_trace_uses_snapshot_and_adds_literal_source_location() {
+    let mut db = WeavebackDb::open_temp().expect("db");
+    db.set_noweb_entries(
+        "out.rs",
+        &[(
+            0,
+            NowebMapEntry {
+                src_file: "src/doc.adoc".to_string(),
+                chunk_name: "main".to_string(),
+                src_line: 3,
+                indent: String::new(),
+                confidence: Confidence::Exact,
+            },
+        )],
+    )
+    .expect("noweb");
+    db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
+        .expect("snapshot");
+
+    let traced = perform_trace("out.rs", 1, 1, &db, &resolver(), EvalConfig::default())
+        .expect("trace")
+        .expect("value");
+
+    assert_eq!(traced["chunk"], "main");
+    assert_eq!(traced["expanded_file"], "src/doc.adoc");
+    assert_eq!(traced["src_line"], 4);
+    assert_eq!(traced["src_col"], 1);
+    assert_eq!(traced["kind"], "Literal");
+    assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+    assert_eq!(
+        traced["source_section_range"],
+        json!({ "start_line": 3, "end_line": 4 })
+    );
+    assert_eq!(traced["source_section_prose"], "== Trace\nalpha");
+}
+
+#[test]
+fn perform_trace_coarse_adds_context_without_precise_span_fields() {
+    let mut db = WeavebackDb::open_temp().expect("db");
+    db.set_noweb_entries(
+        "out.rs",
+        &[(
+            0,
+            NowebMapEntry {
+                src_file: "src/doc.adoc".to_string(),
+                chunk_name: "main".to_string(),
+                src_line: 3,
+                indent: String::new(),
+                confidence: Confidence::Exact,
+            },
+        )],
+    )
+    .expect("noweb");
+    db.set_src_snapshot("src/doc.adoc", b"= Root\n\n== Trace\nalpha\n")
+        .expect("snapshot");
+
+    let traced = perform_trace_coarse("out.rs", 1, &db, &resolver())
+        .expect("trace")
+        .expect("value");
+
+    assert_eq!(traced["chunk"], "main");
+    assert_eq!(traced["expanded_file"], "src/doc.adoc");
+    assert_eq!(traced["source_section_breadcrumb"], json!(["Root", "Trace"]));
+    assert!(traced.get("src_line").is_none());
+    assert!(traced.get("src_col").is_none());
+    assert!(traced.get("kind").is_none());
+}
+
+#[test]
+fn append_source_context_skips_chunk_bodies_and_fences() {
+    let src = [
+        "= Root",
+        "",
+        "== Topic",
+        "Intro.",
+        "",
+        "----",
+        "code",
+        "----",
+        "",
+        "// <<main>>=",
+        "generated-ish",
+        "// @",
+        "",
+        "Tail.",
+    ]
+    .join("\n");
+    let mut obj = serde_json::Map::new();
+    append_source_context(&mut obj, &src, 14);
+
+    assert_eq!(obj["source_section_breadcrumb"], json!(["Root", "Topic"]));
+    assert_eq!(obj["source_section_prose"], "== Topic\nIntro.\n\nTail.");
+}
+
+#[test]
+fn perform_trace_validates_line_before_db_lookup() {
+    let db = WeavebackDb::open_temp().expect("db");
+    let err = perform_trace("out.rs", 0, 1, &db, &resolver(), EvalConfig::default())
+        .expect_err("invalid line");
+    assert!(matches!(err, LookupError::InvalidInput(_)));
+}
+
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-api/src/lookup.rs]>=
+// weaveback-api/src/lookup.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[lookup-types]>
+// <[lookup-where]>
+// <[lookup-trace]>
+// <[lookup-span]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
 

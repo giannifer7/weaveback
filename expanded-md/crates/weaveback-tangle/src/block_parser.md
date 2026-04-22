@@ -1,6 +1,4 @@
-= Block parser
-:toc: left
-:source-highlighter: syntect
+# Block parser
 
 `block_parser.rs` splits a source file into logical blocks and computes a
 BLAKE3 hash for each block.  The hashes are stored in the database so that
@@ -21,7 +19,7 @@ opaque text block so that any change to the file marks it dirty.
 See link:db.adoc[db.adoc] for how `SourceBlockEntry` values are stored, and
 link:noweb.adoc[noweb.adoc] for how `write_files_incremental` uses them.
 
-== `SourceBlockEntry`
+## `SourceBlockEntry`
 
 Each parsed block carries its 1-based line range, a type tag (`"section"`,
 `"code"`, `"para"`, `"text"`), and a 32-byte BLAKE3 hash of the block content.
@@ -30,8 +28,8 @@ The hash is what makes incremental builds work: two runs on the same unchanged
 file produce identical hashes, so the database comparison can skip all
 downstream processing for that block's chunks.
 
-[source,rust]
-----
+
+```rust
 // <[block-parser-types]>=
 /// A parsed logical block with its line range and content hash.
 #[derive(Debug, Clone)]
@@ -42,17 +40,18 @@ pub struct SourceBlockEntry {
     pub line_end: u32,   // 1-based, inclusive
     pub content_hash: [u8; 32],
 }
-// @@
-----
+// @
+```
 
-== `parse_source_blocks` entry point
+
+## `parse_source_blocks` entry point
 
 The public entry point dispatches on `extension` and maps the raw
 `(start, end, type, content)` tuples into `SourceBlockEntry` values,
 hashing each block's content with BLAKE3 before storing it.
 
-[source,rust]
-----
+
+```rust
 // <[block-parser-entry]>=
 /// Parse `source` into logical blocks based on its file `extension`.
 ///
@@ -83,10 +82,11 @@ pub fn parse_source_blocks(source: &str, extension: &str) -> Vec<SourceBlockEntr
         })
         .collect()
 }
-// @@
-----
+// @
+```
 
-== AsciiDoc scanner
+
+## AsciiDoc scanner
 
 The AsciiDoc scanner uses ACDC to walk the block tree:
 
@@ -106,8 +106,8 @@ text without changing byte positions.
 If ACDC fails to parse a file, `parse_adoc_raw_simple` remains the fallback.
 It splits on `----`/`....`/`++++` fences and `== …` section headers.
 
-[source,rust]
-----
+
+```rust
 // <[block-parser-adoc]>=
 /// Parse an AsciiDoc document using ACDC, falling back to the simple line
 /// scanner if parsing fails.
@@ -397,10 +397,11 @@ fn has_unclosed_adoc_fence(source: &str) -> bool {
 
     current.is_some()
 }
-// @@
-----
+// @
+```
 
-== Markdown parser
+
+## Markdown parser
 
 The Markdown parser delegates to `pulldown-cmark`'s offset iterator so that
 we get byte-accurate event ranges without reimplementing a Markdown parser.
@@ -414,8 +415,8 @@ If `pulldown-cmark` finds no blocks (e.g. the file is empty or consists only
 of inline content) we fall back to a single full-file block, matching the
 behaviour of the unknown-extension path.
 
-[source,rust]
-----
+
+```rust
 // <[block-parser-markdown]>=
 /// Parse Markdown using pulldown-cmark's offset iterator.
 ///
@@ -476,17 +477,18 @@ fn parse_markdown_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
     }
     blocks
 }
-// @@
-----
+// @
+```
 
-== Shared utilities
+
+## Shared utilities
 
 `build_line_table` and `byte_to_line` are used by both the AsciiDoc and
 Markdown parsers to convert byte offsets (from parser spans) into 1-based
 line numbers.
 
-[source,rust]
-----
+
+```rust
 // <[block-parser-utils]>=
 /// Map of byte offset → 1-based line number.
 fn build_line_table(source: &str) -> Vec<usize> {
@@ -505,10 +507,11 @@ fn build_line_table(source: &str) -> Vec<usize> {
 fn byte_to_line(table: &[usize], byte: usize) -> u32 {
     table.get(byte).copied().unwrap_or(1) as u32
 }
-// @@
-----
+// @
+```
 
-== Tests
+
+## Tests
 
 Five unit tests exercise the public `parse_source_blocks` interface:
 
@@ -521,217 +524,222 @@ Five unit tests exercise the public `parse_source_blocks` interface:
   `"code"` blocks
 * `fallback_single_block` — an unknown extension yields exactly one block
 
-[source,rust]
-----
-// <[block-parser-tests]>=
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn adoc_single_code_block() {
-        let src = "= Title\n\n----\nfoo\n----\n\nProse.\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
-        assert!(types.contains(&"code"), "expected code block, got {:?}", types);
-        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
-        assert_eq!(code.line_start, 3);
-        assert_eq!(code.line_end, 5);
-    }
+```rust
+// <[@file weaveback-tangle/src/block_parser/tests.rs]>=
+// weaveback-tangle/src/block_parser/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-    #[test]
-    fn adoc_two_code_blocks_have_different_hashes() {
-        let src = "----\nfoo\n----\n\n----\nbar\n----\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let codes: Vec<_> = blocks.iter().filter(|b| b.block_type == "code").collect();
-        assert_eq!(codes.len(), 2);
-        assert_ne!(codes[0].content_hash, codes[1].content_hash);
-    }
+use super::*;
 
-    #[test]
-    fn adoc_unchanged_block_same_hash() {
-        let src = "----\nfoo\n----\n";
-        let b1 = parse_source_blocks(src, "adoc");
-        let b2 = parse_source_blocks(src, "adoc");
-        assert_eq!(b1[0].content_hash, b2[0].content_hash);
-    }
+#[test]
+fn adoc_single_code_block() {
+    let src = "= Title\n\n----\nfoo\n----\n\nProse.\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+    assert!(types.contains(&"code"), "expected code block, got {:?}", types);
+    let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+    assert_eq!(code.line_start, 3);
+    assert_eq!(code.line_end, 5);
+}
 
-    #[test]
-    fn markdown_heading_and_code() {
-        let src = "# Heading\n\n```rust\nfn main() {}\n```\n";
-        let blocks = parse_source_blocks(src, "md");
-        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
-        assert!(types.contains(&"section"), "expected section, got {:?}", types);
-        assert!(types.contains(&"code"), "expected code, got {:?}", types);
-    }
+#[test]
+fn adoc_two_code_blocks_have_different_hashes() {
+    let src = "----\nfoo\n----\n\n----\nbar\n----\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let codes: Vec<_> = blocks.iter().filter(|b| b.block_type == "code").collect();
+    assert_eq!(codes.len(), 2);
+    assert_ne!(codes[0].content_hash, codes[1].content_hash);
+}
 
-    #[test]
-    fn fallback_single_block() {
-        let src = "line1\nline2\n";
-        let blocks = parse_source_blocks(src, "rs");
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].line_start, 1);
-        assert_eq!(blocks[0].line_end, 2);
-    }
+#[test]
+fn adoc_unchanged_block_same_hash() {
+    let src = "----\nfoo\n----\n";
+    let b1 = parse_source_blocks(src, "adoc");
+    let b2 = parse_source_blocks(src, "adoc");
+    assert_eq!(b1[0].content_hash, b2[0].content_hash);
+}
 
-    #[test]
-    fn adoc_section_and_para_are_split() {
-        let src = "= Title\n\nIntro paragraph.\n\n== Next\n\nMore prose.\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
-        assert!(types.contains(&"section"));
-        assert!(types.iter().filter(|t| **t == "para").count() >= 2);
-        assert!(blocks.iter().any(|b| b.block_type == "section" && b.line_start == 5 && b.line_end == 5));
-        assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 3 && b.line_end == 3));
-        assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 7 && b.line_end == 7));
-    }
+#[test]
+fn markdown_heading_and_code() {
+    let src = "# Heading\n\n```rust\nfn main() {}\n```\n";
+    let blocks = parse_source_blocks(src, "md");
+    let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+    assert!(types.contains(&"section"), "expected section, got {:?}", types);
+    assert!(types.contains(&"code"), "expected code, got {:?}", types);
+}
 
-    #[test]
-    fn adoc_unclosed_fence_runs_to_end_of_file() {
-        let src = "= Title\n\n----\nfn main() {}\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
-        assert_eq!(code.line_start, 3);
-        assert_eq!(code.line_end, 4);
-    }
+#[test]
+fn fallback_single_block() {
+    let src = "line1\nline2\n";
+    let blocks = parse_source_blocks(src, "rs");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].line_start, 1);
+    assert_eq!(blocks[0].line_end, 2);
+}
 
-    #[test]
-    fn detects_unclosed_adoc_fence() {
-        assert!(has_unclosed_adoc_fence("----\ncode\n"));
-        assert!(!has_unclosed_adoc_fence("----\ncode\n----\n"));
-    }
+#[test]
+fn adoc_section_and_para_are_split() {
+    let src = "= Title\n\nIntro paragraph.\n\n== Next\n\nMore prose.\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+    assert!(types.contains(&"section"));
+    assert!(types.iter().filter(|t| **t == "para").count() >= 2);
+    assert!(blocks.iter().any(|b| b.block_type == "section" && b.line_start == 5 && b.line_end == 5));
+    assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 3 && b.line_end == 3));
+    assert!(blocks.iter().any(|b| b.block_type == "para" && b.line_start == 7 && b.line_end == 7));
+}
 
-    #[test]
-    fn markdown_paragraphs_are_emitted() {
-        let src = "# Heading\n\nAlpha paragraph.\n\nBeta paragraph.\n";
-        let blocks = parse_source_blocks(src, "md");
-        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
-        assert!(types.contains(&"section"));
-        assert_eq!(types.iter().filter(|t| **t == "para").count(), 2);
-    }
+#[test]
+fn adoc_unclosed_fence_runs_to_end_of_file() {
+    let src = "= Title\n\n----\nfn main() {}\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+    assert_eq!(code.line_start, 3);
+    assert_eq!(code.line_end, 4);
+}
 
-    #[test]
-    fn empty_markdown_falls_back_to_text_block() {
-        let blocks = parse_source_blocks("", "md");
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].block_type, "text");
-        assert_eq!(blocks[0].line_start, 1);
-        assert_eq!(blocks[0].line_end, 1);
-    }
+#[test]
+fn detects_unclosed_adoc_fence() {
+    assert!(has_unclosed_adoc_fence("----\ncode\n"));
+    assert!(!has_unclosed_adoc_fence("----\ncode\n----\n"));
+}
 
-    // ---- new coverage tests ----
+#[test]
+fn markdown_paragraphs_are_emitted() {
+    let src = "# Heading\n\nAlpha paragraph.\n\nBeta paragraph.\n";
+    let blocks = parse_source_blocks(src, "md");
+    let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+    assert!(types.contains(&"section"));
+    assert_eq!(types.iter().filter(|t| **t == "para").count(), 2);
+}
 
-    #[test]
-    fn asciidoc_extension_alias_works() {
-        // ".asciidoc" should behave identically to ".adoc"
-        let src = "----\nhello\n----\n";
-        let blocks = parse_source_blocks(src, "asciidoc");
-        assert!(blocks.iter().any(|b| b.block_type == "code"));
-    }
+#[test]
+fn empty_markdown_falls_back_to_text_block() {
+    let blocks = parse_source_blocks("", "md");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].block_type, "text");
+    assert_eq!(blocks[0].line_start, 1);
+    assert_eq!(blocks[0].line_end, 1);
+}
 
-    #[test]
-    fn markdown_extension_alias_works() {
-        // ".markdown" should behave identically to ".md"
-        let src = "# Heading\n\nProse.\n";
-        let blocks = parse_source_blocks(src, "markdown");
-        let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
-        assert!(types.contains(&"section"));
-    }
+// ---- new coverage tests ----
 
-    #[test]
-    fn fallback_empty_source_single_block() {
-        let blocks = parse_source_blocks("", "rs");
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].line_start, 1);
-        assert_eq!(blocks[0].line_end, 1);
-    }
+#[test]
+fn asciidoc_extension_alias_works() {
+    // ".asciidoc" should behave identically to ".adoc"
+    let src = "----\nhello\n----\n";
+    let blocks = parse_source_blocks(src, "asciidoc");
+    assert!(blocks.iter().any(|b| b.block_type == "code"));
+}
 
-    #[test]
-    fn is_adoc_fence_dot_fence() {
-        assert!(is_adoc_fence("...."));
-        assert!(is_adoc_fence("........"));
-        assert!(!is_adoc_fence("...x"));
-    }
+#[test]
+fn markdown_extension_alias_works() {
+    // ".markdown" should behave identically to ".md"
+    let src = "# Heading\n\nProse.\n";
+    let blocks = parse_source_blocks(src, "markdown");
+    let types: Vec<_> = blocks.iter().map(|b| b.block_type.as_str()).collect();
+    assert!(types.contains(&"section"));
+}
 
-    #[test]
-    fn is_adoc_fence_plus_fence() {
-        assert!(is_adoc_fence("++++"));
-        assert!(!is_adoc_fence("+++-"));
-    }
+#[test]
+fn fallback_empty_source_single_block() {
+    let blocks = parse_source_blocks("", "rs");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0].line_start, 1);
+    assert_eq!(blocks[0].line_end, 1);
+}
 
-    #[test]
-    fn is_adoc_fence_dash_fence() {
-        assert!(is_adoc_fence("----"));
-        assert!(is_adoc_fence("--------"));
-        assert!(!is_adoc_fence("---x"));
-    }
+#[test]
+fn is_adoc_fence_dot_fence() {
+    assert!(is_adoc_fence("...."));
+    assert!(is_adoc_fence("........"));
+    assert!(!is_adoc_fence("...x"));
+}
 
-    #[test]
-    fn is_adoc_section_header_various() {
-        assert!(is_adoc_section_header("= Title"));
-        assert!(is_adoc_section_header("== Section"));
-        assert!(is_adoc_section_header("=== Sub"));
-        assert!(is_adoc_section_header("="));
-        assert!(!is_adoc_section_header("not a header"));
-        assert!(!is_adoc_section_header("=x no space"));
-    }
+#[test]
+fn is_adoc_fence_plus_fence() {
+    assert!(is_adoc_fence("++++"));
+    assert!(!is_adoc_fence("+++-"));
+}
 
-    #[test]
-    fn adoc_dot_fence_parsed_as_code() {
-        let src = "....\nsome listing\n....\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        assert!(blocks.iter().any(|b| b.block_type == "code"));
-    }
+#[test]
+fn is_adoc_fence_dash_fence() {
+    assert!(is_adoc_fence("----"));
+    assert!(is_adoc_fence("--------"));
+    assert!(!is_adoc_fence("---x"));
+}
 
-    #[test]
-    fn adoc_plus_fence_parsed_as_code() {
-        let src = "++++\npassthrough\n++++\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        assert!(blocks.iter().any(|b| b.block_type == "code"));
-    }
+#[test]
+fn is_adoc_section_header_various() {
+    assert!(is_adoc_section_header("= Title"));
+    assert!(is_adoc_section_header("== Section"));
+    assert!(is_adoc_section_header("=== Sub"));
+    assert!(is_adoc_section_header("="));
+    assert!(!is_adoc_section_header("not a header"));
+    assert!(!is_adoc_section_header("=x no space"));
+}
 
-    #[test]
-    fn adoc_empty_source_produces_block() {
-        let blocks = parse_source_blocks("", "adoc");
-        assert!(!blocks.is_empty());
-        assert_eq!(blocks[0].line_start, 1);
-    }
+#[test]
+fn adoc_dot_fence_parsed_as_code() {
+    let src = "....\nsome listing\n....\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    assert!(blocks.iter().any(|b| b.block_type == "code"));
+}
 
-    #[test]
-    fn adoc_include_before_code_does_not_shift_line_range() {
-        let src = "include::missing.adoc[]\n\n[source,rust]\n----\nfn main() {}\n----\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
-        assert_eq!(code.line_start, 3);
-        assert_eq!(code.line_end, 6);
-    }
+#[test]
+fn adoc_plus_fence_parsed_as_code() {
+    let src = "++++\npassthrough\n++++\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    assert!(blocks.iter().any(|b| b.block_type == "code"));
+}
 
-    #[test]
-    fn adoc_utf8_before_code_keeps_line_range() {
-        let src = "éèø\n\n[source,rust]\n----\nfn main() {}\n----\n";
-        let blocks = parse_source_blocks(src, "adoc");
-        let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
-        assert_eq!(code.line_start, 3);
-        assert_eq!(code.line_end, 6);
-    }
+#[test]
+fn adoc_empty_source_produces_block() {
+    let blocks = parse_source_blocks("", "adoc");
+    assert!(!blocks.is_empty());
+    assert_eq!(blocks[0].line_start, 1);
+}
 
-    #[test]
-    fn block_index_is_sequential() {
-        let src = "# H\n\nPara one.\n\nPara two.\n";
-        let blocks = parse_source_blocks(src, "md");
-        for (i, b) in blocks.iter().enumerate() {
-            assert_eq!(b.block_index, i as u32);
-        }
+#[test]
+fn adoc_include_before_code_does_not_shift_line_range() {
+    let src = "include::missing.adoc[]\n\n[source,rust]\n----\nfn main() {}\n----\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+    assert_eq!(code.line_start, 3);
+    assert_eq!(code.line_end, 6);
+}
+
+#[test]
+fn adoc_utf8_before_code_keeps_line_range() {
+    let src = "éèø\n\n[source,rust]\n----\nfn main() {}\n----\n";
+    let blocks = parse_source_blocks(src, "adoc");
+    let code = blocks.iter().find(|b| b.block_type == "code").unwrap();
+    assert_eq!(code.line_start, 3);
+    assert_eq!(code.line_end, 6);
+}
+
+#[test]
+fn block_index_is_sequential() {
+    let src = "# H\n\nPara one.\n\nPara two.\n";
+    let blocks = parse_source_blocks(src, "md");
+    for (i, b) in blocks.iter().enumerate() {
+        assert_eq!(b.block_index, i as u32);
     }
 }
-// @@
-----
 
-== Assembly
+// @
+```
 
-[source,rust]
-----
+
+## Assembly
+
+
+```rust
 // <[@file weaveback-tangle/src/block_parser.rs]>=
+// weaveback-tangle/src/block_parser.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 /// Sub-file block parsing for incremental build support.
 ///
 /// Splits a source file into logical blocks (code blocks, section headers,
@@ -743,6 +751,9 @@ mod tests {
 // <[block-parser-adoc]>
 // <[block-parser-markdown]>
 // <[block-parser-utils]>
-// <[block-parser-tests]>
-// @@
-----
+#[cfg(test)]
+mod tests;
+
+// @
+```
+

@@ -1,6 +1,4 @@
-= Chunk Parser and Expander
-:toc: left
-:source-highlighter: syntect
+¤h1(¤[Chunk Parser and Expander¤])
 
 `noweb.rs` is the heart of `weaveback-tangle`.
 Three types work together: `ChunkStore` reads and expands chunk definitions;
@@ -14,7 +12,7 @@ link:cli.adoc[main.rs].  See link:weaveback_tangle.adoc[weaveback_tangle.adoc]
 for the module map and link:MAP.adoc[**Conceptual Map (Architectural Whys)**]
 for the high-level pipeline overview.
 
-== Chunk syntax
+¤h2(¤[Chunk syntax¤])
 
 A _chunk definition_ starts with a line matching the open pattern, followed by
 body lines, and ends with a line matching the close pattern.  The open
@@ -70,9 +68,9 @@ instead of spending effort on formatter-specific cleanup in every generator. If
 future use shows that different fragment classes need different joining rules,
 those should be added from concrete cases rather than designed speculatively.
 
-== Data types
+¤h2(¤[Data types¤])
 
-=== ChunkDef
+¤h3(¤[ChunkDef¤])
 
 A `ChunkDef` stores one contiguous block of text between a chunk-open line and
 a chunk-close line.  It records the definition's _base indentation_ — the
@@ -81,9 +79,7 @@ spaces are stripped from every content line before the caller's indentation
 prefix is prepended, so indentation stays relative to where the chunk is
 referenced, not where it was defined.
 
-[source,rust]
-----
-// <[noweb-chunk-def]>=
+¤rust_chunk(noweb-chunk-def, ¤[
 #[derive(Debug, Clone)]
 struct ChunkDef {
     content: Vec<String>,
@@ -107,10 +103,9 @@ impl ChunkDef {
         }
     }
 }
-// @@
-----
+¤])
 
-=== Errors
+¤h3(¤[Errors¤])
 
 `ChunkLocation` is a `(file_idx, line_no)` pair used in error messages;
 `file_idx` indexes into `ChunkStore::file_names`.
@@ -138,9 +133,7 @@ impl ChunkDef {
 | An `@file` chunk is defined twice without `@replace`.
 |===
 
-[source,rust]
-----
-// <[noweb-errors]>=
+¤rust_chunk(noweb-errors, ¤[
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -275,10 +268,9 @@ impl NowebSyntax {
         })
     }
 }
-// @@
-----
+¤])
 
-=== NamedChunk
+¤h3(¤[NamedChunk¤])
 
 A single chunk name may accumulate multiple `ChunkDef` entries across one or
 more source files.  All definitions are emitted in sequence when the chunk is
@@ -287,9 +279,7 @@ expanded; the `@reversed` modifier on a reference reverses this order.
 Reference tracking is handled externally by the caller (see `write_files`),
 keeping `expand_inner` a pure function with no hidden mutable state.
 
-[source,rust]
-----
-// <[noweb-named-chunk]>=
+¤rust_chunk(noweb-named-chunk, ¤[
 #[derive(Debug)]
 struct NamedChunk {
     definitions: Vec<ChunkDef>,
@@ -302,17 +292,9 @@ impl NamedChunk {
         }
     }
 }
-// @@
-----
+¤])
 
-== ChunkStore
-
-`ChunkStore` holds all chunk definitions and drives expansion.  It owns three
-compiled regexes (open, slot, close) built once from the configurable delimiter
-and comment-marker settings, plus the chunk registry and a list of source-file
-names used for error messages.
-
-=== Path safety
+¤h3(¤[Path safety¤])
 
 Two free functions gate output paths before any content is written.
 
@@ -324,9 +306,7 @@ path resolves to an absolute path outside `gen/` — it therefore bypasses
 `path_is_safe` (which would reject it) and goes instead through the
 `allow_home` gate in `ChunkWriter::write_chunk`.
 
-[source,rust]
-----
-// <[noweb-path-utils]>=
+¤rust_chunk(noweb-path-utils, ¤[
 fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
@@ -357,14 +337,11 @@ fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
     }
     Ok(())
 }
-// @@
-----
+¤])
 
-=== Struct
+¤h3(¤[Struct¤])
 
-[source,rust]
-----
-// <[noweb-chunkstore-struct]>=
+¤rust_chunk(noweb-chunkstore-struct, ¤[
 pub struct ChunkStore {
     chunks: HashMap<String, NamedChunk>,
     file_chunks: Vec<String>,
@@ -382,10 +359,9 @@ pub struct ChunkStore {
     /// when `strict_undefined` is `true`.  Checked by `Clip::write_files`.
     pub parse_errors: Vec<ChunkError>,
 }
-// @@
-----
+¤])
 
-=== Constructor
+¤h3(¤[Constructor¤])
 
 `NowebSyntax::new` compiles the three regexes that encode the full delimiter
 grammar, and `ChunkStore` holds one `NowebSyntax` so the same matcher can be
@@ -402,9 +378,7 @@ reused by other tools such as `lint`.
 * The _close pattern_ matches chunk-end markers: an optional comment prefix
   followed by the chunk-end string (default `@`).
 
-[source,rust]
-----
-// <[noweb-chunkstore-new]>=
+¤rust_chunk(noweb-chunkstore-new, ¤[
 impl ChunkStore {
     pub fn new(
         open_delim: &str,
@@ -438,10 +412,9 @@ impl ChunkStore {
         }
     }
 }
-// @@
-----
+¤])
 
-=== Read loop
+¤h3(¤[Read loop¤])
 
 `read` scans a source text line-by-line, maintaining a simple three-state
 machine:
@@ -474,9 +447,7 @@ ins --> out : close_re matches\n(current_chunk = None)
 mode (fatal when `write_files` is called) or reported to stderr and skipped in
 permissive mode, keeping the first definition rather than silently clobbering it.
 
-[source,rust]
-----
-// <[noweb-chunkstore-read]>=
+¤rust_chunk(noweb-chunkstore-read, ¤[
 impl ChunkStore {
     pub fn read(&mut self, text: &str, file_idx: usize) {
         debug!("Reading text for file_idx: {}", file_idx);
@@ -592,10 +563,9 @@ impl ChunkStore {
         debug!("Finished reading. File chunks: {:?}", self.file_chunks);
     }
 }
-// @@
-----
+¤])
 
-=== Expander
+¤h3(¤[Expander¤])
 
 `ExpandState` bundles the mutable state that threads through the recursive
 expansion so that `expand_inner` does not exceed the argument-count limit.
@@ -623,9 +593,7 @@ Reference tracking is performed externally by inserting chunk names into the
 caller-provided `referenced_chunks` set, which `check_unused_chunks` then
 consults.
 
-[source,rust]
-----
-// <[noweb-chunkstore-expand]>=
+¤rust_chunk(noweb-chunkstore-expand, ¤[
 /// Mutable state threaded through the recursive chunk expansion.
 struct ExpandState {
     seen: HashSet<String>,
@@ -872,18 +840,15 @@ impl ChunkStore {
         self.expand(chunk_name, "")
     }
 }
-// @@
-----
+¤])
 
-=== Utilities
+¤h3(¤[Utilities¤])
 
 After all `@file` chunks are written, `check_unused_chunks` warns about named
 chunks that were defined but never referenced — a common mistake when
 refactoring literate sources.
 
-[source,rust]
-----
-// <[noweb-chunkstore-utils]>=
+¤rust_chunk(noweb-chunkstore-utils, ¤[
 impl ChunkStore {
     pub fn get_file_chunks(&self) -> &[String] {
         &self.file_chunks
@@ -946,10 +911,9 @@ impl ChunkStore {
         warns
     }
 }
-// @@
-----
+¤])
 
-== ChunkWriter
+¤h2(¤[ChunkWriter¤])
 
 `ChunkWriter` borrows a `SafeFileWriter` and writes one `@file` chunk at a
 time.  It dispatches on whether the expanded path is absolute or relative:
@@ -962,9 +926,7 @@ time.  It dispatches on whether the expanded path is absolute or relative:
   `SafeWriterConfig` gates this; without it the write is rejected as a
   `SecurityViolation`.
 
-[source,rust]
-----
-// <[noweb-chunkwriter]>=
+¤rust_chunk(noweb-chunkwriter, ¤[
 pub struct ChunkWriter<'a> {
     safe_file_writer: &'a mut SafeFileWriter,
 }
@@ -1023,19 +985,11 @@ impl<'a> ChunkWriter<'a> {
         }
     }
 }
-// @@
-----
+¤])
 
-== Clip
+¤h3(¤[Constructor and read / query methods¤])
 
-`Clip` composes `ChunkStore` and `SafeFileWriter` into the public API.  Most
-methods delegate directly to one of the two inner types.
-
-=== Constructor and read / query methods
-
-[source,rust]
-----
-// <[noweb-clip-core]>=
+¤rust_chunk(noweb-clip-core, ¤[
 pub struct Clip {
     store: ChunkStore,
     writer: SafeFileWriter,
@@ -1130,10 +1084,9 @@ impl Clip {
         self.store.get_chunk_content(name)
     }
 }
-// @@
-----
+¤])
 
-=== In-memory tangle check
+¤h3(¤[In-memory tangle check¤])
 
 `tangle_check` is a free function (no `SafeFileWriter` involved) that reads a
 set of source texts purely in memory and expands every `@file` chunk.  It is
@@ -1141,9 +1094,7 @@ the oracle used by the `/__apply` HTTP endpoint to verify that an edited chunk
 body still produces valid tangle output before the `.adoc` source file is
 modified.
 
-[source,rust]
-----
-// <[noweb-tangle-check]>=
+¤rust_chunk(noweb-tangle-check, ¤[
 /// Verify that `texts` tangle without errors.
 ///
 /// Each element of `texts` is a `(source_text, filename)` pair — the same
@@ -1172,10 +1123,9 @@ pub fn tangle_check(
     }
     Ok(out)
 }
-// @@
-----
+¤])
 
-=== Post-formatter remap
+¤h3(¤[Post-formatter remap¤])
 
 When a formatter (e.g. `rustfmt`) rewrites the output, the pre-formatter line
 numbers stored in the source map no longer correspond to the lines the user
@@ -1203,9 +1153,7 @@ NOTE: Attribution is approximate when a formatter makes large-scale semantic
 changes (e.g. merges or splits blocks).  The `Confidence` field on
 `NowebMapEntry` lets callers distinguish exact mappings from inferred ones.
 
-[source,rust]
-----
-// <[noweb-remap]>=
+¤rust_chunk(noweb-remap, ¤[
 /// Normalise a source line for content-hash matching:
 /// strip leading/trailing whitespace and drop any trailing `//` comment.
 fn normalise_for_hash(line: &str) -> &str {
@@ -1355,10 +1303,9 @@ fn remap_noweb_entries(
         .filter_map(|(i, e)| e.map(|entry| (i as u32, entry)))
         .collect()
 }
-// @@
-----
+¤])
 
-=== Writing files and dry-run
+¤h3(¤[Writing files and dry-run¤])
 
 `write_files` iterates over every `@file` chunk, calls `expand_with_map` to
 get both the expanded lines and their `NowebMapEntry` source-map entries,
@@ -1376,9 +1323,7 @@ After all files are written, unused-chunk warnings are emitted.
 `list_output_files` resolves the same paths that `write_files` would write to,
 without touching the filesystem.  It is used by `--dry-run`.
 
-[source,rust]
-----
-// <[noweb-clip-write]>=
+¤rust_chunk(noweb-clip-write, ¤[
 impl Clip {
     /// Write all `@file` chunks, skipping those whose name is in `skip`.
     /// Skipped chunks do not expand or write; the source-map and chunk_deps
@@ -1556,18 +1501,15 @@ impl Clip {
         self.writer.finish(target).map_err(WeavebackError::SafeWriter)
     }
 }
-// @@
-----
+¤])
 
-== Assembly
+¤h2(¤[Assembly¤])
 
 The `@file` chunk assembles the module by expanding all sub-chunks in order.
 Imports are inlined here; the sub-chunks contain the type definitions and
 `impl` blocks.
 
-[source,rust]
-----
-// <[@file weaveback-tangle/src/noweb.rs]>=
+¤rust_file(weaveback-tangle/src/noweb.rs, ¤[
 use memchr;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -1595,5 +1537,4 @@ use log::debug;
 // <[noweb-clip-core]>
 // <[noweb-tangle-check]>
 // <[noweb-clip-write]>
-// @@
-----
+¤])

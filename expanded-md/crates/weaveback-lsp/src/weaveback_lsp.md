@@ -1,6 +1,17 @@
-// weaveback-lsp/src/lib.rs
-// I'd Really Rather You Didn't edit this generated file.
+# Weaveback LSP
 
+`weaveback-lsp` provides a client interface for communicating with
+language-specific LSP servers (like `rust-analyzer`). It is used to resolve
+semantic information in generated code and map it back to literate sources.
+
+## LspClient
+
+`LspClient` manages a background LSP server process and handles the JSON-RPC
+protocol over stdin/stdout.
+
+
+```rust
+// <[lsp-client]>=
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::io::{BufRead, BufReader, Write, Read};
 use std::path::Path;
@@ -43,7 +54,7 @@ impl LspClient {
         if cmd_parts.is_empty() {
              return Err(LspError::Protocol("empty command string".into()));
         }
-
+        
         let mut child = Command::new(cmd_parts[0])
             .args(&cmd_parts[1..])
             .args(args)
@@ -80,18 +91,18 @@ impl LspClient {
         };
 
         let res = self.call("initialize", params)?;
-
+        
         // Basic capability check - ensure the server can actually do what we need.
-        if let Some(caps) = res.get("capabilities")
+        if let Some(caps) = res.get("capabilities") 
             && caps.get("definitionProvider").is_none() {
             log::warn!("LSP server does not support gotoDefinition");
         }
 
         self.notify("initialized", json!({}))?;
-
+        
         // Give the server some time to index.
         std::thread::sleep(std::time::Duration::from_secs(2));
-
+        
         Ok(())
     }
 
@@ -127,7 +138,7 @@ impl LspClient {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
         let text = std::fs::read_to_string(path)?;
-
+        
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri,
@@ -160,7 +171,7 @@ impl LspClient {
             if let Some(stripped) = line.strip_prefix("Content-Length: ") {
                 let len: usize = stripped.trim().parse()
                     .map_err(|_| LspError::Protocol("invalid content-length".into()))?;
-
+                
                 // Skip the \r\n\r\n
                 let mut junk = String::new();
                 self.reader.read_line(&mut junk)?;
@@ -169,7 +180,7 @@ impl LspClient {
                 self.reader.read_exact(&mut body)?;
                 let resp: Value = serde_json::from_slice(&body)?;
 
-                if let Some(id) = resp.get("id")
+                if let Some(id) = resp.get("id") 
                     && id.as_i64() == Some(expected_id) {
                     if let Some(error) = resp.get("error") {
                         return Err(LspError::Protocol(error.to_string()));
@@ -195,6 +206,15 @@ impl Drop for LspClient {
         let _ = self.child.kill();
     }
 }
+// @
+```
+
+
+## Semantic Navigation
+
+
+```rust
+// <[lsp-nav]>=
 impl LspClient {
     pub fn goto_definition(
         &mut self,
@@ -204,7 +224,7 @@ impl LspClient {
     ) -> Result<Option<Location>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-
+        
         let params = TextDocumentPositionParams {
             text_document: TextDocumentIdentifier::new(uri),
             position: Position::new(line, col),
@@ -232,7 +252,7 @@ impl LspClient {
     ) -> Result<Vec<Location>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-
+        
         let params = ReferenceParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: TextDocumentIdentifier::new(uri),
@@ -260,7 +280,7 @@ impl LspClient {
     ) -> Result<Option<Hover>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-
+        
         let params = TextDocumentPositionParams {
             text_document: TextDocumentIdentifier::new(uri),
             position: Position::new(line, col),
@@ -279,7 +299,7 @@ impl LspClient {
     ) -> Result<Vec<DocumentSymbolResponse>, LspError> {
         let uri = Url::from_file_path(path)
             .map_err(|_| LspError::Protocol("invalid file path".into()))?;
-
+        
         let params = DocumentSymbolParams {
             text_document: TextDocumentIdentifier::new(uri),
             work_done_progress_params: WorkDoneProgressParams::default(),
@@ -293,6 +313,15 @@ impl LspClient {
         Ok(symbols)
     }
 }
+// @
+```
+
+
+## LSP Registry
+
+
+```rust
+// <[lsp-registry]>=
 /// Returns (command, language_id) for a given file extension.
 pub fn get_lsp_config(ext: &str) -> Option<(String, String)> {
     match ext {
@@ -302,6 +331,91 @@ pub fn get_lsp_config(ext: &str) -> Option<(String, String)> {
         _     => None,
     }
 }
+// @
+```
+
+
+## Tests
+
+
+```rust
+// <[@file weaveback-lsp/src/tests.rs]>=
+// weaveback-lsp/src/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use std::io::Write;
+
+#[test]
+fn test_get_lsp_config() {
+    assert_eq!(get_lsp_config("rs"), Some(("rust-analyzer".to_string(), "rust".to_string())));
+    assert_eq!(get_lsp_config("nim"), Some(("nimlsp".to_string(), "nim".to_string())));
+    assert_eq!(get_lsp_config("py"), Some(("pyright-langserver --stdio".to_string(), "python".to_string())));
+    assert_eq!(get_lsp_config("xyz"), None);
+}
+
+#[test]
+fn test_lsp_error_display() {
+    let err = LspError::Protocol("invalid root".into());
+    assert_eq!(err.to_string(), "LSP error: invalid root");
+}
+
+#[test]
+fn test_fake_lsp_lifecycle() {
+    // A minimal Python script that reads JSON-RPC loop and responds
+    let script = r#"
+import sys, json
+
+def read_msg():
+    line = sys.stdin.readline()
+    if not line: return None
+    if not line.startswith("Content-Length:"): return None
+    l = int(line.split(":")[1].strip())
+    sys.stdin.readline() # \r\n
+    body = sys.stdin.read(l)
+    return json.loads(body)
+
+def write_msg(d):
+    j = json.dumps(d)
+    sys.stdout.write(f"Content-Length: {len(j)}\r\n\r\n{j}")
+    sys.stdout.flush()
+
+msg1 = read_msg()
+if msg1 and "id" in msg1:
+    write_msg({"jsonrpc": "2.0", "id": msg1["id"], "result": {"capabilities": {"definitionProvider": True}}})
+
+msg2 = read_msg()
+"#;
+    
+    let mut tmp_file = tempfile::NamedTempFile::new().unwrap();
+    write!(tmp_file, "{}", script).unwrap();
+    let path = tmp_file.path().to_owned();
+
+    let mut client = LspClient::spawn("python3", &[path.to_str().unwrap()], std::env::current_dir().unwrap().as_path(), "fake".into()).unwrap();
+    assert!(client.is_alive());
+    
+    let result = client.initialize(std::env::current_dir().unwrap().as_path());
+    assert!(result.is_ok());
+}
+
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-lsp/src/lib.rs]>=
+// weaveback-lsp/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[lsp-client]>
+// <[lsp-nav]>
+// <[lsp-registry]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
 

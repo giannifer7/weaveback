@@ -1,9 +1,24 @@
-// weaveback-docgen/src/literate_index.rs
-// I'd Really Rather You Didn't edit this generated file.
+# Literate source index
 
-use std::collections::BTreeMap;
-use std::path::Path;
+`literate_index.rs` injects an "Implementation pages" section into the HTML
+index page of every crate that has literate-source documentation.
 
+A crate is considered literate when
+`out_dir/crates/{crate}/src/{crate_underscored}.html` exists — the crate index
+page generated from the top-level `.adoc`.  All other `.html` files in that
+`src/` tree are collected as module pages.  The injection is idempotent:
+`strip_existing` removes any previous section before inserting the fresh one.
+
+See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+
+## Title extraction
+
+Page titles are read from the HTML `<title>` element and used as link labels.
+When no title is found the file stem is used as a fallback.
+
+
+```rust
+// <[litindex-title]>=
 fn extract_title(html: &str) -> String {
     if let Some(start) = html.find("<title>") {
         let rest = &html[start + 7..];
@@ -13,6 +28,19 @@ fn extract_title(html: &str) -> String {
     }
     String::new()
 }
+// @
+```
+
+
+## Crate discovery
+
+`generate_and_inject_all` walks `out_dir/crates/`, sorts entries for
+deterministic output, and calls `generate_and_inject_crate` for each crate
+whose `src/{crate_underscored}.html` index page exists.
+
+
+```rust
+// <[litindex-all]>=
 pub fn generate_and_inject_all(out_dir: &Path) {
     let crates_dir = out_dir.join("crates");
     if !crates_dir.exists() {
@@ -41,6 +69,20 @@ pub fn generate_and_inject_all(out_dir: &Path) {
         generate_and_inject_crate(&src_dir, &index_page, &crate_name);
     }
 }
+// @
+```
+
+
+## Per-crate injection
+
+`generate_and_inject_crate` collects all `.html` files in `src/` except the
+index page itself and groups them by their first path component.  A
+subdirectory name becomes a group heading; top-level files go into
+"Top-level modules".
+
+
+```rust
+// <[litindex-crate]>=
 fn generate_and_inject_crate(src_dir: &Path, index_page: &Path, crate_name: &str) {
     let index_filename = index_page
         .file_name()
@@ -137,6 +179,19 @@ fn generate_and_inject_crate(src_dir: &Path, index_page: &Path, crate_name: &str
 
     inject_into_page(index_page, &section, total, crate_name);
 }
+// @
+```
+
+
+## Injection and idempotency
+
+`inject_into_page` inserts the section before `<div id="footer">` (falling
+back to before `</body>`).  `strip_existing` removes any previous injection by
+finding the `sect1#literate-sources` div and its closing double-`</div>`.
+
+
+```rust
+// <[litindex-inject]>=
 fn inject_into_page(page: &Path, section: &str, total: usize, crate_name: &str) {
     let Ok(content) = std::fs::read_to_string(page) else {
         eprintln!("docs: could not read {}", page.display());
@@ -161,6 +216,13 @@ fn inject_into_page(page: &Path, section: &str, total: usize, crate_name: &str) 
         println!("docs: injected literate index into {crate_name} ({total} pages)");
     }
 }
+// @
+```
+
+
+
+```rust
+// <[litindex-strip]>=
 fn strip_existing(content: &str) -> String {
     const START: &str = "<div class=\"sect1\" id=\"literate-sources\">";
     const END: &str = "</div>\n</div>\n";
@@ -174,6 +236,99 @@ fn strip_existing(content: &str) -> String {
     }
     s
 }
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-docgen/src/literate_index.rs]>=
+// weaveback-docgen/src/literate_index.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+// <[litindex-title]>
+// <[litindex-all]>
+// <[litindex-crate]>
+// <[litindex-inject]>
+// <[litindex-strip]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
+
+
+## Tests
+
+The test body is generated as `literate_index/tests.rs` and linked from
+`literate_index.rs` with `#[cfg(test)] mod tests;`.
+
+
+```rust
+// <[@file weaveback-docgen/src/literate_index/tests.rs]>=
+// weaveback-docgen/src/literate_index/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use std::fs;
+use tempfile::tempdir;
+
+#[test]
+fn extract_title_and_strip_existing_handle_missing_markers() {
+    assert_eq!(extract_title("<html><title>Hello</title></html>"), "Hello");
+    assert_eq!(extract_title("<html></html>"), "");
+
+    let original = concat!(
+        "<body>",
+        "<div class=\"sect1\" id=\"literate-sources\">",
+        "<h2>Implementation pages</h2>",
+        "</div>\n</div>\n",
+        "<div id=\"footer\"></div></body>"
+    );
+    let stripped = strip_existing(original);
+    assert!(!stripped.contains("literate-sources"));
+    assert!(stripped.contains("<div id=\"footer\">"));
+}
+
+#[test]
+fn inject_into_page_inserts_section_before_footer_and_is_idempotent() {
+    let dir = tempdir().expect("tempdir");
+    let page = dir.path().join("index.html");
+    fs::write(&page, "<html><body><p>Intro</p><div id=\"footer\"></div></body></html>").expect("page");
+
+    inject_into_page(&page, "<div class=\"sect1\" id=\"literate-sources\">X</div>\n</div>\n", 1, "demo");
+    inject_into_page(&page, "<div class=\"sect1\" id=\"literate-sources\">X</div>\n</div>\n", 1, "demo");
+
+    let content = fs::read_to_string(&page).expect("read page");
+    assert_eq!(content.matches("literate-sources").count(), 1);
+    assert!(content.find("literate-sources").expect("section") < content.find("footer").expect("footer"));
+}
+
+#[test]
+fn generate_and_inject_crate_builds_grouped_module_section() {
+    let dir = tempdir().expect("tempdir");
+    let src = dir.path().join("src");
+    fs::create_dir_all(src.join("parser")).expect("parser dir");
+    let index = src.join("demo.html");
+    fs::write(&index, "<html><body><div id=\"footer\"></div></body></html>").expect("index");
+    fs::write(src.join("top.html"), "<html><title>Top Title</title></html>").expect("top");
+    fs::write(src.join("parser").join("mod.html"), "<html><title>Parser Mod</title></html>").expect("mod");
+
+    generate_and_inject_crate(&src, &index, "demo");
+
+    let content = fs::read_to_string(&index).expect("read index");
+    assert!(content.contains("Implementation pages"));
+    assert!(content.contains("Top-level modules"));
+    assert!(content.contains("Parser"));
+    assert!(content.contains("top.html"));
+    assert!(content.contains("parser/mod.html"));
+}
+
+// @
+```
 

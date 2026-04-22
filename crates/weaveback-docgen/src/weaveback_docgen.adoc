@@ -13,7 +13,7 @@ Cross-reference analysis defaults to a built-in Rust scanner (requires a
 See link:../src-wvb/render.wvb[render.wvb] for acdc rendering,
 link:xref.adoc[xref.adoc] for the xref graph builder,
 link:../src-wvb/inject.wvb[inject.wvb] for HTML post-processing, and
-link:literate_index.adoc[literate_index.adoc] for literate source index
+link:../src-wvb/literate_index.wvb[literate_index.wvb] for literate source index
 injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
 the broader weaveback pipeline that this tool documents.
 
@@ -96,7 +96,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 | link:../src-wvb/inject.wvb[inject.rs]
 | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>`
 
-| link:literate_index.adoc[literate_index.rs]
+| link:../src-wvb/literate_index.wvb[literate_index.rs]
 | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages
 |===
 

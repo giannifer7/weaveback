@@ -323,7 +323,7 @@ and cross-reference panels.
 | link:../crates/weaveback-docgen/src/xref.adoc[cross-reference engine]
 | `crates/weaveback-docgen/src/xref.rs`
 
-| link:../crates/weaveback-docgen/src/literate_index.adoc[literate index builder]
+| link:../crates/weaveback-docgen/src-wvb/literate_index.wvb[literate index builder]
 | `crates/weaveback-docgen/src/literate_index.rs`
 
 | link:../crates/weaveback-docgen/src/plantuml.adoc[PlantUML integration]

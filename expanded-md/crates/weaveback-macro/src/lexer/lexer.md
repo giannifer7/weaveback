@@ -1,0 +1,1692 @@
+# weaveback-macro Lexer
+:description: Literate source for crates/weaveback-macro/src/lexer/mod.rs
+:toc: left
+:toclevels: 3
+
+The weaveback-macro lexer converts a raw `&str` into a flat `Vec<Token>`
+that the parser then assembles into a tree.  It is a hand-written
+pushdown scanner: a state stack allows blocks, macro argument lists, and
+block comments to nest arbitrarily.  The sigil (default `%`,
+configurable) acts as the sole escape sigil — everything else is plain text.
+
+## Design rationale
+
+### Why a state stack?
+
+Weaveback constructs nest: a macro call can contain a named block that
+contains another macro call that contains a comment.  A finite-state
+scanner cannot count nesting depth.  A stack of `State` frames solves
+this cleanly: `push` on open, `pop` on close.  Each frame records the
+byte offset of its opening delimiter so that "Unclosed block at offset N"
+errors point to the right place.
+
+### Why `memchr` / `memmem` in Block and Comment?
+
+Weaveback documents are mostly plain text.  The sigil appears
+rarely.  Scanning byte-by-byte for `%` wastes cycles on the common case.
+For the default ASCII `%` this is a single-byte `memchr`; for a non-ASCII
+sigil it becomes a short UTF-8 subsequence search via `memmem`.
+Either way the lexer still jumps directly to the next possible macro sigil
+instead of scanning plain text byte-by-byte.  Macro arg lists are short and
+contain many token types, so a simple loop is used there instead.
+
+### Why `SpecialAction`?
+
+Both Block and Macro states must handle a `%` in their input.  The full
+dispatch logic lives in `handle_after_sigil`, shared by both states.
+The return value — a `SpecialAction` enum — tells the caller what to do:
+push a new state and return immediately, pop the current state, or
+continue the loop.
+
+### Why plain text for `%identifier`?
+
+`%identifier` not followed by `(`, `{`, or `}` is **not** a macro call.
+Emitting it as `Text` (no error) allows weaveback documents to contain
+printf-style specifiers (`%d`, `%s`), shell constructs (`%T`), version
+tags, and similar, without noise.  Only the structurally significant
+combinations trigger the lexer's machinery.
+
+### Why precompute comment delimiters?
+
+The comment delimiters `%/*` and `%*/` depend on the runtime sigil.
+For ASCII sigils these are three bytes; for UTF-8 sigils they are longer.
+Precomputing them as byte vectors avoids rebuilding the delimiter sequences on
+every call to `run_comment_state`.
+
+## Token vocabulary
+
+[cols="1,1,4",options="header"]
+|===
+| `TokenKind` | Sequence | Meaning
+
+| `Text`        | _any_           | Literal pass-through content
+| `Space`       | whitespace run  | Whitespace inside macro args (preserved)
+| `Special`     | `%%`            | Escaped sigil → literal `%` in output
+| `BlockOpen`   | `%{` / `%name{` | Opens a named or anonymous macro-aware block
+| `BlockClose`  | `%}` / `%name}` | Closes the innermost open macro-aware block
+| `VerbatimOpen` | `%[` / `%name[` | Opens a named or anonymous opaque verbatim block
+| `VerbatimClose` | `%]` / `%name]` | Closes the innermost opaque verbatim block
+| `Macro`       | `%name(`        | Macro call head; starts arg-list scanning
+| `Var`         | `%(name)`       | Variable substitution
+| `Ident`       | `[A-Za-z_][…]`  | Identifier inside a macro arg list
+| `Comma`       | `,`             | Arg separator inside a macro arg list
+| `CloseParen`  | `)`             | Closes the current macro arg list
+| `Equal`       | `=`             | Named-arg `=` inside a macro arg list
+| `LineComment` | `%//` / `%--` / `%#` | Single-line comment (consumed to `\n`)
+| `CommentOpen` | `%/*`           | Opens a nestable block comment
+| `CommentClose`| `%*/`           | Closes the innermost open block comment
+| `EOF`         | _end of input_  | Sentinel; always the last token
+|===
+
+## State machine
+
+Three mutually-recursive states share the same stack.  The driver loop
+dispatches to the correct handler and pops the stack when the handler
+returns `false`.
+
+[plantuml,lexer-states,svg]
+....
+@startuml
+hide empty description
+skinparam DefaultFontName Monospaced
+skinparam backgroundColor transparent
+skinparam DefaultFontColor #ebdbb2
+skinparam ArrowColor #a89984
+skinparam ArrowFontColor #d5c4a1
+skinparam StateBackgroundColor #3c3836
+skinparam StateBorderColor #504945
+skinparam StateFontColor #ebdbb2
+skinparam NoteBackgroundColor #282828
+skinparam NoteBorderColor #504945
+skinparam NoteFontColor #d5c4a1
+
+state "Block" as B {
+  B : memchr scan for %
+  B : emits Text spans
+  B : handles all % sequences
+}
+
+state "Verbatim" as V {
+  V : memchr scan for %
+  V : emits Text spans
+  V : only handles %[ / %] nesting
+}
+
+state "Macro" as M {
+  M : token-by-token scan
+  M : Comma / Equal / Space
+  M : Ident / Text / Var
+}
+
+state "Comment" as C {
+  C : memchr scan for %
+  C : swallows all other text
+}
+
+[*] --> B : initial push
+
+B --> M : %name( push
+B --> C : %/* push
+B --> B : %name-open push
+B --> V : %name[ push
+B --> B : %name-close pop
+
+M --> C : %/* push
+M --> B : %name-open push
+M --> V : %name[ push
+M --> M : %name( push
+M --> M : ) pop
+
+V --> V : %name-open push
+V --> V : %name-close pop
+
+C --> C : %/* push
+C --> C : %*/ pop
+
+note as N
+  push: new frame on stack, resume on return
+  pop: driver removes top frame, resumes frame below
+  Block and Macro share handle_after_sigil
+end note
+@enduml
+....
+
+## File Structure
+
+The single output file assembles all chunks in declaration order.
+
+This source tests `<[ ... ]>` literally, so its generated noweb chunks use `<< ... >>` to keep test fixtures opaque to the tangle pass.
+
+
+
+
+
+
+```rust
+// <<@file weaveback-macro/src/lexer/mod.rs>>=
+// weaveback-macro/src/lexer/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// crates/weaveback-macro/src/lexer/mod.rs — generated from lexer.adoc
+// <<lexer preamble>>
+
+// <<lexer char classifiers>>
+
+// <<lexer state types>>
+
+// <<lexer struct>>
+
+// <<lexer impl>>
+
+// @
+```
+
+
+## `impl Lexer` structure
+
+Every method group gets its own sub-chunk.  They are assembled here in
+the order they appear in the impl block.
+
+
+```rust
+// <<lexer impl>>=
+impl<'a> Lexer<'a> {
+    // <<lexer pub api>>
+
+    // <<lexer input helpers>>
+
+    // <<lexer emission>>
+
+    // <<lexer run>>
+
+    // <<lexer block state>>
+
+    // <<lexer verbatim state>>
+
+    // <<lexer macro state>>
+
+    // <<lexer sigil handler>>
+
+    // <<lexer comment state>>
+}
+// @
+```
+
+
+## Module preamble
+
+
+```rust
+// <<lexer preamble>>=
+use crate::types::{LexerError, Token, TokenKind};
+use memchr::{memchr, memmem};
+
+#[cfg(test)]
+mod tests;
+// @
+```
+
+
+## Character classifiers
+
+Three byte-level predicates used throughout the lexer.  They operate on
+`u8` rather than `char` because the lexer works on raw bytes. Identifiers and
+structural punctuation are still ASCII, but the configurable sigil may
+now be any single Unicode scalar value, so the lexer stores both the `char`
+for diagnostics and its UTF-8 byte sequence for scanning.
+
+
+```rust
+// <<lexer char classifiers>>=
+fn is_identifier_start(b: u8) -> bool {
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'_')
+}
+
+fn is_identifier_continue(b: u8) -> bool {
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+}
+
+fn is_whitespace(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\r' | b'\n')
+}
+// @
+```
+
+
+## State types
+
+### `State`
+
+Each frame on the stack is one of three variants.  `Block` and `Macro`
+carry the byte offset of their opening delimiter so that EOF-unclosed
+errors report the right position.  `Comment` omits an offset because it
+self-reports its own "Unclosed comment" error from inside
+`run_comment_state`, using the start of the comment body.
+
+### `SpecialAction`
+
+`handle_after_sigil` is called by both `run_block_state` and
+`run_macro_state` after consuming the sigil.  The three variants
+encode exactly what the caller must do next:
+
+* `Push` — a new state was just pushed; return `true` immediately so the
+  driver dispatches to the new state without re-entering the current loop.
+* `Pop` — a closing delimiter was seen; return `false` so the driver
+  pops the current frame.
+* `Continue` — a token was emitted; continue the current loop.
+
+
+```rust
+// <<lexer state types>>=
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum State {
+    /// Opening byte offset of the `%{` or `%name{`.
+    Block(usize),
+    /// Opening byte offset of the `%[` or `%name[`.
+    Verbatim(usize),
+    /// Opening byte offset of the `%name(`.
+    Macro(usize),
+    /// Comment state self-reports its own unclosed error.
+    Comment,
+}
+
+/// What `handle_after_sigil` tells the caller to do.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SpecialAction {
+    /// A new state was pushed; return `true` to keep the current state active.
+    Push,
+    /// A block was closed; return `false` to pop the current state.
+    Pop,
+    /// A token was emitted; continue the loop.
+    Continue,
+}
+// @
+```
+
+
+## The `Lexer` struct
+
+`bytes` and `pos` are the cursor into the input.  `src` is a 32-bit file
+index threaded into every `Token` for source-map purposes.  `state_stack`
+starts with one `State::Block(0)` — the implicit outermost block — so
+that top-level text and constructs are handled identically to nested ones.
+
+`open_comment` and `close_comment` are the precomputed comment delimiters
+for the configurable sigil (see <<_design_rationale>>).
+
+
+```rust
+// <<lexer struct>>=
+pub struct Lexer<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+    src: u32,
+    tokens: Vec<Token>,
+    /// Configurable macro sigil (e.g. `%`, `@`, `§`).
+    sigil: char,
+    /// UTF-8 bytes of `sigil`, used by the byte-oriented scanner.
+    sigil_bytes: Vec<u8>,
+    state_stack: Vec<State>,
+    pub errors: Vec<LexerError>,
+    /// Precomputed `<sigil>/*` — checked in comment state.
+    open_comment: Vec<u8>,
+    /// Precomputed `<sigil>*/`.
+    close_comment: Vec<u8>,
+}
+// @
+```
+
+
+## Public API
+
+`new` precomputes the UTF-8 bytes of the sigil and the corresponding
+comment delimiters, then seeds the stack with the outermost `Block` frame.
+
+`lex` consumes the lexer and returns the completed token stream alongside
+any errors.  Errors are non-fatal: the stream is always well-formed up to
+EOF even when errors occur.
+
+
+```rust
+// <<lexer pub api>>=
+pub fn new(input: &'a str, sigil: char, src: u32) -> Self {
+    let sigil_bytes = sigil.to_string().into_bytes();
+    let mut open_comment = sigil_bytes.clone();
+    open_comment.extend_from_slice(b"/*");
+    let mut close_comment = sigil_bytes.clone();
+    close_comment.extend_from_slice(b"*/");
+    let mut lexer = Lexer {
+        bytes: input.as_bytes(),
+        pos: 0,
+        src,
+        tokens: Vec::new(),
+        sigil,
+        sigil_bytes,
+        state_stack: Vec::new(),
+        errors: Vec::new(),
+        open_comment,
+        close_comment,
+    };
+    lexer.state_stack.push(State::Block(0));
+    lexer
+}
+
+pub fn lex(mut self) -> (Vec<Token>, Vec<LexerError>) {
+    self.run();
+    (self.tokens, self.errors)
+}
+// @
+```
+
+
+## Input helpers
+
+Six small utilities used throughout the state handlers.
+
+`peek_byte` and `advance` form the basic cursor.  `advance` returns the
+consumed byte so callers can avoid a second peek.
+
+`skip_line_comment` uses `memchr` to jump past the entire line in one
+call — useful for all three line-comment styles (`%//`, `%--`, `%#`).
+
+`get_identifier_end` finds the end of an ASCII identifier without
+allocating.  It is used both to scan macro names and to extract the tag
+from named blocks.
+
+`block_tag_at` reads the identifier immediately after a `%` at a given
+byte offset.  Named-block open and close use this to match tags
+(`%blk{...%blk}`) without storing the tag in the `State` frame.
+
+
+```rust
+// <<lexer input helpers>>=
+// ── Low-level cursor ──────────────────────────────────────────────────
+
+fn peek_byte(&self) -> Option<u8> {
+    self.bytes.get(self.pos).copied()
+}
+
+fn advance(&mut self) -> Option<u8> {
+    let b = self.bytes.get(self.pos).copied()?;
+    self.pos += 1;
+    Some(b)
+}
+
+fn starts_with_sigil(&self) -> bool {
+    self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+}
+
+fn advance_sigil(&mut self) -> bool {
+    if self.starts_with_sigil() {
+        self.pos += self.sigil_bytes.len();
+        true
+    } else {
+        false
+    }
+}
+
+/// Advance past the rest of the current line (through `\n` or to EOF).
+fn skip_line_comment(&mut self) {
+    let rest = &self.bytes[self.pos..];
+    match memchr(b'\n', rest) {
+        Some(i) => self.pos += i + 1,
+        None => self.pos = self.bytes.len(),
+    }
+}
+
+/// Returns the byte index just past the end of an identifier starting at `start`.
+fn get_identifier_end(&self, start: usize) -> usize {
+    let bytes = self.bytes;
+    if start >= bytes.len() || !is_identifier_start(bytes[start]) {
+        return start;
+    }
+    let mut end = start + 1;
+    while end < bytes.len() && is_identifier_continue(bytes[end]) {
+        end += 1;
+    }
+    end
+}
+
+fn starts_with_bytes(&self, pat: &[u8]) -> bool {
+    self.bytes[self.pos..].starts_with(pat)
+}
+
+/// Extract the identifier tag from a `%tag{` or `%tag}` position.
+/// `pct_start` is the byte offset of `%`. Returns `""` for anonymous `%{`/`%}`.
+fn block_tag_at(&self, pct_start: usize) -> &str {
+    let start = pct_start + self.sigil_bytes.len(); // skip sigil bytes
+    let mut end = start;
+    while end < self.bytes.len() && is_identifier_continue(self.bytes[end]) {
+        end += 1;
+    }
+    std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
+}
+
+// @
+```
+
+
+## Token and error emission
+
+`emit_token` suppresses zero-length tokens except for `EOF`, which is
+always required as the stream terminator.  This keeps the token stream
+clean without forcing callers to check lengths.
+
+`error_at` appends to `errors`.  Errors never stop lexing — the lexer
+always produces a usable stream.
+
+
+```rust
+// <<lexer emission>>=
+// ── Emission ──────────────────────────────────────────────────────────
+
+fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
+    if length == 0 && kind != TokenKind::EOF {
+        return;
+    }
+    self.tokens.push(Token { kind, src: self.src, pos, length });
+}
+
+fn error_at(&mut self, pos: usize, message: &str) {
+    self.errors.push(LexerError { pos, message: message.to_string() });
+}
+// @
+```
+
+
+## Main driver
+
+`run` is the top-level dispatch loop.  It terminates when `pos` reaches
+the end of input — not when the stack empties.  This ensures that even a
+malformed (unclosed) document is fully scanned.
+
+At EOF, any frames above the root block (`state_stack[1..]`) are
+unclosed.  The driver collects their error messages by borrowing
+`state_stack` immutably before calling `error_at` mutably — the
+`collect()` into a `Vec` breaks the simultaneous borrow.  `Comment`
+frames are omitted here because `run_comment_state` reports its own
+unclosed error when it hits EOF.
+
+
+```rust
+// <<lexer run>>=
+// ── Main driver ───────────────────────────────────────────────────────
+
+pub fn run(&mut self) {
+    loop {
+        // EOF is driven by input exhaustion, not by stack state.
+        if self.pos >= self.bytes.len() {
+            // Collect before borrowing &mut self for error_at.
+            let unclosed: Vec<(String, usize)> = self.state_stack
+                .get(1..)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|s| match s {
+                    State::Block(p) => {
+                        let tag = self.block_tag_at(*p);
+                        let msg = if tag.is_empty() {
+                            "Unclosed anonymous block '%{'".to_string()
+                        } else {
+                            format!("Unclosed block '%{}{{'", tag)
+                        };
+                        Some((msg, *p))
+                    }
+                    State::Verbatim(p) => {
+                        let tag = self.block_tag_at(*p);
+                        let msg = if tag.is_empty() {
+                            "Unclosed anonymous block '%['".to_string()
+                        } else {
+                            format!("Unclosed block '%{}['", tag)
+                        };
+                        Some((msg, *p))
+                    }
+                    State::Macro(p) => {
+                        Some(("Unclosed macro argument list".to_string(), *p))
+                    }
+                    State::Comment => None, // self-reported by run_comment_state
+                })
+                .collect();
+            for (msg, pos) in unclosed {
+                self.error_at(pos, &msg);
+            }
+            self.emit_token(self.pos, 0, TokenKind::EOF);
+            return;
+        }
+        let state = match self.state_stack.last().copied() {
+            Some(s) => s,
+            None => {
+                // Stack underflow before EOF — push/pop bug.
+                self.error_at(self.pos, "internal error: state stack underflow");
+                self.emit_token(self.pos, 0, TokenKind::EOF);
+                return;
+            }
+        };
+        let keep_state = match state {
+            State::Block(_) => self.run_block_state(),
+            State::Verbatim(_) => self.run_verbatim_state(),
+            State::Macro(_) => self.run_macro_state(),
+            State::Comment => self.run_comment_state(),
+        };
+        if !keep_state {
+            self.state_stack.pop();
+        }
+    }
+}
+// @
+```
+
+
+## Block state
+
+Block is the default state and the most common.  `memchr` locates the
+next sigil in O(n/vector_width) time, skipping over all intervening
+text.  If no sigil is found before EOF the remaining bytes are
+emitted as a single `Text` token.
+
+When a sigil is found, the text up to it is emitted, then the char
+is consumed and control passes to `handle_after_sigil`.  The return
+value determines whether to push (return `true` immediately so the driver
+calls the new state), pop (return `false`), or stay in the loop.
+
+
+```rust
+// <<lexer block state>>=
+// ── Block state ───────────────────────────────────────────────────────
+
+fn run_block_state(&mut self) -> bool {
+    loop {
+        let rest = &self.bytes[self.pos..];
+        let text_len = match memmem::find(rest, &self.sigil_bytes) {
+            Some(i) => i,
+            None => {
+                if !rest.is_empty() {
+                    self.emit_token(self.pos, rest.len(), TokenKind::Text);
+                    self.pos = self.bytes.len();
+                }
+                return false;
+            }
+        };
+        if text_len > 0 {
+            self.emit_token(self.pos, text_len, TokenKind::Text);
+            self.pos += text_len;
+        }
+        let pct_start = self.pos;
+        self.advance_sigil(); // consume the sigil
+        match self.handle_after_sigil(pct_start) {
+            SpecialAction::Push => return true,
+            SpecialAction::Pop => return false,
+            SpecialAction::Continue => {}
+        }
+    }
+}
+// @
+```
+
+
+## Verbatim state
+
+Verbatim blocks are opaque to macro parsing.  Only `%[` / `%name[` opens and
+`%]` / `%name]` closes are recognised; everything else, including `%macro(...)`,
+`%(var)`, comments, and `%%`, is emitted literally.
+
+
+```rust
+// <<lexer verbatim state>>=
+// ── Verbatim state ────────────────────────────────────────────────────
+
+fn run_verbatim_state(&mut self) -> bool {
+    loop {
+        let rest = &self.bytes[self.pos..];
+        let text_len = match memmem::find(rest, &self.sigil_bytes) {
+            Some(i) => i,
+            None => {
+                if !rest.is_empty() {
+                    self.emit_token(self.pos, rest.len(), TokenKind::Text);
+                    self.pos = self.bytes.len();
+                }
+                return false;
+            }
+        };
+        if text_len > 0 {
+            self.emit_token(self.pos, text_len, TokenKind::Text);
+            self.pos += text_len;
+        }
+
+        let pct_start = self.pos;
+        self.advance_sigil();
+
+        if self.peek_byte() == Some(b'[') {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+            self.state_stack.push(State::Verbatim(pct_start));
+            return true;
+        }
+
+        if self.peek_byte() == Some(b']') {
+            if self.state_stack.len() <= 1 {
+                self.error_at(pct_start, "Unmatched verbatim close: no open block");
+            }
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+            return false;
+        }
+
+        if self.peek_byte().is_some_and(is_identifier_start) {
+            let id_end = self.get_identifier_end(self.pos);
+            self.pos = id_end;
+            match self.peek_byte() {
+                Some(b'[') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                    self.state_stack.push(State::Verbatim(pct_start));
+                    return true;
+                }
+                Some(b']') => {
+                    if self.state_stack.len() <= 1 {
+                        self.error_at(pct_start, "Unmatched verbatim close: no open block");
+                    }
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                    return false;
+                }
+                _ => {
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                    continue;
+                }
+            }
+        }
+
+        self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
+    }
+}
+// @
+```
+
+
+## Macro arg state
+
+Macro arg lists are scanned token-by-token.  `)` ends the list (pops the
+frame), `,` and `=` are single-character tokens, whitespace runs are
+collapsed into one `Space` token, ASCII identifiers become `Ident`, and
+everything else — including non-ASCII text and numeric literals — becomes
+`Text`.
+
+A `%` inside a macro arg list is valid: it can start a nested macro call,
+a block, a comment, a variable substitution, or an escape.  Delegation to
+`handle_after_sigil` handles all of these uniformly.
+
+The trailing check `if !matches!(self.state_stack.last(), Some(State::Macro(_)))`
+handles the case where `handle_after_sigil` called `Pop` (e.g. a `%}`
+inside a macro arg): in that case, we are no longer the active state and
+must return false without consuming `)`.
+
+
+```rust
+// <<lexer macro state>>=
+// ── Macro arg state ───────────────────────────────────────────────────
+
+fn run_macro_state(&mut self) -> bool {
+    while let Some(b) = self.peek_byte() {
+        if b == b')' {
+            let start = self.pos;
+            self.advance();
+            self.emit_token(start, 1, TokenKind::CloseParen);
+            return false;
+        } else if b == b',' {
+            let start = self.pos;
+            self.advance();
+            self.emit_token(start, 1, TokenKind::Comma);
+        } else if b == b'=' {
+            let start = self.pos;
+            self.advance();
+            self.emit_token(start, 1, TokenKind::Equal);
+        } else if is_whitespace(b) {
+            let ws_start = self.pos;
+            while self.peek_byte().is_some_and(is_whitespace) {
+                self.advance();
+            }
+            self.emit_token(ws_start, self.pos - ws_start, TokenKind::Space);
+        } else if self.starts_with_sigil() {
+            let pct_start = self.pos;
+            self.advance_sigil();
+            match self.handle_after_sigil(pct_start) {
+                SpecialAction::Push => return true,
+                SpecialAction::Pop => return false,
+                SpecialAction::Continue => {}
+            }
+        } else if is_identifier_start(b) {
+            let start = self.pos;
+            let end = self.get_identifier_end(start);
+            self.pos = end;
+            self.emit_token(start, end - start, TokenKind::Ident);
+        } else {
+                let start = self.pos;
+                while let Some(b2) = self.peek_byte() {
+                    if is_whitespace(b2)
+                        || matches!(b2, b')' | b',' | b'=')
+                        || self.bytes[self.pos..].starts_with(&self.sigil_bytes)
+                    {
+                        break;
+                    }
+                self.advance();
+            }
+            self.emit_token(start, self.pos - start, TokenKind::Text);
+        }
+
+        if !matches!(self.state_stack.last(), Some(State::Macro(_))) {
+            return false;
+        }
+    }
+    // EOF without closing ')'.
+    if let Some(&State::Macro(open_pos)) = self.state_stack.last() {
+        self.error_at(open_pos, "Unclosed macro argument list");
+    }
+    false
+}
+// @
+```
+
+
+## Shared sigil dispatcher
+
+`handle_after_sigil` is the heart of the lexer.  It is called by both
+Block and Macro states after the sigil has been consumed, and
+decides what to emit and whether to push or pop.
+
+The dispatch table (by the next byte):
+
+[cols="1,4",options="header"]
+|===
+| Next byte | Action
+
+| `(`       | `%(varname)` variable substitution — delegated to `handle_var`
+| `{`       | Anonymous block open — push `State::Block`
+| `}`       | Macro-aware block close — pop current frame
+| `[`       | Anonymous verbatim block open — push `State::Verbatim`
+| `]`       | Verbatim block close — pop current frame
+| `/`       | Line (`%//`) or block (`%/*`) comment; `%/*` pushes `State::Comment`
+| `-`       | Line comment `%--`
+| `#`       | Line comment `%#`
+| `sc`      | Escaped sigil `%%` → `Special` token
+| identifier start | Named macro `%name(`, named block `%name{`/`%name}`, or plain text
+| anything else | Error + emit `%` as `Text`; unrecognised byte left for next iteration
+| EOF       | Emit `%` as `Text`
+|===
+
+`handle_var` handles the `%(name)` form: it demands an identifier
+immediately after `(` and a `)` immediately after the identifier.  Any
+deviation produces an error and emits the malformed sequence as `Text`.
+
+
+```rust
+// <<lexer sigil handler>>=
+// ── Shared sigil-sequence handler ────────────────────────────────────
+//
+// Called after the sigil has been consumed.
+// `pct_start` is the byte offset of the sigil itself.
+
+fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
+    match self.peek_byte() {
+        Some(b'(') => {
+            self.handle_var(pct_start);
+            SpecialAction::Continue
+        }
+        Some(b'{') => {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockOpen);
+            self.state_stack.push(State::Block(pct_start));
+            SpecialAction::Push
+        }
+        Some(b'}') => {
+            if self.state_stack.len() <= 1 {
+                self.error_at(pct_start, "Unmatched block close: no open block");
+            }
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
+            SpecialAction::Pop
+        }
+        Some(b'[') => {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+            self.state_stack.push(State::Verbatim(pct_start));
+            SpecialAction::Push
+        }
+        Some(b']') => {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+            self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+            SpecialAction::Continue
+        }
+        Some(b'/') => {
+            self.advance();
+            match self.peek_byte() {
+                Some(b'/') => {
+                    self.advance();
+                    self.skip_line_comment();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::LineComment);
+                }
+                Some(b'*') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::CommentOpen);
+                    self.state_stack.push(State::Comment);
+                    return SpecialAction::Push;
+                }
+                _ => {
+                    self.error_at(
+                        pct_start,
+                        &format!(
+                            "Unexpected char after '{}/': expected // or /*",
+                            self.sigil
+                        ),
+                    );
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                }
+            }
+            SpecialAction::Continue
+        }
+        Some(b'-') => {
+            self.advance();
+            match self.peek_byte() {
+                Some(b'-') => {
+                    self.advance();
+                    self.skip_line_comment();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::LineComment);
+                }
+                _ => {
+                    self.error_at(
+                        pct_start,
+                        &format!(
+                            "Unexpected char after '{}-': expected --",
+                            self.sigil
+                        ),
+                    );
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                }
+            }
+            SpecialAction::Continue
+        }
+        Some(b'#') => {
+            self.advance();
+            self.skip_line_comment();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::LineComment);
+            SpecialAction::Continue
+        }
+        Some(_) if self.starts_with_sigil() => {
+            self.advance_sigil();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::Special);
+            SpecialAction::Continue
+        }
+        Some(b) if is_identifier_start(b) => {
+            let id_end = self.get_identifier_end(self.pos);
+            self.pos = id_end;
+            match self.peek_byte() {
+                Some(b'(') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Macro);
+                    self.state_stack.push(State::Macro(pct_start));
+                    SpecialAction::Push
+                }
+                Some(b'{') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockOpen);
+                    self.state_stack.push(State::Block(pct_start));
+                    SpecialAction::Push
+                }
+                Some(b'}') => {
+                    if self.state_stack.len() <= 1 {
+                        self.error_at(pct_start, "Unmatched block close: no open block");
+                    }
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::BlockClose);
+                    SpecialAction::Pop
+                }
+                Some(b'[') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimOpen);
+                    self.state_stack.push(State::Verbatim(pct_start));
+                    SpecialAction::Push
+                }
+                Some(b']') => {
+                    self.advance();
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::VerbatimClose);
+                    self.error_at(pct_start, "Unmatched verbatim close outside verbatim block");
+                    SpecialAction::Continue
+                }
+                _ => {
+                    // %identifier not followed by ( { } — pass through as plain text.
+                    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+                    SpecialAction::Continue
+                }
+            }
+        }
+        Some(_) => {
+            // % followed by an unrecognized byte — emit just the % as Text with an error.
+            // The unrecognized byte is left for the next iteration.
+            self.error_at(
+                pct_start,
+                &format!("Unrecognized char after '{}'", self.sigil),
+            );
+            self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
+            SpecialAction::Continue
+        }
+        None => {
+            // % at EOF — emit as plain text.
+            self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
+            SpecialAction::Continue
+        }
+    }
+}
+
+/// Handle a `%(varname)` sequence. `pct_start` is the byte offset of the `%`.
+fn handle_var(&mut self, pct_start: usize) {
+    self.advance(); // consume '('
+    let ident_start = self.pos;
+    let ident_end = self.get_identifier_end(ident_start);
+    if ident_end > ident_start {
+        self.pos = ident_end;
+        if self.peek_byte() == Some(b')') {
+            self.advance();
+            self.emit_token(pct_start, self.pos - pct_start, TokenKind::Var);
+            return;
+        }
+        self.error_at(pct_start, "Var missing closing ')'");
+    } else {
+        self.error_at(
+            pct_start,
+            &format!("Var missing identifier after '{}('", self.sigil),
+        );
+    }
+    self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
+}
+// @
+```
+
+
+## Comment state
+
+Block comments nest: `%/* outer %/* inner %*/ outer %*/` is valid.  The
+comment state therefore pushes itself on `%/*` and pops on `%*/`, exactly
+like the Block state does for `%{`/`%}`.
+
+`memchr` is used here too — comment bodies can be long.  Any `%` that is
+not part of `%/*` or `%*/` is silently skipped (the `pos += 1` at the end
+of the loop body).  This is why a bare `%` inside a comment is harmless:
+it is neither a comment delimiter nor a syntax error.
+
+On EOF, the accumulated text (if any) is emitted and an "Unclosed comment"
+error is recorded.  The frame is then popped by returning `false`.
+
+
+```rust
+// <<lexer comment state>>=
+// ── Comment state ─────────────────────────────────────────────────────
+
+fn run_comment_state(&mut self) -> bool {
+    let comment_text_start = self.pos;
+
+    loop {
+        // Jump to the next sigil — only it can start a delimiter.
+        let rest = &self.bytes[self.pos..];
+        let Some(i) = memmem::find(rest, &self.sigil_bytes) else {
+            break; // EOF inside comment
+        };
+        self.pos += i;
+
+        if self.starts_with_bytes(&self.open_comment) {
+            if self.pos > comment_text_start {
+                self.emit_token(
+                    comment_text_start,
+                    self.pos - comment_text_start,
+                    TokenKind::Text,
+                );
+            }
+            let delim_start = self.pos;
+            self.pos += self.open_comment.len();
+            self.emit_token(delim_start, self.open_comment.len(), TokenKind::CommentOpen);
+            self.state_stack.push(State::Comment);
+            return true;
+        }
+        if self.starts_with_bytes(&self.close_comment) {
+            if self.pos > comment_text_start {
+                self.emit_token(
+                    comment_text_start,
+                    self.pos - comment_text_start,
+                    TokenKind::Text,
+                );
+            }
+            let delim_start = self.pos;
+            self.pos += self.close_comment.len();
+            self.emit_token(delim_start, self.close_comment.len(), TokenKind::CommentClose);
+            return false;
+        }
+        // Special char that isn't a comment delimiter — skip past it.
+        self.pos += self.sigil_bytes.len();
+    }
+
+    // EOF: unclosed comment.
+    if self.pos > comment_text_start {
+        self.emit_token(
+            comment_text_start,
+            self.pos - comment_text_start,
+            TokenKind::Text,
+        );
+    }
+    self.error_at(comment_text_start, "Unclosed comment");
+    false
+}
+// @
+```
+
+
+## Tests
+
+The test module exercises each token kind, error path, and edge case in
+isolation.  Key cases worth noting:
+
+* **`test_bare_percent_inside_comment`** — verifies that a lone `%` inside
+  a block comment is swallowed as text, not treated as an error or
+  comment delimiter.
+* **`test_printf_format_specifiers`** — ensures `%d`, `%s`, `%f`, and
+  similar pass through without errors.
+* **`test_nested_comment`** — exercises the comment push/pop path.
+* **`test_real_world_macro_with_block_and_vars`** — a realistic `%def`
+  invocation with a named block containing variable references.
+* **`test_escaped_pubfunc_not_macro`** — `%%name(` must produce a
+  `Special` token followed by `Text`, not a macro call.
+* **`test_verbatim_blocks_are_opaque`** — `%[` blocks keep inner macro syntax literal.
+
+
+```rust
+// <<@file weaveback-macro/src/lexer/tests.rs>>=
+// weaveback-macro/src/lexer/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// crates/weaveback-macro/src/lexer/tests.rs
+
+use crate::lexer::Lexer;
+use crate::types::{Token, TokenKind};
+
+/// Collect tokens from the lexer (non-EOF tokens only).
+fn collect_tokens_with_timeout(input: &str) -> Result<Vec<Token>, String> {
+    collect_tokens_with_sigil(input, '%')
+}
+
+fn collect_tokens_with_sigil(input: &str, sigil: char) -> Result<Vec<Token>, String> {
+    let (tokens, errors) = Lexer::new(input, sigil, 0).lex();
+    if !errors.is_empty() {
+        // Errors are non-fatal for these tests; just return what was produced.
+        let _ = errors;
+    }
+    Ok(tokens
+        .into_iter()
+        .filter(|t| t.kind != TokenKind::EOF)
+        .collect())
+}
+
+/// Helper to assert tokens match an expected sequence of (TokenKind, &str).
+/// We compare both `kind` and the `length` of the text (since we can't store real text easily).
+fn assert_tokens(input: &str, expected: &[(TokenKind, &str)]) {
+    let result = collect_tokens_with_timeout(input).expect("Failed to collect tokens");
+    let tokens = result;
+
+    assert_eq!(
+        tokens.len(),
+        expected.len(),
+        "Wrong number of tokens: expected {}, got {}. Tokens: {:?}",
+        expected.len(),
+        tokens.len(),
+        tokens
+    );
+
+    for (i, (token, (exp_kind, exp_text))) in tokens.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            token.kind, *exp_kind,
+            "Token {} kind mismatch: expected {:?}, got {:?}",
+            i, exp_kind, token.kind
+        );
+        let got_len = token.length;
+        let exp_len = exp_text.len();
+        assert_eq!(
+            got_len, exp_len,
+            "Token {} length mismatch: expected {}, got {} (expected text='{}')",
+            i, exp_len, got_len, exp_text
+        );
+    }
+}
+
+fn assert_tokens_with_sigil(input: &str, sigil: char, expected: &[(TokenKind, &str)]) {
+    let result = collect_tokens_with_sigil(input, sigil)
+        .expect("Failed to collect tokens with custom sigil");
+    let tokens = result;
+
+    assert_eq!(
+        tokens.len(),
+        expected.len(),
+        "Wrong number of tokens: expected {}, got {}. Tokens: {:?}",
+        expected.len(),
+        tokens.len(),
+        tokens
+    );
+
+    for (i, (token, (exp_kind, exp_text))) in tokens.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            token.kind, *exp_kind,
+            "Token {} kind mismatch: expected {:?}, got {:?}",
+            i, exp_kind, token.kind
+        );
+        let got_len = token.length;
+        let exp_len = exp_text.len();
+        assert_eq!(
+            got_len, exp_len,
+            "Token {} length mismatch: expected {}, got {} (expected text='{}')",
+            i, exp_len, got_len, exp_text
+        );
+    }
+}
+
+//-------------------------------------------------------------------------
+// Tests
+//-------------------------------------------------------------------------
+
+#[test]
+fn test_error_cases() {
+    assert_tokens(
+        "%{incomplete",
+        &[
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, "incomplete"),
+        ],
+    );
+    assert_tokens(
+        "%macro(incomplete",
+        &[
+            (TokenKind::Macro, "%macro("),
+            (TokenKind::Ident, "incomplete"),
+        ],
+    );
+    assert_tokens(
+        "%/* unfinished",
+        &[
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " unfinished"),
+        ],
+    );
+}
+
+#[test]
+fn test_bare_percent_inside_comment() {
+    assert_tokens(
+        "%/* 100% done %*/",
+        &[
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " 100% done "),
+            (TokenKind::CommentClose, "%*/"),
+        ],
+    );
+    let (_, errors) = Lexer::new("%/* 100% done %*/", '%', 0).lex();
+    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+}
+
+#[test]
+fn test_nested_comment() {
+    let input = "%/* outer comment %/* inner %*/ outer %*/";
+    assert_tokens(
+        input,
+        &[
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " outer comment "),
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " inner "),
+            (TokenKind::CommentClose, "%*/"),
+            (TokenKind::Text, " outer "),
+            (TokenKind::CommentClose, "%*/"),
+        ],
+    );
+}
+
+#[test]
+fn test_unfinished_sigil() {
+    assert_tokens("%something", &[(TokenKind::Text, "%something")]);
+}
+
+#[test]
+fn test_percent_identifier_no_error() {
+    let (_, errors) = Lexer::new("%something", '%', 0).lex();
+    assert!(errors.is_empty(), "expected no errors for %identifier, got: {:?}", errors);
+}
+
+#[test]
+fn test_percent_identifier_mid_text() {
+    assert_tokens(
+        "%something more text",
+        &[
+            (TokenKind::Text, "%something"),
+            (TokenKind::Text, " more text"),
+        ],
+    );
+}
+
+#[test]
+fn test_printf_format_specifiers() {
+    let input = "%d %s %f";
+    let (_, errors) = Lexer::new(input, '%', 0).lex();
+    assert!(errors.is_empty(), "expected no errors for printf specifiers, got: {:?}", errors);
+    assert_tokens(
+        input,
+        &[
+            (TokenKind::Text, "%d"),
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%s"),
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%f"),
+        ],
+    );
+}
+
+#[test]
+fn test_simple_completion() {
+    let result = collect_tokens_with_timeout("a");
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_basic_tokens() {
+    assert_tokens(
+        "Hello %name(world)",
+        &[
+            (TokenKind::Text, "Hello "),
+            (TokenKind::Macro, "%name("),
+            (TokenKind::Ident, "world"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_comments() {
+    assert_tokens(
+        "text %// line comment\nmore text",
+        &[
+            (TokenKind::Text, "text "),
+            (TokenKind::LineComment, "%// line comment\n"),
+            (TokenKind::Text, "more text"),
+        ],
+    );
+    assert_tokens(
+        "before %/* multi\nline %*/ after",
+        &[
+            (TokenKind::Text, "before "),
+            (TokenKind::CommentOpen, "%/*"),
+            (TokenKind::Text, " multi\nline "),
+            (TokenKind::CommentClose, "%*/"),
+            (TokenKind::Text, " after"),
+        ],
+    );
+}
+
+#[test]
+fn test_nested_blocks() {
+    assert_tokens(
+        "%{outer %{inner%}%}",
+        &[
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, "outer "),
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, "inner"),
+            (TokenKind::BlockClose, "%}"),
+            (TokenKind::BlockClose, "%}"),
+        ],
+    );
+}
+
+#[test]
+fn test_verbatim_blocks_are_opaque() {
+    let input = "%[outer %macro(x) %(v) %// not a comment %]";
+    let tokens = collect_tokens_with_timeout(input).expect("Failed to collect tokens");
+
+    assert_eq!(tokens.first().map(|t| t.kind), Some(TokenKind::VerbatimOpen));
+    assert_eq!(tokens.last().map(|t| t.kind), Some(TokenKind::VerbatimClose));
+    assert!(tokens[1..tokens.len() - 1]
+        .iter()
+        .all(|t| t.kind == TokenKind::Text));
+
+    let inner = &input[2..input.len() - 2];
+    let rebuilt = tokens[1..tokens.len() - 1]
+        .iter()
+        .map(|t| &input[t.pos..t.pos + t.length])
+        .collect::<String>();
+    assert_eq!(rebuilt, inner);
+}
+
+#[test]
+fn test_nested_tagged_verbatim_blocks() {
+    assert_tokens(
+        "%py[one %inner[two%inner] three%py]",
+        &[
+            (TokenKind::VerbatimOpen, "%py["),
+            (TokenKind::Text, "one "),
+            (TokenKind::VerbatimOpen, "%inner["),
+            (TokenKind::Text, "two"),
+            (TokenKind::VerbatimClose, "%inner]"),
+            (TokenKind::Text, " three"),
+            (TokenKind::VerbatimClose, "%py]"),
+        ],
+    );
+}
+
+#[test]
+fn test_macro_with_args() {
+    assert_tokens(
+        "%func(a, b, c)",
+        &[
+            (TokenKind::Macro, "%func("),
+            (TokenKind::Ident, "a"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, " "),
+            (TokenKind::Ident, "b"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, " "),
+            (TokenKind::Ident, "c"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_unicode() {
+    assert_tokens(
+        "Hello 世界 %macro(名前)",
+        &[
+            (TokenKind::Text, "Hello 世界 "),
+            (TokenKind::Macro, "%macro("),
+            (TokenKind::Text, "名前"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_unicode_sigil() {
+    assert_tokens_with_sigil(
+        "§macro(名前) §§done §/* note §*/",
+        '§',
+        &[
+            (TokenKind::Macro, "§macro("),
+            (TokenKind::Text, "名前"),
+            (TokenKind::CloseParen, ")"),
+            (TokenKind::Text, " "),
+            (TokenKind::Special, "§§"),
+            (TokenKind::Text, "done "),
+            (TokenKind::CommentOpen, "§/*"),
+            (TokenKind::Text, " note "),
+            (TokenKind::CommentClose, "§*/"),
+        ],
+    );
+}
+
+#[test]
+fn test_sigil_sequences() {
+    assert_tokens(
+        "%%double",
+        &[(TokenKind::Special, "%%"), (TokenKind::Text, "double")],
+    );
+}
+
+#[test]
+fn test_comment_styles() {
+    assert_tokens(
+        "%# hash comment\n%// double slash\n%-- dash comment",
+        &[
+            (TokenKind::LineComment, "%# hash comment\n"),
+            (TokenKind::LineComment, "%// double slash\n"),
+            (TokenKind::LineComment, "%-- dash comment"),
+        ],
+    );
+}
+
+#[test]
+fn test_lexer_completion() {
+    assert_tokens("", &[]);
+    assert_tokens("a", &[(TokenKind::Text, "a")]);
+    assert_tokens(
+        "text%",
+        &[(TokenKind::Text, "text"), (TokenKind::Text, "%")],
+    );
+    assert_tokens(
+        "text %",
+        &[(TokenKind::Text, "text "), (TokenKind::Text, "%")],
+    );
+}
+
+#[test]
+fn test_lexer_buffer_boundaries() {
+    assert_tokens(
+        "%token( rest",
+        &[
+            (TokenKind::Macro, "%token("),
+            (TokenKind::Space, " "),
+            (TokenKind::Ident, "rest"),
+        ],
+    );
+    assert_tokens(
+        "start %token(",
+        &[(TokenKind::Text, "start "), (TokenKind::Macro, "%token(")],
+    );
+    assert_tokens(
+        " % ",
+        &[
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%"),
+            (TokenKind::Text, " "),
+        ],
+    );
+}
+
+#[test]
+fn test_leading_trailing_spaces() {
+    assert_tokens("   Hello   ", &[(TokenKind::Text, "   Hello   ")]);
+}
+
+#[test]
+fn test_macro_without_arguments() {
+    assert_tokens(
+        "%macro()",
+        &[(TokenKind::Macro, "%macro("), (TokenKind::CloseParen, ")")],
+    );
+}
+
+#[test]
+fn test_comment_immediately_following_block() {
+    assert_tokens(
+        "%{ hi %}%//comment\nleftover",
+        &[
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, " hi "),
+            (TokenKind::BlockClose, "%}"),
+            (TokenKind::LineComment, "%//comment\n"),
+            (TokenKind::Text, "leftover"),
+        ],
+    );
+}
+
+#[test]
+fn test_multiple_unmatched_percents() {
+    assert_tokens(
+        "text % some % more",
+        &[
+            (TokenKind::Text, "text "),
+            (TokenKind::Text, "%"),
+            (TokenKind::Text, " some "),
+            (TokenKind::Text, "%"),
+            (TokenKind::Text, " more"),
+        ],
+    );
+}
+
+#[test]
+fn test_unicode_identifier_in_macro() {
+    assert_tokens(
+        "%macro(привет)",
+        &[
+            (TokenKind::Macro, "%macro("),
+            (TokenKind::Text, "привет"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_trailing_whitespace_before_comment() {
+    assert_tokens(
+        "%{ hi %}  %//comment\nleftover",
+        &[
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, " hi "),
+            (TokenKind::BlockClose, "%}"),
+            (TokenKind::Text, "  "),
+            (TokenKind::LineComment, "%//comment\n"),
+            (TokenKind::Text, "leftover"),
+        ],
+    );
+}
+
+#[test]
+fn test_named_block() {
+    assert_tokens(
+        "%blockName{ inside content %blockName}",
+        &[
+            (TokenKind::BlockOpen, "%blockName{"),
+            (TokenKind::Text, " inside content "),
+            (TokenKind::BlockClose, "%blockName}"),
+        ],
+    );
+}
+
+#[test]
+fn test_simple_var() {
+    assert_tokens("%(foo)", &[(TokenKind::Var, "%(foo)")]);
+}
+
+#[test]
+fn test_var_in_block() {
+    assert_tokens(
+        "%{ hello %(abc) world %}",
+        &[
+            (TokenKind::BlockOpen, "%{"),
+            (TokenKind::Text, " hello "),
+            (TokenKind::Var, "%(abc)"),
+            (TokenKind::Text, " world "),
+            (TokenKind::BlockClose, "%}"),
+        ],
+    );
+}
+
+#[test]
+fn test_var_in_macro() {
+    assert_tokens(
+        "%func( %(myVar), 123 )",
+        &[
+            (TokenKind::Macro, "%func("),
+            (TokenKind::Space, " "),
+            (TokenKind::Var, "%(myVar)"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, " "),
+            (TokenKind::Text, "123"),
+            (TokenKind::Space, " "),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_multiple_vars_in_text() {
+    assert_tokens(
+        "Here %(x) and %(y) then done",
+        &[
+            (TokenKind::Text, "Here "),
+            (TokenKind::Var, "%(x)"),
+            (TokenKind::Text, " and "),
+            (TokenKind::Var, "%(y)"),
+            (TokenKind::Text, " then done"),
+        ],
+    );
+}
+
+#[test]
+fn test_incomplete_var() {
+    assert_tokens(
+        "%( %(abc something %( )",
+        &[
+            (TokenKind::Text, "%("),
+            (TokenKind::Text, " "),
+            (TokenKind::Text, "%(abc"),
+            (TokenKind::Text, " something "),
+            (TokenKind::Text, "%("),
+            (TokenKind::Text, " )"),
+        ],
+    );
+}
+
+#[test]
+fn test_real_world_macro_with_block_and_vars() {
+    let input = r#"%def(shortTopCase,  case,  ch, impl, %blk{
+// <[Macro_case]>=
+case %(ch): {%(impl)}
+// $$
+%blk})"#;
+
+    assert_tokens(
+        input,
+        &[
+            (TokenKind::Macro, "%def("),
+            (TokenKind::Ident, "shortTopCase"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, "  "),
+            (TokenKind::Ident, "case"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, "  "),
+            (TokenKind::Ident, "ch"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, " "),
+            (TokenKind::Ident, "impl"),
+            (TokenKind::Comma, ","),
+            (TokenKind::Space, " "),
+            (TokenKind::BlockOpen, "%blk{"),
+            (TokenKind::Text, "\n// <[Macro_case]>=\ncase "),
+            (TokenKind::Var, "%(ch)"),
+            (TokenKind::Text, ": {"),
+            (TokenKind::Var, "%(impl)"),
+            (TokenKind::Text, "}\n// $$\n"),
+            (TokenKind::BlockClose, "%blk}"),
+            (TokenKind::CloseParen, ")"),
+        ],
+    );
+}
+
+#[test]
+fn test_escaped_pubfunc_not_macro() {
+    assert_tokens(
+        "%%pubfunc(%(name), Allocator* allo, %%{",
+        &[
+            (TokenKind::Special, "%%"),
+            (TokenKind::Text, "pubfunc("),
+            (TokenKind::Var, "%(name)"),
+            (TokenKind::Text, ", Allocator* allo, "),
+            (TokenKind::Special, "%%"),
+            (TokenKind::Text, "{"),
+        ],
+    );
+}
+
+#[test]
+fn test_no_error() {
+    let input = "Hello %macro(arg)";
+    let tokens_res = collect_tokens_with_timeout(input);
+    assert!(tokens_res.is_ok());
+    let tokens = tokens_res.unwrap();
+    assert!(!tokens.is_empty());
+}
+
+// @
+```
+

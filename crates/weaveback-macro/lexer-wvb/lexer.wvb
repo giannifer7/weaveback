@@ -1,4 +1,4 @@
-= weaveback-macro Lexer
+¤h1(weaveback-macro Lexer)
 :description: Literate source for crates/weaveback-macro/src/lexer/mod.rs
 :toc: left
 :toclevels: 3
@@ -9,9 +9,9 @@ pushdown scanner: a state stack allows blocks, macro argument lists, and
 block comments to nest arbitrarily.  The sigil (default `%`,
 configurable) acts as the sole escape sigil — everything else is plain text.
 
-== Design rationale
+¤h2(Design rationale)
 
-=== Why a state stack?
+¤h3(Why a state stack?)
 
 Weaveback constructs nest: a macro call can contain a named block that
 contains another macro call that contains a comment.  A finite-state
@@ -20,7 +20,7 @@ this cleanly: `push` on open, `pop` on close.  Each frame records the
 byte offset of its opening delimiter so that "Unclosed block at offset N"
 errors point to the right place.
 
-=== Why `memchr` / `memmem` in Block and Comment?
+¤h3(Why `memchr` / `memmem` in Block and Comment?)
 
 Weaveback documents are mostly plain text.  The sigil appears
 rarely.  Scanning byte-by-byte for `%` wastes cycles on the common case.
@@ -30,7 +30,7 @@ Either way the lexer still jumps directly to the next possible macro sigil
 instead of scanning plain text byte-by-byte.  Macro arg lists are short and
 contain many token types, so a simple loop is used there instead.
 
-=== Why `SpecialAction`?
+¤h3(Why `SpecialAction`?)
 
 Both Block and Macro states must handle a `%` in their input.  The full
 dispatch logic lives in `handle_after_sigil`, shared by both states.
@@ -38,7 +38,7 @@ The return value — a `SpecialAction` enum — tells the caller what to do:
 push a new state and return immediately, pop the current state, or
 continue the loop.
 
-=== Why plain text for `%identifier`?
+¤h3(Why plain text for `%identifier`?)
 
 `%identifier` not followed by `(`, `{`, or `}` is **not** a macro call.
 Emitting it as `Text` (no error) allows weaveback documents to contain
@@ -46,14 +46,14 @@ printf-style specifiers (`%d`, `%s`), shell constructs (`%T`), version
 tags, and similar, without noise.  Only the structurally significant
 combinations trigger the lexer's machinery.
 
-=== Why precompute comment delimiters?
+¤h3(Why precompute comment delimiters?)
 
 The comment delimiters `%/*` and `%*/` depend on the runtime sigil.
 For ASCII sigils these are three bytes; for UTF-8 sigils they are longer.
 Precomputing them as byte vectors avoids rebuilding the delimiter sequences on
 every call to `run_comment_state`.
 
-== Token vocabulary
+¤h2(Token vocabulary)
 
 [cols="1,1,4",options="header"]
 |===
@@ -78,7 +78,7 @@ every call to `run_comment_state`.
 | `EOF`         | _end of input_  | Sentinel; always the last token
 |===
 
-== State machine
+¤h2(State machine)
 
 Three mutually-recursive states share the same stack.  The driver loop
 dispatches to the correct handler and pops the stack when the handler
@@ -151,13 +151,23 @@ end note
 @enduml
 ....
 
-== File Structure
+¤h2(File Structure)
 
 The single output file assembles all chunks in declaration order.
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/lexer/mod.rs>>=
+This source tests `<[ ... ]>` literally, so its generated noweb chunks use `<< ... >>` to keep test fixtures opaque to the tangle pass.
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <<¤(name)>>=¤(body)// @
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-macro/src/lexer/mod.rs, ¤[
 // crates/weaveback-macro/src/lexer/mod.rs — generated from lexer.adoc
 // <<lexer preamble>>
 
@@ -168,17 +178,14 @@ The single output file assembles all chunks in declaration order.
 // <<lexer struct>>
 
 // <<lexer impl>>
-// @
-----
+¤])
 
-== `impl Lexer` structure
+¤h2(`impl Lexer` structure)
 
 Every method group gets its own sub-chunk.  They are assembled here in
 the order they appear in the impl block.
 
-[source,rust]
-----
-// <<lexer impl>>=
+¤rust_chunk(lexer impl, ¤[
 impl<'a> Lexer<'a> {
     // <<lexer pub api>>
 
@@ -198,23 +205,19 @@ impl<'a> Lexer<'a> {
 
     // <<lexer comment state>>
 }
-// @
-----
+¤])
 
-== Module preamble
+¤h2(Module preamble)
 
-[source,rust]
-----
-// <<lexer preamble>>=
+¤rust_chunk(lexer preamble, ¤[
 use crate::types::{LexerError, Token, TokenKind};
 use memchr::{memchr, memmem};
 
 #[cfg(test)]
 mod tests;
-// @
-----
+¤])
 
-== Character classifiers
+¤h2(Character classifiers)
 
 Three byte-level predicates used throughout the lexer.  They operate on
 `u8` rather than `char` because the lexer works on raw bytes. Identifiers and
@@ -222,9 +225,7 @@ structural punctuation are still ASCII, but the configurable sigil may
 now be any single Unicode scalar value, so the lexer stores both the `char`
 for diagnostics and its UTF-8 byte sequence for scanning.
 
-[source,rust]
-----
-// <<lexer char classifiers>>=
+¤rust_chunk(lexer char classifiers, ¤[
 fn is_identifier_start(b: u8) -> bool {
     matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'_')
 }
@@ -236,12 +237,11 @@ fn is_identifier_continue(b: u8) -> bool {
 fn is_whitespace(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\r' | b'\n')
 }
-// @
-----
+¤])
 
-== State types
+¤h2(State types)
 
-=== `State`
+¤h3(`State`)
 
 Each frame on the stack is one of three variants.  `Block` and `Macro`
 carry the byte offset of their opening delimiter so that EOF-unclosed
@@ -249,7 +249,7 @@ errors report the right position.  `Comment` omits an offset because it
 self-reports its own "Unclosed comment" error from inside
 `run_comment_state`, using the start of the comment body.
 
-=== `SpecialAction`
+¤h3(`SpecialAction`)
 
 `handle_after_sigil` is called by both `run_block_state` and
 `run_macro_state` after consuming the sigil.  The three variants
@@ -261,9 +261,7 @@ encode exactly what the caller must do next:
   pops the current frame.
 * `Continue` — a token was emitted; continue the current loop.
 
-[source,rust]
-----
-// <<lexer state types>>=
+¤rust_chunk(lexer state types, ¤[
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum State {
     /// Opening byte offset of the `%{` or `%name{`.
@@ -286,10 +284,9 @@ enum SpecialAction {
     /// A token was emitted; continue the loop.
     Continue,
 }
-// @
-----
+¤])
 
-== The `Lexer` struct
+¤h2(The `Lexer` struct)
 
 `bytes` and `pos` are the cursor into the input.  `src` is a 32-bit file
 index threaded into every `Token` for source-map purposes.  `state_stack`
@@ -299,9 +296,7 @@ that top-level text and constructs are handled identically to nested ones.
 `open_comment` and `close_comment` are the precomputed comment delimiters
 for the configurable sigil (see <<_design_rationale>>).
 
-[source,rust]
-----
-// <<lexer struct>>=
+¤rust_chunk(lexer struct, ¤[
 pub struct Lexer<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -318,10 +313,9 @@ pub struct Lexer<'a> {
     /// Precomputed `<sigil>*/`.
     close_comment: Vec<u8>,
 }
-// @
-----
+¤])
 
-== Public API
+¤h2(Public API)
 
 `new` precomputes the UTF-8 bytes of the sigil and the corresponding
 comment delimiters, then seeds the stack with the outermost `Block` frame.
@@ -330,9 +324,7 @@ comment delimiters, then seeds the stack with the outermost `Block` frame.
 any errors.  Errors are non-fatal: the stream is always well-formed up to
 EOF even when errors occur.
 
-[source,rust]
-----
-// <<lexer pub api>>=
+¤rust_chunk(lexer pub api, ¤[
 pub fn new(input: &'a str, sigil: char, src: u32) -> Self {
     let sigil_bytes = sigil.to_string().into_bytes();
     let mut open_comment = sigil_bytes.clone();
@@ -359,10 +351,9 @@ pub fn lex(mut self) -> (Vec<Token>, Vec<LexerError>) {
     self.run();
     (self.tokens, self.errors)
 }
-// @
-----
+¤])
 
-== Input helpers
+¤h2(Input helpers)
 
 Six small utilities used throughout the state handlers.
 
@@ -380,9 +371,7 @@ from named blocks.
 byte offset.  Named-block open and close use this to match tags
 (`%blk{...%blk}`) without storing the tag in the `State` frame.
 
-[source,rust]
-----
-// <<lexer input helpers>>=
+¤rust_chunk(lexer input helpers, ¤[
 // ── Low-level cursor ──────────────────────────────────────────────────
 
 fn peek_byte(&self) -> Option<u8> {
@@ -445,10 +434,9 @@ fn block_tag_at(&self, pct_start: usize) -> &str {
     std::str::from_utf8(&self.bytes[start..end]).unwrap_or("")
 }
 
-// @
-----
+¤])
 
-== Token and error emission
+¤h2(Token and error emission)
 
 `emit_token` suppresses zero-length tokens except for `EOF`, which is
 always required as the stream terminator.  This keeps the token stream
@@ -457,9 +445,7 @@ clean without forcing callers to check lengths.
 `error_at` appends to `errors`.  Errors never stop lexing — the lexer
 always produces a usable stream.
 
-[source,rust]
-----
-// <<lexer emission>>=
+¤rust_chunk(lexer emission, ¤[
 // ── Emission ──────────────────────────────────────────────────────────
 
 fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
@@ -472,10 +458,9 @@ fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
 fn error_at(&mut self, pos: usize, message: &str) {
     self.errors.push(LexerError { pos, message: message.to_string() });
 }
-// @
-----
+¤])
 
-== Main driver
+¤h2(Main driver)
 
 `run` is the top-level dispatch loop.  It terminates when `pos` reaches
 the end of input — not when the stack empties.  This ensures that even a
@@ -488,9 +473,7 @@ unclosed.  The driver collects their error messages by borrowing
 frames are omitted here because `run_comment_state` reports its own
 unclosed error when it hits EOF.
 
-[source,rust]
-----
-// <<lexer run>>=
+¤rust_chunk(lexer run, ¤[
 // ── Main driver ───────────────────────────────────────────────────────
 
 pub fn run(&mut self) {
@@ -553,10 +536,9 @@ pub fn run(&mut self) {
         }
     }
 }
-// @
-----
+¤])
 
-== Block state
+¤h2(Block state)
 
 Block is the default state and the most common.  `memchr` locates the
 next sigil in O(n/vector_width) time, skipping over all intervening
@@ -568,9 +550,7 @@ is consumed and control passes to `handle_after_sigil`.  The return
 value determines whether to push (return `true` immediately so the driver
 calls the new state), pop (return `false`), or stay in the loop.
 
-[source,rust]
-----
-// <<lexer block state>>=
+¤rust_chunk(lexer block state, ¤[
 // ── Block state ───────────────────────────────────────────────────────
 
 fn run_block_state(&mut self) -> bool {
@@ -599,18 +579,15 @@ fn run_block_state(&mut self) -> bool {
         }
     }
 }
-// @
-----
+¤])
 
-== Verbatim state
+¤h2(Verbatim state)
 
 Verbatim blocks are opaque to macro parsing.  Only `%[` / `%name[` opens and
 `%]` / `%name]` closes are recognised; everything else, including `%macro(...)`,
 `%(var)`, comments, and `%%`, is emitted literally.
 
-[source,rust]
-----
-// <<lexer verbatim state>>=
+¤rust_chunk(lexer verbatim state, ¤[
 // ── Verbatim state ────────────────────────────────────────────────────
 
 fn run_verbatim_state(&mut self) -> bool {
@@ -678,10 +655,9 @@ fn run_verbatim_state(&mut self) -> bool {
         self.emit_token(pct_start, self.sigil_bytes.len(), TokenKind::Text);
     }
 }
-// @
-----
+¤])
 
-== Macro arg state
+¤h2(Macro arg state)
 
 Macro arg lists are scanned token-by-token.  `)` ends the list (pops the
 frame), `,` and `=` are single-character tokens, whitespace runs are
@@ -698,9 +674,7 @@ handles the case where `handle_after_sigil` called `Pop` (e.g. a `%}`
 inside a macro arg): in that case, we are no longer the active state and
 must return false without consuming `)`.
 
-[source,rust]
-----
-// <<lexer macro state>>=
+¤rust_chunk(lexer macro state, ¤[
 // ── Macro arg state ───────────────────────────────────────────────────
 
 fn run_macro_state(&mut self) -> bool {
@@ -761,10 +735,9 @@ fn run_macro_state(&mut self) -> bool {
     }
     false
 }
-// @
-----
+¤])
 
-== Shared sigil dispatcher
+¤h2(Shared sigil dispatcher)
 
 `handle_after_sigil` is the heart of the lexer.  It is called by both
 Block and Macro states after the sigil has been consumed, and
@@ -794,9 +767,7 @@ The dispatch table (by the next byte):
 immediately after `(` and a `)` immediately after the identifier.  Any
 deviation produces an error and emits the malformed sequence as `Text`.
 
-[source,rust]
-----
-// <<lexer sigil handler>>=
+¤rust_chunk(lexer sigil handler, ¤[
 // ── Shared sigil-sequence handler ────────────────────────────────────
 //
 // Called after the sigil has been consumed.
@@ -975,10 +946,9 @@ fn handle_var(&mut self, pct_start: usize) {
     }
     self.emit_token(pct_start, self.pos - pct_start, TokenKind::Text);
 }
-// @
-----
+¤])
 
-== Comment state
+¤h2(Comment state)
 
 Block comments nest: `%/* outer %/* inner %*/ outer %*/` is valid.  The
 comment state therefore pushes itself on `%/*` and pops on `%*/`, exactly
@@ -992,9 +962,7 @@ it is neither a comment delimiter nor a syntax error.
 On EOF, the accumulated text (if any) is emitted and an "Unclosed comment"
 error is recorded.  The frame is then popped by returning `false`.
 
-[source,rust]
-----
-// <<lexer comment state>>=
+¤rust_chunk(lexer comment state, ¤[
 // ── Comment state ─────────────────────────────────────────────────────
 
 fn run_comment_state(&mut self) -> bool {
@@ -1050,10 +1018,9 @@ fn run_comment_state(&mut self) -> bool {
     self.error_at(comment_text_start, "Unclosed comment");
     false
 }
-// @
-----
+¤])
 
-== Tests
+¤h2(Tests)
 
 The test module exercises each token kind, error path, and edge case in
 isolation.  Key cases worth noting:
@@ -1070,9 +1037,7 @@ isolation.  Key cases worth noting:
   `Special` token followed by `Text`, not a macro call.
 * **`test_verbatim_blocks_are_opaque`** — `%[` blocks keep inner macro syntax literal.
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/lexer/tests.rs>>=
+¤rust_file(weaveback-macro/src/lexer/tests.rs, ¤[
 // crates/weaveback-macro/src/lexer/tests.rs
 
 use crate::lexer::Lexer;
@@ -1658,5 +1623,4 @@ fn test_no_error() {
     let tokens = tokens_res.unwrap();
     assert!(!tokens.is_empty());
 }
-// @
-----
+¤])

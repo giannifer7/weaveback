@@ -1,3 +1,6 @@
+// weaveback-macro/src/lexer/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/lexer/tests.rs
 
 use crate::lexer::Lexer;
@@ -583,3 +586,4 @@ fn test_no_error() {
     let tokens = tokens_res.unwrap();
     assert!(!tokens.is_empty());
 }
+

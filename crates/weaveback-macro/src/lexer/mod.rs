@@ -1,3 +1,6 @@
+// weaveback-macro/src/lexer/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/lexer/mod.rs — generated from lexer.adoc
 use crate::types::{LexerError, Token, TokenKind};
 use memchr::{memchr, memmem};
@@ -617,3 +620,4 @@ impl<'a> Lexer<'a> {
         false
     }
 }
+

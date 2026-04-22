@@ -42,6 +42,7 @@ tarpaulin-report.html
 .hist.txt
 hist-search.txt
 codex-resume.txt
+codex-resume.sh
 gemini-resume.txt
 
 .codex

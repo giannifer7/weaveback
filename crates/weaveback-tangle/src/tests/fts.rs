@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/fts.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/fts.rs
 use crate::{
     block_parser::SourceBlockEntry,
@@ -761,3 +764,4 @@ fn db_get_blocks_needing_embeddings_empty_on_fresh_db() {
     let blocks = db.get_blocks_needing_embeddings("model-x").unwrap();
     assert!(blocks.is_empty());
 }
+

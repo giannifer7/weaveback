@@ -28,9 +28,17 @@ subdirectory in it, and wires up a `Clip` with `<<` / `>>` delimiters and
 `create_test_writer()` and `write_file()` provide lower-level access to
 `SafeFileWriter` for the safe-writer tests.
 
+
+
+
+
+
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/mod.rs]>=
+// weaveback-tangle/src/tests/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 mod advanced;
 mod basic;
 mod common;
@@ -40,12 +48,18 @@ mod utils;
 
 pub(crate) use common::*;
 pub(crate) use utils::*;
+
 // @@
 ----
+
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/common.rs]>=
+// weaveback-tangle/src/tests/common.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/common.rs
 use crate::*;
 use std::fs;
@@ -161,12 +175,18 @@ pub(crate) const EMPTY_CHUNK: &str = r#"
 # <<empty>>=
 # @
 "#;
+
 // @@
 ----
+
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/utils.rs]>=
+// weaveback-tangle/src/tests/utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/utils.rs
 use crate::safe_writer::SafeWriterConfig;
 use crate::{WeavebackError, SafeFileWriter};
@@ -195,12 +215,18 @@ pub(crate) fn write_file(
     writer.after_write(path)?;
     Ok(())
 }
+
 // @@
 ----
+
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/basic.rs]>=
+// weaveback-tangle/src/tests/basic.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/basic.rs
 use super::*;
 use crate::ChunkError;
@@ -310,12 +336,18 @@ fn test_empty_chunk() {
         "empty chunk should have no content"
     );
 }
+
 // @@
 ----
+
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/advanced.rs]>=
+// weaveback-tangle/src/tests/advanced.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/advanced.rs
 
 use super::*;
@@ -1197,12 +1229,18 @@ fn write_files_incremental_strict_rejects_parse_errors() {
         other => panic!("expected FileChunkRedefinition, got: {:?}", other),
     }
 }
+
 // @@
 ----
+
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/safe_writer.rs]>=
+// weaveback-tangle/src/tests/safe_writer.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/safe_writer.rs
 use super::*;
 use crate::WeavebackError;
@@ -1604,8 +1642,10 @@ fn test_formatter_prevents_false_positive() -> Result<(), WeavebackError> {
     );
     Ok(())
 }
+
 // @@
 ----
+
 
 == FTS tests
 
@@ -1616,9 +1656,13 @@ remain isolated from each other and from any on-disk `weaveback.db`.
 The helpers insert a fake source snapshot and matching `source_blocks` entries,
 then call `rebuild_prose_fts` and assert on the search results.
 
+
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/tests/fts.rs]>=
+// weaveback-tangle/src/tests/fts.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/fts.rs
 use crate::{
     block_parser::SourceBlockEntry,
@@ -2382,5 +2426,7 @@ fn db_get_blocks_needing_embeddings_empty_on_fresh_db() {
     let blocks = db.get_blocks_needing_embeddings("model-x").unwrap();
     assert!(blocks.is_empty());
 }
+
 // @@
 ----
+

@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/safe_writer.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/safe_writer.rs
 use super::*;
 use crate::WeavebackError;
@@ -399,3 +402,4 @@ fn test_formatter_prevents_false_positive() -> Result<(), WeavebackError> {
     );
     Ok(())
 }
+

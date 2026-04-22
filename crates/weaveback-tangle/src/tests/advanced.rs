@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/advanced.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/advanced.rs
 
 use super::*;
@@ -879,3 +882,4 @@ fn write_files_incremental_strict_rejects_parse_errors() {
         other => panic!("expected FileChunkRedefinition, got: {:?}", other),
     }
 }
+

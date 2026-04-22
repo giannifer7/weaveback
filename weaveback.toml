@@ -158,6 +158,31 @@ open_delim = "<["
 close_delim = "]>"
 
 [[pass]]
+dir = "crates/weaveback-tangle/tests-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc/crates/weaveback-tangle/src/tests"
+open_delim = "<["
+close_delim = "]>"
+comment_markers = "//"
+chunk_end = "@@"
+
+[[pass]]
+dir = "crates/weaveback-tangle/tests-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md/crates/weaveback-tangle/src/tests"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
 dir = "crates/weaveback-docgen/src-wvb/"
 gen = "crates/"
 ext = "wvb"

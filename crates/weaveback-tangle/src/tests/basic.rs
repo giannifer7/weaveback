@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/basic.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/basic.rs
 use super::*;
 use crate::ChunkError;
@@ -107,3 +110,4 @@ fn test_empty_chunk() {
         "empty chunk should have no content"
     );
 }
+

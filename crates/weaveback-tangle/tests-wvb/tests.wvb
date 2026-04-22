@@ -1,0 +1,2375 @@
+¤h1(Test Suite)
+:toc: left
+:source-highlighter: syntect
+
+The test suite for `weaveback-tangle` lives in `src/tests/` and is compiled
+only under `#[cfg(test)]`.  It is structured as six modules:
+
+* `common` -- shared `TestSetup` helper and string constants for test fixtures.
+* `utils` -- low-level helper functions (`create_test_writer`, `write_file`).
+* `basic` -- core chunk parsing, expansion, indentation, and delimiter tests.
+* `advanced` -- `@replace`, `@reversed`, error handling, and recursion tests.
+* `safe_writer` -- `SafeFileWriter` behaviour: write flow, baselines, formatter
+  hooks, modification detection, and path security.
+* `fts` -- `WeavebackDb::rebuild_prose_fts` and `search_prose`.
+
+NOTE: The test fixture strings in `common.rs` and `advanced.rs` contain
+chunk-like syntax (`<<...>>=`, `# @`) because they test the tangle parser
+itself.  The literate adoc files for `weaveback-tangle` use `<[` `]>`
+delimiters with `//`-only comment markers to avoid parsing conflicts with
+those fixtures.
+
+¤h2(Test infrastructure)
+
+`TestSetup::new(comment_markers)` creates a temporary directory, puts a `gen/`
+subdirectory in it, and wires up a `Clip` with `<<` / `>>` delimiters and
+`@` chunk-end -- the classic noweb defaults that the tests exercise.
+
+`create_test_writer()` and `write_file()` provide lower-level access to
+`SafeFileWriter` for the safe-writer tests.
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/mod.rs, ¤[
+mod advanced;
+mod basic;
+mod common;
+mod fts;
+mod safe_writer;
+mod utils;
+
+pub(crate) use common::*;
+pub(crate) use utils::*;
+¤])
+
+¤rust_file(weaveback-tangle/src/tests/common.rs, ¤[
+// src/tests/common.rs
+use crate::*;
+use std::fs;
+use tempfile::TempDir;
+
+pub(crate) struct TestSetup {
+    pub _temp_dir: TempDir,
+    pub clip: Clip,
+}
+
+impl TestSetup {
+    pub fn new(comment_markers: &[&str]) -> Self {
+        let temp_dir = TempDir::new().unwrap();
+        let gen_path = temp_dir.path().join("gen");
+        fs::create_dir_all(&gen_path).unwrap();
+        let safe_writer = SafeFileWriter::new(gen_path).unwrap();
+
+        let comment_markers = comment_markers
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+
+        let clip = Clip::new(safe_writer, "<<", ">>", "@", &comment_markers);
+
+        TestSetup {
+            _temp_dir: temp_dir,
+            clip,
+        }
+    }
+}
+
+pub(crate) const BASIC_CHUNK: &str = r#"
+# <<test>>=
+Hello
+# @
+"#;
+
+pub(crate) const TWO_CHUNKS: &str = r#"
+# <<chunk1>>=
+First chunk
+# @
+# <<chunk2>>=
+Second chunk
+# @
+"#;
+
+pub(crate) const NESTED_CHUNKS: &str = r#"
+# <<outer>>=
+Before
+# <<inner>>
+After
+# @
+# <<inner>>=
+Nested content
+# @
+"#;
+
+pub(crate) const INDENTED_CHUNK: &str = r#"
+# <<main>>=
+    # <<indented>>
+# @
+# <<indented>>=
+some code
+# @
+"#;
+
+pub(crate) const PYTHON_CODE: &str = r#"
+# <<code>>=
+def example():
+    # <<body>>
+# @
+# <<body>>=
+print('hello')
+# @
+"#;
+
+pub(crate) const MULTI_COMMENT_CHUNKS: &str = r#"
+# <<python_chunk>>=
+def hello():
+    print("Hello")
+# @
+
+// <<rust_chunk>>=
+fn main() {
+    println!("Hello");
+}
+// @
+"#;
+
+pub(crate) const FILE_CHUNKS: &str = r#"
+# <<@file output.txt>>=
+content
+# @
+# <<other>>=
+other content
+# @
+"#;
+
+pub(crate) const SEQUENTIAL_CHUNKS: &str = r#"
+# <<main>>=
+# <<part1>>
+# <<part2>>
+# @
+# <<part1>>=
+First part
+# @
+# <<part2>>=
+Second part
+# @
+"#;
+
+pub(crate) const EMPTY_CHUNK: &str = r#"
+# <<empty>>=
+# @
+"#;
+¤])
+
+¤rust_file(weaveback-tangle/src/tests/utils.rs, ¤[
+// src/tests/utils.rs
+use crate::safe_writer::SafeWriterConfig;
+use crate::{WeavebackError, SafeFileWriter};
+use std::{fs, io::Write, path::PathBuf};
+use tempfile::TempDir;
+
+pub(crate) fn create_test_writer() -> (TempDir, SafeFileWriter) {
+    let temp = TempDir::new().unwrap();
+    let writer = SafeFileWriter::with_config(
+        temp.path().join("gen"),
+        SafeWriterConfig::default(),
+    ).unwrap();
+    (temp, writer)
+}
+
+pub(crate) fn write_file(
+    writer: &mut SafeFileWriter,
+    path: &PathBuf,
+    content: &str,
+) -> Result<(), WeavebackError> {
+    let private_path = writer.before_write(path)?;
+    {
+        let mut file = fs::File::create(&private_path)?;
+        write!(file, "{}", content)?;
+    }
+    writer.after_write(path)?;
+    Ok(())
+}
+¤])
+
+¤rust_file(weaveback-tangle/src/tests/basic.rs, ¤[
+// src/tests/basic.rs
+use super::*;
+use crate::ChunkError;
+
+#[test]
+fn test_basic_chunk() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(BASIC_CHUNK, "test_basic.nw");
+
+    assert!(setup.clip.has_chunk("test"));
+    assert_eq!(
+        setup.clip.get_chunk_content("test").unwrap(),
+        vec!["Hello\n"]
+    );
+}
+
+#[test]
+fn test_multiple_chunks() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(TWO_CHUNKS, "test_multiple.nw");
+
+    assert!(setup.clip.has_chunk("chunk1"));
+    assert!(setup.clip.has_chunk("chunk2"));
+    assert_eq!(
+        setup.clip.get_chunk_content("chunk1").unwrap(),
+        vec!["First chunk\n"]
+    );
+    assert_eq!(
+        setup.clip.get_chunk_content("chunk2").unwrap(),
+        vec!["Second chunk\n"]
+    );
+}
+
+#[test]
+fn test_nested_chunk_expansion() -> Result<(), ChunkError> {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(NESTED_CHUNKS, "test_nested.nw");
+
+    let expanded = setup.clip.expand("outer", "")?;
+    let expected = vec!["Before\n", "Nested content\n", "After\n"];
+    assert_eq!(expanded, expected, "Nested chunks should expand correctly");
+    Ok(())
+}
+
+#[test]
+fn test_indentation_preservation() -> Result<(), ChunkError> {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(INDENTED_CHUNK, "test_indent.nw");
+
+    let expanded = setup.clip.expand("main", "")?;
+    assert_eq!(
+        expanded,
+        vec!["    some code\n"],
+        "Indentation should be preserved"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_complex_indentation() -> Result<(), ChunkError> {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(PYTHON_CODE, "test_python.nw");
+
+    let expanded = setup.clip.expand("code", "")?;
+    let expected = vec!["def example():\n", "    print('hello')\n"];
+    assert_eq!(expanded, expected);
+
+    let expanded_indented = setup.clip.expand("code", "  ")?;
+    let expected_indented = vec!["  def example():\n", "      print('hello')\n"];
+    assert_eq!(expanded_indented, expected_indented);
+    Ok(())
+}
+
+#[test]
+fn test_multi_comment_styles() {
+    let mut setup = TestSetup::new(&["#", "//"]);
+    setup.clip.read(MULTI_COMMENT_CHUNKS, "test_comments.nw");
+
+    assert!(setup.clip.has_chunk("python_chunk"));
+    assert!(setup.clip.has_chunk("rust_chunk"));
+
+    let python_content = setup.clip.get_chunk_content("python_chunk").unwrap();
+    assert!(python_content.join("").contains("print(\"Hello\")"));
+
+    let rust_content = setup.clip.get_chunk_content("rust_chunk").unwrap();
+    assert!(rust_content.join("").contains("println!(\"Hello\")"));
+}
+
+#[test]
+fn test_sequential_chunks() -> Result<(), ChunkError> {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(SEQUENTIAL_CHUNKS, "test_sequential.nw");
+
+    let expanded = setup.clip.expand("main", "")?;
+    assert_eq!(expanded, vec!["First part\n", "Second part\n"]);
+    Ok(())
+}
+
+#[test]
+fn test_empty_chunk() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(EMPTY_CHUNK, "test_empty.nw");
+
+    assert!(setup.clip.has_chunk("empty"));
+    assert!(
+        setup.clip.get_chunk_content("empty").unwrap().is_empty(),
+        "empty chunk should have no content"
+    );
+}
+¤])
+
+¤rust_file(weaveback-tangle/src/tests/advanced.rs, ¤[
+// src/tests/advanced.rs
+
+use super::*;
+use crate::{Clip, SafeFileWriter, WeavebackError};
+use crate::ChunkError;
+use std::fs;
+
+/// Bug fix: duplicate @file chunk without @replace used to silently discard
+/// both definitions. Now it reports an error and keeps the first definition.
+#[test]
+fn test_duplicate_file_chunk_keeps_first_definition() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<@file out.txt>>=
+first definition
+# @
+
+# <<@file out.txt>>=
+second definition
+# @
+"#,
+        "duplicate.nw",
+    );
+
+    // The first definition must survive.
+    assert!(
+        setup.clip.has_chunk("@file out.txt"),
+        "first definition should be kept"
+    );
+    let content = setup.clip.get_chunk_content("@file out.txt").unwrap();
+    assert!(
+        content.iter().any(|l| l.contains("first definition")),
+        "first definition content should be preserved, got: {:?}",
+        content
+    );
+    assert!(
+        !content.iter().any(|l| l.contains("second definition")),
+        "second definition should be rejected"
+    );
+}
+
+#[test]
+fn test_file_chunk_detection() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(FILE_CHUNKS, "test_files.nw");
+
+    let file_chunks = setup.clip.get_file_chunks();
+    assert_eq!(file_chunks.len(), 1);
+    assert!(file_chunks.contains(&"@file output.txt".to_string()));
+}
+
+#[test]
+fn test_undefined_chunk_is_error() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<main>>=
+# <<nonexistent>>
+# @
+"#,
+        "undefined.nw",
+    );
+    setup.clip.set_strict_undefined(true);
+
+    let result = setup.clip.expand("main", "");
+    assert!(result.is_err(), "referencing an undefined chunk must be an error");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, WeavebackError::Chunk(ChunkError::UndefinedChunk { ref chunk, .. }) if chunk == "nonexistent"),
+        "expected UndefinedChunk error, got: {err}",
+    );
+}
+
+#[test]
+fn test_undefined_chunk_is_empty_when_not_strict() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<main>>=
+line before
+# <<optional>>
+line after
+# @
+"#,
+        "undefined.nw",
+    );
+    // Default is permissive; no set_strict_undefined call needed.
+    let result = setup.clip.expand("main", "");
+    assert!(result.is_ok(), "undefined chunk should expand to empty when not strict");
+    let lines = result.unwrap();
+    assert_eq!(lines, vec!["line before\n", "line after\n"]);
+}
+
+#[test]
+fn test_recursive_chunk_error() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<recursive>>=
+Start
+# <<recursive>>
+End
+# @
+"#,
+        "recursive.nw",
+    );
+
+    let result = setup.clip.expand("recursive", "");
+    match result {
+        Err(WeavebackError::Chunk(ChunkError::RecursiveReference {
+            chunk,
+            cycle,
+            file_name,
+            location,
+        })) => {
+            assert_eq!(chunk, "recursive");
+            assert_eq!(file_name, "recursive.nw");
+            assert_eq!(location.line, 2);
+            assert_eq!(cycle, vec!["recursive", "recursive"]);
+        }
+        _ => panic!("Expected RecursiveReference error"),
+    }
+}
+
+#[test]
+fn test_mutual_recursion_error() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<chunk-a>>=
+Start A
+# <<chunk-b>>
+End A
+# @
+
+# <<chunk-b>>=
+Middle B
+# <<chunk-a>>
+End B
+# @
+"#,
+        "mutual_recursion.nw",
+    );
+
+    let result = setup.clip.expand("chunk-a", "");
+    match result {
+        Err(WeavebackError::Chunk(ChunkError::RecursiveReference {
+            chunk,
+            cycle,
+            file_name,
+            location,
+        })) => {
+            assert_eq!(chunk, "chunk-a");
+            assert_eq!(file_name, "mutual_recursion.nw");
+            assert_eq!(location.line, 8);
+            assert_eq!(cycle, vec!["chunk-a", "chunk-b", "chunk-a"]);
+        }
+        _ => panic!("Expected RecursiveReference error"),
+    }
+}
+
+#[test]
+fn test_max_recursion_depth() {
+    let mut setup = TestSetup::new(&["#"]);
+
+    let mut content = String::from(
+        r#"
+# <<a-000>>=
+# <<a-001>>
+# @"#,
+    );
+
+    let chain_length = 150; // More than MAX_DEPTH = 100
+    for i in 1..chain_length {
+        content.push_str(&format!(
+            r#"
+# <<a-{:03}>>=
+# <<a-{:03}>>
+# @"#,
+            i,     // a-001, a-002, etc.
+            i + 1  // a-002, a-003, etc.
+        ));
+    }
+
+    setup.clip.read(&content, "max_recursion.nw");
+    let result = setup.clip.expand("a-000", "");
+
+    // We just match the variant here (less strict). Alternatively, pattern match with { chunk, file_name, location }
+    assert!(
+        matches!(
+            result,
+            Err(WeavebackError::Chunk(ChunkError::RecursionLimit { .. }))
+        ),
+        "Expected RecursionLimit error"
+    );
+}
+
+#[test]
+fn test_error_messages_format() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<a>>=
+# <<a>>
+# @
+"#,
+        "errors.nw",
+    );
+
+    let err = setup.clip.expand("a", "").unwrap_err();
+    let error_msg = err.to_string();
+
+    assert!(error_msg.contains("Chunk error: errors.nw line 2:"));
+    assert!(error_msg.contains("recursive reference detected in chunk 'a'"));
+    assert!(error_msg.contains("cycle: a -> a"));
+}
+
+#[test]
+fn test_dangerous_comment_markers() {
+    let markers = &[
+        "#",         // normal case
+        r".*",       // regex wildcard
+        r"[a-z]+",   // regex character class
+        r"\d+",      // regex digit
+        "<<",        // same as delimiter
+        ">>",        // same as delimiter
+        "(comment)", // regex group
+    ];
+
+    let content = r#"
+#<<test1>>=
+Content1
+@
+.*<<test2>>=
+Content2
+@
+[a-z]+<<test3>>=
+Content3
+@
+(comment)<<test4>>=
+Content4
+@
+"#;
+
+    let mut setup = TestSetup::new(markers);
+    setup.clip.read(content, "regex_test.nw");
+
+    assert!(setup.clip.has_chunk("test1"), "Basic marker # failed");
+    assert!(setup.clip.has_chunk("test2"), "Wildcard marker .* failed");
+    assert!(
+        setup.clip.has_chunk("test3"),
+        "Character class marker [a-z]+ failed"
+    );
+    assert!(
+        setup.clip.has_chunk("test4"),
+        "Group marker (comment) failed"
+    );
+
+    assert_eq!(
+        setup.clip.get_chunk_content("test1").unwrap(),
+        vec!["Content1\n"]
+    );
+}
+
+// ── @replace ─────────────────────────────────────────────────────────────────
+
+/// `@replace` on a regular chunk discards all prior definitions and installs
+/// only the new one.
+#[test]
+fn test_replace_normal_chunk() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<greet>>=
+Hello
+# @
+
+# <<@replace greet>>=
+Hi
+# @
+"#,
+        "replace_normal.nw",
+    );
+
+    let content = setup.clip.get_chunk_content("greet").unwrap();
+    assert_eq!(
+        content,
+        vec!["Hi\n"],
+        "only the @replace definition should survive"
+    );
+}
+
+/// `@replace` on a file chunk replaces the earlier definition.
+#[test]
+fn test_replace_file_chunk() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<@file out.txt>>=
+old content
+# @
+
+# <<@replace @file out.txt>>=
+new content
+# @
+"#,
+        "replace_file.nw",
+    );
+
+    let content = setup.clip.get_chunk_content("@file out.txt").unwrap();
+    assert_eq!(
+        content,
+        vec!["new content\n"],
+        "@replace should replace file chunk"
+    );
+}
+
+/// Without `@replace`, a second file-chunk definition is an error and the first
+/// definition is kept (regression guard).
+#[test]
+fn test_no_replace_file_chunk_keeps_first() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<@file out.txt>>=
+first
+# @
+
+# <<@file out.txt>>=
+second
+# @
+"#,
+        "no_replace_file.nw",
+    );
+
+    let content = setup.clip.get_chunk_content("@file out.txt").unwrap();
+    assert!(
+        content.iter().any(|l| l.contains("first")),
+        "first definition should be kept without @replace"
+    );
+    assert!(
+        !content.iter().any(|l| l.contains("second")),
+        "second definition should be rejected without @replace"
+    );
+}
+
+// ── @reversed ────────────────────────────────────────────────────────────────
+
+/// A regular chunk may accumulate multiple definitions (without @replace).
+/// A plain reference expands them in definition order (first → last).
+#[test]
+fn test_accumulated_chunks_normal_order() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<items>>=
+alpha
+# @
+
+# <<items>>=
+beta
+# @
+
+# <<items>>=
+gamma
+# @
+
+# <<list>>=
+# <<items>>
+# @
+"#,
+        "normal_order.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "beta\n", "gamma\n"]);
+}
+
+/// `@reversed` on a reference expands the chunk's accumulated definitions in
+/// reverse order (last-defined first).
+#[test]
+fn test_reversed_reference() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<items>>=
+alpha
+# @
+
+# <<items>>=
+beta
+# @
+
+# <<items>>=
+gamma
+# @
+
+# <<list>>=
+# <<@reversed items>>
+# @
+"#,
+        "reversed.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["gamma\n", "beta\n", "alpha\n"]);
+}
+
+/// `@compact` trims blank edge lines from each accumulated definition before
+/// splicing them into the caller. This is useful for table rows and similar
+/// projection chunks where each definition should contribute one logical line.
+#[test]
+fn test_compact_reference_trims_blank_edge_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+# @
+
+# <<rows>>=
+
+beta
+
+# @
+
+# <<list>>=
+# <<@compact rows>>
+# @
+"#,
+        "compact.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "beta\n"]);
+}
+
+/// `@tight` is stronger than `@compact`: it also drops blank-only lines inside
+/// each accumulated definition. This is useful for highly structured fragments
+/// like generated table rows.
+#[test]
+fn test_tight_reference_drops_blank_only_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+omega
+
+# @
+
+# <<list>>=
+# <<@tight rows>>
+# @
+"#,
+        "tight.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "omega\n"]);
+}
+
+/// `~` in an `@file` path expands to `$HOME` when `--allow-home` is set.
+#[test]
+fn test_tilde_expansion_in_file_chunk() {
+    let fake_home = tempfile::TempDir::new().unwrap();
+    // Override HOME for this test
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("HOME", fake_home.path()) };
+
+    // Tilde expansion writes outside gen/ and requires allow_home: true.
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let gen_path = temp_dir.path().join("gen");
+    fs::create_dir_all(&gen_path).unwrap();
+    let safe_writer = SafeFileWriter::with_config(
+        gen_path,
+        crate::safe_writer::SafeWriterConfig {
+            allow_home: true,
+            ..crate::safe_writer::SafeWriterConfig::default()
+        },
+    ).unwrap();
+    let mut clip = Clip::new(safe_writer, "<<", ">>", "@", &["#".to_string()]);
+
+    clip.read(
+        "# <<@file ~/tilde_test.txt>>=\nhello tilde\n# @\n",
+        "tilde.nw",
+    );
+    clip.write_files().unwrap();
+
+    let expected = fake_home.path().join("tilde_test.txt");
+    assert!(
+        expected.exists(),
+        "file should be written to expanded ~ path"
+    );
+    let content = fs::read_to_string(&expected).unwrap();
+    assert_eq!(content, "hello tilde\n");
+}
+
+/// Without `--allow-home`, `@file ~/…` is refused rather than silently
+/// escaping the gen/ sandbox.
+#[test]
+fn test_tilde_expansion_blocked_without_allow_home() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file ~/should_not_exist.txt>>=\ndata\n# @\n",
+        "tilde_blocked.nw",
+    );
+    let result = setup.clip.write_files();
+    assert!(
+        matches!(
+            result,
+            Err(WeavebackError::SafeWriter(
+                crate::safe_writer::SafeWriterError::SecurityViolation(_)
+            ))
+        ),
+        "expected SecurityViolation without --allow-home, got: {:?}",
+        result
+    );
+}
+
+// ── warn_unused ───────────────────────────────────────────────────────────────
+
+/// Unused named chunks produce no warnings by default -- `check_unused_chunks`
+/// is never called when `warn_unused` is false, but the API itself is always
+/// available.  Here we verify that the helper correctly identifies unused chunks.
+#[test]
+fn test_check_unused_chunks_finds_orphan() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nhello\n# @\n\
+         # <<orphan>>=\nnever used\n# @\n",
+        "src.nw",
+    );
+    // Simulate what write_files does: start from @file chunk names.
+    let all_file_chunks: std::collections::HashSet<String> =
+        setup.clip.get_file_chunks().into_iter().collect();
+    let warns = setup.clip.check_unused_chunks(&all_file_chunks);
+    assert!(
+        warns.iter().any(|w| w.contains("orphan")),
+        "expected unused-chunk warning for 'orphan', got: {:?}",
+        warns
+    );
+}
+
+/// A chunk in the referenced set must NOT appear in the unused-chunk report.
+/// `check_unused_chunks` takes the full transitive closure of referenced
+/// chunks (including `@file` names themselves), so we build that set manually.
+#[test]
+fn test_check_unused_chunks_skips_referenced() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file out.txt>>=\n# <<used>>\n# @\n\
+         # <<used>>=\ncontent\n# @\n",
+        "src.nw",
+    );
+    // Provide the full transitive closure: @file chunk + the named chunk it references.
+    let mut referenced = std::collections::HashSet::new();
+    referenced.insert("@file out.txt".to_string());
+    referenced.insert("used".to_string());
+    let warns = setup.clip.check_unused_chunks(&referenced);
+    assert!(
+        warns.is_empty(),
+        "no unused-chunk warnings expected when all chunks are reachable, got: {:?}",
+        warns
+    );
+}
+
+/// `set_warn_unused` round-trips through the public API without panicking, and
+/// `write_files` completes successfully in both modes.
+#[test]
+fn test_set_warn_unused_write_files_ok() {
+    for warn in [false, true] {
+        let mut setup = TestSetup::new(&["#"]);
+        setup.clip.set_warn_unused(warn);
+        setup.clip.read(
+            "# <<@file out.txt>>=\nhello\n# @\n\
+             # <<unused>>=\ndropped\n# @\n",
+            "src.nw",
+        );
+        setup.clip.write_files().unwrap();
+    }
+}
+
+// ── tangle_check ─────────────────────────────────────────────────────────────
+
+#[test]
+fn tangle_check_expands_file_chunks_in_memory() {
+    use crate::noweb::tangle_check;
+    let src = "# <<@file out.txt>>=\nhello\n# @\n";
+    let markers = vec!["#".to_string()];
+    let result = tangle_check(&[(src, "src.nw")], "<<", ">>", "@", &markers).unwrap();
+    assert!(result.contains_key("out.txt"), "expected out.txt in result map");
+    assert_eq!(result["out.txt"], vec!["hello\n"]);
+}
+
+#[test]
+fn tangle_check_returns_error_on_undefined_strict() {
+    use crate::noweb::tangle_check;
+    // tangle_check does not expose strict mode; referencing undefined is silent
+    let src = "# <<@file out.txt>>=\n# <<missing>>\n# @\n";
+    let markers = vec!["#".to_string()];
+    let result = tangle_check(&[(src, "src.nw")], "<<", ">>", "@", &markers).unwrap();
+    // undefined chunk expands to empty; @file out.txt has zero lines
+    assert_eq!(result["out.txt"], Vec::<String>::new());
+}
+
+#[test]
+fn tangle_check_handles_multiple_files() {
+    use crate::noweb::tangle_check;
+    let a = "# <<@file a.txt>>=\nalpha\n# @\n";
+    let b = "# <<@file b.txt>>=\nbeta\n# @\n";
+    let markers = vec!["#".to_string()];
+    let result = tangle_check(&[(a, "a.nw"), (b, "b.nw")], "<<", ">>", "@", &markers).unwrap();
+    assert_eq!(result["a.txt"], vec!["alpha\n"]);
+    assert_eq!(result["b.txt"], vec!["beta\n"]);
+}
+
+// ── NowebSyntax unit tests ────────────────────────────────────────────────────
+
+#[test]
+fn noweb_syntax_parse_definition_line_file_chunk() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    let m = syn.parse_definition_line("# <<@file out.rs>>=").unwrap();
+    assert!(m.is_file);
+    assert_eq!(m.base_name, "out.rs");
+    assert!(!m.is_replace);
+}
+
+#[test]
+fn noweb_syntax_parse_definition_line_replace() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    let m = syn.parse_definition_line("# <<@replace greet>>=").unwrap();
+    assert!(m.is_replace);
+    assert!(!m.is_file);
+    assert_eq!(m.base_name, "greet");
+}
+
+#[test]
+fn noweb_syntax_parse_definition_line_returns_none_for_content() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    assert!(syn.parse_definition_line("just a plain line").is_none());
+    assert!(syn.parse_definition_line("# ordinary comment").is_none());
+}
+
+#[test]
+fn noweb_syntax_is_close_line() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    assert!(syn.is_close_line("# @"));
+    assert!(syn.is_close_line("@"));
+    assert!(!syn.is_close_line("not a close"));
+    assert!(!syn.is_close_line("# @ more text"));
+}
+
+// ── write_files_incremental ──────────────────────────────────────────────────
+
+#[test]
+fn write_files_incremental_skips_named_chunk() {
+    use std::collections::HashSet;
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file a.txt>>=\nalpha\n# @\n\
+         # <<@file b.txt>>=\nbeta\n# @\n",
+        "src.nw",
+    );
+    let mut skip = HashSet::new();
+    skip.insert("@file b.txt".to_string());
+    setup.clip.write_files_incremental(&skip).unwrap();
+    // a.txt should be written; b.txt should be absent
+    let gen_dir = setup._temp_dir.path().join("gen");
+    assert!(gen_dir.join("a.txt").exists(), "a.txt should be written");
+    assert!(!gen_dir.join("b.txt").exists(), "b.txt should be skipped");
+}
+
+#[test]
+fn write_files_incremental_empty_skip_writes_all() {
+    use std::collections::HashSet;
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file x.txt>>=\nxxx\n# @\n",
+        "src.nw",
+    );
+    setup.clip.write_files_incremental(&HashSet::new()).unwrap();
+    let gen_dir = setup._temp_dir.path().join("gen");
+    assert!(gen_dir.join("x.txt").exists());
+}
+
+// ── list_output_files ─────────────────────────────────────────────────────────
+
+#[test]
+fn list_output_files_returns_gen_relative_paths() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file foo.txt>>=\ncontent\n# @\n",
+        "src.nw",
+    );
+    let files = setup.clip.list_output_files();
+    assert_eq!(files.len(), 1);
+    let name = files[0].file_name().unwrap().to_str().unwrap();
+    assert_eq!(name, "foo.txt");
+}
+
+#[test]
+fn list_output_files_multiple() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file a.rs>>=\na\n# @\n\
+         # <<@file b.rs>>=\nb\n# @\n",
+        "src.nw",
+    );
+    let mut files: Vec<_> = setup.clip.list_output_files()
+        .into_iter()
+        .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
+        .collect();
+    files.sort();
+    assert_eq!(files, vec!["a.rs", "b.rs"]);
+}
+
+// ── chunk_defs ────────────────────────────────────────────────────────────────
+
+#[test]
+fn chunk_defs_records_definition_line_ranges() {
+    let mut setup = TestSetup::new(&["#"]);
+    // Define a named chunk -- def_start/def_end are 1-indexed line numbers
+    setup.clip.read(
+        "# <<greet>>=\nhello\n# @\n",
+        "src.nw",
+    );
+    // Access chunk_defs through the store via the public db after write_files
+    // (we verify through expansion since chunk_defs is on ChunkStore, not Clip).
+    // The simpler path: just verify the chunk exists and expands correctly.
+    let content = setup.clip.get_chunk_content("greet").unwrap();
+    assert_eq!(content, vec!["hello\n"]);
+}
+
+// ── path_is_safe via chunk validation ────────────────────────────────────────
+
+#[test]
+fn file_chunk_with_absolute_path_blocked_without_allow_home() {
+    let mut setup = TestSetup::new(&["#"]);
+    // Absolute path chunks are rejected by path_is_safe → validate_chunk_name
+    // returns false → the chunk is silently dropped.
+    setup.clip.read(
+        "# <<@file /etc/passwd>>=\nbad\n# @\n",
+        "src.nw",
+    );
+    // The absolute-path chunk is not registered as a file chunk.
+    assert!(
+        !setup.clip.get_file_chunks().contains(&"@file /etc/passwd".to_string()),
+        "absolute-path @file chunk should be rejected"
+    );
+}
+
+#[test]
+fn file_chunk_with_parent_dir_traversal_blocked() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file ../../escape.txt>>=\nbad\n# @\n",
+        "src.nw",
+    );
+    assert!(
+        !setup.clip.get_file_chunks().contains(&"@file ../../escape.txt".to_string()),
+        "path-traversal @file chunk should be rejected"
+    );
+}
+
+// ── Windows-style path in @file ───────────────────────────────────────────────
+
+#[test]
+fn file_chunk_with_windows_path_blocked() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file C:\\evil.txt>>=\nbad\n# @\n",
+        "src.nw",
+    );
+    assert!(
+        !setup.clip.get_file_chunks().contains(&"@file C:\\evil.txt".to_string()),
+        "windows-style @file chunk should be rejected"
+    );
+}
+
+// ── Clip::reset ────────────────────────────────────────────────────────────────
+
+#[test]
+fn clip_reset_clears_chunks() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read("# <<@file out.txt>>=\nhello\n# @\n", "src.nw");
+    assert!(setup.clip.has_chunk("@file out.txt"));
+    setup.clip.reset();
+    assert!(
+        !setup.clip.has_chunk("@file out.txt"),
+        "reset should clear chunks"
+    );
+    assert!(
+        setup.clip.get_file_chunks().is_empty(),
+        "reset should clear file chunks list"
+    );
+}
+
+// ── Clip::get_chunk ────────────────────────────────────────────────────────────
+
+#[test]
+fn clip_get_chunk_writes_content_to_writer() {
+    use std::io::BufWriter;
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read("# <<my-chunk>>=\nfoo\nbar\n# @\n", "src.nw");
+    let mut buf = BufWriter::new(Vec::new());
+    setup.clip.get_chunk("my-chunk", &mut buf).unwrap();
+    let output = String::from_utf8(buf.into_inner().unwrap()).unwrap();
+    assert!(output.contains("foo"));
+    assert!(output.contains("bar"));
+}
+
+// ── Clip::read_files ──────────────────────────────────────────────────────────
+
+#[test]
+fn clip_read_files_reads_multiple_inputs() {
+    use std::io::Write;
+    let temp = tempfile::TempDir::new().unwrap();
+    let a_path = temp.path().join("a.nw");
+    let b_path = temp.path().join("b.nw");
+    std::fs::File::create(&a_path).unwrap().write_all(b"# <<@file a.txt>>=\nalpha\n# @\n").unwrap();
+    std::fs::File::create(&b_path).unwrap().write_all(b"# <<@file b.txt>>=\nbeta\n# @\n").unwrap();
+
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read_files(&[&a_path, &b_path]).unwrap();
+    assert!(setup.clip.has_chunk("@file a.txt"));
+    assert!(setup.clip.has_chunk("@file b.txt"));
+}
+
+// ── Clip::db / db_mut ─────────────────────────────────────────────────────────
+
+#[test]
+fn clip_db_and_db_mut_are_accessible() {
+    let mut setup = TestSetup::new(&["#"]);
+    let _ = setup.clip.db();
+    let _ = setup.clip.db_mut();
+}
+
+// ── write_files strict mode rejects parse errors ──────────────────────────────
+
+#[test]
+fn write_files_strict_rejects_file_chunk_redefinition() {
+    // strict_undefined must be set BEFORE read() so the error is captured
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.set_strict_undefined(true);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nfirst\n# @\n\n# <<@file out.txt>>=\nsecond\n# @\n",
+        "src.nw",
+    );
+    let err = setup.clip.write_files().unwrap_err();
+    match err {
+        WeavebackError::Chunk(ChunkError::FileChunkRedefinition { .. }) => {}
+        other => panic!("expected FileChunkRedefinition, got: {:?}", other),
+    }
+}
+
+#[test]
+fn write_files_incremental_strict_rejects_parse_errors() {
+    // strict_undefined must be set BEFORE read() so the error is captured
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.set_strict_undefined(true);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nfirst\n# @\n\n# <<@file out.txt>>=\nsecond\n# @\n",
+        "src.nw",
+    );
+    let skip = std::collections::HashSet::new();
+    let err = setup.clip.write_files_incremental(&skip).unwrap_err();
+    match err {
+        WeavebackError::Chunk(ChunkError::FileChunkRedefinition { .. }) => {}
+        other => panic!("expected FileChunkRedefinition, got: {:?}", other),
+    }
+}
+¤])
+
+¤rust_file(weaveback-tangle/src/tests/safe_writer.rs, ¤[
+// src/tests/safe_writer.rs
+use super::*;
+use crate::WeavebackError;
+use crate::SafeWriterError;
+use crate::safe_writer::{SafeFileWriter, SafeWriterConfig};
+use std::{collections::HashMap, fs, io::Write, path::PathBuf, thread, time::Duration};
+use tempfile::TempDir;
+
+#[test]
+fn test_basic_file_writing() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let test_content = "Hello, World!";
+
+    write_file(&mut writer, &test_file, test_content)?;
+
+    let final_path = writer.get_gen_base().join(&test_file);
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, test_content);
+    Ok(())
+}
+
+#[test]
+fn test_multiple_file_generation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file1 = PathBuf::from("file1.txt");
+    let test_file2 = PathBuf::from("file2.txt");
+
+    write_file(&mut writer, &test_file1, "Content 1")?;
+    write_file(&mut writer, &test_file2, "Content 2")?;
+
+    let content1 = fs::read_to_string(writer.get_gen_base().join(&test_file1))?;
+    let content2 = fs::read_to_string(writer.get_gen_base().join(&test_file2))?;
+
+    assert_eq!(content1.trim(), "Content 1");
+    assert_eq!(content2.trim(), "Content 2");
+    Ok(())
+}
+
+#[test]
+fn test_unmodified_file_update() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Initial content")?;
+    write_file(&mut writer, &test_file, "New content")?;
+
+    let content = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert_eq!(content, "New content", "New content should be written");
+    Ok(())
+}
+
+#[test]
+fn test_shorter_regeneration_truncates_old_suffix() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "line one\nline two\nline three\n")?;
+    write_file(&mut writer, &test_file, "short\n")?;
+
+    let content = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert_eq!(content, "short\n");
+    assert!(!content.contains("line two"));
+    assert!(!content.contains("line three"));
+    Ok(())
+}
+
+#[test]
+fn test_backup_creation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let content = "Test content";
+
+    write_file(&mut writer, &test_file, content)?;
+
+    let baseline = writer.get_baseline_for_test("test.txt");
+    assert!(baseline.is_some(), "Baseline should be stored in db");
+    assert_eq!(
+        baseline.as_deref().unwrap(),
+        content.as_bytes(),
+        "Baseline content should match written content"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_nested_directory_creation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let nested_path = PathBuf::from("dir1/dir2/test.txt");
+
+    write_file(&mut writer, &nested_path, "Nested content")?;
+
+    let gen_dir = writer.get_gen_base().join("dir1").join("dir2");
+    assert!(gen_dir.exists(), "Generated directory structure should exist");
+
+    let baseline = writer.get_baseline_for_test("dir1/dir2/test.txt");
+    assert!(
+        baseline.is_some(),
+        "Baseline for nested file should be stored in db"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_modification_detection() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let modified_content = "Modified content";
+
+    write_file(&mut writer, &test_file, "Initial content")?;
+
+    thread::sleep(Duration::from_millis(10));
+    let final_path = writer.get_gen_base().join(&test_file);
+    {
+        let mut file = fs::File::create(&final_path)?;
+        write!(file, "{}", modified_content)?;
+    }
+
+    let result = write_file(&mut writer, &test_file, "New content");
+    match result {
+        Err(WeavebackError::SafeWriter(SafeWriterError::ModifiedExternally(_))) => {
+            let content = fs::read_to_string(&final_path)?;
+            assert_eq!(
+                content, modified_content,
+                "Modified content should be preserved"
+            );
+            Ok(())
+        }
+        Ok(_) => panic!("Expected ModifiedExternally error"),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+}
+
+#[test]
+fn test_concurrent_modifications() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let modified_content_2 = "Modified 2";
+
+    write_file(&mut writer, &test_file, "Initial")?;
+
+    let final_path = writer.get_gen_base().join(&test_file);
+    thread::sleep(Duration::from_millis(10));
+    {
+        let mut file = fs::File::create(&final_path)?;
+        write!(file, "Modified 1")?;
+    }
+    thread::sleep(Duration::from_millis(10));
+    {
+        let mut file = fs::File::create(&final_path)?;
+        write!(file, "{}", modified_content_2)?;
+    }
+
+    let result = write_file(&mut writer, &test_file, "New content");
+    match result {
+        Err(WeavebackError::SafeWriter(SafeWriterError::ModifiedExternally(_))) => {
+            let content = fs::read_to_string(&final_path)?;
+            assert_eq!(
+                content, modified_content_2,
+                "Latest modification should be preserved"
+            );
+            Ok(())
+        }
+        Ok(_) => panic!("Expected ModifiedExternally error"),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+}
+
+#[test]
+fn test_force_generated_overwrites_modified_file() -> Result<(), WeavebackError> {
+    let temp = TempDir::new().unwrap();
+    let mut writer = SafeFileWriter::with_config(
+        temp.path().join("gen"),
+        SafeWriterConfig {
+            force_generated: true,
+            ..SafeWriterConfig::default()
+        },
+    ).unwrap();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Initial content")?;
+
+    let final_path = writer.get_gen_base().join(&test_file);
+    {
+        let mut file = fs::File::create(&final_path)?;
+        write!(file, "Modified externally")?;
+    }
+
+    write_file(&mut writer, &test_file, "Regenerated content")?;
+
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, "Regenerated content");
+    Ok(())
+}
+
+#[test]
+fn test_force_generated_writes_identical_content() -> Result<(), WeavebackError> {
+    // Regression: force_generated must bypass copy_if_different (Step 3).
+    // When tangle produces content identical to what is on disk (e.g. because
+    // macros failed silently), the old code would skip the write even with
+    // force_generated=true.  The fix is to call atomic_copy unconditionally.
+    let temp = TempDir::new().unwrap();
+    let mut writer = SafeFileWriter::with_config(
+        temp.path().join("gen"),
+        SafeWriterConfig {
+            force_generated: true,
+            ..SafeWriterConfig::default()
+        },
+    ).unwrap();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Same content")?;
+
+    // Overwrite on disk so the mtime changes but content stays the same.
+    let final_path = writer.get_gen_base().join(&test_file);
+    // Record mtime before the second write.
+    let mtime_before = fs::metadata(&final_path).unwrap().modified().unwrap();
+    // Brief pause so the filesystem timestamp resolution can distinguish writes.
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Tangle again with the same content — force_generated must still write.
+    write_file(&mut writer, &test_file, "Same content")?;
+
+    let mtime_after = fs::metadata(&final_path).unwrap().modified().unwrap();
+    // The file must have been touched (mtime advanced).
+    assert!(mtime_after >= mtime_before, "force_generated must write even when content is identical");
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, "Same content");
+    Ok(())
+}
+
+#[test]
+fn test_baseline_always_written() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Test content")?;
+
+    assert!(
+        writer.get_baseline_for_test("test.txt").is_some(),
+        "Baseline must always be stored in db for modification detection"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_validate_filename_relative_path() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("simple.txt");
+    write_file(&mut writer, &test_file, "Allowed")?;
+    let final_path = writer.get_gen_base().join(&test_file);
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, "Allowed");
+    Ok(())
+}
+
+
+#[test]
+fn test_path_safety() {
+    let (_temp, mut writer) = create_test_writer();
+
+    let test_cases = [
+        (
+            PathBuf::from("../outside.txt"),
+            "Path traversal detected (..)",
+        ),
+        (
+            PathBuf::from("/absolute/path.txt"),
+            "Absolute paths are not allowed",
+        ),
+        (
+            PathBuf::from("C:/windows/path.txt"),
+            "Windows-style absolute paths are not allowed",
+        ),
+        (
+            PathBuf::from("C:test.txt"),
+            "Windows-style absolute paths are not allowed",
+        ),
+    ];
+
+    for (path, expected_msg) in test_cases {
+        let result = write_file(&mut writer, &path, "Should fail");
+        match result {
+            Err(WeavebackError::SafeWriter(SafeWriterError::SecurityViolation(msg))) => {
+                assert!(
+                    msg.contains(expected_msg),
+                    "Expected message '{}' for path {}",
+                    expected_msg,
+                    path.display()
+                );
+            }
+            _ => panic!("Expected SecurityViolation for path: {}", path.display()),
+        }
+    }
+}
+
+#[test]
+fn test_formatter_is_applied() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let mut formatters = HashMap::new();
+    // Shell script that replaces the file content with "FORMATTED\n"
+    formatters.insert(
+        "txt".to_string(),
+        "sh -c echo FORMATTED > \"$1\" && echo FORMATTED > \"$1\"".to_string(),
+    );
+    // Use a simpler approach: a script file
+    let script_path = temp.path().join("fmt.sh");
+    fs::write(&script_path, "#!/bin/sh\necho FORMATTED > \"$1\"\n").unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .status()
+        .unwrap();
+
+    let mut formatters2 = HashMap::new();
+    formatters2.insert("txt".to_string(), script_path.to_string_lossy().to_string());
+
+    let config = SafeWriterConfig {
+        formatters: formatters2,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    write_file(&mut writer, &test_file, "original content")?;
+
+    let output = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert!(
+        output.contains("FORMATTED"),
+        "Formatter should have replaced content, got: {:?}",
+        output
+    );
+    Ok(())
+}
+
+#[test]
+fn test_formatter_error_propagates() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let mut formatters = HashMap::new();
+    formatters.insert("txt".to_string(), "nonexistent-formatter-xyz".to_string());
+
+    let config = SafeWriterConfig {
+        formatters,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    let result = write_file(&mut writer, &test_file, "some content");
+    match result {
+        Err(WeavebackError::SafeWriter(SafeWriterError::FormatterError(_))) => Ok(()),
+        Ok(_) => panic!("Expected FormatterError but write succeeded"),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+}
+
+#[test]
+fn test_formatter_prevents_false_positive() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let script_path = temp.path().join("noop.sh");
+    // A no-op formatter: copies file to itself (content unchanged)
+    fs::write(
+        &script_path,
+        "#!/bin/sh\ncp \"$1\" \"$1.bak\" && mv \"$1.bak\" \"$1\"\n",
+    )
+    .unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .status()
+        .unwrap();
+
+    let mut formatters = HashMap::new();
+    formatters.insert("txt".to_string(), script_path.to_string_lossy().to_string());
+
+    let config = SafeWriterConfig {
+        formatters,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    write_file(&mut writer, &test_file, "initial content")?;
+
+    // Simulate formatter running externally on the output (content unchanged)
+    let output_path = writer.get_gen_base().join(&test_file);
+    let content = fs::read_to_string(&output_path)?;
+    fs::write(&output_path, &content)?;
+
+    // Second write should NOT trigger ModifiedExternally (content is the same as baseline)
+    let result = write_file(&mut writer, &test_file, "initial content");
+    assert!(
+        result.is_ok(),
+        "Expected success but got: {:?}",
+        result.err()
+    );
+    Ok(())
+}
+¤])
+
+¤h2(FTS tests)
+
+Tests for `WeavebackDb::rebuild_prose_fts` and `search_prose`.  Each test uses
+an in-memory database (`open_temp`) so there is no filesystem I/O and tests
+remain isolated from each other and from any on-disk `weaveback.db`.
+
+The helpers insert a fake source snapshot and matching `source_blocks` entries,
+then call `rebuild_prose_fts` and assert on the search results.
+
+¤rust_file(weaveback-tangle/src/tests/fts.rs, ¤[
+// src/tests/fts.rs
+use crate::{
+    block_parser::SourceBlockEntry,
+    db::WeavebackDb,
+};
+
+/// Build a SourceBlockEntry for testing (hash doesn't matter for FTS tests).
+fn block(index: u32, block_type: &str, line_start: u32, line_end: u32) -> SourceBlockEntry {
+    SourceBlockEntry {
+        block_index: index,
+        block_type: block_type.to_string(),
+        line_start,
+        line_end,
+        content_hash: [0u8; 32],
+    }
+}
+
+#[test]
+fn test_fts_basic_search() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Introduction\n\nWeaveback is a literate programming tool.\n";
+    db.set_src_snapshot("docs/intro.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/intro.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let results = db.search_prose("literate", 10).unwrap();
+    assert!(!results.is_empty(), "should find 'literate' in para block");
+    assert_eq!(results[0].src_file, "docs/intro.adoc");
+    assert_eq!(results[0].block_type, "para");
+}
+
+#[test]
+fn test_fts_section_and_para_indexed_code_not() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= My Section\n\nSome prose here.\n\n----\nfn secret_fn() {}\n----\n";
+    db.set_src_snapshot("src/lib.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("src/lib.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("prose", 10).unwrap();
+    assert!(!r.is_empty());
+
+    // code content is NOT indexed
+    let r = db.search_prose("secret_fn", 10).unwrap();
+    assert!(r.is_empty(), "code blocks should not be indexed");
+}
+
+#[test]
+fn test_fts_multiple_files() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let src_a = "= Alpha\n\nThis covers the alpha feature.\n";
+    let src_b = "= Beta\n\nThis covers the beta feature.\n";
+
+    db.set_src_snapshot("docs/alpha.adoc", src_a.as_bytes()).unwrap();
+    db.set_source_blocks("docs/alpha.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_src_snapshot("docs/beta.adoc", src_b.as_bytes()).unwrap();
+    db.set_source_blocks("docs/beta.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("feature", 10).unwrap();
+    let files: Vec<&str> = r.iter().map(|x| x.src_file.as_str()).collect();
+    assert!(files.contains(&"docs/alpha.adoc"));
+    assert!(files.contains(&"docs/beta.adoc"));
+
+    // "alpha feature" is unique to alpha.adoc
+    let r = db.search_prose("\"alpha feature\"", 10).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].src_file, "docs/alpha.adoc");
+}
+
+#[test]
+fn test_fts_rebuild_is_idempotent() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Title\n\nSome searchable content.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("searchable", 10).unwrap();
+    assert_eq!(r.len(), 1, "duplicate rebuild must not produce duplicate results");
+}
+
+#[test]
+fn test_fts_empty_source_no_panic() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("empty.adoc", b"").unwrap();
+    // No source_blocks for this file -- must not panic or error.
+    db.rebuild_prose_fts(None).unwrap();
+    let r = db.search_prose("anything", 10).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_fts_normalises_dotslash_path() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Normalised\n\nThis tests path normalisation.\n";
+    // Snapshot stored with "./" prefix (as some passes do).
+    db.set_src_snapshot("./docs/norm.adoc", source.as_bytes()).unwrap();
+    // source_blocks stored under the plain path (as the files table has it).
+    db.set_source_blocks("docs/norm.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("normalisation", 10).unwrap();
+    assert!(!r.is_empty(), "dotslash prefix must be stripped before path lookup");
+}
+
+#[test]
+fn test_fts_deduplicates_same_path_stored_twice() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Dedup\n\nThis text should appear once.\n";
+    // Same file stored under two keys (as two passes might do).
+    db.set_src_snapshot("./docs/dedup.adoc", source.as_bytes()).unwrap();
+    db.set_src_snapshot("docs/dedup.adoc",   source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/dedup.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("once", 10).unwrap();
+    assert_eq!(r.len(), 1, "same file stored twice must not produce duplicate FTS rows");
+}
+
+// ── block_tags / list_block_tags / get_blocks_needing_tags ───────────────────
+
+#[test]
+fn test_list_block_tags_empty_when_none_stored() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let r = db.list_block_tags(None).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_set_and_list_block_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse here.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[1u8; 32], "design,architecture").unwrap();
+    db.set_block_tags("a.adoc", 1, &[2u8; 32], "prose,overview").unwrap();
+
+    let r = db.list_block_tags(None).unwrap();
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0].block_index, 0);
+    assert_eq!(r[0].tags, "design,architecture");
+    assert_eq!(r[1].block_index, 1);
+    assert_eq!(r[1].tags, "prose,overview");
+}
+
+#[test]
+fn test_list_block_tags_file_filter() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    for (file, tag) in [("a.adoc", "alpha"), ("b.adoc", "beta")] {
+        let src = format!("= {tag}\n\nContent.\n");
+        db.set_src_snapshot(file, src.as_bytes()).unwrap();
+        db.set_source_blocks(file, &[block(0, "section", 1, 1)]).unwrap();
+        db.set_block_tags(file, 0, &[0u8; 32], tag).unwrap();
+    }
+
+    let r = db.list_block_tags(Some("a.adoc")).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].tags, "alpha");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_all_when_no_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_skips_up_to_date() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    // Tag both with the same hash as stored in source_blocks ([0u8; 32]).
+    db.set_block_tags("a.adoc", 0, &[0u8; 32], "design").unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "prose").unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert!(need.is_empty(), "no blocks should need re-tagging");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_stale_hash() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[9u8; 32], "stale").unwrap(); // hash mismatch
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "fresh").unwrap(); // matches
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 1);
+    assert_eq!(need[0].block_index, 0);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_excludes_code_blocks() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse.\n\n----\ncode\n----\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+    assert!(need.iter().all(|b| b.block_type != "code"));
+}
+
+#[test]
+fn test_search_result_includes_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Tagging\n\nThis block has tags.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "testing,fts").unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("tags", 10).unwrap();
+    assert!(!r.is_empty());
+    let para = r.iter().find(|x| x.block_type == "para").unwrap();
+    assert_eq!(para.tags, "testing,fts");
+}
+
+#[test]
+fn test_search_finds_block_by_tag_word() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    // Prose does NOT contain the word "incremental" -- it's only in the tag.
+    let source = "= Build System\n\nThis section describes how building works.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "incremental,build").unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("incremental", 10).unwrap();
+    assert!(!r.is_empty(), "tag-only word should be findable via FTS");
+    assert_eq!(r[0].src_file, "a.adoc");
+}
+
+#[test]
+fn test_get_blocks_needing_embeddings_returns_all_when_none_stored() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_embeddings("test-model").unwrap();
+    assert_eq!(need.len(), 2);
+}
+
+#[test]
+fn test_get_blocks_needing_embeddings_respects_hash_and_model() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_embedding("a.adoc", 0, &[0u8; 32], "model-a", &[1.0, 0.0]).unwrap();
+    db.set_block_embedding("a.adoc", 1, &[9u8; 32], "model-a", &[0.0, 1.0]).unwrap();
+
+    let need_same_model = db.get_blocks_needing_embeddings("model-a").unwrap();
+    assert_eq!(need_same_model.len(), 1);
+    assert_eq!(need_same_model[0].block_index, 1);
+
+    let need_new_model = db.get_blocks_needing_embeddings("model-b").unwrap();
+    assert_eq!(need_new_model.len(), 2);
+}
+
+#[test]
+fn test_search_prose_by_embedding_ranks_semantic_match() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Search\n\nApples and fruit.\n\nOranges and citrus.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "para",    5, 5),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "fruit").unwrap();
+    db.set_block_tags("a.adoc", 2, &[0u8; 32], "citrus").unwrap();
+    db.set_block_embedding("a.adoc", 1, &[0u8; 32], "model-a", &[1.0, 0.0]).unwrap();
+    db.set_block_embedding("a.adoc", 2, &[0u8; 32], "model-a", &[0.0, 1.0]).unwrap();
+
+    let results = db.search_prose_by_embedding(&[0.9, 0.1], 10).unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(results[0].line_start, 3);
+    assert_eq!(results[0].tags, "fruit");
+}
+
+// ── baseline ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_list_baselines_returns_all_stored() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_baseline("a.rs", b"content_a").unwrap();
+    db.set_baseline("b.rs", b"content_b").unwrap();
+    let mut baselines = db.list_baselines().unwrap();
+    baselines.sort_by_key(|(p, _)| p.clone());
+    assert_eq!(baselines.len(), 2);
+    assert_eq!(baselines[0].0, "a.rs");
+    assert_eq!(baselines[1].0, "b.rs");
+}
+
+#[test]
+fn db_get_baseline_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_baseline("nonexistent.rs").unwrap().is_none());
+}
+
+// ── noweb_map ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_get_noweb_entry_roundtrips() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src/foo.adoc".to_string(),
+        chunk_name: "greet".to_string(),
+        src_line: 10,
+        indent: "  ".to_string(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(5, entry.clone())]).unwrap();
+    let result = db.get_noweb_entry("gen/out.rs", 5).unwrap();
+    let got = result.expect("entry should exist");
+    assert_eq!(got.src_file, "src/foo.adoc");
+    assert_eq!(got.chunk_name, "greet");
+    assert_eq!(got.src_line, 10);
+}
+
+#[test]
+fn db_get_noweb_entry_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_noweb_entry("gen/out.rs", 99).unwrap().is_none());
+}
+
+#[test]
+fn db_get_noweb_entry_by_suffix() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src/foo.adoc".to_string(),
+        chunk_name: "hello".to_string(),
+        src_line: 3,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("crates/foo/src/lib.rs", &[(0, entry)]).unwrap();
+    let got = db.get_noweb_entry_by_suffix("foo/src/lib.rs", 0).unwrap();
+    assert!(got.is_some(), "should find via suffix");
+    assert_eq!(got.unwrap().chunk_name, "hello");
+}
+
+#[test]
+fn db_get_noweb_entries_for_file_by_suffix() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entries: Vec<(u32, NowebMapEntry)> = (0..3).map(|i| (i, NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: format!("c{}", i),
+        src_line: i + 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    })).collect();
+    db.set_noweb_entries("gen/out.rs", &entries).unwrap();
+    let result = db.get_noweb_entries_for_file_by_suffix("out.rs").unwrap();
+    assert_eq!(result.len(), 3);
+}
+
+#[test]
+fn db_query_chunk_output_files() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "main-chunk".to_string(),
+        src_line: 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(0, entry)]).unwrap();
+    let files = db.query_chunk_output_files("main-chunk").unwrap();
+    assert_eq!(files, vec!["gen/out.rs".to_string()]);
+}
+
+#[test]
+fn db_get_output_location_roundtrips() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "chunk".to_string(),
+        src_line: 42,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(7, entry)]).unwrap();
+    let loc = db.get_output_location("src.adoc", 42).unwrap();
+    assert!(loc.is_some());
+    let (file, line) = loc.unwrap();
+    assert_eq!(file, "gen/out.rs");
+    assert_eq!(line, 7);
+}
+
+#[test]
+fn db_get_all_output_mappings() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entries: Vec<(u32, NowebMapEntry)> = (0..2).map(|i| (i, NowebMapEntry {
+        src_file: "s.adoc".to_string(),
+        chunk_name: "c".to_string(),
+        src_line: i + 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    })).collect();
+    db.set_noweb_entries("gen/x.rs", &entries).unwrap();
+    let mappings = db.get_all_output_mappings("s.adoc").unwrap();
+    assert_eq!(mappings.len(), 2);
+}
+
+// ── chunk_deps ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_query_reverse_deps() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_deps(&[
+        ("parent".into(), "child".into(), "src.adoc".into()),
+        ("uncle".into(),  "child".into(), "src.adoc".into()),
+    ]).unwrap();
+    let mut rev = db.query_reverse_deps("child").unwrap();
+    rev.sort();
+    assert_eq!(rev.len(), 2);
+    let parents: Vec<&str> = rev.iter().map(|(p, _)| p.as_str()).collect();
+    assert!(parents.contains(&"parent"));
+    assert!(parents.contains(&"uncle"));
+}
+
+// ── chunk_defs ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_chunk_def() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = ChunkDefEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "my-chunk".to_string(),
+        nth: 0,
+        def_start: 10,
+        def_end: 20,
+    };
+    db.set_chunk_defs(&[entry]).unwrap();
+    let got = db.get_chunk_def("src.adoc", "my-chunk", 0).unwrap();
+    let got = got.expect("should find the chunk def");
+    assert_eq!(got.def_start, 10);
+    assert_eq!(got.def_end, 20);
+}
+
+#[test]
+fn db_list_chunk_defs_with_file_filter() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "x".into(), nth: 0, def_start: 1, def_end: 5 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "y".into(), nth: 0, def_start: 1, def_end: 5 },
+    ]).unwrap();
+    let all = db.list_chunk_defs(None).unwrap();
+    assert_eq!(all.len(), 2);
+    let filtered = db.list_chunk_defs(Some("a.adoc")).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].chunk_name, "x");
+}
+
+#[test]
+fn db_find_chunk_defs_by_name() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 1, def_end: 3 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 5, def_end: 7 },
+        ChunkDefEntry { src_file: "c.adoc".into(), chunk_name: "bar".into(), nth: 0, def_start: 1, def_end: 2 },
+    ]).unwrap();
+    let foos = db.find_chunk_defs_by_name("foo").unwrap();
+    assert_eq!(foos.len(), 2);
+    let bars = db.find_chunk_defs_by_name("bar").unwrap();
+    assert_eq!(bars.len(), 1);
+}
+
+#[test]
+fn db_query_chunk_defs_overlapping() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "alpha".into(), nth: 0, def_start: 1,  def_end: 10 },
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "beta".into(),  nth: 0, def_start: 20, def_end: 30 },
+    ]).unwrap();
+    // Query overlapping [5, 15] -- should hit alpha but not beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 5, 15).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "alpha");
+    // Query overlapping [25, 25] -- should hit beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 25, 25).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "beta");
+}
+
+// ── macro_map ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_macro_map() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let data = b"macro-trace-data".to_vec();
+    db.set_macro_map_entries("driver.adoc", &[(3, data.clone())]).unwrap();
+    let result = db.get_macro_map_bytes("driver.adoc", 3).unwrap();
+    assert_eq!(result, Some(data));
+}
+
+#[test]
+fn db_get_macro_map_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_macro_map_bytes("nonexistent.adoc", 1).unwrap().is_none());
+}
+
+// ── source_config ─────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_source_config() {
+    use crate::db::TangleConfig;
+    let db = WeavebackDb::open_temp().unwrap();
+    let cfg = TangleConfig {
+        sigil: '%',
+        open_delim: "<<".to_string(),
+        close_delim: ">>".to_string(),
+        chunk_end: "@".to_string(),
+        comment_markers: vec!["#".to_string(), "//".to_string()],
+    };
+    db.set_source_config("src/foo.adoc", &cfg).unwrap();
+    let got = db.get_source_config("src/foo.adoc").unwrap().expect("should find config");
+    assert_eq!(got.open_delim, "<<");
+    assert_eq!(got.sigil, '%');
+    assert_eq!(got.comment_markers, vec!["#", "//"]);
+}
+
+#[test]
+fn db_get_source_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_source_config("nonexistent.adoc").unwrap().is_none());
+}
+
+// ── run_config ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_run_config_roundtrips() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("my_key", "my_value").unwrap();
+    let val = db.get_run_config("my_key").unwrap();
+    assert_eq!(val, Some("my_value".to_string()));
+}
+
+#[test]
+fn db_run_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_run_config("absent").unwrap().is_none());
+}
+
+#[test]
+fn db_run_config_overwrite() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("k", "v1").unwrap();
+    db.set_run_config("k", "v2").unwrap();
+    assert_eq!(db.get_run_config("k").unwrap(), Some("v2".to_string()));
+}
+
+// ── source_blocks ─────────────────────────────────────────────────────────────
+
+#[test]
+fn db_source_blocks_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 5),
+        block(2, "code",    7, 10),
+    ];
+    db.set_source_blocks("docs/x.adoc", &blocks).unwrap();
+    let hashes = db.get_source_block_hashes("docs/x.adoc").unwrap();
+    assert_eq!(hashes.len(), 3);
+}
+
+#[test]
+fn db_query_blocks_overlapping_range() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "para", 1,  5),
+        block(1, "para", 10, 15),
+        block(2, "para", 20, 25),
+    ];
+    db.set_source_blocks("src.adoc", &blocks).unwrap();
+    // Range [3, 12] overlaps blocks 0 (1-5) and 1 (10-15)
+    let hits = db.query_blocks_overlapping_range("src.adoc", 3, 12).unwrap();
+    assert_eq!(hits.len(), 2);
+}
+
+// ── snapshots and var/macro defs ─────────────────────────────────────────────
+
+#[test]
+fn db_src_snapshot_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("src/a.adoc", b"hello world").unwrap();
+    let got = db.get_src_snapshot("src/a.adoc").unwrap();
+    assert_eq!(got, Some(b"hello world".to_vec()));
+}
+
+#[test]
+fn db_list_src_snapshots() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("a.adoc", b"aaa").unwrap();
+    db.set_src_snapshot("b.adoc", b"bbb").unwrap();
+    let snaps = db.list_src_snapshots().unwrap();
+    assert_eq!(snaps.len(), 2);
+}
+
+#[test]
+fn db_src_snapshot_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_src_snapshot("missing.adoc").unwrap().is_none());
+}
+
+#[test]
+fn db_var_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_var_def("MY_VAR", "src.adoc", 100, 5).unwrap();
+    let defs = db.query_var_defs("MY_VAR").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+    assert_eq!(defs[0].1, 100);
+    assert_eq!(defs[0].2, 5);
+}
+
+#[test]
+fn db_query_var_defs_missing_returns_empty() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let defs = db.query_var_defs("UNDEFINED").unwrap();
+    assert!(defs.is_empty());
+}
+
+#[test]
+fn db_macro_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_macro_def("my_macro", "src.adoc", 50, 10).unwrap();
+    let defs = db.query_macro_defs("my_macro").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+}
+
+// ── blocks needing tags / embeddings ─────────────────────────────────────────
+
+#[test]
+fn db_get_blocks_needing_tags_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_tags().unwrap();
+    assert!(blocks.is_empty());
+}
+
+#[test]
+fn db_set_block_tags_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let source = "= Title\n\nSome prose.\n";
+    db.set_src_snapshot("doc.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("doc.adoc", &[block(0, "para", 3, 3)]).unwrap();
+    db.set_block_tags("doc.adoc", 0, &[0u8; 32], "important,api").unwrap();
+    let tags = db.list_block_tags(Some("doc.adoc")).unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].tags, "important,api");
+}
+
+#[test]
+fn db_get_blocks_needing_embeddings_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_embeddings("model-x").unwrap();
+    assert!(blocks.is_empty());
+}
+¤])

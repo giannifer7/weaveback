@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/utils.rs
 use crate::safe_writer::SafeWriterConfig;
 use crate::{WeavebackError, SafeFileWriter};
@@ -26,3 +29,4 @@ pub(crate) fn write_file(
     writer.after_write(path)?;
     Ok(())
 }
+

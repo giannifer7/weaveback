@@ -1,3 +1,6 @@
+// weaveback-tangle/src/tests/common.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/tests/common.rs
 use crate::*;
 use std::fs;
@@ -113,3 +116,4 @@ pub(crate) const EMPTY_CHUNK: &str = r#"
 # <<empty>>=
 # @
 "#;
+

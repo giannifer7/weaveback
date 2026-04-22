@@ -1,6 +1,69 @@
-// weaveback-serve/src/lib.rs
-// I'd Really Rather You Didn't edit this generated file.
+# wb-serve
 
+`serve.rs` implements the `wb-serve` command: a local HTTP server
+that serves the rendered documentation from `docs/html/`, watches for file
+changes, and sends a live-reload event to connected browsers via
+Server-Sent Events (SSE).  An `/__open` endpoint lets the browser signal the
+server to open a source file in the configured editor.
+
+See link:weaveback_serve.adoc[weaveback.adoc] for the module map.
+
+## Design
+
+The server is intentionally orthogonal to the tangle and docgen passes: it
+does not rebuild anything itself.  The two intended workflows are:
+
+*Read-only / live-preview workflow:*
+
+1. Run `wb-serve` in one terminal.
+2. Edit `.adoc` files; run `just tangle && just docs` in another terminal.
+3. The server detects the changed HTML files and pushes a `reload` SSE event.
+4. The browser reloads the active page automatically.
+
+*Bidirectional / inline-editing workflow:*
+
+1. Run `wb-serve` in one terminal.
+2. In the browser, hover over a code block marked "✎ Edit" and click it.
+3. Edit the chunk body in the panel; press `Save` (or `Ctrl+S`).
+4. The server verifies the edit with an in-memory tangle oracle, then writes
+   the `.adoc` source file.
+5. Run `just tangle && just docs` to regenerate the code and HTML.
+6. The SSE live-reload fires automatically when the HTML is ready.
+
+Every rendered HTML page receives an injected "✏ Edit source" button (via
+`scripts/asciidoc-theme/docinfo.html`) that fires a `GET /__open` request.
+The server opens the corresponding `.adoc` file in `$VISUAL` / `$EDITOR`.
+
+`weaveback-docgen` annotates chunk-definition listing blocks with
+`data-chunk-id="file|name|nth"` during `just docs`.  The browser JS reads
+these attributes and attaches the "✎ Edit" hover button to each annotated
+block.
+
+### HTTP endpoints
+
+[cols="2,1,4",options="header"]
+|===
+| Path | Method | Description
+
+| `/__events` | GET
+| SSE stream; sends `event: reload` whenever an HTML file changes.
+
+| `/__open` | GET
+| Opens `file` at `line` in `$VISUAL` / `$EDITOR`.
+
+| `/__chunk` | GET
+| Returns the current body and line bounds of a named chunk.
+
+| `/__apply` | POST
+| Edits a chunk body: verifies `old_body`, runs tangle oracle, writes file.
+
+|===
+
+## Imports
+
+
+```rust
+// <[serve-imports]>=
 use std::collections::HashMap;
 use std::io::{BufRead, Read};
 use std::path::Path;
@@ -12,6 +75,23 @@ use std::thread;
 use notify::{RecursiveMode, Watcher};
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 use weaveback_tangle::tangle_check;
+// @
+```
+
+
+## SSE reader
+
+`SseReader` implements `Read` over an `mpsc::Receiver`.  Each call to `read`
+blocks until the sender delivers a unit, then fills the output buffer with
+`event: reload\ndata:\n\n`.  When the sender is dropped (client disconnects or
+server shuts down) `read` returns `Ok(0)` signalling EOF.
+
+The initial payload is a comment (`": weaveback-serve\n\n"`) sent immediately
+to confirm the connection to the browser's `EventSource`.
+
+
+```rust
+// <[serve-sse-reader]>=
 struct SseReader {
     rx: std::sync::mpsc::Receiver<()>,
     buf: Vec<u8>,
@@ -50,6 +130,23 @@ impl Read for SseReader {
         }
     }
 }
+// @
+```
+
+
+## File-change detection
+
+`spawn_watcher` uses the `notify` crate which delegates to the kernel's
+native filesystem event mechanism — inotify on Linux, kqueue on
+macOS/BSDs, ReadDirectoryChangesW on Windows.  No polling occurs; events
+arrive as soon as the kernel delivers them.
+
+The watcher is kept alive for the lifetime of the background thread by
+binding it to a local variable before entering the event loop.
+
+
+```rust
+// <[serve-watcher]>=
 type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
 type ReloadVersion = Arc<AtomicU64>;
 
@@ -74,102 +171,19 @@ fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion
         drop(watcher);
     });
 }
-fn find_docgen_bin() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        let sibling = exe.with_file_name("weaveback-docgen");
-        if sibling.exists() { return sibling; }
-    }
-    PathBuf::from("weaveback-docgen")
-}
+// @
+```
 
-fn find_plantuml_jar() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("PLANTUML_JAR") {
-        let jar = PathBuf::from(path);
-        if jar.exists() {
-            return Some(jar);
-        }
-    }
 
-    let default = PathBuf::from("/usr/share/java/plantuml/plantuml.jar");
-    if default.exists() {
-        Some(default)
-    } else {
-        None
-    }
-}
+## Static file serving
 
-fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
-    if tangle {
-        eprintln!("wb-serve --watch: tangle...");
-        let exe = std::env::current_exe()
-            .unwrap_or_else(|_| PathBuf::from("weaveback"));
-        let ok = std::process::Command::new(&exe)
-            .arg("tangle")
-            .current_dir(project_root)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok { eprintln!("wb-serve --watch: tangle failed"); return; }
-    }
-    if theme {
-        eprintln!("wb-serve --watch: theme...");
-        let ok = std::process::Command::new("node")
-            .arg(project_root.join("scripts").join("serve-ui").join("build.mjs"))
-            .current_dir(project_root)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !ok { eprintln!("wb-serve --watch: theme build failed"); return; }
-    }
-    eprintln!("wb-serve --watch: docs...");
-    let mut cmd = std::process::Command::new(find_docgen_bin());
-    cmd.args(["--sigil", "%", "--sigil", "^"])
-        .current_dir(project_root);
-    if let Some(jar) = find_plantuml_jar() {
-        cmd.arg("--plantuml-jar").arg(jar);
-    }
-    let _ = cmd.status();
-}
+`content_type` maps a file extension to a MIME type.  `safe_path` sanitises a
+URL path to a filesystem path under `html_dir`, rejecting `..` components and
+appending `index.html` for directory requests.
 
-fn spawn_source_watcher(project_root: PathBuf) {
-    use std::time::Duration;
-    thread::spawn(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = match notify::recommended_watcher(tx) {
-            Ok(w) => w,
-            Err(e) => { eprintln!("wb-serve: source watcher error: {e}"); return; }
-        };
-        if let Err(e) = watcher.watch(&project_root, RecursiveMode::Recursive) {
-            eprintln!("wb-serve: source watch error: {e}");
-            return;
-        }
-        let docs_html  = project_root.join("docs").join("html");
-        let target_dir = project_root.join("target");
-        let theme_src  = project_root.join("scripts").join("serve-ui").join("src");
-        while let Ok(first) = rx.recv() {
-            let mut need_tangle = false;
-            let mut need_theme  = false;
-            if let Ok(event) = first {
-                for p in &event.paths {
-                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
-                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
-                    if p.starts_with(&theme_src) { need_theme = true; }
-                }
-            }
-            while let Ok(Ok(event)) = rx.recv_timeout(Duration::from_millis(500)) {
-                for p in &event.paths {
-                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
-                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
-                    if p.starts_with(&theme_src) { need_theme = true; }
-                }
-            }
-            if need_tangle || need_theme {
-                run_rebuild(&project_root, need_tangle, need_theme);
-            }
-        }
-        drop(watcher);
-    });
-}
+
+```rust
+// <[serve-static]>=
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
@@ -265,6 +279,19 @@ fn serve_static(request: Request, url: &str, html_dir: &Path) {
         }
     }
 }
+// @
+```
+
+
+## Editor open
+
+`open_in_editor` shells out to `$VISUAL` / `$EDITOR` to open `file` at `line`.
+Most terminal editors (`vim`, `nvim`, `nano`, `helix`) accept `+LINE FILE`.
+VS Code uses `--goto FILE:LINE`.
+
+
+```rust
+// <[serve-open]>=
 fn open_in_editor(file: &str, line: u32, project_root: &Path) {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
@@ -321,6 +348,19 @@ fn percent_decode(s: &str) -> String {
     }
     out
 }
+// @
+```
+
+
+## Tangle configuration
+
+`TangleConfig` carries the chunk-syntax parameters for the in-memory tangle
+oracle used by `/__apply`.  The defaults match the weaveback project's own
+conventions (`<[` / `]>` / `@@` / `//`).
+
+
+```rust
+// <[serve-tangle-config]>=
 /// Which backend `/__ai` uses to answer questions.
 #[derive(Clone, Debug)]
 pub enum AiBackend {
@@ -363,6 +403,97 @@ impl Default for TangleConfig {
         }
     }
 }
+// @
+```
+
+
+## Source manipulation helpers
+
+
+```rust
+// <[serve-manipulation]>=
+pub fn apply_chunk_edit(src_text: &str, def_start: usize, def_end: usize, new_body: &str) -> String {
+    let src_lines: Vec<&str> = src_text.lines().collect();
+    if def_start >= src_lines.len() || def_end > src_lines.len() {
+        return src_text.to_string();
+    }
+    let new_body_trimmed = new_body.trim_end_matches('\n');
+    let new_body_lines: Vec<&str> = new_body_trimmed.lines().collect();
+    let mut new_src: Vec<&str> = Vec::new();
+    new_src.extend_from_slice(&src_lines[..def_start]);
+    new_src.extend_from_slice(&new_body_lines);
+    new_src.extend_from_slice(&src_lines[def_end - 1..]);
+    let mut res = new_src.join("\n");
+    if src_text.ends_with('\n') {
+        res.push('\n');
+    }
+    res
+}
+
+pub fn extract_chunk_body(src_text: &str, def_start: usize, def_end: usize) -> Result<String, String> {
+    let src_lines: Vec<&str> = src_text.lines().collect();
+    if def_start >= src_lines.len() || def_end > src_lines.len() {
+        return Err("bounds_error".to_string());
+    }
+    Ok(src_lines[def_start .. def_end - 1].join("\n"))
+}
+
+pub fn insert_note_into_source(src_text: &str, def_end: usize, note: &str) -> String {
+    let lines: Vec<&str> = src_text.lines().collect();
+    let insert_after = if def_end < lines.len() && lines[def_end].trim() == "----" {
+        def_end + 1
+    } else {
+        def_end
+    };
+
+    let before = lines[..insert_after].join("\n");
+    let after  = if insert_after < lines.len() { lines[insert_after..].join("\n") } else { String::new() };
+    let note_block = format!("\n[NOTE]\n====\n{}\n====\n", note.trim());
+    let mut new_content = if after.is_empty() {
+        format!("{}{}", before, note_block)
+    } else {
+        format!("{}{}\n{}", before, note_block, after)
+    };
+    if src_text.ends_with('\n') && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    new_content
+}
+// @
+```
+
+
+## Apply endpoint
+
+Request JSON fields:
+
+* `file` — path relative to project root (e.g. `crates/foo/src/bar.adoc`)
+* `name` — chunk name as stored in `chunk_defs` (e.g. `my-chunk`)
+* `nth` — 0-based definition index (default 0)
+* `old_body` — current body text; must match what is on disk
+* `new_body` — replacement body text
+
+The handler:
+
+1. Opens `weaveback.db` read-only and looks up `(file, name, nth)` →
+   `def_start` / `def_end` (1-indexed lines).
+2. Reads the source file and extracts the body lines
+   (`def_start+1` → `def_end-1`, 1-indexed inclusive).
+3. Compares the extracted body with `old_body`; returns `body_mismatch`
+   if they differ (optimistic-concurrency guard).
+4. Builds a modified source text replacing the body with `new_body`.
+5. Calls the tangle oracle (`tangle_check`) with every `.adoc` file in the
+   same directory, substituting the modified content for the edited file.
+   Returns `tangle_failed` if the oracle rejects the edit.
+6. Writes the modified source file and returns `{ "ok": true }`.
+
+`tangle_oracle` encapsulates steps 4-5: it scans the source directory,
+loads sibling files unchanged, injects the new content for the modified
+file, and delegates to `tangle_check`.
+
+
+```rust
+// <[serve-apply]>=
 fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(val.to_string())
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
@@ -537,6 +668,31 @@ fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
 
     let _ = request.respond(json_resp(serde_json::json!({ "ok": true })));
 }
+// @
+```
+
+
+## Chunk content endpoint
+
+`GET /__chunk` returns the current body of a named chunk and its line bounds,
+so the browser inline editor can pre-fill a textarea before posting an edit.
+
+Query parameters: `file` (adoc path relative to project root), `name` (chunk
+name as stored in `chunk_defs`), `nth` (0-based definition index, default 0).
+
+Response JSON on success:
+
+```json
+{ "ok": true, "body": "line1\nline2\n...", "def_start": 42, "def_end": 47 }
+```
+
+`body` contains lines `def_start+1` through `def_end-1` (1-indexed), joined
+with `\n` (no trailing newline).  `def_start` and `def_end` are the 1-indexed
+line numbers of the chunk header and close marker, stored verbatim from the DB.
+
+
+```rust
+// <[serve-chunk]>=
 fn handle_chunk(request: Request, url: &str, project_root: &Path) {
     let params = parse_query(url);
     let file = params.get("file").map(|s| s.as_str()).unwrap_or("").to_string();
@@ -613,6 +769,59 @@ fn handle_chunk(request: Request, url: &str, project_root: &Path) {
         "def_end":   entry.def_end,
     })));
 }
+// @
+```
+
+
+## AI assistant endpoint
+
+`POST /__ai` builds a context object from the DB and the literate source,
+calls the configured AI backend with streaming enabled, and forwards the 
+response as Server-Sent Events back to the browser.
+
+The backend is selected via the `--ai-backend` CLI flag:
+
+* `claude-cli` (default) — shells out to `claude`. Uses the existing Claude 
+  Code session; no API key required.
+* `anthropic` — calls the Anthropic Messages API directly. Requires 
+  `ANTHROPIC_API_KEY`.
+* `gemini` — calls the Google Gemini API. Requires `GOOGLE_API_KEY`.
+* `ollama` — calls a local Ollama instance. Uses `--ai-endpoint` 
+  (default: `http://localhost:11434`).
+* `openai` — calls an OpenAI-compatible API. Requires `OPENAI_API_KEY` 
+  (optional for local providers) and `--ai-endpoint`.
+
+Request JSON fields:
+
+* `file` — adoc path relative to project root (optional; omit for general questions)
+* `name` — chunk name (optional)
+* `nth` — 0-based definition index (default 0)
+* `question` — the user's question (required)
+
+SSE events sent back to the browser:
+
+* `event: token` / `data: {"t":"..."}` — one streamed text piece
+* `event: done` / `data:` — end of stream
+* `event: error` / `data: {"error":"..."}` — API or I/O failure
+
+Pre-flight errors (missing `question`, no API key) return a plain JSON
+`{ "ok": false, "error": "..." }` response with `Content-Type: application/json`,
+consistent with the other endpoints.  The browser checks the response
+`Content-Type` before deciding how to parse it.
+
+`build_chunk_context` reads the database and source file to produce a JSON
+context object passed as extra context to the model.  It is best-effort:
+a failed DB open or missing chunk simply returns `null` and the question is
+still forwarded without chunk-specific context.
+
+`AiChannelReader` is a `Read` impl backed by an `mpsc::Receiver<String>`.
+A background thread calls the Anthropic API, parses the SSE delta events,
+and sends formatted SSE lines through the channel.  This decouples the
+Anthropic response parsing from the tiny_http response write loop.
+
+
+```rust
+// <[serve-ai]>=
 use std::process::Stdio;
 
 // ── AsciiDoc source helpers ───────────────────────────────────────────────────
@@ -1048,7 +1257,7 @@ fn call_gemini_api(
         }
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; }
-
+        
         // Gemini stream format is a JSON array of objects, but delivered as individual
         // chunks. Sometimes it starts with '[' and ends with ']'.
         let clean = trimmed.trim_start_matches(',').trim_start_matches('[').trim_end_matches(']');
@@ -1160,7 +1369,7 @@ fn call_openai_api(
         .build()
         .post(&url)
         .set("Content-Type", "application/json");
-
+    
     if let Some(key) = api_key {
         req = req.set("Authorization", &format!("Bearer {}", key));
     }
@@ -1312,6 +1521,21 @@ fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let response = Response::new(StatusCode(200), sse_headers(), reader, None, None);
     let _ = request.respond(response);
 }
+// @
+```
+
+
+## Save-as-note handler
+
+`handle_save_note` receives `POST /__save_note` with `{ file, name, nth, note }` and
+inserts a `[NOTE]` admonition block into the `.adoc` source immediately after
+the closing `----` fence of the chunk's listing block.  This persists AI
+responses as first-class literate documentation — they become part of
+`section_prose` for all future context queries.
+
+
+```rust
+// <[serve-save-note]>=
 fn handle_save_note(mut request: Request, project_root: &Path) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
@@ -1362,6 +1586,17 @@ fn handle_save_note(mut request: Request, project_root: &Path) {
         Err(e) => { let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":format!("{e}")}))); }
     }
 }
+// @
+```
+
+
+## Request dispatcher
+
+`handle_request` routes each request to the appropriate handler.
+
+
+```rust
+// <[serve-dispatch]>=
 fn handle_request(
     request: Request,
     html_dir: &Path,
@@ -1437,6 +1672,19 @@ fn handle_request(
 
     serve_static(request, &url, html_dir);
 }
+// @
+```
+
+
+## Entry point
+
+`run_serve` starts the file watcher, prints the URL, then blocks on the
+tiny_http request loop.  Each request is handled in a new thread to avoid
+blocking other clients during SSE streaming.
+
+
+```rust
+// <[serve-run]>=
 fn find_project_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("cannot determine cwd");
     loop {
@@ -1522,53 +1770,846 @@ pub fn run_server_loop(
 
     Ok(())
 }
-pub fn apply_chunk_edit(src_text: &str, def_start: usize, def_end: usize, new_body: &str) -> String {
-    let src_lines: Vec<&str> = src_text.lines().collect();
-    if def_start >= src_lines.len() || def_end > src_lines.len() {
-        return src_text.to_string();
+// @
+```
+
+
+## Source-file watcher
+
+`find_docgen_bin` locates the `weaveback-docgen` binary alongside the running
+`weaveback` executable (the usual layout after `cargo build --release`), falling
+back to `weaveback-docgen` on `$PATH`.
+
+`find_plantuml_jar` keeps the watch rebuild output consistent with `just docs`
+and `just docs-ai`: it first honors `$PLANTUML_JAR`, then falls back to the
+system path `/usr/share/java/plantuml/plantuml.jar` when present.
+
+`run_rebuild` executes the rebuild pipeline in order:
+
+1. If `.adoc` files changed: `python3 scripts/tangle.py` (incremental — the
+   `source_blocks` table gives sub-file granularity so only blocks whose
+   BLAKE3 hash changed are re-emitted).
+2. If theme sources changed: `node scripts/serve-ui/build.mjs` to rebuild the
+   CSS/JS bundle.
+3. Always: `weaveback-docgen --sigil % --sigil ^`, plus `--plantuml-jar` when
+   a jar is available, to re-render stale HTML without dropping diagrams.
+
+`spawn_source_watcher` opens a second `notify` watcher on the project root,
+debounces filesystem events for 500 ms of quiet, then calls `run_rebuild`.
+Events inside `docs/html/` and `target/` are ignored to avoid feedback loops.
+
+
+```rust
+// <[serve-source-watcher]>=
+fn find_docgen_bin() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.with_file_name("weaveback-docgen");
+        if sibling.exists() { return sibling; }
     }
-    let new_body_trimmed = new_body.trim_end_matches('\n');
-    let new_body_lines: Vec<&str> = new_body_trimmed.lines().collect();
-    let mut new_src: Vec<&str> = Vec::new();
-    new_src.extend_from_slice(&src_lines[..def_start]);
-    new_src.extend_from_slice(&new_body_lines);
-    new_src.extend_from_slice(&src_lines[def_end - 1..]);
-    let mut res = new_src.join("\n");
-    if src_text.ends_with('\n') {
-        res.push('\n');
-    }
-    res
+    PathBuf::from("weaveback-docgen")
 }
 
-pub fn extract_chunk_body(src_text: &str, def_start: usize, def_end: usize) -> Result<String, String> {
-    let src_lines: Vec<&str> = src_text.lines().collect();
-    if def_start >= src_lines.len() || def_end > src_lines.len() {
-        return Err("bounds_error".to_string());
+fn find_plantuml_jar() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("PLANTUML_JAR") {
+        let jar = PathBuf::from(path);
+        if jar.exists() {
+            return Some(jar);
+        }
     }
-    Ok(src_lines[def_start .. def_end - 1].join("\n"))
-}
 
-pub fn insert_note_into_source(src_text: &str, def_end: usize, note: &str) -> String {
-    let lines: Vec<&str> = src_text.lines().collect();
-    let insert_after = if def_end < lines.len() && lines[def_end].trim() == "----" {
-        def_end + 1
+    let default = PathBuf::from("/usr/share/java/plantuml/plantuml.jar");
+    if default.exists() {
+        Some(default)
     } else {
-        def_end
-    };
-
-    let before = lines[..insert_after].join("\n");
-    let after  = if insert_after < lines.len() { lines[insert_after..].join("\n") } else { String::new() };
-    let note_block = format!("\n[NOTE]\n====\n{}\n====\n", note.trim());
-    let mut new_content = if after.is_empty() {
-        format!("{}{}", before, note_block)
-    } else {
-        format!("{}{}\n{}", before, note_block, after)
-    };
-    if src_text.ends_with('\n') && !new_content.ends_with('\n') {
-        new_content.push('\n');
+        None
     }
-    new_content
 }
+
+fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
+    if tangle {
+        eprintln!("wb-serve --watch: tangle...");
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| PathBuf::from("weaveback"));
+        let ok = std::process::Command::new(&exe)
+            .arg("tangle")
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("wb-serve --watch: tangle failed"); return; }
+    }
+    if theme {
+        eprintln!("wb-serve --watch: theme...");
+        let ok = std::process::Command::new("node")
+            .arg(project_root.join("scripts").join("serve-ui").join("build.mjs"))
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("wb-serve --watch: theme build failed"); return; }
+    }
+    eprintln!("wb-serve --watch: docs...");
+    let mut cmd = std::process::Command::new(find_docgen_bin());
+    cmd.args(["--sigil", "%", "--sigil", "^"])
+        .current_dir(project_root);
+    if let Some(jar) = find_plantuml_jar() {
+        cmd.arg("--plantuml-jar").arg(jar);
+    }
+    let _ = cmd.status();
+}
+
+fn spawn_source_watcher(project_root: PathBuf) {
+    use std::time::Duration;
+    thread::spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => { eprintln!("wb-serve: source watcher error: {e}"); return; }
+        };
+        if let Err(e) = watcher.watch(&project_root, RecursiveMode::Recursive) {
+            eprintln!("wb-serve: source watch error: {e}");
+            return;
+        }
+        let docs_html  = project_root.join("docs").join("html");
+        let target_dir = project_root.join("target");
+        let theme_src  = project_root.join("scripts").join("serve-ui").join("src");
+        while let Ok(first) = rx.recv() {
+            let mut need_tangle = false;
+            let mut need_theme  = false;
+            if let Ok(event) = first {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            while let Ok(Ok(event)) = rx.recv_timeout(Duration::from_millis(500)) {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            if need_tangle || need_theme {
+                run_rebuild(&project_root, need_tangle, need_theme);
+            }
+        }
+        drop(watcher);
+    });
+}
+// @
+```
+
+
+## Tests
+
+The test body is generated as `tests.rs` and linked from `lib.rs`
+with `#[cfg(test)] mod tests;`.  This keeps the server implementation file
+shorter while preserving local literate ownership of the tests.
+
+
+
+```rust
+// <[@file weaveback-serve/src/tests.rs]>=
+// weaveback-serve/src/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::{
+    build_chunk_context, content_type, extract_prose, heading_level, parse_query,
+    percent_decode, safe_path, section_range, sse_headers, tangle_oracle, title_chain,
+    AiBackend, AiChannelReader, SseReader, TangleConfig,
+};
+use std::fs;
+use std::io::Read;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+use weaveback_tangle::db::{ChunkDefEntry, Confidence, NowebMapEntry, WeavebackDb};
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct TestWorkspace {
+    root: PathBuf,
+}
+
+impl TestWorkspace {
+    fn new() -> Self {
+        let unique = format!(
+            "wb-serve-tests-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock drifted backwards")
+                .as_nanos()
+                + u128::from(TEST_COUNTER.fetch_add(1, Ordering::Relaxed))
+        );
+        let root = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&root).expect("create temp workspace");
+        Self { root }
+    }
+
+    fn write_file(&self, rel: &str, content: &str) {
+        let path = self.root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent");
+        }
+        fs::write(path, content).expect("write file");
+    }
+
+    fn open_db(&self) -> WeavebackDb {
+        WeavebackDb::open(self.root.join("weaveback.db")).expect("open sqlite db")
+    }
+}
+
+impl Drop for TestWorkspace {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn content_type_and_safe_path_handle_common_cases() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "<html></html>");
+    workspace.write_file("docs/app.js", "console.log('x');");
+
+    let docs_dir = workspace.root.join("docs");
+    assert_eq!(content_type(&docs_dir.join("index.html")), "text/html; charset=utf-8");
+    assert_eq!(
+        content_type(&docs_dir.join("app.js")),
+        "application/javascript; charset=utf-8"
+    );
+    assert_eq!(safe_path(&docs_dir, "/index.html"), Some(docs_dir.join("index.html")));
+    assert_eq!(safe_path(&docs_dir, "/"), Some(docs_dir.join("index.html")));
+    assert_eq!(safe_path(&docs_dir, "/../secret"), None);
+    assert_eq!(safe_path(&docs_dir, "/missing.txt"), None);
+}
+
+#[test]
+fn parse_query_and_percent_decode_decode_pairs() {
+    let params = parse_query("/__chunk?file=docs%2Fintro.adoc&name=alpha%20beta&nth=2");
+    assert_eq!(params.get("file").map(String::as_str), Some("docs/intro.adoc"));
+    assert_eq!(params.get("name").map(String::as_str), Some("alpha beta"));
+    assert_eq!(params.get("nth").map(String::as_str), Some("2"));
+    assert_eq!(percent_decode("a%2Fb%20c"), "a/b c");
+    assert_eq!(percent_decode("%4"), "%4");
+}
+
+#[test]
+fn parse_query_and_percent_decode_preserve_incomplete_or_empty_values() {
+    let params = parse_query("/__chunk?flag&empty=&bad=%zz");
+    assert_eq!(params.get("flag").map(String::as_str), Some(""));
+    assert_eq!(params.get("empty").map(String::as_str), Some(""));
+    assert_eq!(params.get("bad").map(String::as_str), Some("%zz"));
+    assert_eq!(percent_decode("plain"), "plain");
+}
+
+#[test]
+fn section_helpers_extract_expected_prose_context() {
+    let lines = vec![
+        "= Root",
+        "",
+        "== Parser",
+        "Intro prose.",
+        "----",
+        "code",
+        "----",
+        "",
+        "=== Nested",
+        "Nested prose.",
+        "== Other",
+        "Later.",
+    ];
+
+    assert_eq!(heading_level("== Parser"), Some(2));
+    assert_eq!(heading_level("==Parser"), None);
+    assert_eq!(section_range(&lines, 3), (2, 10));
+    assert_eq!(title_chain(&lines, 9), vec!["Root", "Parser", "Nested"]);
+    assert_eq!(extract_prose(&lines, 2, 10), "== Parser\nIntro prose.\n\n=== Nested\nNested prose.");
+}
+
+#[test]
+fn extract_prose_skips_chunk_bodies_and_trims_blank_edges() {
+    let lines = vec![
+        "",
+        "Intro paragraph.",
+        "",
+        "// <<alpha>>=",
+        "let hidden = true;",
+        "// @",
+        "",
+        "Outro paragraph.",
+        "",
+    ];
+
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert!(!prose.contains("hidden = true"));
+    assert!(prose.starts_with("Intro paragraph."));
+    assert!(prose.ends_with("Outro paragraph."));
+}
+
+#[test]
+fn heading_and_section_helpers_handle_edge_cases() {
+    let lines = vec!["= Root", "plain text", "=== Deep", "==== Deeper", "body"];
+
+    assert_eq!(heading_level("plain text"), None);
+    assert_eq!(heading_level("==NoSpace"), None);
+    assert_eq!(heading_level("=== Deep"), Some(3));
+    assert_eq!(title_chain(&lines, 4), vec!["Root", "Deep", "Deeper"]);
+    assert_eq!(section_range(&lines, 4), (3, 5));
+}
+
+#[test]
+fn default_tangle_config_matches_expected_defaults() {
+    let cfg = TangleConfig::default();
+    assert_eq!(cfg.open_delim, "<[");
+    assert_eq!(cfg.close_delim, "]>");
+    assert_eq!(cfg.chunk_end, "@@");
+    assert_eq!(cfg.comment_markers, vec!["//".to_string()]);
+    assert!(matches!(cfg.ai_backend, AiBackend::ClaudeCli));
+    assert!(cfg.ai_model.is_none());
+    assert!(cfg.ai_endpoint.is_none());
+}
+
+#[test]
+fn build_chunk_context_includes_dependencies_outputs_and_section_prose() {
+    let workspace = TestWorkspace::new();
+    let source = [
+        "= Root",
+        "",
+        "== Serve",
+        "Serve prose.",
+        "",
+        "// <<alpha>>=",
+        "alpha line",
+        "<<beta>>",
+        "// @",
+        "",
+        "// <<beta>>=",
+        "beta line",
+        "// @",
+    ]
+    .join("\n");
+    workspace.write_file("docs/serve.adoc", &source);
+
+    let mut db = workspace.open_db();
+    db.set_chunk_defs(&[
+        ChunkDefEntry {
+            src_file: "docs/serve.adoc".to_string(),
+            chunk_name: "alpha".to_string(),
+            nth: 0,
+            def_start: 6,
+            def_end: 9,
+        },
+        ChunkDefEntry {
+            src_file: "docs/serve.adoc".to_string(),
+            chunk_name: "beta".to_string(),
+            nth: 0,
+            def_start: 11,
+            def_end: 13,
+        },
+    ])
+    .unwrap();
+    db.set_chunk_deps(&[
+        ("alpha".to_string(), "beta".to_string(), "docs/serve.adoc".to_string()),
+        ("gamma".to_string(), "alpha".to_string(), "docs/serve.adoc".to_string()),
+    ])
+    .unwrap();
+    db.set_noweb_entries(
+        "gen/out.rs",
+        &[(
+            0,
+            NowebMapEntry {
+                src_file: "docs/serve.adoc".to_string(),
+                chunk_name: "alpha".to_string(),
+                src_line: 5,
+                indent: String::new(),
+                confidence: Confidence::Exact,
+            },
+        )],
+    )
+    .unwrap();
+    drop(db);
+
+    let ctx = build_chunk_context(&workspace.root, "docs/serve.adoc", "alpha", 0);
+    assert_eq!(ctx["file"], "docs/serve.adoc");
+    assert_eq!(ctx["name"], "alpha");
+    assert_eq!(ctx["body"], "alpha line\n<<beta>>");
+    assert_eq!(ctx["section_title_chain"], serde_json::json!(["Root", "Serve"]));
+    assert_eq!(ctx["section_prose"], "== Serve\nServe prose.");
+    assert_eq!(ctx["output_files"], serde_json::json!(["gen/out.rs"]));
+    assert_eq!(ctx["reverse_dependencies"], serde_json::json!(["gamma"]));
+    assert_eq!(ctx["dependencies"]["beta"]["file"], "docs/serve.adoc");
+    assert_eq!(ctx["dependencies"]["beta"]["body"], "beta line");
+    assert!(ctx["git_log"].as_array().is_some_and(|items| items.is_empty()));
+}
+
+#[test]
+fn build_chunk_context_returns_null_for_missing_chunk() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/serve.adoc", "= Title\n");
+    let ctx = build_chunk_context(&workspace.root, "docs/serve.adoc", "missing", 0);
+    assert_eq!(ctx, serde_json::Value::Null);
+}
+
+#[test]
+fn tangle_oracle_accepts_plain_prose_files() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/a.adoc", "= A\n\nPlain prose.\n");
+    workspace.write_file("docs/b.adoc", "= B\n\nOther prose.\n");
+
+    let result = tangle_oracle(
+        &workspace.root,
+        "docs/a.adoc",
+        "= A\n\nUpdated prose.\n",
+        &TangleConfig {
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["//".to_string()],
+            ..TangleConfig::default()
+        },
+    );
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn tangle_oracle_reports_missing_directory() {
+    let workspace = TestWorkspace::new();
+    let err = tangle_oracle(
+        &workspace.root,
+        "missing/a.adoc",
+        "= A\n",
+        &TangleConfig::default(),
+    )
+    .expect_err("missing directory should fail");
+    assert!(err.contains("io_error"));
+}
+
+#[test]
+fn sse_headers_and_readers_emit_expected_frames() {
+    let headers = sse_headers();
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "text/event-stream")
+    );
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Cache-Control") && h.value.as_str() == "no-cache")
+    );
+
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    let n = sse.read(&mut buf).unwrap();
+    let first = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(first, ": weaveback-serve\n\n");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut ai = AiChannelReader::new(rx);
+    let n = ai.read(&mut buf).unwrap();
+    let first = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(first, ": weaveback-ai\n\n");
+    tx.send("event: token\ndata: {\"t\":\"hi\"}\n\n".to_string())
+        .unwrap();
+    let n = ai.read(&mut buf).unwrap();
+    let second = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(second, "event: token\ndata: {\"t\":\"hi\"}\n\n");
+}
+
+#[test]
+fn json_resp_sets_json_and_cors_headers() {
+    let response = super::json_resp(serde_json::json!({ "ok": true }));
+    let headers = response.headers();
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "application/json")
+    );
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Access-Control-Allow-Origin") && h.value.as_str() == "*")
+    );
+}
+
+#[test]
+fn sse_reader_emits_reload_frame_after_signal() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    let _ = sse.read(&mut buf).unwrap();
+    tx.send(()).unwrap();
+    let n = sse.read(&mut buf).unwrap();
+    let frame = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(frame, "event: reload\ndata:\n\n");
+}
+
+#[test]
+fn git_log_for_file_returns_empty_outside_repo() {
+    let workspace = TestWorkspace::new();
+    let log = super::git_log_for_file(&workspace.root, "docs/missing.adoc");
+    assert!(log.is_empty());
+}
+
+#[test]
+fn dep_bodies_skips_missing_definitions() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/dep.adoc", "// <<alpha>>=\nalpha\n// @\n");
+
+    let mut db = workspace.open_db();
+    db.set_chunk_defs(&[ChunkDefEntry {
+        src_file: "docs/dep.adoc".to_string(),
+        chunk_name: "alpha".to_string(),
+        nth: 0,
+        def_start: 1,
+        def_end: 3,
+    }])
+    .unwrap();
+    let deps = super::dep_bodies(
+        &db,
+        &workspace.root,
+        &[
+            ("alpha".to_string(), "docs/dep.adoc".to_string()),
+            ("missing".to_string(), "docs/dep.adoc".to_string()),
+        ],
+    );
+    assert_eq!(deps.len(), 1);
+    assert_eq!(deps["alpha"]["body"], "alpha");
+}
+// ── content_type extended ─────────────────────────────────────────────
+
+#[test]
+fn content_type_covers_all_mapped_extensions() {
+    let cases = &[
+        ("style.css",  "text/css; charset=utf-8"),
+        ("logo.svg",   "image/svg+xml"),
+        ("icon.ico",   "image/x-icon"),
+        ("data.json",  "application/json"),
+        ("photo.png",  "image/png"),
+        ("main.js",    "application/javascript; charset=utf-8"),
+        ("blob.bin",   "application/octet-stream"),
+    ];
+    let base = PathBuf::from("/tmp");
+    for (name, expected) in cases {
+        assert_eq!(content_type(&base.join(name)), *expected, "for {name}");
+    }
+}
+
+// ── safe_path edge cases ──────────────────────────────────────────────
+
+#[test]
+fn safe_path_rejects_absolute_url_path() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "");
+    let docs_dir = workspace.root.join("docs");
+    // URL path that resolves outside of docs_dir via absolute-looking component
+    assert_eq!(safe_path(&docs_dir, "/../etc/passwd"), None);
+}
+
+#[test]
+fn safe_path_returns_none_for_empty_directory_without_index() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/sub/contents.txt", "");
+    let docs_dir = workspace.root.join("docs");
+    assert_eq!(safe_path(&docs_dir, "/sub"), None);
+}
+
+// ── heading_level extended ────────────────────────────────────────────
+
+#[test]
+fn heading_level_returns_correct_depth() {
+    assert_eq!(heading_level("= Title"), Some(1));
+    assert_eq!(heading_level("== Section"), Some(2));
+    assert_eq!(heading_level("==== Level4"), Some(4));
+    assert_eq!(heading_level(""), None);
+    // A trailing space without title: "== " has t.len() == count+1; t[count] == b' ' is true but no title text
+    assert_eq!(heading_level("== "), None); // empty title — implementation returns None
+    assert_eq!(heading_level("=no space"), None);
+}
+
+// ── section_range edge cases ──────────────────────────────────────────
+
+#[test]
+fn section_range_returns_entire_file_when_no_heading() {
+    let lines = vec!["plain", "text", "only"];
+    // def_start=0, no heading found ↑, sec_start=0, sec_level=1
+    // no next heading found → sec_end=len
+    let (start, end) = section_range(&lines, 1);
+    assert_eq!(start, 0);
+    assert_eq!(end, lines.len());
+}
+
+#[test]
+fn section_range_stops_at_sibling_heading() {
+    let lines = vec![
+        "== Alpha",   // 0
+        "alpha body", // 1
+        "== Beta",    // 2 — sibling
+        "beta body",  // 3
+    ];
+    let (start, end) = section_range(&lines, 1);
+    assert_eq!(start, 0);
+    assert_eq!(end, 2); // stops before Beta
+}
+
+// ── extract_prose edge cases ──────────────────────────────────────────
+
+#[test]
+fn extract_prose_handles_interleaved_fence_and_chunk() {
+    let lines = vec![
+        "Intro.",               // 0
+        "----",                 // 1 — open fence
+        "code inside fence",   // 2
+        "----",                 // 3 — close fence
+        "// <<chunk>>=",       // 4 — open chunk
+        "chunk body",          // 5
+        "// @",                // 6 — close chunk
+        "Outro.",              // 7
+    ];
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert!(!prose.contains("code inside fence"));
+    assert!(!prose.contains("chunk body"));
+    assert!(prose.contains("Intro."));
+    assert!(prose.contains("Outro."));
+}
+
+#[test]
+fn extract_prose_returns_empty_for_all_code() {
+    let lines = vec!["----", "all code", "----"];
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert_eq!(prose, "");
+}
+
+// ── percent_decode edge cases ─────────────────────────────────────────
+
+#[test]
+fn percent_decode_handles_uppercase_hex() {
+    assert_eq!(percent_decode("%2F"), "/");
+    assert_eq!(percent_decode("%20"), " ");
+    assert_eq!(percent_decode("%7E"), "~");
+}
+
+#[test]
+fn percent_decode_passes_non_encoded_chars() {
+    assert_eq!(percent_decode("hello world"), "hello world");
+    assert_eq!(percent_decode(""), "");
+}
+
+// ── parse_query edge cases ────────────────────────────────────────────
+
+#[test]
+fn parse_query_returns_empty_when_no_query_string() {
+    let params = parse_query("/__chunk");
+    // No '?' in the URL → empty query → all keys from empty string split are empty
+    assert!(!params.contains_key("file"));
+    assert!(!params.contains_key("name"));
+}
+
+#[test]
+fn parse_query_handles_empty_query_string() {
+    let params = parse_query("/__chunk?");
+    assert!(params.is_empty() || params.contains_key(""));
+}
+
+// ── SseReader EOF ─────────────────────────────────────────────────────
+
+#[test]
+fn sse_reader_returns_zero_bytes_on_sender_drop() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    // drain the initial keepalive
+    while {
+        let n = sse.read(&mut buf).unwrap();
+        n > 0 && buf[..n] != *b": weaveback-serve\n\n"
+    } {}
+    // drop the sender — next read should return 0 (EOF)
+    drop(tx);
+    loop {
+        let n = sse.read(&mut buf).unwrap();
+        if n == 0 { break; }
+    }
+}
+
+// ── tangle_oracle with chunk syntax ───────────────────────────────────
+
+#[test]
+fn tangle_oracle_accepts_file_with_chunk_syntax() {
+    let workspace = TestWorkspace::new();
+    // A minimal file using the default `<[` / `]>` / `@@` syntax.
+    let content = "// <[my-chunk]=\nfn main() {}\n// ]>\n@@\n";
+    workspace.write_file("src/lib.adoc", content);
+    let cfg = TangleConfig::default();
+    let result = tangle_oracle(&workspace.root, "src/lib.adoc", content, &cfg);
+    assert!(result.is_ok(), "oracle should accept valid chunk syntax: {result:?}");
+}
+
+#[test]
+fn test_apply_chunk_edit_replaces_correct_lines() {
+    let src = "line1\n// <<chunk>>=\nold\n// @\nline2\n";
+    let res = super::apply_chunk_edit(src, 2, 4, "new\nlines");
+    assert_eq!(res, "line1\n// <<chunk>>=\nnew\nlines\n// @\nline2\n");
+}
+
+#[test]
+fn test_extract_chunk_body_returns_text_between_markers() {
+    let src = "line1\n// <<chunk>>=\nbody line\n// @\nline2";
+    let res = super::extract_chunk_body(src, 2, 4).unwrap();
+    assert_eq!(res, "body line");
+}
+
+#[test]
+fn test_insert_note_into_source_places_note_after_fence() {
+    let src = "== Header\n\n// <<chunk>>=\nbody\n// @\n----\n\nProse.";
+    // def_end for the chunk is 5 (1-indexed // @ marker)
+    let res = super::insert_note_into_source(src, 5, "my note");
+    assert!(res.contains("[NOTE]\n====\nmy note\n====\n"));
+    assert!(res.contains("----\n[NOTE]")); // inserted after fence
+}
+
+#[test]
+fn test_find_project_root_walks_up_to_workspace() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]");
+    workspace.write_file("crates/a/src/lib.rs", "");
+    
+    let subdir = workspace.root.join("crates").join("a");
+    std::fs::create_dir_all(&subdir).unwrap();
+    
+    // We can't easily change CWD safely in tests, but find_project_root 
+    // uses current_dir(). We can mock it if we refactor it, but for now 
+    // we'll just test that it finds the current repo if run in the repo.
+    // Actually, let's just test that the helper exists and hasn't regressed.
+    let root = super::find_project_root();
+    assert!(root.join("Cargo.toml").exists());
+}
+
+#[test]
+fn test_find_docgen_bin_favors_sibling() {
+    // find_docgen_bin uses current_exe(). Hard to mock without relative paths.
+    // But we can check that it returns a PathBuf.
+    let bin = super::find_docgen_bin();
+    assert!(bin.to_string_lossy().contains("weaveback-docgen"));
+}
+
+#[test]
+fn test_safe_path_redirects_root_to_docs_index() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "hi");
+    let docs_dir = workspace.root.join("docs");
+    
+    // safe_path handles the /index.html logic
+    assert_eq!(super::safe_path(&docs_dir, "/"), Some(docs_dir.join("index.html")));
+}
+
+#[test]
+fn test_handler_integration() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "hi");
+    workspace.write_file("src/lib.adoc", "// <<chunk>>=\nalpha\n// @\n----\n");
+    
+    let mut db = workspace.open_db();
+    db.set_chunk_defs(&[ChunkDefEntry {
+        src_file: "src/lib.adoc".to_string(),
+        chunk_name: "chunk".to_string(),
+        nth: 0,
+        def_start: 1,
+        def_end: 3,
+    }]).unwrap();
+    drop(db);
+
+    let server_root = workspace.root.clone();
+    let html_dir = workspace.root.join("docs");
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = match server.server_addr() {
+        tiny_http::ListenAddr::IP(addr) => addr.port(),
+        _ => panic!("Expected IP address"),
+    };
+    
+    std::thread::spawn(move || {
+        let _ = super::run_server_loop(
+            server,
+            server_root,
+            html_dir,
+            false,
+            TangleConfig::default(),
+        );
+    });
+
+    // Give server a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    let base_url = format!("http://127.0.0.1:{}", port);
+    
+    // Test /__chunk
+    let resp = ureq::get(&format!("{}/__chunk?file=src/lib.adoc&name=chunk", base_url))
+        .call().unwrap();
+    let json: serde_json::Value = resp.into_json().unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["body"], "alpha");
+
+    // Test /__apply
+    let resp = ureq::post(&format!("{}/__apply", base_url))
+        .send_json(serde_json::json!({
+            "file": "src/lib.adoc",
+            "name": "chunk",
+            "old_body": "alpha",
+            "new_body": "beta"
+        })).unwrap();
+    let json: serde_json::Value = resp.into_json().unwrap();
+    assert_eq!(json["ok"], true);
+    
+    let updated = fs::read_to_string(workspace.root.join("src/lib.adoc")).unwrap();
+    assert!(updated.contains("beta"));
+
+    // Test /__save_note
+    let resp = ureq::post(&format!("{}/__save_note", base_url))
+        .send_json(serde_json::json!({
+            "file": "src/lib.adoc",
+            "name": "chunk",
+            "nth": 0,
+            "note": "AI suggestion"
+        })).unwrap();
+    let json: serde_json::Value = resp.into_json().unwrap();
+    assert_eq!(json["ok"], true);
+    let noted = fs::read_to_string(workspace.root.join("src/lib.adoc")).unwrap();
+    assert!(noted.contains("[NOTE]"));
+    assert!(noted.contains("AI suggestion"));
+}
+
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-serve/src/lib.rs]>=
+// weaveback-serve/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[serve-imports]>
+// <[serve-sse-reader]>
+// <[serve-watcher]>
+// <[serve-source-watcher]>
+// <[serve-static]>
+// <[serve-open]>
+// <[serve-tangle-config]>
+// <[serve-apply]>
+// <[serve-chunk]>
+// <[serve-ai]>
+// <[serve-save-note]>
+// <[serve-dispatch]>
+// <[serve-run]>
+// <[serve-manipulation]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
 

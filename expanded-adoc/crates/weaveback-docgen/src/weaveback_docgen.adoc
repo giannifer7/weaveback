@@ -1,6 +1,4 @@
 = weaveback-docgen
-:toc: left
-:source-highlighter: syntect
 
 `weaveback-docgen` renders AsciiDoc sources to HTML, post-processes the output
 with chunk IDs and a literate-source index, and optionally injects
@@ -10,10 +8,10 @@ The tool is generic: it works for any project that uses weaveback.
 Cross-reference analysis defaults to a built-in Rust scanner (requires a
 `crates/` workspace layout); other languages supply their own via `--xref-cmd`.
 
-See link:../src-wvb/render.wvb[render.wvb] for acdc rendering,
-link:../src-wvb/xref.wvb[xref.wvb] for the xref graph builder,
-link:../src-wvb/inject.wvb[inject.wvb] for HTML post-processing, and
-link:../src-wvb/literate_index.wvb[literate_index.wvb] for literate source index
+See link:render.wvb[render.wvb] for acdc rendering,
+link:xref.wvb[xref.wvb] for the xref graph builder,
+link:inject.wvb[inject.wvb] for HTML post-processing, and
+link:literate_index.wvb[literate_index.wvb] for literate source index
 injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
 the broader weaveback pipeline that this tool documents.
 
@@ -87,16 +85,16 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 |===
 | Module | Role
 
-| link:../src-wvb/render.wvb[render.rs]
+| link:render.wvb[render.rs]
 | Discover `.adoc` files, render with acdc in-process (parallel, incremental)
 
-| link:../src-wvb/xref.wvb[xref.rs]
+| link:xref.wvb[xref.rs]
 | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph
 
-| link:../src-wvb/inject.wvb[inject.rs]
+| link:inject.wvb[inject.rs]
 | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>`
 
-| link:../src-wvb/literate_index.wvb[literate_index.rs]
+| link:literate_index.wvb[literate_index.rs]
 | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages
 |===
 
@@ -105,6 +103,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 `find_project_root` walks up from `cwd` until it finds a `Cargo.toml` that
 contains `[workspace]`.  This lets the binary be invoked from any subdirectory
 of the project.
+
 
 [source,rust]
 ----
@@ -125,13 +124,15 @@ fn find_project_root() -> PathBuf {
     }
     std::env::current_dir().unwrap()
 }
-// @@
+// @
 ----
+
 
 == Help text
 
 The help string is a `const` so it appears verbatim in `--help` output and
 serves as the canonical record of all supported flags.
+
 
 [source,rust]
 ----
@@ -167,14 +168,16 @@ Cross-reference notes:
   automatic xref -- use --xref-cmd to supply data from an external tool, or
   --no-xref to skip it.
 ";
-// @@
+// @
 ----
+
 
 == Argument parsing
 
 `Args` collects all CLI options.  `parse_args_from` parses a slice of
 strings (enabling unit tests), while `parse_args` wraps it for production
 use with `std::env::args()`.
+
 
 [source,rust]
 ----
@@ -291,8 +294,9 @@ fn parse_args() -> Args {
     let raw: Vec<String> = std::env::args().collect();
     parse_args_from(&raw)
 }
-// @@
+// @
 ----
+
 
 == External xref command
 
@@ -300,6 +304,7 @@ When `--xref-cmd` is given, `run_xref_cmd` runs it with the project root as its
 sole argument and parses stdout as `HashMap<String, XrefEntry>` JSON.  The
 schema matches `XrefEntry` in `xref.rs` — any language can implement a
 compatible scanner.
+
 
 [source,rust]
 ----
@@ -322,13 +327,15 @@ fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
         std::process::exit(1);
     })
 }
-// @@
+// @
 ----
+
 
 == main
 
 `main` wires everything together: detect root, render docs, select xref
 strategy, write `xref.json`, then run the HTML post-processing passes.
+
 
 [source,rust]
 ----
@@ -400,14 +407,19 @@ fn main() {
     literate_index::generate_and_inject_all(&out_dir);
     inject::inject_chunk_ids(&out_dir);
 }
-// @@
+// @
 ----
 
+
 == Assembly
+
 
 [source,rust]
 ----
 // <[@file weaveback-docgen/src/main.rs]>=
+// weaveback-docgen/src/main.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 mod adoc_scan;
 mod d2;
 mod inject;
@@ -427,9 +439,12 @@ use xref::XrefEntry;
 // <[docgen-args]>
 // <[docgen-xref-cmd]>
 // <[docgen-main]>
-// <[docgen-tests]>
-// @@
+#[cfg(test)]
+mod tests;
+
+// @
 ----
+
 
 == Tests
 
@@ -437,120 +452,126 @@ Unit tests for the argument parser, config reader, and `run_xref_cmd`.
 They use `tempfile::tempdir` to avoid touching real directories and an
 inline shell script to test the external xref command path.
 
+The test body is generated as `tests.rs` and linked from
+`main.rs` with `#[cfg(test)] mod tests;`.
+
+
 [source,rust]
 ----
-// <[docgen-tests]>=
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::tempdir;
+// <[@file weaveback-docgen/src/tests.rs]>=
+// weaveback-docgen/src/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-    #[test]
-    fn find_project_root_walks_up_to_workspace_manifest() {
-        let dir = tempdir().expect("tempdir");
-        fs::write(dir.path().join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("workspace cargo");
-        let nested = dir.path().join("crates/demo/src");
-        fs::create_dir_all(&nested).expect("nested dir");
+use super::*;
+use std::fs;
+use tempfile::tempdir;
 
-        let original = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(&nested).expect("set cwd");
-        let found = find_project_root();
-        std::env::set_current_dir(original).expect("restore cwd");
+#[test]
+fn find_project_root_walks_up_to_workspace_manifest() {
+    let dir = tempdir().expect("tempdir");
+    fs::write(dir.path().join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("workspace cargo");
+    let nested = dir.path().join("crates/demo/src");
+    fs::create_dir_all(&nested).expect("nested dir");
 
-        assert_eq!(found, dir.path());
-    }
+    let original = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&nested).expect("set cwd");
+    let found = find_project_root();
+    std::env::set_current_dir(original).expect("restore cwd");
 
-    #[test]
-    fn read_config_uses_defaults_for_missing_or_invalid_files() {
-        let dir = tempdir().expect("tempdir");
-
-        let cfg = read_config(dir.path());
-        assert!(cfg.docs.is_none());
-
-        fs::write(
-            dir.path().join("weaveback.toml"),
-            "[docs]\nd2_theme = 42\nd2_layout = \"dagre\"\n",
-        )
-        .expect("config");
-        let cfg = read_config(dir.path());
-        let docs = cfg.docs.expect("docs config");
-        assert_eq!(docs.d2_theme, Some(42));
-        assert_eq!(docs.d2_layout.as_deref(), Some("dagre"));
-
-        fs::write(dir.path().join("weaveback.toml"), "not = [valid").expect("bad config");
-        let cfg = read_config(dir.path());
-        assert!(cfg.docs.is_none());
-    }
-
-    #[test]
-    fn run_xref_cmd_reads_valid_json_from_external_command() {
-        let dir = tempdir().expect("tempdir");
-        let script = dir.path().join("emit-xref.sh");
-        fs::write(
-            &script,
-            "#!/bin/sh\nprintf '{\"demo/mod\":{\"html\":\"demo.html\",\"imports\":[],\"imported_by\":[],\"symbols\":[\"Demo\"],\"lsp_links\":[]}}'\n",
-        )
-        .expect("script");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&script).expect("metadata").permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&script, perms).expect("chmod");
-        }
-
-        let data = run_xref_cmd(script.to_str().expect("script path"), dir.path());
-        let entry = data.get("demo/mod").expect("xref entry");
-        assert_eq!(entry.html, "demo.html");
-        assert_eq!(entry.symbols, vec!["Demo".to_string()]);
-    }
-
-    #[test]
-    fn parse_args_from_parses_repeatable_and_path_options() {
-        let raw = vec![
-            "weaveback-docgen".to_string(),
-            "--special".to_string(),
-            "%".to_string(),
-            "--special".to_string(),
-            "^".to_string(),
-            "--xref-cmd".to_string(),
-            "emit-xref".to_string(),
-            "--out-dir".to_string(),
-            "docs/html".to_string(),
-            "--theme-dir".to_string(),
-            "scripts/theme".to_string(),
-            "--plantuml-jar".to_string(),
-            "/tmp/plantuml.jar".to_string(),
-            "--no-xref".to_string(),
-            "--ai-xref".to_string(),
-        ];
-
-        let args = parse_args_from(&raw);
-        assert_eq!(args.specials, vec!['%', '^']);
-        assert_eq!(args.xref_cmd.as_deref(), Some("emit-xref"));
-        assert_eq!(args.out_dir.as_deref(), Some(Path::new("docs/html")));
-        assert_eq!(args.theme_dir.as_deref(), Some(Path::new("scripts/theme")));
-        assert_eq!(args.plantuml_jar.as_deref(), Some(Path::new("/tmp/plantuml.jar")));
-        assert!(args.no_xref);
-        assert!(args.ai_xref);
-        assert_eq!(args.d2_theme, 200);
-        assert_eq!(args.d2_layout, "elk");
-    }
-
-    #[test]
-    fn parse_args_from_ignores_invalid_special_values() {
-        let raw = vec![
-            "weaveback-docgen".to_string(),
-            "--special".to_string(),
-            "xy".to_string(),
-            "--special".to_string(),
-            "".to_string(),
-        ];
-
-        let args = parse_args_from(&raw);
-        assert!(args.specials.is_empty());
-    }
+    assert_eq!(found, dir.path());
 }
-// @@
+
+#[test]
+fn read_config_uses_defaults_for_missing_or_invalid_files() {
+    let dir = tempdir().expect("tempdir");
+
+    let cfg = read_config(dir.path());
+    assert!(cfg.docs.is_none());
+
+    fs::write(
+        dir.path().join("weaveback.toml"),
+        "[docs]\nd2_theme = 42\nd2_layout = \"dagre\"\n",
+    )
+    .expect("config");
+    let cfg = read_config(dir.path());
+    let docs = cfg.docs.expect("docs config");
+    assert_eq!(docs.d2_theme, Some(42));
+    assert_eq!(docs.d2_layout.as_deref(), Some("dagre"));
+
+    fs::write(dir.path().join("weaveback.toml"), "not = [valid").expect("bad config");
+    let cfg = read_config(dir.path());
+    assert!(cfg.docs.is_none());
+}
+
+#[test]
+fn run_xref_cmd_reads_valid_json_from_external_command() {
+    let dir = tempdir().expect("tempdir");
+    let script = dir.path().join("emit-xref.sh");
+    fs::write(
+        &script,
+        "#!/bin/sh\nprintf '{\"demo/mod\":{\"html\":\"demo.html\",\"imports\":[],\"imported_by\":[],\"symbols\":[\"Demo\"],\"lsp_links\":[]}}'\n",
+    )
+    .expect("script");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("chmod");
+    }
+
+    let data = run_xref_cmd(script.to_str().expect("script path"), dir.path());
+    let entry = data.get("demo/mod").expect("xref entry");
+    assert_eq!(entry.html, "demo.html");
+    assert_eq!(entry.symbols, vec!["Demo".to_string()]);
+}
+
+#[test]
+fn parse_args_from_parses_repeatable_and_path_options() {
+    let raw = vec![
+        "weaveback-docgen".to_string(),
+        "--special".to_string(),
+        "%".to_string(),
+        "--special".to_string(),
+        "^".to_string(),
+        "--xref-cmd".to_string(),
+        "emit-xref".to_string(),
+        "--out-dir".to_string(),
+        "docs/html".to_string(),
+        "--theme-dir".to_string(),
+        "scripts/theme".to_string(),
+        "--plantuml-jar".to_string(),
+        "/tmp/plantuml.jar".to_string(),
+        "--no-xref".to_string(),
+        "--ai-xref".to_string(),
+    ];
+
+    let args = parse_args_from(&raw);
+    assert_eq!(args.specials, vec!['%', '^']);
+    assert_eq!(args.xref_cmd.as_deref(), Some("emit-xref"));
+    assert_eq!(args.out_dir.as_deref(), Some(Path::new("docs/html")));
+    assert_eq!(args.theme_dir.as_deref(), Some(Path::new("scripts/theme")));
+    assert_eq!(args.plantuml_jar.as_deref(), Some(Path::new("/tmp/plantuml.jar")));
+    assert!(args.no_xref);
+    assert!(args.ai_xref);
+    assert_eq!(args.d2_theme, 200);
+    assert_eq!(args.d2_layout, "elk");
+}
+
+#[test]
+fn parse_args_from_ignores_invalid_special_values() {
+    let raw = vec![
+        "weaveback-docgen".to_string(),
+        "--special".to_string(),
+        "xy".to_string(),
+        "--special".to_string(),
+        "".to_string(),
+    ];
+
+    let args = parse_args_from(&raw);
+    assert!(args.specials.is_empty());
+}
+
+// @
 ----
+

@@ -10,7 +10,7 @@ The graph is consumed by link:../src-wvb/inject.wvb[`inject_xref`] to embed
 `window.__xref` data in generated HTML pages, and serialised to `xref.json`
 for the JavaScript side panel.
 
-See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+See link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
 
 == Module key scheme
 

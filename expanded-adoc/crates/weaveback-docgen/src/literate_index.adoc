@@ -9,7 +9,7 @@ page generated from the top-level `.adoc`.  All other `.html` files in that
 `src/` tree are collected as module pages.  The injection is idempotent:
 `strip_existing` removes any previous section before inserting the fresh one.
 
-See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+See link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
 
 == Title extraction
 

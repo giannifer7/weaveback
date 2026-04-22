@@ -93,7 +93,7 @@ weaveback-tangle expanded.adoc --gen src/
 | link:../docs/two-pass-markup-migration.adoc[two-pass markup migration]
 | Migration plan from direct `.adoc` sources to `.wvb` sources with AsciiDoc and Markdown projections
 
-| link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen]
+| link:../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb[weaveback-docgen]
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
 
 | link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core]
@@ -311,7 +311,7 @@ and cross-reference panels.
 |===
 | Document | Generates
 
-| link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen index]
+| link:../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb[weaveback-docgen index]
 | `crates/weaveback-docgen/src/main.rs` + `lib.rs`
 
 | link:../crates/weaveback-docgen/src-wvb/render.wvb[acdc renderer]

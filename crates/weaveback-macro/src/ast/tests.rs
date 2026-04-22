@@ -1,3 +1,6 @@
+// weaveback-macro/src/ast/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/ast/tests.rs
 use super::*;
 use crate::ParseNode;
@@ -761,3 +764,4 @@ fn test_ast_no_comments_invariant() {
         check_no_comments(&ast);
     }
 }
+

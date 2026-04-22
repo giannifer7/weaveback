@@ -1,3 +1,6 @@
+// weaveback-macro/src/ast/serialization.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/ast/serialization.rs — generated from ast.adoc
 use crate::evaluator::{lex_parse_content, EvalError};
 use crate::types::{ASTNode, Token};
@@ -189,3 +192,4 @@ mod tests {
         assert!(text.lines().count() > 1);
     }
 }
+

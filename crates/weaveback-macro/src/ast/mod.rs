@@ -1,3 +1,6 @@
+// weaveback-macro/src/ast/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/ast/mod.rs — generated from ast.adoc
 use crate::parser::Parser;
 use crate::types::{ASTNode, NodeKind, Token};
@@ -326,3 +329,4 @@ fn is_followed_by_newline(
 
     Ok(end_pos < content.len() && content[end_pos] == b'\n')
 }
+

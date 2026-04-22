@@ -119,56 +119,75 @@ references.
 
 Three files are generated from this document.
 
+
 [source,rust]
 ----
-// <<@file weaveback-macro/src/ast/mod.rs>>=
+// <[@file weaveback-macro/src/ast/mod.rs]>=
+// weaveback-macro/src/ast/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/ast/mod.rs — generated from ast.adoc
-// <<ast preamble>>
+// <[ast preamble]>
 
-// <<ast error>>
+// <[ast error]>
 
-// <<ast build>>
+// <[ast build]>
 
-// <<ast analyze param>>
+// <[ast analyze param]>
 
-// <<ast clean node>>
+// <[ast clean node]>
 
-// <<ast strip spaces>>
+// <[ast strip spaces]>
+
 // @
 ----
 
+
+
 [source,rust]
 ----
-// <<@file weaveback-macro/src/ast/serialization.rs>>=
+// <[@file weaveback-macro/src/ast/serialization.rs]>=
+// weaveback-macro/src/ast/serialization.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/ast/serialization.rs — generated from ast.adoc
-// <<ast serialization preamble>>
+// <[ast serialization preamble]>
 
-// <<ast serialize token>>
+// <[ast serialize token]>
 
-// <<ast serialize nodes>>
+// <[ast serialize nodes]>
 
-// <<ast write ast>>
+// <[ast write ast]>
 
-// <<ast read input>>
+// <[ast read input]>
 
-// <<ast dump>>
+// <[ast dump]>
 
-// <<ast serialization tests>>
+// <[ast serialization tests]>
+
 // @
 ----
+
+
 
 [source,rust]
 ----
-// <<@file weaveback-macro/src/ast/tests.rs>>=
-// <<ast tests>>
+// <[@file weaveback-macro/src/ast/tests.rs]>=
+// weaveback-macro/src/ast/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[ast tests]>
+
 // @
 ----
+
 
 == Module preamble
 
+
 [source,rust]
 ----
-// <<ast preamble>>=
+// <[ast preamble]>=
 use crate::parser::Parser;
 use crate::types::{ASTNode, NodeKind, Token};
 use thiserror::Error;
@@ -205,6 +224,7 @@ fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
 // @
 ----
 
+
 == Error type
 
 `ASTError` covers the three failure modes: the parser produced nothing
@@ -212,9 +232,10 @@ fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
 catch-all for other processing problems.  `From<String>` lets `?` on
 `String`-returning helpers propagate into `ASTError::Other` without noise.
 
+
 [source,rust]
 ----
-// <<ast error>>=
+// <[ast error]>=
 #[derive(Error, Debug)]
 pub enum ASTError {
     #[error("Parser error: {0}")]
@@ -233,6 +254,7 @@ impl From<String> for ASTError {
 // @
 ----
 
+
 == Public entry point: `build_ast`
 
 The single public function that callers use.  It asks the parser for its
@@ -241,9 +263,10 @@ to `clean_node`.  A `None` result from `clean_node` — which can only
 happen if the root itself is a comment node, an unlikely but legal state —
 is reported as an error rather than silently returning an empty tree.
 
+
 [source,rust]
 ----
-// <<ast build>>=
+// <[ast build]>=
 /// Main entry point that unwraps the Option
 pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
     let root_idx = parser
@@ -255,6 +278,7 @@ pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
 }
 // @
 ----
+
 
 == Parameter analysis: `analyze_param`
 
@@ -290,9 +314,10 @@ pattern `Ident = first-value-item` is fully determined, further scanning
 would only add complexity.  Everything from `start_idx` onwards is
 processed by `clean_node` in the second pass.
 
+
 [source,rust]
 ----
-// <<ast analyze param>>=
+// <[ast analyze param]>=
 /// Analyse a parameter node: classify as positional or named and collect parts.
 fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, ASTError> {
     let node = parser
@@ -397,6 +422,7 @@ fn analyze_param(parser: &Parser, node_idx: usize) -> Result<Option<ASTNode>, AS
 // @
 ----
 
+
 == Tree conversion: `clean_node`
 
 The recursive engine of `build_ast`.  It returns `None` for comment nodes
@@ -410,9 +436,10 @@ A `debug_assert!` enforces that leaf node kinds (`Equal`, `Ident`, `Text`,
 and catches parser regressions immediately rather than producing a
 silently-wrong AST.
 
+
 [source,rust]
 ----
-// <<ast clean node>>=
+// <[ast clean node]>=
 /// Recursively convert a `ParseNode` arena entry to an owned `ASTNode` tree.
 ///
 /// Returns `None` for comment nodes (stripped from the AST entirely) and
@@ -480,6 +507,7 @@ fn trim_trailing_empty_params(mut parts: Vec<ASTNode>) -> Vec<ASTNode> {
 // @
 ----
 
+
 == Whitespace stripping
 
 === `strip_space_before_comments`
@@ -508,9 +536,10 @@ Tiny helper: checks whether the byte at `node.end_pos` in the raw content
 buffer is `\n`.  Kept separate to keep `strip_space_before_comments`
 readable.
 
+
 [source,rust]
 ----
-// <<ast strip spaces>>=
+// <[ast strip spaces]>=
 pub fn strip_space_before_comments(
     content: &[u8],
     parser: &mut Parser,
@@ -614,6 +643,7 @@ fn is_followed_by_newline(
 // @
 ----
 
+
 == Invariants
 
 After `process_ast` completes the following hold for every `ASTNode` in
@@ -650,9 +680,10 @@ alone without storing back-references.
 
 === Preamble
 
+
 [source,rust]
 ----
-// <<ast serialization preamble>>=
+// <[ast serialization preamble]>=
 use crate::evaluator::{lex_parse_content, EvalError};
 use crate::types::{ASTNode, Token};
 use std::collections::VecDeque;
@@ -662,20 +693,23 @@ use std::path::PathBuf;
 // @
 ----
 
+
 === Token serialization
 
 Tokens are encoded as a comma-separated tuple: `src,kind,pos,length`.
 `src` is a file-index integer assigned by the lexer; `kind` is the
 `TokenKind` discriminant cast to `i32` for a stable numeric wire format.
 
+
 [source,rust]
 ----
-// <<ast serialize token>>=
+// <[ast serialize token]>=
 fn serialize_token(token: &Token) -> String {
     format!("{},{},{},{}", token.src, token.kind as i32, token.pos, token.length)
 }
 // @
 ----
+
 
 === BFS node serialization
 
@@ -696,9 +730,10 @@ contiguous range starting at `next_idx`.  The root is always at index 0.
 `next_idx` is advanced by `node.parts.len()` for each dequeued node,
 mirroring the order in which children are enqueued.
 
+
 [source,rust]
 ----
-// <<ast serialize nodes>>=
+// <[ast serialize nodes]>=
 pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
     let mut nodes = Vec::new();
     // BFS so that child indices assigned as next_idx..next_idx+n are contiguous
@@ -742,14 +777,16 @@ pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
 // @
 ----
 
+
 === Writing AST output
 
 `write_ast` is the generic writer; `write_ast_to_file` adds stdout-vs-file
 dispatch based on the `-` convention used throughout the codebase.
 
+
 [source,rust]
 ----
-// <<ast write ast>>=
+// <[ast write ast]>=
 pub fn write_ast<W: Write>(header: &str, nodes: &[String], writer: &mut W) -> io::Result<()> {
     writeln!(writer, "{}", header)?;
     for line in nodes {
@@ -771,13 +808,15 @@ pub fn write_ast_to_file(header: &str, nodes: &[String], output_path: &PathBuf) 
 // @
 ----
 
+
 === Input reading
 
 `read_input` applies the same `-`-means-stdin convention to the input side.
 
+
 [source,rust]
 ----
-// <<ast read input>>=
+// <[ast read input]>=
 fn read_input(input: &PathBuf) -> io::Result<String> {
     if input.to_str() == Some("-") {
         let mut buffer = String::new();
@@ -790,6 +829,7 @@ fn read_input(input: &PathBuf) -> io::Result<String> {
 // @
 ----
 
+
 === CLI dump entry point
 
 `dump_macro_ast` is the public API called by the binary.  For each input
@@ -800,9 +840,10 @@ The header line carries a `# src:0=<path>` annotation so external
 consumers can map the `src` field of each token back to the originating
 file.
 
+
 [source,rust]
 ----
-// <<ast dump>>=
+// <[ast dump]>=
 pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalError> {
     for input in input_files {
         let content = read_input(input).map_err(|e| {
@@ -831,11 +872,13 @@ pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalEr
 // @
 ----
 
+
 === Serialization tests
+
 
 [source,rust]
 ----
-// <<ast serialization tests>>=
+// <[ast serialization tests]>=
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -922,6 +965,7 @@ mod tests {
 // @
 ----
 
+
 == Tests
 
 Key tests and what they guard:
@@ -950,9 +994,10 @@ Key tests and what they guard:
 * **`test_ast_no_comments_invariant`** — `lex_parse_content` leaves no
   `LineComment` or `BlockComment` nodes anywhere in the AST tree.
 
+
 [source,rust]
 ----
-// <<ast tests>>=
+// <[ast tests]>=
 // src/ast/tests.rs
 use super::*;
 use crate::ParseNode;
@@ -1718,3 +1763,4 @@ fn test_ast_no_comments_invariant() {
 }
 // @
 ----
+

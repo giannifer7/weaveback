@@ -1,29 +1,22 @@
-= wb-serve
-:toc: left
-:source-highlighter: syntect
+¤h1(¤[wb-serve¤])
 
 `wb-serve` is the weaveback HTTP documentation server.  It serves the
 pre-generated HTML docs with live reload, an AI panel for chunk context,
 and apply-back for propagating edits back to literate sources.
 
-== CLI
+¤h2(¤[CLI¤])
 
 Generated from `cli-spec/wb-serve-cli.adoc`.
 
-[source,rust]
-----
-// <<wb-serve-cli>>=
+¤rust_chunk(wb-serve-cli, ¤[
 mod cli_generated;
 use cli_generated::Cli;
 use clap::Parser;
-// @
-----
+¤])
 
-== Main
+¤h2(¤[Main¤])
 
-[source,rust]
-----
-// <<wb-serve-main>>=
+¤rust_chunk(wb-serve-main, ¤[
 fn main() {
     let cli = Cli::parse();
 
@@ -50,15 +43,11 @@ fn main() {
         std::process::exit(1);
     }
 }
-// @
-----
+¤])
 
-== Assembly
+¤h2(¤[Assembly¤])
 
-[source,rust]
-----
-// <<@file wb-serve/src/main.rs>>=
-// <<wb-serve-cli>>
-// <<wb-serve-main>>
-// @
-----
+¤rust_file(wb-serve/src/main.rs, ¤[
+// <[wb-serve-cli]>
+// <[wb-serve-main]>
+¤])

@@ -1,6 +1,4 @@
 = wb-mcp
-:toc: left
-:source-highlighter: syntect
 
 `wb-mcp` exposes the weaveback MCP (Model Context Protocol) server as a
 standalone binary.  It reads JSON-RPC requests from stdin and writes
@@ -11,20 +9,23 @@ without requiring the full `weaveback` binary.
 
 Generated from `cli-spec/wb-mcp-cli.adoc`.
 
+
 [source,rust]
 ----
-// <<wb-mcp-cli>>=
+// <[wb-mcp-cli]>=
 mod cli_generated;
 use cli_generated::Cli;
 use clap::Parser;
 // @
 ----
 
+
 == Main
+
 
 [source,rust]
 ----
-// <<wb-mcp-main>>=
+// <[wb-mcp-main]>=
 fn default_pathsep() -> String {
     if cfg!(windows) { ";".to_string() } else { ":".to_string() }
 }
@@ -54,12 +55,19 @@ fn main() {
 // @
 ----
 
+
 == Assembly
+
 
 [source,rust]
 ----
-// <<@file wb-mcp/src/main.rs>>=
-// <<wb-mcp-cli>>
-// <<wb-mcp-main>>
+// <[@file wb-mcp/src/main.rs]>=
+// wb-mcp/src/main.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[wb-mcp-cli]>
+// <[wb-mcp-main]>
+
 // @
 ----
+

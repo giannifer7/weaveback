@@ -1,9 +1,29 @@
-// wb-mcp/src/main.rs
-// I'd Really Rather You Didn't edit this generated file.
+# wb-mcp
 
+`wb-mcp` exposes the weaveback MCP (Model Context Protocol) server as a
+standalone binary.  It reads JSON-RPC requests from stdin and writes
+responses to stdout, making it usable directly in MCP client configurations
+without requiring the full `weaveback` binary.
+
+## CLI
+
+Generated from `cli-spec/wb-mcp-cli.adoc`.
+
+
+```rust
+// <[wb-mcp-cli]>=
 mod cli_generated;
 use cli_generated::Cli;
 use clap::Parser;
+// @
+```
+
+
+## Main
+
+
+```rust
+// <[wb-mcp-main]>=
 fn default_pathsep() -> String {
     if cfg!(windows) { ";".to_string() } else { ":".to_string() }
 }
@@ -30,4 +50,21 @@ fn main() {
         std::process::exit(1);
     }
 }
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file wb-mcp/src/main.rs]>=
+// wb-mcp/src/main.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[wb-mcp-cli]>
+// <[wb-mcp-main]>
+
+// @
+```
 

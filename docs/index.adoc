@@ -314,7 +314,7 @@ and cross-reference panels.
 | link:../crates/weaveback-docgen/src/weaveback_docgen.adoc[weaveback-docgen index]
 | `crates/weaveback-docgen/src/main.rs` + `lib.rs`
 
-| link:../crates/weaveback-docgen/src/render.adoc[asciidoctor runner]
+| link:../crates/weaveback-docgen/src-wvb/render.wvb[acdc renderer]
 | `crates/weaveback-docgen/src/render.rs`
 
 | link:../crates/weaveback-docgen/src-wvb/inject.wvb[HTML post-processor]

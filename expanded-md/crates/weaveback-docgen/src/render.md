@@ -1,10 +1,27 @@
-// weaveback-docgen/src/render.rs
-// I'd Really Rather You Didn't edit this generated file.
+# acdc renderer
 
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+`render.rs` uses `acdc` to convert `.adoc` files to HTML in-process.
+`[plantuml]` blocks are pre-processed via `plantuml::preprocess_plantuml`
+before parsing so that `acdc` never sees diagram blocks; a `plantuml.jar`
+is sufficient and no Ruby toolchain is needed.
 
+See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
+
+## Constants
+
+
+```rust
+// <[render-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
+// @
+```
+
+
+## mtime helpers
+
+
+```rust
+// <[render-mtime]>=
 fn mtime(path: &Path) -> SystemTime {
     path.metadata()
         .and_then(|m| m.modified())
@@ -20,6 +37,23 @@ fn theme_max_mtime(theme_dir: &Path) -> SystemTime {
         .max()
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
+// @
+```
+
+
+## Special-char deduplication
+
+When a `.adoc` file was processed by the weaveback macro expander, a doubled
+special character (e.g. `%%` or `^^`) is the escape sequence for a literal
+special character.  `acdc` knows nothing about this convention and would render
+the doubled sequence verbatim.
+
+`dedup_specials` replaces every `{s}{s}` → `{s}` for each char in `specials`
+and returns the cleaned content, or `None` if no substitution was needed.
+
+
+```rust
+// <[render-dedup]>=
 fn dedup_specials(content: &str, specials: &[char]) -> Option<String> {
     let mut out = content.to_owned();
     let mut changed = false;
@@ -32,6 +66,33 @@ fn dedup_specials(content: &str, specials: &[char]) -> Option<String> {
     }
     if changed { Some(out) } else { None }
 }
+// @
+```
+
+
+## Theme asset injection
+
+`copy_theme_assets` copies `wb-theme.css` and `wb-theme.js` from the theme
+directory to the root of `out_dir` so they are served at `/wb-theme.css` and
+`/wb-theme.js`.  This is called once before the parallel render loop.
+
+`read_docinfo` reads the small `docinfo.html` head fragment (just a `<meta>`
+tag and a `<link rel="stylesheet" href="/wb-theme.css">` reference).
+`inject_docinfo` splices it into the rendered HTML just before `</head>`.
+
+`read_footer` reads `docinfo-footer.html` (a `<script src="/wb-theme.js">`
+reference).  `inject_footer` splices it just before `</body>`.
+
+Because the HTML tree may be nested (e.g.
+`crates/weaveback-tangle/src/safe_writer.html`), the absolute asset paths
+(`/wb-theme.css`, `/wb-theme.js`) would resolve to the domain root rather than
+the site root when the site is served from a sub-path (e.g. GitHub Pages).
+Before injection the absolute paths are rewritten to relative paths by
+prepending the appropriate number of `../` components.
+
+
+```rust
+// <[render-docinfo]>=
 fn copy_theme_assets(theme_dir: &Path, out_dir: &Path) {
     for name in &["wb-theme.css", "wb-theme.js"] {
         let src = theme_dir.join(name);
@@ -65,6 +126,34 @@ fn inject_footer(mut html: String, footer: &str) -> String {
     }
     html
 }
+// @
+```
+
+
+## render_docs
+
+`render_docs` walks all `.adoc` files under `project_root`, skips those whose
+HTML output is up-to-date, pre-processes stale files (plantuml + dedup), parses
+with `acdc_parser`, converts with `acdc_converters_html`, injects docinfo, and
+writes the result.
+
+Rendering proceeds in two phases:
+
+1. **Pre-scan** (sequential): for every stale `.adoc` file that contains
+   plantuml blocks, collect diagram sources that are not yet in the SVG cache.
+   All uncached diagrams are then passed to `plantuml::batch_render_plantuml`,
+   which invokes `java -jar` exactly once regardless of diagram count.
+
+2. **Parallel render** (rayon): each file is independently processed.
+   The plantuml preprocessing step at this point only copies SVGs from the
+   warm cache — no further JVM invocations.
+
+The PlantUML SVG cache lives at `<out_dir>/../.plantuml-cache/` — a sibling of
+the output directory — so that `rm -rf <out_dir>` does not invalidate it.
+
+
+```rust
+// <[render-entry]>=
 pub fn render_docs(
     project_root: &Path,
     theme_dir: &Path,
@@ -280,6 +369,18 @@ pub fn render_docs(
 
     all_html
 }
+// @
+```
+
+
+## File discovery
+
+`find_adoc_files` walks the project tree, skipping `EXCLUDE_DIRS`, and returns
+a sorted list of all `.adoc` paths.
+
+
+```rust
+// <[render-discover]>=
 fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = walkdir::WalkDir::new(root)
         .into_iter()
@@ -302,6 +403,153 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
     files.sort();
     files
 }
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-docgen/src/render.rs]>=
+// weaveback-docgen/src/render.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+// <[render-exclude]>
+// <[render-mtime]>
+// <[render-dedup]>
+// <[render-docinfo]>
+// <[render-entry]>
+// <[render-discover]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
+
+
+## Tests
+
+The test body is generated as `render/tests.rs` and linked from
+`render.rs` with `#[cfg(test)] mod tests;`.
+
+
+```rust
+// <[@file weaveback-docgen/src/render/tests.rs]>=
+// weaveback-docgen/src/render/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use std::fs;
+use tempfile::tempdir;
+
+#[test]
+fn dedup_specials_only_rewrites_doubled_configured_sigils() {
+    assert_eq!(
+        dedup_specials("100%% ready ^^", &['%', '^']),
+        Some("100% ready ^".to_string())
+    );
+    assert_eq!(dedup_specials("100% ready", &['%', '^']), None);
+    assert_eq!(dedup_specials("a##b", &['%']), None);
+}
+
+#[test]
+fn inject_helpers_insert_only_when_expected_markers_exist() {
+    let html = "<html><head></head><body>Hello</body></html>".to_string();
+    assert_eq!(
+        inject_docinfo(html.clone(), "<meta name=\"x\" />"),
+        "<html><head><meta name=\"x\" /></head><body>Hello</body></html>"
+    );
+    assert_eq!(
+        inject_footer(html.clone(), "<footer>F</footer>"),
+        "<html><head></head><body>Hello<footer>F</footer></body></html>"
+    );
+    assert_eq!(inject_docinfo("<html></html>".to_string(), "x"), "<html></html>");
+    assert_eq!(inject_footer("<html></html>".to_string(), "x"), "<html></html>");
+}
+
+#[test]
+fn theme_helpers_copy_assets_and_read_optional_html() {
+    let dir = tempdir().expect("tempdir");
+    let theme = dir.path().join("theme");
+    let out = dir.path().join("out");
+    fs::create_dir_all(&theme).expect("theme dir");
+    fs::create_dir_all(&out).expect("out dir");
+
+    fs::write(theme.join("wb-theme.css"), "body{}").expect("css");
+    fs::write(theme.join("wb-theme.js"), "console.log(1);").expect("js");
+    fs::write(theme.join("docinfo.html"), "<meta>").expect("docinfo");
+    fs::write(theme.join("docinfo-footer.html"), "<footer>").expect("footer");
+
+    copy_theme_assets(&theme, &out);
+    assert_eq!(fs::read_to_string(out.join("wb-theme.css")).expect("read css"), "body{}");
+    assert_eq!(fs::read_to_string(out.join("wb-theme.js")).expect("read js"), "console.log(1);");
+    assert_eq!(read_docinfo(&theme).as_deref(), Some("<meta>"));
+    assert_eq!(read_footer(&theme).as_deref(), Some("<footer>"));
+    assert!(theme_max_mtime(&theme) >= SystemTime::UNIX_EPOCH);
+}
+
+#[test]
+fn find_adoc_files_respects_excluded_directories() {
+    let dir = tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join("docs")).expect("docs dir");
+    fs::create_dir_all(dir.path().join("target")).expect("target dir");
+    fs::write(dir.path().join("docs").join("guide.adoc"), "= Guide\n").expect("guide");
+    fs::write(dir.path().join("target").join("generated.adoc"), "= Skip\n").expect("generated");
+
+    let files = find_adoc_files(dir.path());
+    assert_eq!(files.len(), 1);
+    assert!(files[0].ends_with("docs/guide.adoc"));
+}
+
+#[test]
+fn render_docs_renders_simple_page_and_copies_theme_assets() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("project");
+    let theme = root.join("scripts/asciidoc-theme");
+    let out = root.join("docs/html");
+    fs::create_dir_all(root.join("docs")).expect("docs dir");
+    fs::create_dir_all(&theme).expect("theme dir");
+    fs::write(root.join("docs/index.adoc"), "= Hello\n\n100%% ready.\n").expect("adoc");
+    fs::write(theme.join("wb-theme.css"), "body{}").expect("css");
+    fs::write(theme.join("wb-theme.js"), "console.log(1);").expect("js");
+    fs::write(theme.join("docinfo.html"), "<meta name=\"x\" />").expect("docinfo");
+    fs::write(theme.join("docinfo-footer.html"), "<footer>F</footer>").expect("footer");
+
+    let rendered = render_docs(&root, &theme, &out, &['%'], None, 200, "elk");
+    assert_eq!(rendered, vec![out.join("docs/index.html")]);
+
+    let html = fs::read_to_string(out.join("docs/index.html")).expect("html");
+    assert!(html.contains("Hello"));
+    assert!(html.contains("100% ready."));
+    assert!(html.contains("<meta name=\"x\" />"));
+    assert!(html.contains("<footer>F</footer>"));
+    assert_eq!(fs::read_to_string(out.join("wb-theme.css")).expect("out css"), "body{}");
+    assert_eq!(fs::read_to_string(out.join("wb-theme.js")).expect("out js"), "console.log(1);");
+}
+
+#[test]
+fn render_docs_skips_up_to_date_outputs() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path().join("project");
+    let theme = root.join("scripts/asciidoc-theme");
+    let out = root.join("docs/html");
+    fs::create_dir_all(root.join("docs")).expect("docs dir");
+    fs::create_dir_all(out.join("docs")).expect("out docs dir");
+    fs::create_dir_all(&theme).expect("theme dir");
+    fs::write(root.join("docs/index.adoc"), "= Hello\n").expect("adoc");
+    fs::write(theme.join("wb-theme.css"), "body{}").expect("css");
+    fs::write(theme.join("wb-theme.js"), "console.log(1);").expect("js");
+    fs::write(out.join("docs/index.html"), "<html>cached</html>").expect("html");
+
+    let rendered = render_docs(&root, &theme, &out, &[], None, 200, "elk");
+    assert_eq!(rendered, vec![out.join("docs/index.html")]);
+    assert_eq!(fs::read_to_string(out.join("docs/index.html")).expect("html"), "<html>cached</html>");
+}
+
+// @
+```
 

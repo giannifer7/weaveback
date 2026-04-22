@@ -10,7 +10,7 @@ The tool is generic: it works for any project that uses weaveback.
 Cross-reference analysis defaults to a built-in Rust scanner (requires a
 `crates/` workspace layout); other languages supply their own via `--xref-cmd`.
 
-See link:render.adoc[render.adoc] for acdc rendering,
+See link:../src-wvb/render.wvb[render.wvb] for acdc rendering,
 link:xref.adoc[xref.adoc] for the xref graph builder,
 link:../src-wvb/inject.wvb[inject.wvb] for HTML post-processing, and
 link:literate_index.adoc[literate_index.adoc] for literate source index
@@ -87,7 +87,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 |===
 | Module | Role
 
-| link:render.adoc[render.rs]
+| link:../src-wvb/render.wvb[render.rs]
 | Discover `.adoc` files, render with acdc in-process (parallel, incremental)
 
 | link:xref.adoc[xref.rs]

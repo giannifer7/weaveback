@@ -1,6 +1,6 @@
 ¤h1(weaveback-agent-core lib)
 
-¤rust_chunk(@file weaveback-agent-core/src/lib.rs, ¤[
+¤rust_file(weaveback-agent-core/src/lib.rs, ¤[
 pub mod apply;
 pub mod change_plan;
 pub mod read_api;

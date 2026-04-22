@@ -507,7 +507,7 @@ regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 | link:../crates/weaveback-macro/src/types.adoc[shared types]
 | `crates/weaveback-macro/src/types.rs`
 
-| link:../crates/weaveback-macro/src/line_index.adoc[line index]
+| link:../crates/weaveback-macro/src-wvb/line_index.wvb[line index]
 | `crates/weaveback-macro/src/line_index.rs`
 
 | link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]

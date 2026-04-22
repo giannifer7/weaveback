@@ -8,16 +8,12 @@ between the macro and tangle crates.
 ## Shared Constants
 
 
-
 ```rust
-
 // <[core-constants]>=
 /// Maximum recursion depth for macro expansion and noweb chunk expansion.
 pub const MAX_RECURSION_DEPTH: usize = 100;
 // @
-
 ```
-
 
 
 ## Path Resolution
@@ -34,9 +30,7 @@ correctly when subcommands like `apply-back` are invoked from a different
 directory.
 
 
-
 ```rust
-
 // <[core-path]>=
 use std::path::{Path, PathBuf};
 
@@ -97,22 +91,20 @@ impl PathResolver {
     }
 }
 // @
-
 ```
-
 
 
 ## Assembly
 
 
-
 ```rust
-
 // <[@file weaveback-core/src/lib.rs]>=
+// weaveback-core/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // <[core-constants]>
 // <[core-path]>
+
 // @
-
 ```
-
 

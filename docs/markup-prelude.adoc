@@ -57,22 +57,17 @@ Both prelude implementations define the same names:
 * `¤code_block(language, body)`
 * `¤h1(title)`
 * `¤h2(title)`
+* `¤h3(title)`
 * `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
 * `¤xref(target, label)`
 * `¤note(body)`
 * `¤code_doc(path, title, language, body)`
 * `¤pastafarian_warning()`
-* `¤rust_file(path, content)`
+* `¤rust_file(path, body)`
 
-`¤rust_file(path, content)` emits a Rust `@file` chunk with these stable slots:
-
-* `path head`
-* `path body`
-* `path tail`
-
-The supplied `content` fills the body slot.  Head and tail remain available for
-later accumulating chunks.
+`¤rust_file(path, body)` emits one Rust `@file` chunk and prepends the standard
+generated-file path and safety warning comments.
 
 == Example
 

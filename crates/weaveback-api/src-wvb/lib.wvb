@@ -24,6 +24,6 @@ pub mod tangle;
 
 ¤h2(Assembly)
 
-¤rust_chunk(@file weaveback-api/src/lib.rs, ¤[
+¤rust_file(weaveback-api/src/lib.rs, ¤[
 // <[weaveback-api-lib]>
 ¤])

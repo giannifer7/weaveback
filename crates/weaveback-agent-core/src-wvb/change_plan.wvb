@@ -1,6 +1,6 @@
 ¤h1(weaveback-agent-core change_plan)
 
-¤rust_chunk(@file weaveback-agent-core/src/change_plan.rs, ¤[
+¤rust_file(weaveback-agent-core/src/change_plan.rs, ¤[
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

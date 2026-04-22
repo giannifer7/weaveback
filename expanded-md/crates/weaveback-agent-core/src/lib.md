@@ -1,10 +1,11 @@
 # weaveback-agent-core lib
 
 
-
 ```rust
-
 // <[@file weaveback-agent-core/src/lib.rs]>=
+// weaveback-agent-core/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 pub mod apply;
 pub mod change_plan;
 pub mod read_api;
@@ -14,8 +15,7 @@ pub use apply::{ApplyResult, ChangePreview, PlanValidation};
 pub use change_plan::{ChangePlan, ChangeTarget, PlannedEdit, OutputAnchor};
 pub use read_api::{ChunkContext, SearchHit, TraceResult};
 pub use workspace::{Session, Workspace, WorkspaceConfig};
+
 // @
-
 ```
-
 

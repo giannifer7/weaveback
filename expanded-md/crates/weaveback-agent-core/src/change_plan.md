@@ -1,10 +1,11 @@
 # weaveback-agent-core change_plan
 
 
-
 ```rust
-
 // <[@file weaveback-agent-core/src/change_plan.rs]>=
+// weaveback-agent-core/src/change_plan.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +38,7 @@ pub struct OutputAnchor {
     pub out_line: u32,
     pub expected_output: String,
 }
+
 // @
-
 ```
-
 

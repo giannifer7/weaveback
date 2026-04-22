@@ -9,9 +9,7 @@ from Python via PyO3, and from MCP tool handlers.
 ## Modules
 
 
-
 ```rust
-
 // <[weaveback-api-lib]>=
 pub mod apply_back;
 pub mod coverage;
@@ -25,21 +23,19 @@ pub mod semantic;
 pub mod tag;
 pub mod tangle;
 // @
-
 ```
-
 
 
 ## Assembly
 
 
-
 ```rust
-
 // <[@file weaveback-api/src/lib.rs]>=
+// weaveback-api/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // <[weaveback-api-lib]>
+
 // @
-
 ```
-
 

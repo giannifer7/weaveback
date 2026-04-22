@@ -1,3 +1,6 @@
+// weaveback-core/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 /// Maximum recursion depth for macro expansion and noweb chunk expansion.
 pub const MAX_RECURSION_DEPTH: usize = 100;
 use std::path::{Path, PathBuf};
@@ -58,3 +61,4 @@ impl PathResolver {
         self.project_root.join(&self.gen_dir).join(db_path)
     }
 }
+

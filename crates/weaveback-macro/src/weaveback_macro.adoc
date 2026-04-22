@@ -93,7 +93,7 @@ cli_rs --> eval_rs
 | Shared vocabulary: `TokenKind`, `NodeKind`, `Token`, `ParseNode`, `ASTNode`
 
 | `line_index`
-| xref:line_index.adoc[line_index.adoc]
+| xref:../src-wvb/line_index.wvb[line_index.wvb]
 | Byte-offset → (line, column) via SIMD newline scan
 
 | `lexer`

@@ -778,11 +778,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let prelude = tmp.path().join("asciidoc.wvb");
         fs::write(&prelude, concat!(r#"
-¤redef(rust_file, path, content, ¤{
+¤redef(rust_file, path, body, ¤{
 [source,rust]
 ----
 // <[@file ¤(path)]>=
-¤(content)
+¤(body)
 "#, "// ", "@", r#"
 ----
 ¤})
@@ -827,11 +827,11 @@ mod tests {
         let tmp = tempdir().unwrap();
         let adoc_prelude = tmp.path().join("asciidoc.wvb");
         fs::write(&adoc_prelude, concat!(r#"
-¤redef(rust_file, path, content, ¤{
+¤redef(rust_file, path, body, ¤{
 [source,rust]
 ----
 // <[@file ¤(path)]>=
-¤(content)
+¤(body)
 "#, "// ", "@", r#"
 ----
 ¤})
@@ -839,10 +839,10 @@ mod tests {
 
         let md_prelude = tmp.path().join("markdown.wvb");
         fs::write(&md_prelude, concat!(r#"
-¤redef(rust_file, path, content, ¤{
+¤redef(rust_file, path, body, ¤{
 ```rust
 // <[@file ¤(path)]>=
-¤(content)
+¤(body)
 "#, "// ", "@", r#"
 ```
 ¤})

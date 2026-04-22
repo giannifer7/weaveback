@@ -1,13 +1,11 @@
-= weaveback-tangle
-:toc: left
-:source-highlighter: syntect
+¤h1(¤[weaveback-tangle¤])
 
 `weaveback-tangle` reads literate source documents in noweb style, extracts
 named code chunks, and writes the resulting files to disk atomically.  It is
 the second stage of the weaveback pipeline — it receives the macro-expanded
 text from `weaveback-macro` and produces the final generated source files.
 
-== Public API
+¤h2(¤[Public API¤])
 
 The crate exports five public types:
 
@@ -21,7 +19,7 @@ The crate exports five public types:
 `WeavebackError` is the unified error type wrapping the three sub-errors
 produced by the crate's internal modules.
 
-== Module map
+¤h2(¤[Module map¤])
 
 The crate has four modules arranged in a chain:
 
@@ -66,7 +64,7 @@ CLI / Clip  (cli.adoc, noweb.adoc)
 See link:../../../docs/architecture.adoc[architecture.adoc] for the full
 pipeline context, including apply-back and the MCP server.
 
-== Error hierarchy
+¤h2(¤[Error hierarchy¤])
 
 [source]
 ----
@@ -79,9 +77,7 @@ WeavebackError
 `std::io::Error` converts to `WeavebackError::SafeWriter(SafeWriterError::IoError(_))`
 so callers can use `?` on I/O operations without wrapping manually.
 
-[source,rust]
-----
-// <[@file weaveback-tangle/src/lib.rs]>=
+¤rust_file(weaveback-tangle/src/lib.rs, ¤[
 pub mod block_parser;
 pub mod db;
 pub mod noweb;
@@ -118,5 +114,4 @@ pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry, FtsResult, BlockF
 pub use crate::noweb::{ChunkDefinitionMatch, Clip, NowebSyntax, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;
 pub use crate::safe_writer::SafeWriterConfig;
-// @@
-----
+¤])

@@ -1,3 +1,6 @@
+// weaveback-tangle/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 pub mod block_parser;
 pub mod db;
 pub mod noweb;
@@ -34,3 +37,4 @@ pub use crate::db::{WeavebackDb, NowebMapEntry, ChunkDefEntry, FtsResult, BlockF
 pub use crate::noweb::{ChunkDefinitionMatch, Clip, NowebSyntax, tangle_check};
 pub use crate::safe_writer::SafeFileWriter;
 pub use crate::safe_writer::SafeWriterConfig;
+

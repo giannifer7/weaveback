@@ -1,15 +1,57 @@
-// weaveback-tangle/src/safe_writer.rs
-// I'd Really Rather You Didn't edit this generated file.
+# Safe File Writer
 
-use crate::db::{WeavebackDb, DbError};
-use shlex;
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Read;
-use std::io::{self, BufReader};
-use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
+`safe_writer.rs` provides atomic, modification-aware file output.  Its central
+concern is protecting manually edited generated files: if a file in `gen/` was
+changed by hand since weaveback last wrote it, the next run refuses to
+overwrite it and returns `ModifiedExternally` instead.
 
+`SafeFileWriter` is used by link:noweb.adoc[`ChunkWriter`] in `noweb.rs`.
+Baseline and source-map data is persisted to link:db.adoc[`WeavebackDb`].
+See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map.
+
+## Write flow
+
+For each output file:
+
+. `before_write(name)` — validate the path, create missing directories, and
+  stage a `NamedTempFile` with the correct extension so formatters can identify
+  the file type.  Returns the temp-file path; the caller writes content there.
+. `after_write(name)` — runs the optional formatter on the temp copy, checks
+  whether the existing `gen/` file has been modified externally, copies the
+  temp file to `gen/` if the content changed, stores the new content as the
+  baseline in the in-memory database, and *returns the final bytes* so the
+  caller can use them (e.g. for source-map remapping) without re-reading the
+  file from disk.
+. `finish(target)` — merges the in-memory database into `target`
+  (`weaveback.db`), making baselines and source maps persistent.
+
+## Modification detection
+
+After the first successful write the content is stored as a _baseline_ in the
+`gen_baselines` database table.  On the next run, `after_write` reads the
+existing `gen/` file and compares it to the baseline.  If they differ, someone
+has edited the file externally and the run aborts rather than clobber the edit.
+
+There is one explicit escape hatch: `force_generated`.  When enabled, weaveback
+still validates paths and writes atomically, but it skips the external-edit
+check (Step 2) _and_ the identity check (Step 3) — the file is always
+overwritten from the current literate source.  This is intended for deliberate
+recovery workflows such as "retangle the generated tree from source even though
+some generated files drifted locally", not for normal interactive use.
+
+## Security
+
+`validate_filename` rejects:
+
+* absolute paths (Unix and Windows style)
+* Windows-style drive paths (`C:`)
+* `..` path-traversal components
+
+## Error type
+
+
+```rust
+// <[safe-writer-errors]>=
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -29,6 +71,18 @@ pub enum SafeWriterError {
     #[error("Database error: {0}")]
     DbError(#[from] DbError),
 }
+// @
+```
+
+
+## Configuration
+
+`SafeWriterConfig` carries the per-run settings.  It implements `Default` so
+callers can use struct-update syntax and only specify the fields they care about.
+
+
+```rust
+// <[safe-writer-config]>=
 #[derive(Debug, Clone)]
 pub struct SafeWriterConfig {
     pub buffer_size: usize,
@@ -52,6 +106,20 @@ impl Default for SafeWriterConfig {
         }
     }
 }
+// @
+```
+
+
+## Struct and constructors
+
+`SafeFileWriter` owns the canonical `gen/` base path (canonicalized at
+construction time), the in-memory database, the active configuration, and the
+staging map that keeps each `NamedTempFile` alive between `before_write` and
+`after_write`.
+
+
+```rust
+// <[safe-writer-struct]>=
 pub struct SafeFileWriter {
     gen_base: PathBuf,
     db: WeavebackDb,
@@ -87,6 +155,30 @@ impl SafeFileWriter {
         })
     }
 }
+// @
+```
+
+
+## Internal write helpers
+
+These three methods are private implementation details of `after_write`.
+
+`atomic_copy` copies a source file to a destination via a `.tmp` side-car,
+syncing to disk before renaming, to guard against partial writes on crash.
+
+`copy_if_different` skips the copy entirely when source and destination are
+byte-for-byte identical, keeping build-system timestamps stable and avoiding
+unnecessary recompilation.  It compares files incrementally in fixed-size
+chunks rather than loading them entirely into memory.
+
+`run_formatter` shells out to the configured formatter command, using
+`shlex::split` to tokenise the command string so that quoted arguments and
+paths with spaces work correctly.  The temp-file path is appended as the
+final argument.
+
+
+```rust
+// <[safe-writer-helpers]>=
 impl SafeFileWriter {
     fn atomic_copy<P: AsRef<Path>>(&self, source: P, destination: P) -> io::Result<()> {
         let destination = destination.as_ref();
@@ -202,6 +294,23 @@ impl SafeFileWriter {
         Ok(())
     }
 }
+// @
+```
+
+
+## before_write and after_write
+
+`before_write` validates the path, ensures the output directory exists, and
+creates a `NamedTempFile` with the correct extension (so formatters like
+`rustfmt` can identify the file type by name).  The temp file is stored in
+`staging`; `after_write` consumes it.
+
+`after_write` implements the four-step write pipeline described in the Write
+flow section above.
+
+
+```rust
+// <[safe-writer-rw]>=
 impl SafeFileWriter {
     pub fn before_write<P: AsRef<Path>>(
         &mut self,
@@ -248,7 +357,7 @@ impl SafeFileWriter {
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
-
+        
         let mut formatted = false;
         if let Some(cmd) = self.config.formatters.get(ext).cloned() {
             let pre_size = fs::metadata(&tmp_path).map(|m| m.len()).unwrap_or(0);
@@ -309,6 +418,15 @@ impl SafeFileWriter {
         Ok(written)
     }
 }
+// @
+```
+
+
+## Accessors and finish
+
+
+```rust
+// <[safe-writer-accessors]>=
 impl SafeFileWriter {
     pub fn get_config(&self) -> &SafeWriterConfig {
         &self.config
@@ -341,6 +459,18 @@ impl SafeFileWriter {
         self.db.get_baseline(path).ok().flatten()
     }
 }
+// @
+```
+
+
+## Path validation
+
+`validate_filename` is called by both `before_write` and `after_write`.
+It enforces the same three rules described in the Security section above.
+
+
+```rust
+// <[validate-filename]>=
 fn validate_filename(path: &Path) -> Result<(), SafeWriterError> {
     use std::path::Component;
 
@@ -373,4 +503,35 @@ fn validate_filename(path: &Path) -> Result<(), SafeWriterError> {
 
     Ok(())
 }
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-tangle/src/safe_writer.rs]>=
+// weaveback-tangle/src/safe_writer.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use crate::db::{WeavebackDb, DbError};
+use shlex;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::Read;
+use std::io::{self, BufReader};
+use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
+
+// <[safe-writer-errors]>
+// <[safe-writer-config]>
+// <[safe-writer-struct]>
+// <[safe-writer-helpers]>
+// <[safe-writer-rw]>
+// <[safe-writer-accessors]>
+// <[validate-filename]>
+
+// @
+```
 

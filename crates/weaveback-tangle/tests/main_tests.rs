@@ -1,3 +1,6 @@
+// weaveback-tangle/tests/main_tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::fs;
@@ -105,3 +108,4 @@ fn test_extract_chunk_to_file() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

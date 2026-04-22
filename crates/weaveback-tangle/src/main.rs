@@ -1,3 +1,6 @@
+// weaveback-tangle/src/main.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
 use clap::Parser;
 use std::collections::HashMap;
@@ -154,3 +157,4 @@ fn main() {
         std::process::exit(1);
     }
 }
+

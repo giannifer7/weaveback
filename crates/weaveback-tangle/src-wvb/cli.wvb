@@ -1,6 +1,4 @@
-= Command-Line Interface
-:toc: left
-:source-highlighter: syntect
+¤h1(¤[Command-Line Interface¤])
 
 `main.rs` is the entry point for the `weaveback-tangle` binary.  It parses
 command-line arguments with `clap`, builds a
@@ -12,7 +10,7 @@ See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map and
 link:../../../docs/architecture.adoc[architecture.adoc] for the pipeline
 overview.
 
-== Arguments
+¤h2(¤[Arguments¤])
 
 [cols="1,1,3"]
 |===
@@ -33,9 +31,7 @@ overview.
 | `FILES…` | — | Input literate source files (`-` for stdin).
 |===
 
-[source,rust]
-----
-// <[@file weaveback-tangle/src/main.rs]>=
+¤rust_file(weaveback-tangle/src/main.rs, ¤[
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};
 use clap::Parser;
 use std::collections::HashMap;
@@ -192,10 +188,9 @@ fn main() {
         std::process::exit(1);
     }
 }
-// @@
-----
+¤])
 
-== Tests
+¤h2(¤[Tests¤])
 
 Integration tests for the `weaveback-tangle` CLI binary.  They use
 `assert_cmd` to invoke the built binary as a subprocess and exercise the
@@ -206,9 +201,7 @@ full argument-parsing / chunk-extraction contract:
 * `test_extract_specific_chunk_to_stdout` — `--chunks` prints named chunk
 * `test_extract_chunk_to_file` — `--chunks --output` writes chunk to file
 
-[source,rust]
-----
-// <[@file weaveback-tangle/tests/main_tests.rs]>=
+¤rust_file(weaveback-tangle/tests/main_tests.rs, ¤[
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use std::fs;
@@ -316,5 +309,4 @@ fn test_extract_chunk_to_file() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-// @@
-----
+¤])

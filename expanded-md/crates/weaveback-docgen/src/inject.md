@@ -11,7 +11,7 @@ after the acdc render.
 HTML page that has a matching cross-reference entry.  The object is consumed
 by the side-panel JavaScript in the shared docinfo template.
 
-See link:xref.adoc[xref.adoc] for how the graph is built and
+See link:xref.wvb[xref.wvb] for how the graph is built and
 link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
 
 ## .adoc → .html link rewriting

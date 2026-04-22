@@ -1,6 +1,4 @@
-= Rust cross-reference graph
-:toc: left
-:source-highlighter: syntect
+# Rust cross-reference graph
 
 `xref.rs` builds a forward-and-reverse cross-reference graph from the
 workspace Rust source files.  It uses `syn` to parse each `.rs` file, collects
@@ -14,7 +12,7 @@ for the JavaScript side panel.
 
 See link:weaveback_docgen.adoc[weaveback_docgen.adoc] for the module map.
 
-== Module key scheme
+## Module key scheme
 
 A module key is a `/`-separated string derived from a `.rs` path relative to
 `crates/`, with hyphens in the crate directory converted to underscores:
@@ -27,15 +25,15 @@ crates/weaveback-macro/src/evaluator/core.rs  →  weaveback_macro/evaluator/cor
 `html_path_for_key` is the inverse: it reconstructs the relative HTML path,
 converting underscores back to hyphens in the crate segment.
 
-== Public types
+## Public types
 
 `XrefLink` is a single directed edge.  `XrefEntry` collects all edges for one
 module together with its public symbol list.  Both types derive `Serialize` and
 `Deserialize` so they can be written to `xref.json` and embedded as JSON in
 HTML pages.
 
-[source,rust]
-----
+
+```rust
 // <[xref-types]>=
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XrefLink {
@@ -56,13 +54,14 @@ pub struct XrefEntry {
     #[serde(default)]
     pub lsp_links: Vec<XrefLink>,
 }
-// @@
-----
+// @
+```
 
-== Module key helpers
 
-[source,rust]
-----
+## Module key helpers
+
+
+```rust
 // <[xref-module-key]>=
 /// `crates/weaveback-tangle/src/noweb.rs` → `weaveback_tangle/noweb`
 pub fn module_key(rs_file: &Path, crates_dir: &Path) -> Option<String> {
@@ -97,17 +96,18 @@ pub fn html_path_for_key(key: &str) -> String {
         format!("{}.html", key)
     }
 }
-// @@
-----
+// @
+```
 
-== Workspace crate discovery
+
+## Workspace crate discovery
 
 `workspace_crate_names` scans `crates/` for `Cargo.toml` files and extracts
 crate names (normalised to underscore form).  The list is used by
 `resolve_import` to recognise cross-crate `use` paths.
 
-[source,rust]
-----
+
+```rust
 // <[xref-workspace]>=
 pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
@@ -130,10 +130,11 @@ pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
     }
     names
 }
-// @@
-----
+// @
+```
 
-== Syn-based file analysis
+
+## Syn-based file analysis
 
 `collect_use_tree` recursively walks a `syn::UseTree` and records all
 fully-qualified import paths.  Globs are recorded as the prefix path so that
@@ -147,8 +148,8 @@ constants, and modules feed into the `symbols` list.
 symbols)`.  Parse failures are silently ignored — an empty result is safe
 because the module will simply have no edges in the graph.
 
-[source,rust]
-----
+
+```rust
 // <[xref-use-tree]>=
 fn collect_use_tree(tree: &syn::UseTree, prefix: &str, out: &mut Vec<String>) {
     match tree {
@@ -232,10 +233,11 @@ fn analyze_file(path: &Path) -> (Vec<String>, Vec<String>) {
     collect_items(&file.items, &mut use_paths, &mut symbols);
     (use_paths, symbols)
 }
-// @@
-----
+// @
+```
 
-== Import resolution
+
+## Import resolution
 
 `resolve_to_module` probes for `{segments}.rs` and `{segments}/mod.rs` in the
 crate's `src/` directory, trying progressively shorter prefixes so that `use
@@ -250,8 +252,8 @@ foo::Bar` resolves to module `foo` even though `Bar` is a type, not a module.
 Anything else (standard library, external crates, trait-only imports) is
 silently dropped and produces no graph edge.
 
-[source,rust]
-----
+
+```rust
 // <[xref-resolve]>=
 fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> Option<String> {
     for len in (1..=segments.len()).rev() {
@@ -304,10 +306,11 @@ fn resolve_import(
     }
     None
 }
-// @@
-----
+// @
+```
 
-== Adoc @file declaration scanning
+
+## Adoc @file declaration scanning
 
 Some `.adoc` files generate `.rs` files whose name differs from the `.adoc`
 stem (e.g. `cli.adoc` generates `weaveback-macro.rs`).  The xref injection
@@ -322,8 +325,8 @@ weaveback-macro adocs.  Crates that use other delimiters (e.g. `<[ ]>`) will
 not be scanned here; their module pages are handled by the direct key lookup
 in `inject_xref` so long as the `.adoc` stem matches the `.rs` stem.
 
-[source,rust]
-----
+
+```rust
 // <[xref-adoc-scan]>=
 fn atfile_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -367,17 +370,18 @@ pub fn scan_adoc_file_declarations(
     }
     map
 }
-// @@
-----
+// @
+```
 
-== Excluded paths
+
+## Excluded paths
 
 `EXCLUDE_DIRS` lists directories skipped by all walkers.  `gen` is excluded
 here but not in `render.rs` because xref analysis only needs original source
 files, not generated output.
 
-[source,rust]
-----
+
+```rust
 // <[xref-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "gen", "node_modules", ".venv"];
 
@@ -388,10 +392,11 @@ fn is_excluded(path: &Path) -> bool {
             .any(|ex| c.as_os_str() == std::ffi::OsStr::new(ex))
     })
 }
-// @@
-----
+// @
+```
 
-== build_xref
+
+## build_xref
 
 `build_xref` ties all the pieces together: discover `.rs` files, analyse each
 with `syn`, resolve imports into module keys, and build the forward and reverse
@@ -399,8 +404,8 @@ edges.  The local `RawData` struct accumulates per-file data before resolution
 so that the two passes (forward edge collection, reverse edge derivation) can
 share the same analysis results.
 
-[source,rust]
-----
+
+```rust
 // <[xref-build]>=
 pub fn build_xref(project_root: &Path, use_lsp: bool) -> HashMap<String, XrefEntry> {
     let crates_dir = project_root.join("crates");
@@ -556,14 +561,18 @@ fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     let col_1 = prefix[line_start..].chars().count() as u32 + 1;
     (line_1, col_1)
 }
-// @@
-----
+// @
+```
 
-== Assembly
 
-[source,rust]
-----
+## Assembly
+
+
+```rust
 // <[@file weaveback-docgen/src/xref.rs]>=
+// weaveback-docgen/src/xref.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -580,163 +589,171 @@ use weaveback_lsp::LspClient;
 // <[xref-adoc-scan]>
 // <[xref-exclude]>
 // <[xref-build]>
-// <[xref-tests]>
-// @@
-----
-
-== Tests
-
-[source,rust]
-----
-// <[xref-tests]>=
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::tempdir;
+mod tests;
 
-    #[test]
-    fn module_and_html_keys_roundtrip_basic_workspace_paths() {
-        let crates_dir = Path::new("/tmp/ws/crates");
-        let rs = crates_dir.join("weaveback-tangle/src/noweb.rs");
-        assert_eq!(module_key(&rs, crates_dir).as_deref(), Some("weaveback_tangle/noweb"));
-        assert_eq!(html_path_for_key("weaveback_tangle/noweb"), "crates/weaveback-tangle/src/noweb.html");
-        assert_eq!(html_path_for_key("index"), "index.html");
-    }
+// @
+```
 
-    #[test]
-    fn collect_and_resolve_imports_cover_common_rust_forms() {
-        let dir = tempdir().expect("tempdir");
-        let crates_dir = dir.path().join("crates");
-        fs::create_dir_all(crates_dir.join("demo/src/parser")).expect("parser dir");
-        fs::write(
-            crates_dir.join("demo/Cargo.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
-        )
-        .expect("cargo");
-        fs::write(crates_dir.join("demo/src/lib.rs"), "pub mod parser;\n").expect("lib");
-        fs::write(crates_dir.join("demo/src/parser/mod.rs"), "pub fn parse() {}\n").expect("parser");
 
-        let known = workspace_crate_names(&crates_dir);
-        assert_eq!(known, vec!["demo".to_string()]);
+## Tests
 
-        let demo_file = crates_dir.join("demo/src/demo.rs");
-        fs::write(
-            &demo_file,
-            "pub use crate::parser::parse;\nuse crate::{parser::parse as parse2};\npub struct Demo;\n",
-        )
-        .expect("demo");
+The test body is generated as `xref/tests.rs` and linked from
+`xref.rs` with `#[cfg(test)] mod tests;`.
 
-        let (uses, symbols) = analyze_file(&demo_file);
-        assert!(uses.iter().any(|u| u == "crate::parser::parse"));
-        assert!(symbols.iter().any(|s| s == "Demo"));
 
-        assert_eq!(
-            resolve_to_module(&["parser", "parse"], &crates_dir.join("demo"), "demo").as_deref(),
-            Some("demo/parser")
-        );
-        assert_eq!(
-            resolve_import("crate::parser::parse", "demo/demo", "demo", &crates_dir, &known).as_deref(),
-            Some("demo/parser")
-        );
-        assert_eq!(
-            resolve_import("super::parser::parse", "demo/nested/mod", "demo", &crates_dir, &known).as_deref(),
-            None
-        );
-    }
+```rust
+// <[@file weaveback-docgen/src/xref/tests.rs]>=
+// weaveback-docgen/src/xref/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-    #[test]
-    fn collect_use_tree_and_collect_items_cover_groups_globs_and_pub_items() {
-        let tree: syn::UseTree = syn::parse_str("crate::{alpha::Beta, gamma::*, delta as renamed}").expect("use tree");
-        let mut out = Vec::new();
-        collect_use_tree(&tree, "", &mut out);
-        assert_eq!(
-            out,
-            vec![
-                "crate::alpha::Beta".to_string(),
-                "crate::gamma".to_string(),
-                "crate::delta".to_string(),
-            ]
-        );
+use super::*;
+use std::fs;
+use tempfile::tempdir;
 
-        let file = syn::parse_file(
-            "pub fn hello() {}\nstruct Hidden;\npub mod inner { pub struct Visible; }\nuse crate::alpha::Beta;\n",
-        )
-        .expect("file");
-        let mut use_paths = Vec::new();
-        let mut symbols = Vec::new();
-        collect_items(&file.items, &mut use_paths, &mut symbols);
-        assert!(use_paths.iter().any(|u| u == "crate::alpha::Beta"));
-        assert!(symbols.iter().any(|s| s == "hello"));
-        assert!(symbols.iter().any(|s| s == "inner"));
-        assert!(symbols.iter().any(|s| s == "Visible"));
-        assert!(!symbols.iter().any(|s| s == "Hidden"));
-    }
-
-    #[test]
-    fn adoc_scan_and_line_col_helpers_work() {
-        let dir = tempdir().expect("tempdir");
-        let project_root = dir.path();
-        let crates_dir = project_root.join("crates");
-        fs::create_dir_all(crates_dir.join("demo/src")).expect("src dir");
-        fs::write(
-            crates_dir.join("demo/Cargo.toml"),
-            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
-        )
-        .expect("cargo");
-        fs::write(crates_dir.join("demo/src/lib.rs"), "pub fn hello() {}\n").expect("lib");
-        fs::write(
-            crates_dir.join("demo/src/lib.adoc"),
-            "// <<@file demo/src/lib.rs>>=\nbody\n// @\n",
-        )
-        .expect("adoc");
-
-        let map = scan_adoc_file_declarations(project_root, &crates_dir);
-        assert_eq!(
-            map.get("crates/demo/src/lib.html"),
-            Some(&vec!["demo/lib".to_string()])
-        );
-        assert_eq!(find_line_col("ab\ncde", 0), (1, 1));
-        assert_eq!(find_line_col("ab\ncde", 3), (2, 1));
-        assert_eq!(find_line_col("ab\ncde", 5), (2, 3));
-    }
-
-    #[test]
-    fn is_excluded_matches_expected_workspace_noise_dirs() {
-        assert!(is_excluded(Path::new("/tmp/project/target/file.rs")));
-        assert!(is_excluded(Path::new("/tmp/project/.git/config")));
-        assert!(is_excluded(Path::new("/tmp/project/node_modules/pkg/index.js")));
-        assert!(!is_excluded(Path::new("/tmp/project/crates/demo/src/lib.rs")));
-    }
-
-    #[test]
-    fn test_build_xref_orchestration() {
-        let dir = tempdir().expect("tempdir");
-        let root = dir.path();
-        let crates_dir = root.join("crates");
-
-        let crate_a = crates_dir.join("crate-a");
-        fs::create_dir_all(crate_a.join("src")).unwrap();
-        fs::write(crate_a.join("Cargo.toml"), "[package]\nname = \"crate-a\"\n").unwrap();
-        fs::write(crate_a.join("src/lib.rs"), "pub mod sub;").unwrap();
-        fs::write(crate_a.join("src/sub.rs"), "pub struct Alpha;").unwrap();
-
-        let crate_b = crates_dir.join("crate-b");
-        fs::create_dir_all(crate_b.join("src")).unwrap();
-        fs::write(crate_b.join("Cargo.toml"), "[package]\nname = \"crate-b\"\n").unwrap();
-        fs::write(crate_b.join("src/lib.rs"), "use crate_a::sub::Alpha; pub struct Beta;").unwrap();
-
-        let xref = build_xref(root, false);
-        assert!(xref.contains_key("crate_a/sub"));
-        assert!(xref.contains_key("crate_b/lib"));
-
-        let a = xref.get("crate_a/sub").unwrap();
-        assert!(a.symbols.contains(&"Alpha".to_string()));
-        assert!(a.imported_by.iter().any(|l| l.key == "crate_b/lib"));
-
-        let b = xref.get("crate_b/lib").unwrap();
-        assert!(b.imports.iter().any(|l| l.key == "crate_a/sub"));
-    }
+#[test]
+fn module_and_html_keys_roundtrip_basic_workspace_paths() {
+    let crates_dir = Path::new("/tmp/ws/crates");
+    let rs = crates_dir.join("weaveback-tangle/src/noweb.rs");
+    assert_eq!(module_key(&rs, crates_dir).as_deref(), Some("weaveback_tangle/noweb"));
+    assert_eq!(html_path_for_key("weaveback_tangle/noweb"), "crates/weaveback-tangle/src/noweb.html");
+    assert_eq!(html_path_for_key("index"), "index.html");
 }
-// @@
-----
+
+#[test]
+fn collect_and_resolve_imports_cover_common_rust_forms() {
+    let dir = tempdir().expect("tempdir");
+    let crates_dir = dir.path().join("crates");
+    fs::create_dir_all(crates_dir.join("demo/src/parser")).expect("parser dir");
+    fs::write(
+        crates_dir.join("demo/Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("cargo");
+    fs::write(crates_dir.join("demo/src/lib.rs"), "pub mod parser;\n").expect("lib");
+    fs::write(crates_dir.join("demo/src/parser/mod.rs"), "pub fn parse() {}\n").expect("parser");
+
+    let known = workspace_crate_names(&crates_dir);
+    assert_eq!(known, vec!["demo".to_string()]);
+
+    let demo_file = crates_dir.join("demo/src/demo.rs");
+    fs::write(
+        &demo_file,
+        "pub use crate::parser::parse;\nuse crate::{parser::parse as parse2};\npub struct Demo;\n",
+    )
+    .expect("demo");
+
+    let (uses, symbols) = analyze_file(&demo_file);
+    assert!(uses.iter().any(|u| u == "crate::parser::parse"));
+    assert!(symbols.iter().any(|s| s == "Demo"));
+
+    assert_eq!(
+        resolve_to_module(&["parser", "parse"], &crates_dir.join("demo"), "demo").as_deref(),
+        Some("demo/parser")
+    );
+    assert_eq!(
+        resolve_import("crate::parser::parse", "demo/demo", "demo", &crates_dir, &known).as_deref(),
+        Some("demo/parser")
+    );
+    assert_eq!(
+        resolve_import("super::parser::parse", "demo/nested/mod", "demo", &crates_dir, &known).as_deref(),
+        None
+    );
+}
+
+#[test]
+fn collect_use_tree_and_collect_items_cover_groups_globs_and_pub_items() {
+    let tree: syn::UseTree = syn::parse_str("crate::{alpha::Beta, gamma::*, delta as renamed}").expect("use tree");
+    let mut out = Vec::new();
+    collect_use_tree(&tree, "", &mut out);
+    assert_eq!(
+        out,
+        vec![
+            "crate::alpha::Beta".to_string(),
+            "crate::gamma".to_string(),
+            "crate::delta".to_string(),
+        ]
+    );
+
+    let file = syn::parse_file(
+        "pub fn hello() {}\nstruct Hidden;\npub mod inner { pub struct Visible; }\nuse crate::alpha::Beta;\n",
+    )
+    .expect("file");
+    let mut use_paths = Vec::new();
+    let mut symbols = Vec::new();
+    collect_items(&file.items, &mut use_paths, &mut symbols);
+    assert!(use_paths.iter().any(|u| u == "crate::alpha::Beta"));
+    assert!(symbols.iter().any(|s| s == "hello"));
+    assert!(symbols.iter().any(|s| s == "inner"));
+    assert!(symbols.iter().any(|s| s == "Visible"));
+    assert!(!symbols.iter().any(|s| s == "Hidden"));
+}
+
+#[test]
+fn adoc_scan_and_line_col_helpers_work() {
+    let dir = tempdir().expect("tempdir");
+    let project_root = dir.path();
+    let crates_dir = project_root.join("crates");
+    fs::create_dir_all(crates_dir.join("demo/src")).expect("src dir");
+    fs::write(
+        crates_dir.join("demo/Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("cargo");
+    fs::write(crates_dir.join("demo/src/lib.rs"), "pub fn hello() {}\n").expect("lib");
+    fs::write(
+        crates_dir.join("demo/src/lib.adoc"),
+        "// <<@file demo/src/lib.rs>>=\nbody\n// @\n",
+    )
+    .expect("adoc");
+
+    let map = scan_adoc_file_declarations(project_root, &crates_dir);
+    assert_eq!(
+        map.get("crates/demo/src/lib.html"),
+        Some(&vec!["demo/lib".to_string()])
+    );
+    assert_eq!(find_line_col("ab\ncde", 0), (1, 1));
+    assert_eq!(find_line_col("ab\ncde", 3), (2, 1));
+    assert_eq!(find_line_col("ab\ncde", 5), (2, 3));
+}
+
+#[test]
+fn is_excluded_matches_expected_workspace_noise_dirs() {
+    assert!(is_excluded(Path::new("/tmp/project/target/file.rs")));
+    assert!(is_excluded(Path::new("/tmp/project/.git/config")));
+    assert!(is_excluded(Path::new("/tmp/project/node_modules/pkg/index.js")));
+    assert!(!is_excluded(Path::new("/tmp/project/crates/demo/src/lib.rs")));
+}
+
+#[test]
+fn test_build_xref_orchestration() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let crates_dir = root.join("crates");
+
+    let crate_a = crates_dir.join("crate-a");
+    fs::create_dir_all(crate_a.join("src")).unwrap();
+    fs::write(crate_a.join("Cargo.toml"), "[package]\nname = \"crate-a\"\n").unwrap();
+    fs::write(crate_a.join("src/lib.rs"), "pub mod sub;").unwrap();
+    fs::write(crate_a.join("src/sub.rs"), "pub struct Alpha;").unwrap();
+
+    let crate_b = crates_dir.join("crate-b");
+    fs::create_dir_all(crate_b.join("src")).unwrap();
+    fs::write(crate_b.join("Cargo.toml"), "[package]\nname = \"crate-b\"\n").unwrap();
+    fs::write(crate_b.join("src/lib.rs"), "use crate_a::sub::Alpha; pub struct Beta;").unwrap();
+
+    let xref = build_xref(root, false);
+    assert!(xref.contains_key("crate_a/sub"));
+    assert!(xref.contains_key("crate_b/lib"));
+
+    let a = xref.get("crate_a/sub").unwrap();
+    assert!(a.symbols.contains(&"Alpha".to_string()));
+    assert!(a.imported_by.iter().any(|l| l.key == "crate_b/lib"));
+
+    let b = xref.get("crate_b/lib").unwrap();
+    assert!(b.imports.iter().any(|l| l.key == "crate_a/sub"));
+}
+
+// @
+```
+

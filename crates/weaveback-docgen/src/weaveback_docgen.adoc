@@ -11,7 +11,7 @@ Cross-reference analysis defaults to a built-in Rust scanner (requires a
 `crates/` workspace layout); other languages supply their own via `--xref-cmd`.
 
 See link:../src-wvb/render.wvb[render.wvb] for acdc rendering,
-link:xref.adoc[xref.adoc] for the xref graph builder,
+link:../src-wvb/xref.wvb[xref.wvb] for the xref graph builder,
 link:../src-wvb/inject.wvb[inject.wvb] for HTML post-processing, and
 link:../src-wvb/literate_index.wvb[literate_index.wvb] for literate source index
 injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
@@ -90,7 +90,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 | link:../src-wvb/render.wvb[render.rs]
 | Discover `.adoc` files, render with acdc in-process (parallel, incremental)
 
-| link:xref.adoc[xref.rs]
+| link:../src-wvb/xref.wvb[xref.rs]
 | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph
 
 | link:../src-wvb/inject.wvb[inject.rs]

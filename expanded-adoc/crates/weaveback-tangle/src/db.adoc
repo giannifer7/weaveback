@@ -1,6 +1,4 @@
 = Persistent Database
-:toc: left
-:source-highlighter: syntect
 
 `db.rs` owns the SQLite database that weaveback writes after every tangling
 run.  It is opened and written by link:safe_writer.adoc[`SafeFileWriter`] (for
@@ -68,6 +66,7 @@ The schema is created on first open via `apply_schema`.  All tables use
 that were previously `TEXT` are now `INTEGER REFERENCES files(id)`, eliminating
 the redundant path storage on every row.  Indexes on `chunk_deps(to_chunk)` and
 `noweb_map(src_file, src_line)` keep reverse-dep and trace lookups O(log n).
+
 
 [source,rust]
 ----
@@ -193,10 +192,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
     tokenize  = 'porter unicode61'
 );
 ";
-// @@
+// @
 ----
 
+
 == Error type and NowebMapEntry
+
 
 [source,rust]
 ----
@@ -270,8 +271,8 @@ pub struct StoredBlockInfo {
 }
 
 /// Location of a chunk definition within a literate source file.
-/// `def_start` is the 1-indexed line of the open marker (`// <<name>>=`).
-/// `def_end`   is the 1-indexed line of the close marker (`// @@`).
+/// `def_start` is the 1-indexed line of the configured chunk open marker.
+/// `def_end`   is the 1-indexed line of the configured chunk close marker.
 #[derive(Debug, Clone)]
 pub struct ChunkDefEntry {
     pub src_file:   String,
@@ -291,8 +292,9 @@ pub struct BlockForTagging {
     pub line_end:    u32,
     pub content_hash: Vec<u8>,
 }
-// @@
+// @
 ----
+
 
 == WeavebackDb — open modes
 
@@ -316,6 +318,7 @@ the file-ID schema was introduced by inspecting the column type of
 `noweb_map.out_file`.  `apply_schema` uses this to drop and recreate the
 affected tables (while preserving `gen_baselines` and `src_snapshots`) before
 running `CREATE_SCHEMA`.
+
 
 [source,rust]
 ----
@@ -407,93 +410,15 @@ impl WeavebackDb {
         Ok(Self { conn })
     }
 }
-// @@
+// @
 ----
 
-== Tests
-
-[source,rust]
-----
-// <[db-tests]>=
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
-        let temp = TempDir::new().unwrap();
-        let target_path = temp.path().join("target.db");
-
-        let mut target = WeavebackDb::open(&target_path).unwrap();
-        target
-            .set_noweb_entries(
-                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/weaveback-macro/src/evaluator/tests/test_set.rs",
-                &[(
-                    1,
-                    NowebMapEntry {
-                        src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
-                            .into(),
-                        chunk_name: "test set".into(),
-                        src_line: 515,
-                        indent: String::new(),
-                        confidence: Confidence::Exact,
-                    },
-                )],
-            )
-            .unwrap();
-        drop(target);
-
-        let mut fresh = WeavebackDb::open_temp().unwrap();
-        fresh
-            .set_src_snapshot(
-                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests-macros.adoc",
-                b"snapshot",
-            )
-            .unwrap();
-        fresh
-            .set_baseline(
-                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
-                b"generated",
-            )
-            .unwrap();
-        fresh
-            .set_noweb_entries(
-                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
-                &[(
-                    1,
-                    NowebMapEntry {
-                        src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
-                            .into(),
-                        chunk_name: "test set".into(),
-                        src_line: 515,
-                        indent: String::new(),
-                        confidence: Confidence::Exact,
-                    },
-                )],
-            )
-            .unwrap();
-
-        fresh.merge_into(&target_path).unwrap();
-
-        let merged = WeavebackDb::open_read_only(&target_path).unwrap();
-        let out_files = merged.query_chunk_output_files("test set").unwrap();
-        assert_eq!(
-            out_files,
-            vec![
-                "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs"
-                    .to_string()
-            ]
-        );
-    }
-}
-// @@
-----
 
 == gen_baselines
 
 `set_baseline` / `get_baseline` maintain the modification-detection baseline
 for each generated file.  `list_baselines` is used during merge and in tests.
+
 
 [source,rust]
 ----
@@ -527,8 +452,9 @@ impl WeavebackDb {
         Ok(())
     }
 }
-// @@
+// @
 ----
+
 
 == noweb_map
 
@@ -536,6 +462,7 @@ impl WeavebackDb {
 transaction.  All file paths are interned before the transaction opens so the
 integer IDs are ready.  `get_noweb_entry` is used by the `wb-query where` and
 `trace` commands; it JOINs the `files` table to return path strings.
+
 
 [source,rust]
 ----
@@ -712,8 +639,9 @@ impl WeavebackDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
     }
 }
-// @@
+// @
 ----
+
 
 == chunk_deps
 
@@ -725,6 +653,7 @@ that directly references a chunk (backward edges — "what would break if I edit
 this?").  `query_all_chunk_deps` returns every edge in the graph for DOT export.
 `query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
 lines to, enabling `wb-query impact` to report affected output files.
+
 
 [source,rust]
 ----
@@ -840,8 +769,9 @@ impl WeavebackDb {
         rows.collect::<Result<_, _>>().map_err(DbError::Sql)
     }
 }
-// @@
+// @
 ----
+
 
 == chunk_defs
 
@@ -850,6 +780,7 @@ batch in a single transaction.  File paths are interned before the transaction;
 the unique-IDs list drives the delete pass.  `get_chunk_def` retrieves a single
 entry by `(src_file, chunk_name, nth)`, used by `wb-serve` to open the
 correct editor location.
+
 
 [source,rust]
 ----
@@ -1002,14 +933,16 @@ impl WeavebackDb {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }
-// @@
+// @
 ----
+
 
 == macro_map
 
 Pre-serialized entries (opaque `BLOB` per line) written by the macro expander
 and read back during trace operations.  The driver file path is interned before
 the transaction; `get_macro_map_bytes` resolves the path via a JOIN.
+
 
 [source,rust]
 ----
@@ -1054,8 +987,9 @@ impl WeavebackDb {
             .optional()?)
     }
 }
-// @@
+// @
 ----
+
 
 == literate_source_config
 
@@ -1065,6 +999,7 @@ impl WeavebackDb {
 translate literate source positions into generated file positions.
 `set_run_config` / `get_run_config` store free-form key→value pairs for the
 current run.
+
 
 [source,rust]
 ----
@@ -1168,8 +1103,9 @@ impl WeavebackDb {
         Ok(res)
     }
 }
-// @@
+// @
 ----
+
 
 == source_blocks
 
@@ -1179,6 +1115,7 @@ pairs for a file — used by the incremental-build logic to detect which blocks
 changed since the last run.  `query_blocks_overlapping_range` returns all
 blocks whose line range overlaps a given `[line_start, line_end]` interval,
 enabling the caller to map a changed line range to a set of dirty blocks.
+
 
 [source,rust]
 ----
@@ -1257,8 +1194,9 @@ impl WeavebackDb {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }
-// @@
+// @
 ----
+
 
 == merge_into
 
@@ -1302,6 +1240,7 @@ failure.  `DETACH` always runs, even on error, to avoid leaking the attachment.
 SQLite's `ATTACH DATABASE` does not support parameterized paths, so the path
 is string-interpolated.  The `sqlite_string_literal` helper encapsulates
 single-quote escaping to prevent injection.
+
 
 [source,rust]
 ----
@@ -1510,8 +1449,9 @@ impl WeavebackDb {
         Ok(())
     }
 }
-// @@
+// @
 ----
+
 
 == src_snapshots, var_defs, macro_defs
 
@@ -1522,6 +1462,7 @@ a run; apply-back uses these to reconstruct the original text when patching.
 `%def` call, enabling fast "where was this defined?" lookups without
 re-running the macro expander.  The source file path is interned before each
 insert; queries JOIN through `files` to return path strings.
+
 
 [source,rust]
 ----
@@ -1624,8 +1565,9 @@ impl WeavebackDb {
         )
     }
 }
-// @@
+// @
 ----
+
 
 == Prose search and embeddings
 
@@ -1650,6 +1592,7 @@ simple:
 
 This avoids an external vector store and keeps semantic retrieval a local
 augmentation over the existing FTS-plus-tags pipeline.
+
 
 [source,rust]
 ----
@@ -2046,14 +1989,107 @@ impl WeavebackDb {
         Ok(results)
     }
 }
-// @@
+// @
 ----
 
+
+== Tests
+
+The test body is generated as `db/tests.rs` and linked from `db.rs`
+with `#[cfg(test)] mod tests;`.  This keeps the database implementation file
+shorter while preserving local literate ownership of the tests.
+
+
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/db/tests.rs]>=
+// weaveback-tangle/src/db/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use tempfile::TempDir;
+
+#[test]
+fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
+    let temp = TempDir::new().unwrap();
+    let target_path = temp.path().join("target.db");
+
+    let mut target = WeavebackDb::open(&target_path).unwrap();
+    target
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+    drop(target);
+
+    let mut fresh = WeavebackDb::open_temp().unwrap();
+    fresh
+        .set_src_snapshot(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests-macros.adoc",
+            b"snapshot",
+        )
+        .unwrap();
+    fresh
+        .set_baseline(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            b"generated",
+        )
+        .unwrap();
+    fresh
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+
+    fresh.merge_into(&target_path).unwrap();
+
+    let merged = WeavebackDb::open_read_only(&target_path).unwrap();
+    let out_files = merged.query_chunk_output_files("test set").unwrap();
+    assert_eq!(
+        out_files,
+        vec![
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs"
+                .to_string()
+        ]
+    );
+}
+
+// @
+----
+
+
 == Assembly
+
 
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/db.rs]>=
+// weaveback-tangle/src/db.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::path::Path;
 
@@ -2070,6 +2106,9 @@ use std::path::Path;
 // <[db-merge]>
 // <[db-rest]>
 // <[db-fts]>
-// <[db-tests]>
-// @@
+#[cfg(test)]
+mod tests;
+
+// @
 ----
+

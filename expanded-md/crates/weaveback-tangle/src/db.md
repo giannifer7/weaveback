@@ -1,9 +1,75 @@
-// weaveback-tangle/src/db.rs
-// I'd Really Rather You Didn't edit this generated file.
+# Persistent Database
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use std::path::Path;
+`db.rs` owns the SQLite database that weaveback writes after every tangling
+run.  It is opened and written by link:safe_writer.adoc[`SafeFileWriter`] (for
+baselines) and by link:noweb.adoc[`Clip::write_files`] (for `noweb_map`
+entries).  See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the
+module map and link:../../../docs/architecture.adoc[architecture.adoc] for the
+full concurrency and apply-back context.
 
+The database stores nine kinds of data:
+
+* `files` — a path-interning table: every unique file path is stored once and
+  given an integer ID.  All other tables reference file paths through these IDs
+  rather than repeating the full string on every row.
+* `gen_baselines` — the last content weaveback wrote to each generated file,
+  used to detect external edits between runs.
+* `noweb_map` — a line-by-line source map from output lines back to their
+  origin chunk and line in the literate source.
+* `macro_map` — per-line tracing data from the macro expander.
+* `src_snapshots` — byte-for-byte copies of the literate source files at the
+  time of the last run; used by apply-back to reconstruct the original text.
+* `var_defs` / `macro_defs` — byte-offset records for every `%set`/`%def`
+  call, enabling fast "where was this defined?" lookups.
+* `chunk_defs` — the line range of every chunk definition header and close
+  marker in each literate source file; used by `wb-serve` to open the
+  right editor location for a chunk.
+* `source_blocks` — logical blocks parsed from each literate source file
+  (section headers, code/listing blocks, paragraphs), each with a BLAKE3
+  content hash.  Used to drive sub-file-precision incremental building: only
+  `@file` chunks whose source blocks changed need to be re-expanded and
+  re-written.
+
+## Concurrency model
+
+Weaveback builds an in-memory database during a run (`open_temp`), then
+`merge_into` copies all tables into the target file database in a single
+`BEGIN IMMEDIATE` write transaction.  Using `IMMEDIATE` acquires the write lock
+at `BEGIN` time rather than at the first write, so two concurrent processes
+cannot interleave partial snapshots into the same target — one wins the lock and
+the other waits up to the 200 ms busy-timeout.  The target runs in WAL mode, so
+read-only connections (MCP server, apply-back) never block merges and merges
+never block readers.
+
+File paths are interned independently in each in-memory database, so their
+integer IDs may differ.  `merge_into` resolves this by first copying all `files`
+rows into the target and then remapping IDs via subquery lookups during each
+table insert.
+
+## NowebMapEntry
+
+Each row of `noweb_map` carries five fields:
+
+* `src_file` — path of the literate source file containing the chunk definition.
+* `chunk_name` — the name of the chunk that produced this output line.
+* `src_line` — 0-indexed line number within the source file.
+* `indent` — the indentation string prepended during expansion.
+* `confidence` — how reliably the post-formatter line was traced back to this
+  source line.  Three values: `exact` (diff Equal match), `hash_match` (content
+  hash match, survives reordering), `inferred` (nearest-neighbour fill).  Old
+  rows in existing databases default to `exact` via the column `DEFAULT`.
+
+## Schema
+
+The schema is created on first open via `apply_schema`.  All tables use
+`STRICT` mode to catch type mismatches at the SQLite layer.  File path columns
+that were previously `TEXT` are now `INTEGER REFERENCES files(id)`, eliminating
+the redundant path storage on every row.  Indexes on `chunk_deps(to_chunk)` and
+`noweb_map(src_file, src_line)` keep reverse-dep and trace lookups O(log n).
+
+
+```rust
+// <[db-schema]>=
 const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS files (
     id   INTEGER PRIMARY KEY,
@@ -125,6 +191,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
     tokenize  = 'porter unicode61'
 );
 ";
+// @
+```
+
+
+## Error type and NowebMapEntry
+
+
+```rust
+// <[db-types]>=
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -215,6 +290,36 @@ pub struct BlockForTagging {
     pub line_end:    u32,
     pub content_hash: Vec<u8>,
 }
+// @
+```
+
+
+## WeavebackDb — open modes
+
+`WeavebackDb` wraps a single `rusqlite::Connection`.  Three constructors cover
+the three use cases:
+
+* `open` — read-write with WAL mode; used when writing the persistent
+  `weaveback.db` directly (uncommon — most writes go through `open_temp` +
+  `merge_into`).
+* `open_read_only` — read-only, never blocks concurrent writers; used in the
+  MCP server and apply-back reads.
+* `open_temp` — in-memory database that accumulates all writes during a single
+  weaveback run; `merge_into` flushes it to the target file at the end.
+
+`intern_file` inserts a path into `files` if it is not already there, then
+returns its integer ID.  All write methods call this before their transaction so
+the IDs are available without opening a nested transaction.
+
+`needs_file_id_migration` checks whether an on-disk database was created before
+the file-ID schema was introduced by inspecting the column type of
+`noweb_map.out_file`.  `apply_schema` uses this to drop and recreate the
+affected tables (while preserving `gen_baselines` and `src_snapshots`) before
+running `CREATE_SCHEMA`.
+
+
+```rust
+// <[db-open]>=
 pub struct WeavebackDb {
     conn: Connection,
 }
@@ -302,6 +407,18 @@ impl WeavebackDb {
         Ok(Self { conn })
     }
 }
+// @
+```
+
+
+## gen_baselines
+
+`set_baseline` / `get_baseline` maintain the modification-detection baseline
+for each generated file.  `list_baselines` is used during merge and in tests.
+
+
+```rust
+// <[db-baselines]>=
 impl WeavebackDb {
     pub fn get_baseline(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
         Ok(self
@@ -331,6 +448,20 @@ impl WeavebackDb {
         Ok(())
     }
 }
+// @
+```
+
+
+## noweb_map
+
+`set_noweb_entries` writes all source-map rows for one output file in a single
+transaction.  All file paths are interned before the transaction opens so the
+integer IDs are ready.  `get_noweb_entry` is used by the `wb-query where` and
+`trace` commands; it JOINs the `files` table to return path strings.
+
+
+```rust
+// <[db-noweb-map]>=
 impl WeavebackDb {
     pub fn set_noweb_entries(
         &mut self,
@@ -503,6 +634,24 @@ impl WeavebackDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
     }
 }
+// @
+```
+
+
+## chunk_deps
+
+`set_chunk_deps` replaces all dependency edges for a given source file in one
+transaction.  File paths are interned before the transaction; the unique-IDs
+list drives the delete pass.  `query_chunk_deps` returns everything a chunk
+directly references (forward edges); `query_reverse_deps` returns everything
+that directly references a chunk (backward edges — "what would break if I edit
+this?").  `query_all_chunk_deps` returns every edge in the graph for DOT export.
+`query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
+lines to, enabling `wb-query impact` to report affected output files.
+
+
+```rust
+// <[db-chunk-deps]>=
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.
     /// Each tuple is `(from_chunk, to_chunk, src_file)`.
@@ -614,6 +763,21 @@ impl WeavebackDb {
         rows.collect::<Result<_, _>>().map_err(DbError::Sql)
     }
 }
+// @
+```
+
+
+## chunk_defs
+
+`set_chunk_defs` replaces all definition records for every source file in the
+batch in a single transaction.  File paths are interned before the transaction;
+the unique-IDs list drives the delete pass.  `get_chunk_def` retrieves a single
+entry by `(src_file, chunk_name, nth)`, used by `wb-serve` to open the
+correct editor location.
+
+
+```rust
+// <[db-chunk-defs-api]>=
 impl WeavebackDb {
     pub fn set_chunk_defs(&mut self, entries: &[ChunkDefEntry]) -> Result<(), DbError> {
         if entries.is_empty() {
@@ -762,6 +926,19 @@ impl WeavebackDb {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }
+// @
+```
+
+
+## macro_map
+
+Pre-serialized entries (opaque `BLOB` per line) written by the macro expander
+and read back during trace operations.  The driver file path is interned before
+the transaction; `get_macro_map_bytes` resolves the path via a JOIN.
+
+
+```rust
+// <[db-macro-map]>=
 impl WeavebackDb {
     pub fn set_macro_map_entries(
         &mut self,
@@ -802,6 +979,22 @@ impl WeavebackDb {
             .optional()?)
     }
 }
+// @
+```
+
+
+## literate_source_config
+
+`set_source_config` records the `TangleConfig` used for a given source file.
+`get_source_config` retrieves it during `trace` or `apply-back`.
+`get_output_location` and `get_all_output_mappings` are used by apply-back to
+translate literate source positions into generated file positions.
+`set_run_config` / `get_run_config` store free-form key→value pairs for the
+current run.
+
+
+```rust
+// <[db-config]>=
 impl WeavebackDb {
     pub fn set_source_config(
         &self,
@@ -901,6 +1094,22 @@ impl WeavebackDb {
         Ok(res)
     }
 }
+// @
+```
+
+
+## source_blocks
+
+`set_source_blocks` replaces all block rows for a given source file in one
+transaction.  `get_source_block_hashes` returns `(block_index, content_hash)`
+pairs for a file — used by the incremental-build logic to detect which blocks
+changed since the last run.  `query_blocks_overlapping_range` returns all
+blocks whose line range overlaps a given `[line_start, line_end]` interval,
+enabling the caller to map a changed line range to a set of dirty blocks.
+
+
+```rust
+// <[db-source-blocks]>=
 impl WeavebackDb {
     pub fn set_source_blocks(
         &mut self,
@@ -975,6 +1184,56 @@ impl WeavebackDb {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }
+// @
+```
+
+
+## merge_into
+
+`merge_into` copies all tables from the in-memory database into the persistent
+file database in a single write transaction.  The target is created and
+WAL-initialized if it does not yet exist.
+
+Because file paths are interned independently in each in-memory database their
+integer IDs may differ.  The merge resolves this by first copying all `files`
+rows into the target (`INSERT OR IGNORE`), then remapping each data table's ID
+columns via subquery lookups: for every row, each file-ID column is translated
+to the corresponding target ID by joining through the shared `path` string.
+
+Tables without file-ID columns (`gen_baselines`, `src_snapshots`, `run_config`)
+are copied with a simple `SELECT *`.
+
+Some tables are authoritative snapshots for a touched source or output file,
+not append-only logs. Before reinserting current rows, the merge therefore
+deletes stale target rows for:
+
+* output files touched in this run (`noweb_map`, keyed by `gen_baselines.path`)
+* source files read in this run also clear their previous `noweb_map` rows,
+  because an old bad output-path key may survive even when the source-side
+  mapping is otherwise current
+* source files read in this run (`chunk_defs`, `chunk_deps`,
+  `literate_source_config`, `source_blocks`, `var_defs`, `macro_defs`,
+  keyed by `src_snapshots.path`)
+
+The source-file delete uses a suffix-aware match (`absolute == absolute` or
+`absolute ends_with "/relative"`) because older databases may still contain
+repo-relative `files.path` rows while `src_snapshots` stores absolute paths.
+
+Without this delete phase, old rows survive when a generated file shrinks or a
+source file stops defining a chunk/edge, which pollutes impact analysis and
+trace lookups.
+
+The `BEGIN IMMEDIATE`, inserts, and `COMMIT` are issued as separate
+`execute_batch` calls so that an explicit `ROLLBACK` can be sent on any
+failure.  `DETACH` always runs, even on error, to avoid leaking the attachment.
+
+SQLite's `ATTACH DATABASE` does not support parameterized paths, so the path
+is string-interpolated.  The `sqlite_string_literal` helper encapsulates
+single-quote escaping to prevent injection.
+
+
+```rust
+// <[db-merge]>=
 /// Escape a string for use inside a SQLite single-quoted string literal.
 fn sqlite_string_literal(s: &str) -> String {
     s.replace('\'', "''")
@@ -1179,6 +1438,23 @@ impl WeavebackDb {
         Ok(())
     }
 }
+// @
+```
+
+
+## src_snapshots, var_defs, macro_defs
+
+`src_snapshots` stores the raw bytes of each literate source file read during
+a run; apply-back uses these to reconstruct the original text when patching.
+
+`var_defs` and `macro_defs` record byte-offset spans for every `%set` and
+`%def` call, enabling fast "where was this defined?" lookups without
+re-running the macro expander.  The source file path is interned before each
+insert; queries JOIN through `files` to return path strings.
+
+
+```rust
+// <[db-rest]>=
 impl WeavebackDb {
     pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
         Ok(self
@@ -1277,6 +1553,37 @@ impl WeavebackDb {
         )
     }
 }
+// @
+```
+
+
+## Prose search and embeddings
+
+`rebuild_prose_fts` repopulates the `prose_fts` FTS5 table from the content
+stored in `src_snapshots` and the block boundaries in `source_blocks`.  It is
+called at the end of each tangle run so that `weaveback search` and the
+`weaveback_search` MCP tool always reflect the latest source.
+
+Only `"section"` and `"para"` blocks are indexed — code blocks contain Rust
+syntax that would pollute keyword matches with noise.
+
+`search_prose` runs a BM25-ranked FTS5 query and returns up to `limit` results
+with a `snippet()` excerpt showing the matching context.
+
+`block_embeddings` adds an optional semantic layer.  We intentionally keep it
+simple:
+
+* embeddings are stored per prose block in the same SQLite database
+* blocks are re-embedded only when their BLAKE3 content hash changes or when
+  the configured embedding model changes
+* semantic lookup is a bounded brute-force cosine scan over prose blocks
+
+This avoids an external vector store and keeps semantic retrieval a local
+augmentation over the existing FTS-plus-tags pipeline.
+
+
+```rust
+// <[db-fts]>=
 /// A single result from `search_prose`.
 #[derive(Debug, Clone)]
 pub struct FtsResult {
@@ -1669,6 +1976,124 @@ impl WeavebackDb {
         Ok(results)
     }
 }
+// @
+```
+
+
+## Tests
+
+The test body is generated as `db/tests.rs` and linked from `db.rs`
+with `#[cfg(test)] mod tests;`.  This keeps the database implementation file
+shorter while preserving local literate ownership of the tests.
+
+
+
+```rust
+// <[@file weaveback-tangle/src/db/tests.rs]>=
+// weaveback-tangle/src/db/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use tempfile::TempDir;
+
+#[test]
+fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
+    let temp = TempDir::new().unwrap();
+    let target_path = temp.path().join("target.db");
+
+    let mut target = WeavebackDb::open(&target_path).unwrap();
+    target
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+    drop(target);
+
+    let mut fresh = WeavebackDb::open_temp().unwrap();
+    fresh
+        .set_src_snapshot(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests-macros.adoc",
+            b"snapshot",
+        )
+        .unwrap();
+    fresh
+        .set_baseline(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            b"generated",
+        )
+        .unwrap();
+    fresh
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+
+    fresh.merge_into(&target_path).unwrap();
+
+    let merged = WeavebackDb::open_read_only(&target_path).unwrap();
+    let out_files = merged.query_chunk_output_files("test set").unwrap();
+    assert_eq!(
+        out_files,
+        vec![
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs"
+                .to_string()
+        ]
+    );
+}
+
+// @
+```
+
+
+## Assembly
+
+
+```rust
+// <[@file weaveback-tangle/src/db.rs]>=
+// weaveback-tangle/src/db.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use std::path::Path;
+
+// <[db-schema]>
+// <[db-types]>
+// <[db-open]>
+// <[db-baselines]>
+// <[db-noweb-map]>
+// <[db-chunk-deps]>
+// <[db-chunk-defs-api]>
+// <[db-macro-map]>
+// <[db-config]>
+// <[db-source-blocks]>
+// <[db-merge]>
+// <[db-rest]>
+// <[db-fts]>
 #[cfg(test)]
 mod tests;
+
+// @
+```
 

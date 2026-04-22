@@ -326,7 +326,7 @@ and cross-reference panels.
 | link:../crates/weaveback-docgen/src-wvb/literate_index.wvb[literate index builder]
 | `crates/weaveback-docgen/src/literate_index.rs`
 
-| link:../crates/weaveback-docgen/src/plantuml.adoc[PlantUML integration]
+| link:../crates/weaveback-docgen/src-wvb/plantuml.wvb[PlantUML integration]
 | `crates/weaveback-docgen/src/plantuml.rs`
 
 | link:../crates/weaveback-docgen/manifest.adoc[Cargo manifest]

@@ -1,6 +1,4 @@
-= PlantUML pre-processor
-:toc: left
-:source-highlighter: syntect
+# PlantUML pre-processor
 
 `plantuml.rs` finds every `[plantuml]` listing block in an AsciiDoc source
 string, renders each diagram by calling a local PlantUML JAR, caches the SVG
@@ -12,7 +10,7 @@ across all stale files first, then calls `batch_render_plantuml` once (single
 JVM startup), and finally calls `preprocess_plantuml` per file, which only
 copies from the now-warm cache — no further JVM invocations.
 
-== Design
+## Design
 
 * **Parser-driven**: ACDC locates plantuml blocks exactly through the shared
   offset-stable AsciiDoc scanner.  No regex rescan of text we already parsed.
@@ -27,10 +25,10 @@ copies from the now-warm cache — no further JVM invocations.
 * **Reverse-order substitution**: replacements are applied from the end of
   the source string to the beginning so earlier byte offsets remain valid.
 
-== Error type
+## Error type
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-error]>=
 #[derive(Debug, thiserror::Error)]
 pub enum PlantUmlError {
@@ -52,10 +50,11 @@ pub enum PlantUmlError {
     #[error("PlantUML batch render failed with status {code}")]
     BatchFailed { code: i32 },
 }
-// @@
-----
+// @
+```
 
-== Collecting plantuml blocks from the AST
+
+## Collecting plantuml blocks from the AST
 
 `collect_plantuml_blocks` parses the AsciiDoc source and returns a list of
 `(byte_start, byte_end, diagram_source)` tuples for every plantuml block,
@@ -71,8 +70,8 @@ record. This accepts both `[plantuml]` and `[source,plantuml]`.
   `----`)
 * `block.content().original().data()` — raw diagram source, pre-substitution
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-collect]>=
 fn collect_plantuml_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
     crate::adoc_scan::collect_listing_blocks_by_language(source, "plantuml", label)
@@ -80,10 +79,11 @@ fn collect_plantuml_blocks(source: &str, label: &str) -> Vec<(usize, usize, Stri
         .map(|block| (block.start, block.end, block.content))
         .collect()
 }
-// @@
-----
+// @
+```
 
-== Rendering a single diagram
+
+## Rendering a single diagram
 
 `render_diagram` pipes `diagram_source` to
 `java -Djava.awt.headless=true -jar <jar> -tsvg -pipe` and returns the SVG
@@ -93,8 +93,8 @@ PlantUML also injects a white root SVG background by default, which looks wrong
 against the dark docs theme, so the output is normalized to transparent before
 it is cached.
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-render]>=
 fn render_diagram(
     jar: &Path,
@@ -154,10 +154,11 @@ fn normalize_svg_file_in_place(path: &Path) -> Result<(), PlantUmlError> {
     })?;
     Ok(())
 }
-// @@
-----
+// @
+```
 
-== Collecting uncached diagrams (pre-scan)
+
+## Collecting uncached diagrams (pre-scan)
 
 `collect_uncached_plantuml_diagrams` scans one `.adoc` source for plantuml
 blocks, hashes each diagram, and returns `(source, cache_path)` for those not
@@ -165,8 +166,8 @@ yet in the persistent SVG cache.  Called by `render_docs` before the parallel
 render loop so that `batch_render_plantuml` can be invoked once for the whole
 project.
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-collect-uncached]>=
 pub(crate) fn collect_uncached_plantuml_diagrams(
     source: &str,
@@ -187,10 +188,11 @@ pub(crate) fn collect_uncached_plantuml_diagrams(
         })
         .collect()
 }
-// @@
-----
+// @
+```
 
-== Batch rendering (single JVM invocation)
+
+## Batch rendering (single JVM invocation)
 
 `batch_render_plantuml` renders all supplied diagrams in one
 `java -Djava.awt.headless=true -jar` call, paying JVM startup cost exactly once
@@ -201,8 +203,8 @@ Each diagram source is written to a numbered `.puml` temp file in a
 input paths at once; it writes `0.svg`, `1.svg`, … alongside the `.puml`
 files.  The SVGs are then copied to their respective cache paths.
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-batch]>=
 pub(crate) fn batch_render_plantuml(
     diagrams: &[(String, std::path::PathBuf)],
@@ -252,10 +254,11 @@ pub(crate) fn batch_render_plantuml(
 
     Ok(())
 }
-// @@
-----
+// @
+```
 
-== Main entry point
+
+## Main entry point
 
 `preprocess_plantuml` ties everything together:
 
@@ -269,8 +272,8 @@ pub(crate) fn batch_render_plantuml(
 output tree (e.g. `docs/.plantuml-cache/`).  `images_out_dir` is the per-file
 output directory; SVGs are copied there so the HTML renderer can find them.
 
-[source,rust]
-----
+
+```rust
 // <[plantuml-preprocess]>=
 pub fn preprocess_plantuml(
     source: &str,
@@ -324,143 +327,152 @@ pub fn preprocess_plantuml(
 
     Ok(Some(result))
 }
-// @@
-----
+// @
+```
 
-== Tests
 
-[source,rust]
-----
-// <[plantuml-tests]>=
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
+## Tests
 
-    #[test]
-    fn normalize_svg_background_replaces_uppercase() {
-        let input = b"<svg><style>background:#FFFFFF;</style></svg>".to_vec();
-        let out = normalize_svg_background(input);
-        let s = String::from_utf8(out).unwrap();
-        assert!(s.contains("background:transparent;"));
-        assert!(!s.contains("#FFFFFF"));
-    }
+The test body is generated as `plantuml/tests.rs` and linked from
+`plantuml.rs` with `#[cfg(test)] mod tests;`.
 
-    #[test]
-    fn normalize_svg_background_replaces_lowercase() {
-        let input = b"<svg><style>background:#ffffff;</style></svg>".to_vec();
-        let out = normalize_svg_background(input);
-        let s = String::from_utf8(out).unwrap();
-        assert!(s.contains("background:transparent;"));
-        assert!(!s.contains("#ffffff"));
-    }
 
-    #[test]
-    fn normalize_svg_background_non_utf8_passthrough() {
-        let input: Vec<u8> = vec![0xFF, 0xFE, 0x00];
-        let out = normalize_svg_background(input.clone());
-        assert_eq!(out, input);
-    }
+```rust
+// <[@file weaveback-docgen/src/plantuml/tests.rs]>=
+// weaveback-docgen/src/plantuml/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-    #[test]
-    fn normalize_svg_background_no_match_unchanged() {
-        let input = b"<svg>no background here</svg>".to_vec();
-        let out = normalize_svg_background(input.clone());
-        assert_eq!(out, input);
-    }
+use super::*;
+use tempfile::TempDir;
 
-    #[test]
-    fn batch_render_plantuml_empty_returns_ok() {
-        let fake_jar = std::path::Path::new("/nonexistent/plantuml.jar");
-        let result = batch_render_plantuml(&[], fake_jar);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn preprocess_plantuml_no_blocks_returns_none() {
-        let source = "= My Document\n\nJust plain text, no diagrams.";
-        let tmp = TempDir::new().unwrap();
-        let fake_jar = tmp.path().join("plantuml.jar");
-        let result = preprocess_plantuml(
-            source,
-            &fake_jar,
-            tmp.path(),
-            tmp.path(),
-            "test.adoc",
-        );
-        assert!(matches!(result, Ok(None)));
-    }
-
-    #[test]
-    fn collect_uncached_diagrams_empty_source_returns_empty() {
-        let tmp = TempDir::new().unwrap();
-        let diagrams = collect_uncached_plantuml_diagrams("plain text", tmp.path(), "test");
-        assert!(diagrams.is_empty());
-    }
-
-    #[test]
-    fn plantuml_error_exit_failure_display() {
-        let err = PlantUmlError::ExitFailure { code: 1, index: 0 };
-        let msg = err.to_string();
-        assert!(msg.contains("status 1"));
-        assert!(msg.contains("#0"));
-    }
-
-    #[test]
-    fn plantuml_error_batch_failed_display() {
-        let err = PlantUmlError::BatchFailed { code: 2 };
-        let msg = err.to_string();
-        assert!(msg.contains("2"));
-    }
-
-    #[test]
-    fn normalize_svg_file_in_place_modifies_uppercase_background() {
-        let tmp = TempDir::new().unwrap();
-        let svg_path = tmp.path().join("test.svg");
-        std::fs::write(&svg_path, b"<svg>background:#FFFFFF;</svg>").unwrap();
-        normalize_svg_file_in_place(&svg_path).unwrap();
-        let content = std::fs::read_to_string(&svg_path).unwrap();
-        assert!(content.contains("background:transparent;"));
-    }
-
-    #[test]
-    fn collect_plantuml_blocks_extracts_plantuml_blocks() {
-        let src = "= Title\n\n[source,plantuml]\n----\nA -> B\n----\n";
-        let blocks = collect_plantuml_blocks(src, "test");
-        assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].2.contains("A -> B"));
-    }
-
-    #[test]
-    fn collect_plantuml_blocks_ignores_non_plantuml_blocks() {
-        let src = "[source,rust]\n----\nfn main() {}\n----\n";
-        let blocks = collect_plantuml_blocks(src, "test");
-        assert!(blocks.is_empty());
-    }
-
-    #[test]
-    fn style_only_block_identifies_plantuml() {
-        let src = "[plantuml]\n----\nx\n----\n";
-        let blocks = collect_plantuml_blocks(src, "test");
-        assert_eq!(blocks.len(), 1);
-    }
-
-    #[test]
-    fn collect_plantuml_blocks_offsets_survive_include_directive() {
-        let src = "include::missing.adoc[]\n\n[source,plantuml]\n----\nA -> B\n----\n";
-        let blocks = collect_plantuml_blocks(src, "test");
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(&src[blocks[0].0..blocks[0].1], "[source,plantuml]\n----\nA -> B\n----");
-    }
+#[test]
+fn normalize_svg_background_replaces_uppercase() {
+    let input = b"<svg><style>background:#FFFFFF;</style></svg>".to_vec();
+    let out = normalize_svg_background(input);
+    let s = String::from_utf8(out).unwrap();
+    assert!(s.contains("background:transparent;"));
+    assert!(!s.contains("#FFFFFF"));
 }
-// @@
-----
 
-== Assembly
+#[test]
+fn normalize_svg_background_replaces_lowercase() {
+    let input = b"<svg><style>background:#ffffff;</style></svg>".to_vec();
+    let out = normalize_svg_background(input);
+    let s = String::from_utf8(out).unwrap();
+    assert!(s.contains("background:transparent;"));
+    assert!(!s.contains("#ffffff"));
+}
 
-[source,rust]
-----
+#[test]
+fn normalize_svg_background_non_utf8_passthrough() {
+    let input: Vec<u8> = vec![0xFF, 0xFE, 0x00];
+    let out = normalize_svg_background(input.clone());
+    assert_eq!(out, input);
+}
+
+#[test]
+fn normalize_svg_background_no_match_unchanged() {
+    let input = b"<svg>no background here</svg>".to_vec();
+    let out = normalize_svg_background(input.clone());
+    assert_eq!(out, input);
+}
+
+#[test]
+fn batch_render_plantuml_empty_returns_ok() {
+    let fake_jar = std::path::Path::new("/nonexistent/plantuml.jar");
+    let result = batch_render_plantuml(&[], fake_jar);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn preprocess_plantuml_no_blocks_returns_none() {
+    let source = "= My Document\n\nJust plain text, no diagrams.";
+    let tmp = TempDir::new().unwrap();
+    let fake_jar = tmp.path().join("plantuml.jar");
+    let result = preprocess_plantuml(
+        source,
+        &fake_jar,
+        tmp.path(),
+        tmp.path(),
+        "test.adoc",
+    );
+    assert!(matches!(result, Ok(None)));
+}
+
+#[test]
+fn collect_uncached_diagrams_empty_source_returns_empty() {
+    let tmp = TempDir::new().unwrap();
+    let diagrams = collect_uncached_plantuml_diagrams("plain text", tmp.path(), "test");
+    assert!(diagrams.is_empty());
+}
+
+#[test]
+fn plantuml_error_exit_failure_display() {
+    let err = PlantUmlError::ExitFailure { code: 1, index: 0 };
+    let msg = err.to_string();
+    assert!(msg.contains("status 1"));
+    assert!(msg.contains("#0"));
+}
+
+#[test]
+fn plantuml_error_batch_failed_display() {
+    let err = PlantUmlError::BatchFailed { code: 2 };
+    let msg = err.to_string();
+    assert!(msg.contains("2"));
+}
+
+#[test]
+fn normalize_svg_file_in_place_modifies_uppercase_background() {
+    let tmp = TempDir::new().unwrap();
+    let svg_path = tmp.path().join("test.svg");
+    std::fs::write(&svg_path, b"<svg>background:#FFFFFF;</svg>").unwrap();
+    normalize_svg_file_in_place(&svg_path).unwrap();
+    let content = std::fs::read_to_string(&svg_path).unwrap();
+    assert!(content.contains("background:transparent;"));
+}
+
+#[test]
+fn collect_plantuml_blocks_extracts_plantuml_blocks() {
+    let src = "= Title\n\n[source,plantuml]\n----\nA -> B\n----\n";
+    let blocks = collect_plantuml_blocks(src, "test");
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].2.contains("A -> B"));
+}
+
+#[test]
+fn collect_plantuml_blocks_ignores_non_plantuml_blocks() {
+    let src = "[source,rust]\n----\nfn main() {}\n----\n";
+    let blocks = collect_plantuml_blocks(src, "test");
+    assert!(blocks.is_empty());
+}
+
+#[test]
+fn style_only_block_identifies_plantuml() {
+    let src = "[plantuml]\n----\nx\n----\n";
+    let blocks = collect_plantuml_blocks(src, "test");
+    assert_eq!(blocks.len(), 1);
+}
+
+#[test]
+fn collect_plantuml_blocks_offsets_survive_include_directive() {
+    let src = "include::missing.adoc[]\n\n[source,plantuml]\n----\nA -> B\n----\n";
+    let blocks = collect_plantuml_blocks(src, "test");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(&src[blocks[0].0..blocks[0].1], "[source,plantuml]\n----\nA -> B\n----");
+}
+
+// @
+```
+
+
+## Assembly
+
+
+```rust
 // <[@file weaveback-docgen/src/plantuml.rs]>=
+// weaveback-docgen/src/plantuml.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use std::path::Path;
 
 // <[plantuml-error]>
@@ -469,6 +481,9 @@ use std::path::Path;
 // <[plantuml-collect-uncached]>
 // <[plantuml-batch]>
 // <[plantuml-preprocess]>
-// <[plantuml-tests]>
-// @@
-----
+#[cfg(test)]
+mod tests;
+
+// @
+```
+

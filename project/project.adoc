@@ -812,6 +812,29 @@ open_delim = "<<"
 close_delim = ">>"
 
 [[pass]]
+dir = "crates/wb-query/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "expanded-adoc/crates/wb-query/src"
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
+dir = "crates/wb-query/src-wvb/"
+gen = "crates/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "expanded-md/crates/wb-query/src"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
 dir = "scripts/serve-ui/"
 gen = "scripts/serve-ui/"
 ext = "adoc"

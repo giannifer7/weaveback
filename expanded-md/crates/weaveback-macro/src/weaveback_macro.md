@@ -92,20 +92,20 @@ cli_rs --> eval_rs
 .Literate sources
 | Module | Adoc source | Description |
 | --- | --- | --- |
-| `types` | xref:types.adoc[types.adoc] | Shared vocabulary: `TokenKind`, `NodeKind`, `Token`, `ParseNode`, `ASTNode` |
-| `line_index` | xref:../src-wvb/line_index.wvb[line_index.wvb] | Byte-offset → (line, column) via SIMD newline scan |
-| `lexer` | xref:lexer/lexer.adoc[lexer/lexer.adoc] | DFA tokeniser; emits `Token` stream from source text |
-| `parser` | xref:parser/parser.adoc[parser/parser.adoc] | Recursive-descent parser; builds `ParseNode` arena |
-| `ast` | xref:ast/ast.adoc[ast/ast.adoc] | Arena → tree conversion, serialisation, AST dump |
-| `evaluator` | xref:evaluator/evaluator.adoc[evaluator/evaluator.adoc] | Macro expansion engine — see sub-modules below |
-| `evaluator::state` | xref:evaluator/state.adoc[evaluator/state.adoc] | `EvalConfig`, scope stack, `TrackedValue`, `EvaluatorState` |
-| `evaluator::output` | xref:evaluator/output.adoc[evaluator/output.adoc] | `EvalOutput` trait, `PlainOutput`, `TracingOutput`, `PreciseTracingOutput` |
-| `evaluator::core` | xref:evaluator/core.adoc[evaluator/core.adoc] | Main eval loop — node dispatch, macro call, freeze/export |
-| `evaluator::builtins` | xref:evaluator/builtins.adoc[evaluator/builtins.adoc] | Built-in dispatch table, case conversion, `%here`, `WordSplitter` |
-| `evaluator::scripting` | xref:evaluator/scripting.adoc[evaluator/scripting.adoc] | Monty (Python) script back-end |
-| `evaluator::eval_api` | xref:evaluator/eval_api.adoc[evaluator/eval_api.adoc] | String / file / batch entry points; in==out guard |
-| `macro_api` | xref:macro_api.adoc[macro_api.adoc] | Byte-oriented public API with tracing and precise attribution |
-| CLI binary | xref:bin/cli.adoc[bin/cli.adoc] | `weaveback-macro` binary: clap args, `--dir` discovery, `--dump-ast` |
+| `types` | [types.adoc](types.adoc) | Shared vocabulary: `TokenKind`, `NodeKind`, `Token`, `ParseNode`, `ASTNode` |
+| `line_index` | [line_index.wvb](../src-wvb/line_index.wvb) | Byte-offset → (line, column) via SIMD newline scan |
+| `lexer` | [lexer/lexer.adoc](lexer/lexer.adoc) | DFA tokeniser; emits `Token` stream from source text |
+| `parser` | [parser/parser.adoc](parser/parser.adoc) | Recursive-descent parser; builds `ParseNode` arena |
+| `ast` | [ast/ast.adoc](ast/ast.adoc) | Arena → tree conversion, serialisation, AST dump |
+| `evaluator` | [evaluator/evaluator.adoc](evaluator/evaluator.adoc) | Macro expansion engine — see sub-modules below |
+| `evaluator::state` | [evaluator/state.adoc](evaluator/state.adoc) | `EvalConfig`, scope stack, `TrackedValue`, `EvaluatorState` |
+| `evaluator::output` | [evaluator/output.adoc](evaluator/output.adoc) | `EvalOutput` trait, `PlainOutput`, `TracingOutput`, `PreciseTracingOutput` |
+| `evaluator::core` | [evaluator/core.adoc](evaluator/core.adoc) | Main eval loop — node dispatch, macro call, freeze/export |
+| `evaluator::builtins` | [evaluator/builtins.adoc](evaluator/builtins.adoc) | Built-in dispatch table, case conversion, `%here`, `WordSplitter` |
+| `evaluator::scripting` | [evaluator/scripting.adoc](evaluator/scripting.adoc) | Monty (Python) script back-end |
+| `evaluator::eval_api` | [evaluator/eval_api.adoc](evaluator/eval_api.adoc) | String / file / batch entry points; in==out guard |
+| `macro_api` | [macro_api.adoc](macro_api.adoc) | Byte-oriented public API with tracing and precise attribution |
+| CLI binary | [bin/cli.adoc](bin/cli.adoc) | `weaveback-macro` binary: clap args, `--dir` discovery, `--dump-ast` |
 
 ## `lib.rs` — crate root
 

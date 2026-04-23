@@ -164,6 +164,10 @@ guess target extensions or rewrite paths; they only render the same author
 target in the selected markup.  This keeps `.wvb` neutral without hiding the
 actual reference being made.
 
+Table bodies that contain nested prelude macros must use macro-active blocks:
+`¤table(adoc, ¤{ ... ¤})`.  Verbatim table bodies remain valid for fully literal
+table source, but they intentionally prevent nested link or xref expansion.
+
 == Pass Configuration
 
 AsciiDoc projection:

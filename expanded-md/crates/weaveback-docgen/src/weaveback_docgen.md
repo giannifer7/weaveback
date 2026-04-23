@@ -8,11 +8,11 @@ The tool is generic: it works for any project that uses weaveback.
 Cross-reference analysis defaults to a built-in Rust scanner (requires a
 `crates/` workspace layout); other languages supply their own via `--xref-cmd`.
 
-See link:render.wvb[render.wvb] for acdc rendering,
-link:xref.wvb[xref.wvb] for the xref graph builder,
-link:inject.wvb[inject.wvb] for HTML post-processing, and
-link:literate_index.wvb[literate_index.wvb] for literate source index
-injection.  link:../../../docs/architecture.adoc[architecture.adoc] describes
+See [render.wvb](render.wvb) for acdc rendering,
+[xref.wvb](xref.wvb) for the xref graph builder,
+[inject.wvb](inject.wvb) for HTML post-processing, and
+[literate_index.wvb](literate_index.wvb) for literate source index
+injection.  [architecture.adoc](../../../docs/architecture.adoc) describes
 the broader weaveback pipeline that this tool documents.
 
 ## Pipeline
@@ -66,10 +66,10 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 
 | Module | Role |
 | --- | --- |
-| link:render.wvb[render.rs] | Discover `.adoc` files, render with acdc in-process (parallel, incremental) |
-| link:xref.wvb[xref.rs] | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph |
-| link:inject.wvb[inject.rs] | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>` |
-| link:literate_index.wvb[literate_index.rs] | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages |
+| [render.rs](render.wvb) | Discover `.adoc` files, render with acdc in-process (parallel, incremental) |
+| [xref.rs](xref.wvb) | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph |
+| [inject.rs](inject.wvb) | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>` |
+| [literate_index.rs](literate_index.wvb) | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages |
 
 ## Project-root detection
 

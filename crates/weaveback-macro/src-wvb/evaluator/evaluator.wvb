@@ -115,37 +115,37 @@ scripts can accumulate state.
 
 ¤h2(¤[Submodule roles¤])
 
-¤table(adoc, ¤[
+¤table(adoc, ¤{
 [cols="2,5",options="header"]
 |===
 | Document | Role
 
-| link:state.adoc[state.adoc]
+| ¤link(state.adoc, state.adoc)
 | All mutable state: `EvalConfig`, `EvaluatorState`, `ScopeFrame`,
   `SourceManager`, `MacroDefinition`, `TrackedValue`, `VarDefRaw`, `MacroDefRaw`
 
-| link:output.adoc[output.adoc]
+| ¤link(output.adoc, output.adoc)
 | Output-sink abstraction: `EvalOutput` trait, `PlainOutput`, `TracingOutput`,
   `PreciseTracingOutput`, `SpanKind`, `SourceSpan`, `MacroMapEntry`
 
-| link:core.adoc[core.adoc]
+| ¤link(core.adoc, core.adoc)
 | Main evaluation engine: `Evaluator` struct, `evaluate()`, `evaluate_to()`,
   macro-call dispatch, scope management, `%include` handling
 
-| link:builtins.adoc[builtins.adoc]
+| ¤link(builtins.adoc, builtins.adoc)
 | Built-in macros (`%def`, `%set`, `%if`, `%include`, `%here`, …),
   case-conversion utilities, and `modify_source`
 
-| link:scripting.adoc[scripting.adoc]
+| ¤link(scripting.adoc, scripting.adoc)
 | Script back-end: `MontyEvaluator` (Python via the monty crate)
 
-| link:eval_api.adoc[eval_api.adoc]
+| ¤link(eval_api.adoc, eval_api.adoc)
 | Thin public API: `eval_string`, `eval_file`, `eval_files`, `eval_string_with_defaults`
 
-| link:tests.adoc[tests.adoc]
+| ¤link(tests.adoc, tests.adoc)
 | 240+ unit and integration tests for all builtins, scripting, tracing, and API
 |===
-¤])
+¤})
 
 ¤h2(¤[This file generates¤])
 

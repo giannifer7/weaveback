@@ -76,6 +76,9 @@ are `adoc`, `md`, and `html`.  Markdown output converts simple AsciiDoc tables
 to pipe tables and falls back to HTML for tables that Markdown cannot represent
 faithfully.  AsciiDoc output keeps `adoc` tables as-is, converts simple `md`
 pipe tables, and wraps `html` tables in an AsciiDoc passthrough block.
+Use a macro-active body (`¤{ ... ¤}`) when table cells contain other prelude
+components such as `¤link` or `¤xref`; use a verbatim body (`¤[ ... ¤]`) only
+when the table body must remain fully literal.
 
 `¤graph(format, name, body)` makes diagram format explicit.  The AsciiDoc
 prelude emits renderable diagram source blocks, while the Markdown prelude emits

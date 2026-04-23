@@ -1,0 +1,962 @@
+# CLI binary — `weaveback-macro`
+:toc: left
+
+`src/bin/weaveback-macro.rs` is the `weaveback-macro` command-line binary.
+It wraps the xref:../macro_api.adoc[macro_api] layer with a clap argument
+parser, uses explicit dependency-discovery APIs for `--dir`, and exposes
+`--dump-ast` for debugging.
+
+## Design rationale
+
+### `--dir` dependency discovery
+
+When `--dir` is given, the binary:
+
+1. Recursively collects all files matching `--ext` under the directory.
+2. Runs a *discovery pass* via `discover_includes_in_file(...)`, where
+   `%include(path)` / `%import(path)` targets are resolved and recorded but
+   target files are not expanded.
+3. Filters out any file that appears as a `%include` target of another file
+   in the same scan, leaving only *driver* files (top-level entry points).
+4. Processes the driver files with a fresh evaluator.
+
+This means you can drop all your literate fragments and their driver into one
+directory and run `weaveback-macro --dir .` without manually listing which file
+is the entry point.
+
+### Mutual exclusion: positional inputs vs `--dir`
+
+`ArgGroup::new("source").required(true)` enforces that exactly one of
+`--dir` or positional input files is present.  The `conflicts_with = "inputs"`
+attribute on `--dir` is the clap-level guard; the `run()` function branches on
+`args.directory`.
+
+### `--pathsep` and platform defaults
+
+On Unix the path separator for `--include` is `:`, on Windows `;`.
+`default_pathsep()` returns the right one for the current target triple at
+compile time so the binary behaves correctly without user configuration.
+
+### `--dump-ast`
+
+Skips evaluation entirely and serialises the parsed AST of each input file to
+`<file>.ast`.  Useful for debugging macro parse errors.
+
+## File structure
+
+
+```rust
+// <[@file weaveback-macro/src/bin/weaveback-macro.rs]>=
+// weaveback-macro/src/bin/weaveback-macro.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[cli preamble]>
+// <[cli default pathsep]>
+// <[cli helpers]>
+// <[cli find files]>
+// <[cli args struct]>
+// <[cli run]>
+// <[cli main]>
+// <[cli tests]>
+
+// @
+```
+
+
+## Preamble
+
+
+```rust
+// <[cli preamble]>=
+// crates/weaveback-macro/src/bin/macro_cli.rs
+
+use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
+use weaveback_macro::macro_api::{discover_includes_in_file, process_files};
+use clap::{ArgGroup, Parser};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+// @
+```
+
+
+## Platform path separator
+
+
+```rust
+// <[cli default pathsep]>=
+/// Returns the default path separator based on the platform
+fn default_pathsep() -> String {
+    if cfg!(windows) {
+        ";".to_string()
+    } else {
+        ":".to_string()
+    }
+}
+// @
+```
+
+
+## CLI helpers
+
+
+```rust
+// <[cli helpers]>=
+fn is_ascii_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn apply_cli_defines(eval: &mut Evaluator, defines: &[String]) -> Result<(), EvalError> {
+    for item in defines {
+        let (name, value) = item.split_once('=').ok_or_else(|| {
+            EvalError::InvalidUsage(format!("define: expected NAME=VALUE, got '{item}'"))
+        })?;
+        if !is_ascii_identifier(name) {
+            return Err(EvalError::InvalidUsage(format!(
+                "define: '{name}' is not a valid identifier"
+            )));
+        }
+        eval.set_variable(name, value);
+    }
+    Ok(())
+}
+// @
+```
+
+
+## `find_files` — recursive extension scanner
+
+
+```rust
+// <[cli find files]>=
+/// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
+fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            find_files(&path, exts, out)?;
+        } else if let Some(e) = path.extension().and_then(|e| e.to_str())
+            && exts.iter().any(|x| x == e)
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+// @
+```
+
+
+## CLI argument struct
+
+
+```rust
+// <[cli args struct]>=
+#[derive(Parser, Debug)]
+#[command(
+    name = "weaveback-macro",
+    version,
+    about = "Weaveback macros translator (Rust)",
+    group(ArgGroup::new("source").required(true).args(["inputs", "directory"]))
+)]
+struct Args {
+    /// Output path (file or '-' for stdout)
+    #[arg(long = "output", default_value = "-")]
+    output: PathBuf,
+
+    /// Macro sigil
+    #[arg(long = "sigil", default_value = "%")]
+    sigil: char,
+
+    /// List of include paths separated by the path separator
+    #[arg(long = "include", default_value = ".")]
+    include: String,
+
+    /// Path separator (usually ':' on Unix, ';' on Windows)
+    #[arg(long = "pathsep", default_value_t = default_pathsep())]
+    pathsep: String,
+
+    /// Base directory for input files
+    #[arg(long = "input-dir", default_value = ".")]
+    input_dir: PathBuf,
+
+    /// Allow %env(NAME) to read environment variables.
+    #[arg(long)]
+    allow_env: bool,
+
+    /// Optional prefix prepended to environment lookups.
+    /// Example: `--env-prefix WB_` makes `%env(PATH)` read `WB_PATH`.
+    #[arg(long)]
+    env_prefix: Option<String>,
+
+    /// Maximum macro recursion depth for this run.
+    #[arg(long = "recursion-limit", default_value_t = weaveback_core::MAX_RECURSION_DEPTH)]
+    recursion_limit: usize,
+
+    /// Define a top-level variable before evaluation. Repeatable.
+    /// Form: `-D NAME=VALUE`
+    #[arg(short = 'D', long = "define")]
+    define: Vec<String>,
+
+    /// The input files (mutually exclusive with --dir)
+    #[arg(required = false)]
+    inputs: Vec<PathBuf>,
+
+    /// Discover and process driver files under this directory.
+    /// A driver is any file (matching --ext) not referenced by a %include() in another such file.
+    /// Mutually exclusive with positional input files.
+    #[arg(long = "dir", conflicts_with = "inputs")]
+    directory: Option<PathBuf>,
+
+    /// File extension(s) to scan in --dir mode (can be repeated).
+    /// Default: md. Example: --ext adoc --ext md to scan both.
+    #[arg(long, default_value = "md")]
+    ext: Vec<String>,
+
+    /// Dump the parsed AST for each input file to <file>.ast (or stdout for stdin).
+    /// Skips macro evaluation entirely.
+    #[arg(long = "dump-ast")]
+    dump_ast: bool,
+}
+// @
+```
+
+
+## `run` — core logic
+
+
+```rust
+// <[cli run]>=
+fn run(args: Args) -> Result<(), EvalError> {
+    let include_paths: Vec<PathBuf> = args
+        .include
+        .split(&args.pathsep)
+        .map(PathBuf::from)
+        .collect();
+
+    let config = EvalConfig {
+        sigil: args.sigil,
+        include_paths,
+        allow_env: args.allow_env,
+        env_prefix: args.env_prefix.clone(),
+        recursion_limit: args.recursion_limit,
+    };
+
+    let final_inputs: Vec<PathBuf> = if let Some(ref dir) = args.directory {
+        let mut all = Vec::new();
+        find_files(dir, &args.ext, &mut all)
+            .map_err(|e| EvalError::Runtime(format!("Directory scan failed: {e}")))?;
+        all.sort();
+
+        // Discovery pass: identify which files are %include'd by others (fragments).
+        let mut included: HashSet<PathBuf> = HashSet::new();
+        for f in &all {
+            let mut disc = Evaluator::new(config.clone());
+            apply_cli_defines(&mut disc, &args.define)?;
+            if let Ok(paths) = discover_includes_in_file(f, &mut disc) {
+                for p in paths {
+                    included.insert(p.canonicalize().unwrap_or(p));
+                }
+            }
+        }
+
+        all.into_iter()
+            .filter(|f| {
+                let canon = f.canonicalize().unwrap_or_else(|_| f.to_path_buf());
+                !included.contains(&canon)
+            })
+            .collect()
+    } else {
+        let mut inputs = Vec::new();
+        for inp in &args.inputs {
+            let full = args.input_dir.join(inp);
+            let canon = full.canonicalize().unwrap_or_else(|_| full.clone());
+            if !full.exists() {
+                return Err(EvalError::Runtime(format!(
+                    "Input file does not exist: {:?}",
+                    canon
+                )));
+            }
+            inputs.push(full);
+        }
+        inputs
+    };
+
+    if args.dump_ast {
+        return weaveback_macro::ast::dump_macro_ast(args.sigil, &final_inputs);
+    }
+
+    let mut evaluator = Evaluator::new(config);
+    apply_cli_defines(&mut evaluator, &args.define)?;
+    process_files(&final_inputs, &args.output, &mut evaluator)
+}
+// @
+```
+
+
+## `main`
+
+
+```rust
+// <[cli main]>=
+fn main() {
+    let args = Args::parse();
+    match run(args) {
+        Ok(()) => std::process::exit(0),
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+// @
+```
+
+
+## Tests (in-process)
+
+
+```rust
+// <[cli tests]>=
+#[cfg(test)]
+mod bin_tests {
+    use super::*;
+
+    struct TestWorkspace {
+        root: PathBuf,
+    }
+
+    impl TestWorkspace {
+        fn new() -> Self {
+            let unique = format!(
+                "wb-macro-bin-tests-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let root = std::env::temp_dir().join(unique);
+            std::fs::create_dir_all(&root).unwrap();
+            Self { root }
+        }
+
+        fn write(&self, name: &str, content: &str) -> PathBuf {
+            let p = self.root.join(name);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&p, content).unwrap();
+            p
+        }
+    }
+
+    impl Drop for TestWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn default_args() -> Args {
+        Args {
+            output: PathBuf::from("-"),
+            sigil: '%',
+            include: ".".to_string(),
+            pathsep: default_pathsep(),
+            input_dir: PathBuf::from("."),
+            allow_env: false,
+            env_prefix: None,
+            recursion_limit: 1000,
+            define: vec![],
+            inputs: vec![],
+            directory: None,
+            ext: vec!["md".to_string()],
+            dump_ast: false,
+        }
+    }
+
+    #[test]
+    fn test_bin_run_basic() {
+        let ws = TestWorkspace::new();
+        let input = ws.write("test.md", "hello %def(x,y)%x() world");
+        let output = ws.root.join("out.txt");
+        
+        let mut args = default_args();
+        args.inputs = vec![input];
+        args.output = output.clone();
+        
+        run(args).unwrap();
+        
+        let body = std::fs::read_to_string(output).unwrap();
+        assert_eq!(body.trim(), "hello y world");
+    }
+
+    #[test]
+    fn test_bin_run_dir_scan() {
+        let ws = TestWorkspace::new();
+        // Create a driver and a fragment
+        ws.write("driver.md", "include %include(frag.md)");
+        ws.write("frag.md", "fragment content");
+        
+        let output = ws.root.join("out.txt");
+        let mut args = default_args();
+        args.directory = Some(ws.root.clone());
+        args.include = ws.root.to_string_lossy().to_string(); // Ensure includes are found
+        args.output = output.clone();
+        
+        run(args).unwrap();
+        
+        let body = std::fs::read_to_string(output).unwrap();
+        assert!(body.contains("fragment content"));
+    }
+
+    #[test]
+    fn test_bin_run_not_found() {
+        let mut args = default_args();
+        args.inputs = vec![PathBuf::from("nonexistent.md")];
+        let res = run(args);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_bin_run_dump_ast() {
+        let ws = TestWorkspace::new();
+        let input = ws.write("test.md", "hello world");
+        
+        let mut args = default_args();
+        args.inputs = vec![input.clone()];
+        args.dump_ast = true;
+        
+        run(args).unwrap();
+        
+        let ast_file = input.with_extension("ast");
+        assert!(ast_file.exists());
+        let _ = std::fs::remove_file(ast_file);
+    }
+}
+// @
+```
+
+
+## Tests
+
+Integration tests for the `weaveback-macro` CLI binary.  They use `escargot` to
+build and invoke the binary as a subprocess, exercising the full CLI contract:
+
+* `test_basic_macro_processing` — `%def` / invocation round-trip to output file
+* `test_cli_help` — `--help` exits 0 and mentions `weaveback-macro` / `--output`
+* `test_missing_input_file` — non-existent input → non-zero exit + error message
+* `test_multiple_inputs` — two input files concatenated into one output
+* `test_custom_sigil` — `--sigil @` selects `@` as macro sigil
+* `test_unicode_sigil` — `--sigil §` proves the sigil can be non-ASCII UTF-8
+* `test_colon_separated_includes` — `--include ./path` colon syntax resolves files
+* `test_custom_pathsep_includes` — `--pathsep |` overrides the include separator
+* `test_large_input` — 10 000-line file with 10 000 macro expansions (smoke test)
+* `test_undefined_variable_is_strict_by_default_cli` — undefined variables now fail by default
+* `test_unbound_params_are_strict_by_default_cli` — missing macro args now fail by default
+* `test_define_cli` — `-D NAME=VALUE` seeds top-level variables
+* `test_env_prefix_cli` — `--env-prefix` maps `%env(NAME)` to namespaced environment variables
+* `test_recursion_limit_cli` — `--recursion-limit` overrides the default macro nesting cap
+
+
+```rust
+// <[@file weaveback-macro/tests/test_macro_cli.rs]>=
+// weaveback-macro/tests/test_macro_cli.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// crates/weaveback-macro/tests/test_macro_cli.rs
+
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+
+// Helper function to create a file with content
+fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
+    let path = dir.join(name);
+    let mut file = fs::File::create(&path).unwrap();
+    write!(file, "{}", content).unwrap();
+    path.canonicalize().unwrap()
+}
+
+// Helper to build and get command
+fn cargo_weaveback_macro_cli() -> Result<escargot::CargoRun, Box<dyn std::error::Error>> {
+    Ok(escargot::CargoBuild::new()
+        .bin("weaveback-macro")
+        .current_release()
+        .current_target()
+        .run()?)
+}
+
+#[test]
+fn test_basic_macro_processing() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "input.txt",
+        r#"%def(hello, World)
+Hello %hello()!"#,
+    );
+    assert!(input.exists(), "Input file should exist");
+
+    let out_file = temp_path.join("output.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    println!("Exit status: {}", output.status);
+    println!("Stdout: {}", String::from_utf8_lossy(&output.stdout));
+    println!("Stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(output.status.success());
+    assert!(out_file.exists(), "Output file should exist");
+
+    let output_content = fs::read_to_string(&out_file)?;
+    assert_eq!(output_content.trim(), "Hello World!");
+
+    Ok(())
+}
+
+// 1) Test the help message
+#[test]
+fn test_cli_help() -> Result<(), Box<dyn std::error::Error>> {
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--help");
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "Expected 'weaveback-macro --help' to succeed."
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("weaveback-macro"),
+        "Help output did not mention 'weaveback-macro'"
+    );
+    assert!(
+        stdout.contains("--output"),
+        "Help output did not mention '--output'"
+    );
+
+    Ok(())
+}
+
+// 2) Test passing a non-existent input file
+#[test]
+fn test_missing_input_file() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let missing_input = temp_path.join("not_real.txt");
+    let out_file = temp_path.join("output.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&missing_input);
+
+    let output = cmd.output()?;
+    assert!(
+        !output.status.success(),
+        "CLI was expected to fail on missing file."
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("(missing_input) stderr:\n{stderr}");
+    assert!(
+        stderr.contains("Input file does not exist"),
+        "Should mention 'Input file does not exist' in error."
+    );
+
+    Ok(())
+}
+
+// 3) Test multiple input files in a single run
+#[test]
+fn test_multiple_inputs() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input1 = create_test_file(
+        &temp_path,
+        "file1.txt",
+        "%def(macro1, MACRO_ONE)\n%macro1()",
+    );
+    let input2 = create_test_file(
+        &temp_path,
+        "file2.txt",
+        "%def(macro2, MACRO_TWO)\n%macro2()",
+    );
+
+    let out_file = temp_path.join("combined_output.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input1)
+        .arg(&input2);
+
+    let output = cmd.output()?;
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("MACRO_ONE"),
+        "Expected 'MACRO_ONE' in combined output file."
+    );
+    assert!(
+        content.contains("MACRO_TWO"),
+        "Expected 'MACRO_TWO' in combined output file."
+    );
+
+    Ok(())
+}
+
+// 4) Test a custom sigil
+#[test]
+fn test_custom_sigil() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "input_at.txt",
+        "@def(test_macro, Hello from custom char)\n@test_macro()",
+    );
+    let out_file = temp_path.join("output_at.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--sigil")
+        .arg("@")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "CLI run with custom sigil should succeed."
+    );
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("Hello from custom char"),
+        "Expected to see expansion with '@' as the macro char."
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_unicode_sigil() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "input_section.txt",
+        "§def(test_macro, Hello from unicode char)\n§test_macro()",
+    );
+    let out_file = temp_path.join("output_section.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--sigil")
+        .arg("§")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "CLI run with unicode sigil should succeed."
+    );
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("Hello from unicode char"),
+        "Expected to see expansion with '§' as the macro char."
+    );
+
+    Ok(())
+}
+
+// 5) Test using a colon-separated include path
+#[test]
+fn test_colon_separated_includes() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let includes_dir = temp_path.join("includes");
+    fs::create_dir_all(&includes_dir)?;
+    let _inc_file = create_test_file(&includes_dir, "my_include.txt", "From includes dir");
+
+    let main_file = create_test_file(&temp_path, "main.txt", "%include(my_include.txt)");
+
+    let out_file = temp_path.join("output_inc.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    let includes_str = format!(".:{}", includes_dir.to_string_lossy());
+
+    cmd.arg("--include")
+        .arg(&includes_str)
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&main_file);
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "CLI should succeed with colon-separated includes."
+    );
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("From includes dir"),
+        "Expected the included content from includes/my_include.txt."
+    );
+
+    Ok(())
+}
+
+// 7) Test forcing a custom --pathsep
+#[test]
+fn test_custom_pathsep_includes() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let includes_dir = temp_path.join("my_includes");
+    fs::create_dir_all(&includes_dir)?;
+    create_test_file(&includes_dir, "m_incl.txt", "Inside custom pathsep dir");
+
+    let main_file = create_test_file(&temp_path, "custom_sep_main.txt", "%include(m_incl.txt)");
+
+    let out_file = temp_path.join("output_sep.txt");
+    let includes_str = format!(".|{}", includes_dir.display());
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--include")
+        .arg(&includes_str)
+        .arg("--pathsep")
+        .arg("|")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&main_file);
+
+    let output = cmd.output()?;
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(&out_file)?;
+    assert!(
+        content.contains("Inside custom pathsep dir"),
+        "Expected custom pathsep to locate includes dir."
+    );
+
+    Ok(())
+}
+
+// 8) Test that the CLI can handle a large input file (smoke test)
+#[test]
+fn test_large_input() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let mut big_content = String::new();
+    big_content.push_str("%def(say, HELLO)\n");
+    for _ in 0..10_000 {
+        big_content.push_str("%say()");
+        big_content.push('\n');
+    }
+
+    let big_file = create_test_file(&temp_path, "big_file.txt", &big_content);
+    let out_file = temp_path.join("output_big.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&big_file);
+
+    let output = cmd.output()?;
+    assert!(
+        output.status.success(),
+        "CLI should handle a large input file."
+    );
+
+    let out_content = fs::read_to_string(&out_file)?;
+    let line_count = out_content.matches("HELLO").count();
+    assert_eq!(
+        line_count, 10_000,
+        "Expected 10,000 expansions of HELLO in the large output."
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_undefined_variable_is_strict_by_default_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(&temp_path, "strict_vars.txt", "before%(missing)after");
+    let out_file = temp_path.join("strict_vars_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(!output.status.success(), "undefined variable should fail by default");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Undefined variable: missing"),
+        "expected undefined-variable error, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_unbound_params_are_strict_by_default_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "strict_params.txt",
+        "%def(greet, name, msg, Hello %(name)%(msg)!)\n%greet(Alice)\n",
+    );
+    let out_file = temp_path.join("strict_params_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(!output.status.success(), "missing args should fail by default");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Unbound parameter 'msg' in macro 'greet'"),
+        "expected unbound-parameter error, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+
+#[test]
+fn test_define_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(&temp_path, "define.txt", "before%(name)after");
+    let out_file = temp_path.join("define_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("-D")
+        .arg("name=value")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(output.status.success(), "define should seed a top-level variable");
+
+    let body = fs::read_to_string(&out_file)?;
+    assert_eq!(body, "beforevalueafter");
+
+    Ok(())
+}
+
+#[test]
+fn test_env_prefix_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(&temp_path, "env_prefix.txt", "%env(DEMO)");
+    let out_file = temp_path.join("env_prefix_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.env("WB_DEMO", "scoped")
+        .arg("--allow-env")
+        .arg("--env-prefix")
+        .arg("WB_")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(output.status.success(), "env-prefix should map to prefixed environment variables");
+
+    let body = fs::read_to_string(&out_file)?;
+    assert_eq!(body, "scoped");
+
+    Ok(())
+}
+
+#[test]
+fn test_recursion_limit_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let temp_path = temp.path().canonicalize()?;
+
+    let input = create_test_file(
+        &temp_path,
+        "recursion_limit.txt",
+        "%def(loop, %loop())\n%loop()",
+    );
+    let out_file = temp_path.join("recursion_limit_out.txt");
+
+    let run = cargo_weaveback_macro_cli()?;
+    let mut cmd = run.command();
+    cmd.arg("--recursion-limit")
+        .arg("4")
+        .arg("--output")
+        .arg(&out_file)
+        .arg(&input);
+
+    let output = cmd.output()?;
+    assert!(
+        !output.status.success(),
+        "CLI run with a self-recursive macro should fail once the configured recursion limit is reached."
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("maximum recursion depth (4) exceeded"),
+        "expected configured recursion limit in stderr, got: {stderr}"
+    );
+
+    Ok(())
+}
+
+// @
+```
+

@@ -1,3 +1,6 @@
+// weaveback-macro/tests/test_macro_cli.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/tests/test_macro_cli.rs
 
 use std::fs;
@@ -484,3 +487,4 @@ fn test_recursion_limit_cli() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+

@@ -1,4 +1,4 @@
-= CLI binary — `weaveback-macro`
+¤h1(¤[CLI binary — `weaveback-macro`¤])
 :toc: left
 
 `src/bin/weaveback-macro.rs` is the `weaveback-macro` command-line binary.
@@ -6,9 +6,9 @@ It wraps the xref:../macro_api.adoc[macro_api] layer with a clap argument
 parser, uses explicit dependency-discovery APIs for `--dir`, and exposes
 `--dump-ast` for debugging.
 
-== Design rationale
+¤h2(¤[Design rationale¤])
 
-=== `--dir` dependency discovery
+¤h3(¤[`--dir` dependency discovery¤])
 
 When `--dir` is given, the binary:
 
@@ -24,45 +24,40 @@ This means you can drop all your literate fragments and their driver into one
 directory and run `weaveback-macro --dir .` without manually listing which file
 is the entry point.
 
-=== Mutual exclusion: positional inputs vs `--dir`
+¤h3(¤[Mutual exclusion: positional inputs vs `--dir`¤])
 
 `ArgGroup::new("source").required(true)` enforces that exactly one of
 `--dir` or positional input files is present.  The `conflicts_with = "inputs"`
 attribute on `--dir` is the clap-level guard; the `run()` function branches on
 `args.directory`.
 
-=== `--pathsep` and platform defaults
+¤h3(¤[`--pathsep` and platform defaults¤])
 
 On Unix the path separator for `--include` is `:`, on Windows `;`.
 `default_pathsep()` returns the right one for the current target triple at
 compile time so the binary behaves correctly without user configuration.
 
-=== `--dump-ast`
+¤h3(¤[`--dump-ast`¤])
 
 Skips evaluation entirely and serialises the parsed AST of each input file to
 `<file>.ast`.  Useful for debugging macro parse errors.
 
-== File structure
+¤h2(¤[File structure¤])
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/bin/weaveback-macro.rs>>=
-// <<cli preamble>>
-// <<cli default pathsep>>
-// <<cli helpers>>
-// <<cli find files>>
-// <<cli args struct>>
-// <<cli run>>
-// <<cli main>>
-// <<cli tests>>
-// @
-----
+¤rust_file(weaveback-macro/src/bin/weaveback-macro.rs, ¤[
+// <[cli preamble]>
+// <[cli default pathsep]>
+// <[cli helpers]>
+// <[cli find files]>
+// <[cli args struct]>
+// <[cli run]>
+// <[cli main]>
+// <[cli tests]>
+¤])
 
-== Preamble
+¤h2(¤[Preamble¤])
 
-[source,rust]
-----
-// <<cli preamble>>=
+¤rust_chunk(cli preamble, ¤[
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -70,14 +65,11 @@ use weaveback_macro::macro_api::{discover_includes_in_file, process_files};
 use clap::{ArgGroup, Parser};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-// @
-----
+¤])
 
-== Platform path separator
+¤h2(¤[Platform path separator¤])
 
-[source,rust]
-----
-// <<cli default pathsep>>=
+¤rust_chunk(cli default pathsep, ¤[
 /// Returns the default path separator based on the platform
 fn default_pathsep() -> String {
     if cfg!(windows) {
@@ -86,14 +78,11 @@ fn default_pathsep() -> String {
         ":".to_string()
     }
 }
-// @
-----
+¤])
 
-== CLI helpers
+¤h2(¤[CLI helpers¤])
 
-[source,rust]
-----
-// <<cli helpers>>=
+¤rust_chunk(cli helpers, ¤[
 fn is_ascii_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
@@ -117,14 +106,11 @@ fn apply_cli_defines(eval: &mut Evaluator, defines: &[String]) -> Result<(), Eva
     }
     Ok(())
 }
-// @
-----
+¤])
 
-== `find_files` — recursive extension scanner
+¤h2(¤[`find_files` — recursive extension scanner¤])
 
-[source,rust]
-----
-// <<cli find files>>=
+¤rust_chunk(cli find files, ¤[
 /// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
 fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
@@ -140,14 +126,11 @@ fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::R
     }
     Ok(())
 }
-// @
-----
+¤])
 
-== CLI argument struct
+¤h2(¤[CLI argument struct¤])
 
-[source,rust]
-----
-// <<cli args struct>>=
+¤rust_chunk(cli args struct, ¤[
 #[derive(Parser, Debug)]
 #[command(
     name = "weaveback-macro",
@@ -214,14 +197,11 @@ struct Args {
     #[arg(long = "dump-ast")]
     dump_ast: bool,
 }
-// @
-----
+¤])
 
-== `run` — core logic
+¤h2(¤[`run` — core logic¤])
 
-[source,rust]
-----
-// <<cli run>>=
+¤rust_chunk(cli run, ¤[
 fn run(args: Args) -> Result<(), EvalError> {
     let include_paths: Vec<PathBuf> = args
         .include
@@ -285,14 +265,11 @@ fn run(args: Args) -> Result<(), EvalError> {
     apply_cli_defines(&mut evaluator, &args.define)?;
     process_files(&final_inputs, &args.output, &mut evaluator)
 }
-// @
-----
+¤])
 
-== `main`
+¤h2(¤[`main`¤])
 
-[source,rust]
-----
-// <<cli main>>=
+¤rust_chunk(cli main, ¤[
 fn main() {
     let args = Args::parse();
     match run(args) {
@@ -303,14 +280,11 @@ fn main() {
         }
     }
 }
-// @
-----
+¤])
 
-== Tests (in-process)
+¤h2(¤[Tests (in-process)¤])
 
-[source,rust]
-----
-// <<cli tests>>=
+¤rust_chunk(cli tests, ¤[
 #[cfg(test)]
 mod bin_tests {
     use super::*;
@@ -428,10 +402,9 @@ mod bin_tests {
         let _ = std::fs::remove_file(ast_file);
     }
 }
-// @
-----
+¤])
 
-== Tests
+¤h2(¤[Tests¤])
 
 Integration tests for the `weaveback-macro` CLI binary.  They use `escargot` to
 build and invoke the binary as a subprocess, exercising the full CLI contract:
@@ -451,9 +424,7 @@ build and invoke the binary as a subprocess, exercising the full CLI contract:
 * `test_env_prefix_cli` — `--env-prefix` maps `%env(NAME)` to namespaced environment variables
 * `test_recursion_limit_cli` — `--recursion-limit` overrides the default macro nesting cap
 
-[source,rust]
-----
-// <<@file weaveback-macro/tests/test_macro_cli.rs>>=
+¤rust_file(weaveback-macro/tests/test_macro_cli.rs, ¤[
 // crates/weaveback-macro/tests/test_macro_cli.rs
 
 use std::fs;
@@ -940,5 +911,4 @@ fn test_recursion_limit_cli() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-// @
-----
+¤])

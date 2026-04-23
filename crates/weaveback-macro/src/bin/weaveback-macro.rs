@@ -1,3 +1,6 @@
+// weaveback-macro/src/bin/weaveback-macro.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/bin/macro_cli.rs
 
 use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -307,3 +310,4 @@ mod bin_tests {
         let _ = std::fs::remove_file(ast_file);
     }
 }
+

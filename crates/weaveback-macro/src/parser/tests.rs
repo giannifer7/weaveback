@@ -1,3 +1,6 @@
+// weaveback-macro/src/parser/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // src/parser/tests.rs
 
 use crate::lexer::Lexer;
@@ -427,3 +430,4 @@ fn test_root_end_pos_with_block() {
     let root = parser.get_node(0).unwrap();
     assert_eq!(root.end_pos, src.len());
 }
+

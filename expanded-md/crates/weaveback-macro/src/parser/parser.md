@@ -1,0 +1,1398 @@
+# weaveback-macro Parser
+:description: Literate source for crates/weaveback-macro/src/parser/mod.rs
+:toc: left
+:toclevels: 3
+
+The weaveback-macro parser transforms a flat token stream produced by the lexer
+into a tree of `ParseNode` values.  It is a hand-written deterministic pushdown
+automaton (DPDA): each state owns its set of termination tokens and delegates
+everything else to a shared opener/leaf fallthrough handler.
+
+[plantuml,parser-states,svg]
+....
+@startuml
+hide empty description
+skinparam DefaultFontName Monospaced
+skinparam backgroundColor transparent
+skinparam DefaultFontColor #ebdbb2
+skinparam ArrowColor #a89984
+skinparam ArrowFontColor #d5c4a1
+skinparam StateBackgroundColor #3c3836
+skinparam StateBorderColor #504945
+skinparam StateFontColor #ebdbb2
+skinparam NoteBackgroundColor #282828
+skinparam NoteBorderColor #504945
+skinparam NoteFontColor #d5c4a1
+
+state "Block" as B {
+  B : Terminates: BlockClose (tag match)
+  B : Falls through to opener/leaf
+}
+state "Param" as P {
+  P : Terminates: Comma (next arg)
+  P : Terminates: CloseParen (end call)
+  P : Direct: Ident, Space, Equal
+}
+state "Comment" as C {
+  C : Swallows all tokens
+  C : except CommentOpen/CommentClose
+}
+
+[*] -right-> B : parse() seeds root Block
+
+B --> B : BlockOpen → push
+B --> P : Macro → push Macro+Param
+B --> C : CommentOpen → push
+
+P --> B : BlockOpen → push
+P --> P : Comma → close, push new Param
+P --> C : CommentOpen → push
+
+C --> C : CommentOpen → push (nested)
+
+note right of P
+  A Macro frame sits silently
+  below every Param frame.
+  It is never the top of stack
+  when a token arrives.
+end note
+
+note as N
+  BlockClose pops Block, CloseParen pops Param+Macro,
+  CommentClose pops Comment — each resumes the frame below.
+end note
+@enduml
+....
+
+## State Termination Table
+
+Each row names a parser state and defines what tokens it acts on directly.
+Every other token falls through to the opener/leaf handler in `parse()`.
+
+[cols="1,2,2,2", options="header"]
+|===
+| State   | Terminates on             | Accepted directly              | Fallthrough
+| Block   | `BlockClose` (tag check)  | _none_ — only terminates       | all others via opener/leaf
+| Param   | `Comma`, `CloseParen`     | `Ident`, `Space`, `Equal`      | nested `BlockOpen`, `Macro`, etc.
+| Macro   | _never_ (invariant state) | _none_                         | error on any token
+| Comment | `CommentClose`            | `CommentOpen` (nested)         | all others ignored
+|===
+
+`Macro` is never the top of the stack when a token arrives: it sits _below_
+`Param`, which is always pushed immediately after `Macro`.  Receiving a token
+with `Macro` on top is an internal invariant violation.
+
+## File Structure
+
+The single output file is assembled from all the chunks defined below.
+
+
+```rust
+// <[@file weaveback-macro/src/parser/mod.rs]>=
+// weaveback-macro/src/parser/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// crates/weaveback-macro/src/parser/mod.rs — generated from parser.adoc
+// <[parser preamble]>
+// <[parser serialization]>
+
+// <[parser state]>
+
+// <[parser struct]>
+
+// <[parser impl]>
+
+// @
+```
+
+
+## `impl Parser` Structure
+
+The impl block assembles every method sub-chunk in declaration order.
+The sections below define each sub-chunk in the same sequence.
+
+
+```rust
+// <[parser impl]>=
+impl Parser {
+    // <[parser arena]>
+    // <[parser block_tag]>
+    // <[parser handle_block]>
+    // <[parser handle_param]>
+    // <[parser handle_comment]>
+    // <[parser parse]>
+    // <[parser token_io]>
+    // <[parser api]>
+}
+// @
+```
+
+
+## Module Preamble
+
+
+```rust
+// <[parser preamble]>=
+use crate::line_index::LineIndex;
+use crate::types::{ASTNode, NodeKind, ParseNode, Token, TokenKind};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use thiserror::Error;
+
+#[cfg(test)]
+mod tests;
+
+/// The parser-specific error type.
+#[derive(Error, Debug)]
+pub enum ParserError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Invalid token data: {0}")]
+    TokenData(String),
+
+    #[error("Parse error: {0}")]
+    Parse(String),
+}
+
+impl From<String> for ParserError {
+    fn from(s: String) -> Self {
+        ParserError::TokenData(s)
+    }
+}
+// @
+```
+
+
+## Serialization Helpers
+
+JSON serialization of tokens and parse nodes, used only in tests to dump
+the parse tree for inspection.  Both `impl` blocks are gated `#[cfg(test)]`
+so they compile away entirely in production builds.
+
+
+```rust
+// <[parser serialization]>=
+#[cfg(test)]
+impl Token {
+    pub fn to_json(&self) -> String {
+        format!(
+            "[{},{},{},{}]",
+            self.src, self.kind as i32, self.pos, self.length
+        )
+    }
+}
+
+#[cfg(test)]
+impl ParseNode {
+    pub fn to_json(&self) -> String {
+        format!(
+            "[{},{},{},{},{}]",
+            self.kind as i32,
+            self.src,
+            self.token.to_json(),
+            self.end_pos,
+            if self.parts.is_empty() {
+                "[]".to_string()
+            } else {
+                format!(
+                    "[{}]",
+                    self.parts
+                        .iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+        )
+    }
+}
+// @
+```
+
+
+## The Parser State Machine
+
+### Stack Frame Variants
+
+`Block` carries the tag extent so `BlockClose` can validate the matching tag.
+`tag_len == 0` means an anonymous block (`%{`/`%}`).
+
+`Macro` and `Param` are always paired: `Macro` sits below `Param` on the
+stack.  `Param` receives individual tokens; `Macro` is only ever visible
+after `Param` is popped (at `)`) so that `handle_param` can verify the
+expected stack shape.
+
+
+```rust
+// <[parser state]>=
+/// Stack frame state.  Each variant owns its termination tokens;
+/// everything else falls through to the shared opener/leaf handler.
+///
+/// `tag_len == 0` means an anonymous block (`%{`/`%}`).
+///
+/// `Macro` and `Param` are always paired: `Macro` sits below `Param` on the
+/// stack.  `Param` receives individual tokens; `Macro` is only ever visible
+/// after `Param` is popped (at `)`) so that `handle_param` can verify the
+/// expected stack shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum BlockDelim {
+    Curly,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ParserState {
+    Block { tag_pos: usize, tag_len: usize, delim: BlockDelim },
+    Macro,
+    Param,
+    Comment,
+}
+
+// <[parser context]>
+
+// <[parser block_tag_label]>
+// @
+```
+
+
+### Parse Context
+
+`ParseContext` bundles the raw source bytes with a cached `LineIndex`.
+It is built once per `parse()` call so the O(n) newline scan happens at most
+once regardless of how many errors are emitted.
+
+
+```rust
+// <[parser context]>=
+/// Bundles the source bytes with a borrowed `LineIndex`.
+/// The index is built once by the caller (who may already need it for lexer
+/// error formatting) and passed in, so the O(n) newline scan never happens
+/// more than once per source string.
+struct ParseContext<'a> {
+    content: &'a [u8],
+    line_index: &'a LineIndex,
+}
+
+impl<'a> ParseContext<'a> {
+    fn new(content: &'a [u8], line_index: &'a LineIndex) -> Self {
+        Self { content, line_index }
+    }
+
+    fn line_col(&self, pos: usize) -> (usize, usize) {
+        self.line_index.line_col(pos)
+    }
+
+    /// Compare two tag spans. Anonymous (len == 0) matches anonymous only.
+    /// Returns `false` — not a panic — if either span is out of bounds.
+    fn tags_match(&self, (ap, al): (usize, usize), (bp, bl): (usize, usize)) -> bool {
+        if al != bl {
+            return false;
+        }
+        if al == 0 {
+            return true;
+        }
+        if ap + al > self.content.len() || bp + bl > self.content.len() {
+            return false;
+        }
+        self.content[ap..ap + al] == self.content[bp..bp + bl]
+    }
+
+    /// Return the tag as a `&str` for error messages.
+    fn tag_str(&self, pos: usize, len: usize) -> &str {
+        if len == 0 {
+            return "";
+        }
+        debug_assert!(
+            pos + len <= self.content.len(),
+            "tag span OOB: {pos}+{len} > {}",
+            self.content.len()
+        );
+        std::str::from_utf8(self.content.get(pos..pos + len).unwrap_or(&[]))
+            .unwrap_or("")
+    }
+}
+// @
+```
+
+
+### Block Tag Label
+
+A small free function centralises the formatting of block-tag error labels so
+all error messages use the same `%name{` / `(anonymous)` style.
+
+
+```rust
+// <[parser block_tag_label]>=
+/// Format a block tag for error messages.
+/// Anonymous blocks (`tag == ""`) render as `(anonymous)`;
+/// named blocks render as `%name{` / `%name}` or `%name[` / `%name]`.
+fn block_tag_label(tag: &str, brace: char) -> String {
+    if tag.is_empty() {
+        "(anonymous)".to_string()
+    } else {
+        format!("%{tag}{brace}")
+    }
+}
+
+fn block_delim_chars(delim: BlockDelim) -> (char, char) {
+    match delim {
+        BlockDelim::Curly => ('{', '}'),
+        BlockDelim::Square => ('[', ']'),
+    }
+}
+// @
+```
+
+
+## Parser Struct and Arena
+
+The `Parser` owns a flat arena of `ParseNode` values (`nodes`) and a stack of
+`(ParserState, arena_index)` pairs.  All tree structure is encoded as index
+lists inside `ParseNode::parts`; no heap pointers are stored.
+
+
+```rust
+// <[parser struct]>=
+pub struct Parser {
+    nodes: Vec<ParseNode>,
+    stack: Vec<(ParserState, usize)>,
+}
+
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+// @
+```
+
+
+### Arena Primitives
+
+
+```rust
+// <[parser arena]>=
+pub fn new() -> Self {
+    Parser {
+        nodes: Vec::new(),
+        stack: Vec::new(),
+    }
+}
+
+fn create_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
+    let node = ParseNode {
+        kind,
+        src,
+        token,
+        end_pos: 0,
+        parts: Vec::new(),
+    };
+    self.nodes.push(node);
+    self.nodes.len() - 1
+}
+
+fn add_child(&mut self, parent_idx: usize, child_idx: usize) {
+    if let Some(parent) = self.nodes.get_mut(parent_idx) {
+        parent.parts.push(child_idx);
+    }
+}
+
+fn create_add_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
+    let new_idx = self.create_node(kind, src, token);
+    // Attach it to the node on top of the stack
+    if let Some(&(_, parent_idx)) = self.stack.last() {
+        self.add_child(parent_idx, new_idx);
+    }
+    new_idx
+}
+
+/// Convenience: `create_add_node` + push a new stack frame in one call.
+fn push_node(&mut self, state: ParserState, kind: NodeKind, src: u32, token: Token) -> usize {
+    let idx = self.create_add_node(kind, src, token);
+    self.stack.push((state, idx));
+    idx
+}
+
+/// Set `end_pos` on the node currently at the top of the stack.
+/// Must be called *before* the corresponding `stack.pop()`.
+/// Returns `Err` rather than panicking so callers can propagate cleanly.
+fn close_top(&mut self, end: usize) -> Result<(), ParserError> {
+    let (_, node_idx) = *self.stack.last().ok_or_else(|| {
+        ParserError::Parse("internal error: close_top on empty stack".into())
+    })?;
+    self.nodes
+        .get_mut(node_idx)
+        .ok_or_else(|| {
+            ParserError::Parse(format!(
+                "internal error: close_top node {node_idx} not in arena"
+            ))
+        })?
+        .end_pos = end;
+    Ok(())
+}
+
+/// Close all open nodes and clear the stack.  Called on both error and
+/// normal termination paths to keep the tree structurally consistent.
+fn unwind_stack(&mut self, end: usize) {
+    while let Some(&(_, node_idx)) = self.stack.last() {
+        debug_assert!(node_idx < self.nodes.len(), "unwind_stack: node_idx {node_idx} OOB");
+        self.nodes[node_idx].end_pos = end;
+        self.stack.pop();
+    }
+}
+// @
+```
+
+
+### Block Tag Extraction
+
+
+```rust
+// <[parser block_tag]>=
+/// Extract the tag sub-span from a `BlockOpen` or `BlockClose` token.
+/// For `%{` / `%}` (length 2) the tag is empty (tag_len == 0).
+/// For `%foo{` / `%foo}` (length > 2) the tag is bytes
+/// [pos+special_len .. pos+length-1].
+fn block_tag(token: &Token, content: &[u8]) -> (usize, usize) {
+    let special_len = content
+        .get(token.pos..)
+        .and_then(|tail| std::str::from_utf8(tail).ok())
+        .and_then(|s| s.chars().next())
+        .map(|c| c.len_utf8())
+        .unwrap_or(1);
+    let tag_len = token.length.saturating_sub(special_len + 1);
+    (token.pos + special_len, tag_len)
+}
+// @
+```
+
+
+## State Handlers
+
+### `handle_block`
+
+Called when the top of the stack is a `Block` state.  The only token a `Block`
+responds to directly is `BlockClose`; everything else falls through.
+`tag_pos`/`tag_len` come from the caller's pattern match to avoid a redundant
+second stack lookup.
+
+
+```rust
+// <[parser handle_block]>=
+/// Handle a token when the top of the stack is a `Block`.
+/// `tag_pos`/`tag_len` come directly from the caller's pattern match —
+/// no second stack lookup needed.
+/// Returns `Ok(true)` if the token was consumed (caller should `continue`).
+fn handle_block(
+    &mut self,
+    token: Token,
+    ctx: &ParseContext,
+    tag_pos: usize,
+    tag_len: usize,
+    delim: BlockDelim,
+) -> Result<bool, ParserError> {
+    let expected_close = match delim {
+        BlockDelim::Curly => TokenKind::BlockClose,
+        BlockDelim::Square => TokenKind::VerbatimClose,
+    };
+    if token.kind != expected_close {
+        return Ok(false);
+    }
+    let close_tag = Self::block_tag(&token, ctx.content);
+    let open_tag = (tag_pos, tag_len);
+    if !ctx.tags_match(open_tag, close_tag) {
+        let (ol, oc) = ctx.line_col(tag_pos);
+        let (cl, cc) = ctx.line_col(token.pos);
+        let (open_ch, close_ch) = block_delim_chars(delim);
+        let open_label = block_tag_label(ctx.tag_str(open_tag.0, open_tag.1), open_ch);
+        let close_label = block_tag_label(ctx.tag_str(close_tag.0, close_tag.1), close_ch);
+        let err = ParserError::Parse(format!(
+            "{cl}:{cc}: block tag mismatch: '{close_label}' does not close '{open_label}' (opened at {ol}:{oc})",
+        ));
+        self.unwind_stack(token.end());
+        return Err(err);
+    }
+    self.close_top(token.end())?;
+    self.stack.pop();
+    Ok(true)
+}
+// @
+```
+
+
+### `handle_param`
+
+Called when the top of the stack is a `Param` state.  Handles comma (open next
+param), close-paren (close param and its enclosing macro), and the three token
+kinds that are direct children of a param node.  Everything else falls through
+to allow nested blocks, macros, and variables inside parameter values.
+
+
+```rust
+// <[parser handle_param]>=
+/// Handle a token when the top of the stack is a `Param`.
+/// Returns `Ok(true)` if the token was consumed (caller should `continue`).
+fn handle_param(&mut self, token: Token) -> Result<bool, ParserError> {
+    match token.kind {
+        TokenKind::Comma => {
+            // Close current Param, open next Param.
+            self.close_top(token.pos)?;
+            self.stack.pop();
+            self.push_node(ParserState::Param, NodeKind::Param, token.src, token);
+            Ok(true)
+        }
+        TokenKind::CloseParen => {
+            // Close Param, then Macro (which must be directly below).
+            self.close_top(token.end())?;
+            self.stack.pop();
+            match self.stack.last() {
+                Some((ParserState::Macro, _)) => {
+                    self.close_top(token.end())?;
+                    self.stack.pop();
+                }
+                _ => {
+                    self.unwind_stack(token.end());
+                    return Err(ParserError::Parse(
+                        "internal error: expected Macro below Param".into(),
+                    ));
+                }
+            }
+            Ok(true)
+        }
+        TokenKind::Ident => {
+            self.create_add_node(NodeKind::Ident, token.src, token);
+            Ok(true)
+        }
+        TokenKind::Space => {
+            self.create_add_node(NodeKind::Space, token.src, token);
+            Ok(true)
+        }
+        TokenKind::Equal => {
+            self.create_add_node(NodeKind::Equal, token.src, token);
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+// @
+```
+
+
+### `handle_comment`
+
+Comment state is total: it consumes every token it sees.  The only interesting
+tokens are `CommentOpen` (push a nested comment frame) and `CommentClose` (pop
+the frame).  Everything else is silently swallowed.  Because this handler
+always consumes, it returns `Result<(), ParserError>` rather than `Result<bool,
+ParserError>`.
+
+
+```rust
+// <[parser handle_comment]>=
+/// Handle a token when the top of the stack is a `Comment`.
+/// Comment state always consumes every token, so no bool return is needed.
+fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
+    match token.kind {
+        TokenKind::CommentClose => {
+            self.close_top(token.end())?;
+            self.stack.pop();
+        }
+        TokenKind::CommentOpen => {
+            // Nested comment.
+            self.push_node(ParserState::Comment, NodeKind::BlockComment, token.src, token);
+        }
+        _ => {} // Inside a comment everything is opaque.
+    }
+    Ok(())
+}
+// @
+```
+
+
+## Main Dispatch Loop
+
+`parse()` is the public entry point.  It builds a `ParseContext` once, seeds
+the stack with a synthetic root `Block`, then dispatches each token to the
+appropriate state handler.  Tokens not consumed by the state handler fall
+through to the opener/leaf arm.
+
+
+```rust
+// <[parser parse]>=
+/// Main parse function.
+/// `content` is the raw source bytes — used for block-tag comparison and diagnostics.
+/// `line_index` is borrowed from the caller, who may have built it already for
+/// lexer-error formatting, so the O(n) newline scan happens at most once per source.
+pub fn parse(&mut self, tokens: &[Token], content: &[u8], line_index: &LineIndex) -> Result<(), ParserError> {
+    self.nodes.clear();
+    self.stack.clear();
+
+    if tokens.is_empty() {
+        return Ok(());
+    }
+
+    let ctx = ParseContext::new(content, line_index);
+
+    // Root is a synthetic Block: it has no source token.
+    let root_idx = self.create_node(
+        NodeKind::Block,
+        tokens[0].src,
+        Token::synthetic(tokens[0].src, 0),
+    );
+    self.stack.push((ParserState::Block { tag_pos: 0, tag_len: 0, delim: BlockDelim::Curly }, root_idx));
+
+    for token in tokens {
+        let token = *token;
+
+        // EOF is a structural sentinel, not an AST node.
+        if token.kind == TokenKind::EOF {
+            break;
+        }
+
+        let consumed = match self.stack.last().map(|&(st, _)| st) {
+            Some(ParserState::Block { tag_pos, tag_len, delim }) => {
+                self.handle_block(token, &ctx, tag_pos, tag_len, delim)?
+            }
+            Some(ParserState::Param) => self.handle_param(token)?,
+            Some(ParserState::Macro) => {
+                // Macro is always below Param; receiving a token here is an
+                // internal invariant violation.
+                self.unwind_stack(token.end());
+                return Err(ParserError::Parse(
+                    "internal error: token received in Macro state (Param expected on top)"
+                        .into(),
+                ));
+            }
+            Some(ParserState::Comment) => {
+                self.handle_comment(token)?;
+                true
+            }
+            None => {
+                return Err(ParserError::Parse(
+                    "internal error: empty parser stack".into(),
+                ));
+            }
+        };
+
+        if consumed {
+            continue;
+        }
+
+        // Tokens that open new structure or become leaf nodes.
+        match token.kind {
+            TokenKind::BlockOpen => {
+                let (tag_pos, tag_len) = Self::block_tag(&token, ctx.content);
+                self.push_node(
+                    ParserState::Block { tag_pos, tag_len, delim: BlockDelim::Curly },
+                    NodeKind::Block,
+                    token.src,
+                    token,
+                );
+            }
+            TokenKind::VerbatimOpen => {
+                let (tag_pos, tag_len) = Self::block_tag(&token, ctx.content);
+                self.push_node(
+                    ParserState::Block { tag_pos, tag_len, delim: BlockDelim::Square },
+                    NodeKind::Block,
+                    token.src,
+                    token,
+                );
+            }
+            TokenKind::Macro => {
+                // Push Macro node, then an initial synthetic Param node on top.
+                self.push_node(ParserState::Macro, NodeKind::Macro, token.src, token);
+                self.push_node(
+                    ParserState::Param,
+                    NodeKind::Param,
+                    token.src,
+                    Token::synthetic(token.src, token.pos),
+                );
+            }
+            TokenKind::CommentOpen => {
+                self.push_node(ParserState::Comment, NodeKind::BlockComment, token.src, token);
+            }
+            TokenKind::Var => {
+                self.create_add_node(NodeKind::Var, token.src, token);
+            }
+            TokenKind::LineComment => {
+                self.create_add_node(NodeKind::LineComment, token.src, token);
+            }
+            _ => {
+                // Structural tokens must be handled above; anything else
+                // (Text, Space, Special, stray punctuation) falls through as Text.
+                debug_assert!(
+                    !matches!(
+                        token.kind,
+                        TokenKind::BlockOpen
+                            | TokenKind::VerbatimOpen
+                            | TokenKind::CommentOpen
+                            | TokenKind::Macro
+                            | TokenKind::Var
+                            | TokenKind::LineComment
+                            | TokenKind::EOF
+                    ),
+                    "unexpected structural token in Text fallback: {:?}",
+                    token.kind
+                );
+                self.create_add_node(NodeKind::Text, token.src, token);
+            }
+        }
+    }
+
+    let end = tokens.last().map(|t| t.end()).unwrap_or(0);
+
+    // Report unclosed non-root structures (stack[0] is always the root block).
+    if self.stack.len() > 1 {
+        let err = match self.stack.last().map(|&(st, idx)| (st, idx)) {
+            Some((ParserState::Block { tag_pos, tag_len, delim }, _)) => {
+                let (open_ch, _) = block_delim_chars(delim);
+                let label = block_tag_label(ctx.tag_str(tag_pos, tag_len), open_ch);
+                let (line, col) = ctx.line_col(tag_pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed block '{label}'"))
+            }
+            Some((ParserState::Macro, idx)) | Some((ParserState::Param, idx)) => {
+                let pos = self.nodes.get(idx)
+                    .expect("node index from stack must exist in arena")
+                    .token.pos;
+                let (line, col) = ctx.line_col(pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed macro argument list"))
+            }
+            Some((ParserState::Comment, idx)) => {
+                let pos = self.nodes.get(idx)
+                    .expect("node index from stack must exist in arena")
+                    .token.pos;
+                let (line, col) = ctx.line_col(pos);
+                ParserError::Parse(format!("{line}:{col}: unclosed block comment '%/*'"))
+            }
+            None => unreachable!(),
+        };
+        self.unwind_stack(end);
+        return Err(err);
+    }
+
+    // Normal termination: close the root block.
+    self.close_top(end)?;
+    self.stack.pop();
+
+    Ok(())
+}
+// @
+```
+
+
+## Token I/O
+
+These methods read token streams from files or stdin (used by the
+`weaveback-macro` binary when it receives tokens from a preceding pipeline
+stage).
+
+
+```rust
+// <[parser token_io]>=
+fn parse_token_from_parts(parts: Vec<&str>) -> Result<Token, ParserError> {
+    if parts.len() != 4 {
+        return Err(ParserError::TokenData(format!(
+            "Invalid token data: {}",
+            parts.join(",")
+        )));
+    }
+    Ok(Token {
+        src: parts[0]
+            .parse()
+            .map_err(|e| ParserError::TokenData(format!("Invalid src: {}", e)))?,
+        kind: parts[1]
+            .parse::<i32>()
+            .map_err(|e| ParserError::TokenData(format!("Invalid kind: {}", e)))?
+            .try_into()?,
+        pos: parts[2]
+            .parse()
+            .map_err(|e| ParserError::TokenData(format!("Invalid pos: {}", e)))?,
+        length: parts[3]
+            .parse()
+            .map_err(|e| ParserError::TokenData(format!("Invalid length: {}", e)))?,
+    })
+}
+
+fn parse_tokens<I>(lines: I) -> Result<Vec<Token>, ParserError>
+where
+    I: Iterator<Item = Result<String, std::io::Error>>,
+{
+    let mut tokens = Vec::new();
+    for line in lines {
+        let line =
+            line.map_err(|e| ParserError::TokenData(format!("Failed to read line: {}", e)))?;
+        let parts: Vec<&str> = line.split(',').collect();
+        tokens.push(Self::parse_token_from_parts(parts)?);
+    }
+    Ok(tokens)
+}
+
+pub fn read_tokens(path: &str) -> Result<Vec<Token>, ParserError> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    Self::parse_tokens(reader.lines())
+}
+
+pub fn read_tokens_from_stdin() -> Result<Vec<Token>, ParserError> {
+    let stdin = io::stdin();
+    Self::parse_tokens(stdin.lock().lines())
+}
+// @
+```
+
+
+## Public API
+
+Node accessors, JSON serialization, AST construction, and space-stripping are
+grouped here.  These are called by the evaluator and by `ast/mod.rs`.
+
+
+```rust
+// <[parser api]>=
+/// Get a reference to a node by index
+pub fn get_node(&self, idx: usize) -> Option<&ParseNode> {
+    self.nodes.get(idx)
+}
+
+/// Get a mutable reference to a node by index
+pub fn get_node_mut(&mut self, idx: usize) -> Option<&mut ParseNode> {
+    self.nodes.get_mut(idx)
+}
+
+pub fn get_node_info(&self, idx: usize) -> Option<(&ParseNode, NodeKind)> {
+    self.nodes.get(idx).map(|node| (node, node.kind))
+}
+
+#[cfg(test)]
+pub fn to_json(&self) -> String {
+    self.nodes
+        .iter()
+        .map(|node| node.to_json())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Get the root node's index (usually 0 if parse succeeded)
+pub fn get_root_index(&self) -> Option<usize> {
+    if self.nodes.is_empty() {
+        None
+    } else {
+        Some(0) // The root is always the first node
+    }
+}
+
+/// Process AST including space stripping
+pub fn process_ast(&mut self, content: &[u8]) -> Result<ASTNode, String> {
+    let root_idx = self
+        .get_root_index()
+        .ok_or_else(|| "Empty parse tree".to_string())?;
+
+    crate::ast::strip_space_before_comments(content, self, root_idx)
+        .map_err(|e| e.to_string())?;
+
+    crate::ast::build_ast(self).map_err(|e| e.to_string())
+}
+
+/// Direct build without space stripping
+pub fn build_ast(&self) -> Result<ASTNode, String> {
+    crate::ast::build_ast(self).map_err(|e| e.to_string())
+}
+
+/// Strip ending spaces from a node's token
+pub fn strip_ending_space(&mut self, content: &[u8], node_idx: usize) -> Result<(), String> {
+    let node = self
+        .get_node_mut(node_idx)
+        .ok_or_else(|| format!("Node index {} not found", node_idx))?;
+
+    let start = node.token.pos;
+    let end = node.token.pos + node.token.length;
+    if start >= content.len() {
+        return Ok(());
+    }
+
+    let mut space_count = 0;
+    for c in content[start..end.min(content.len())].iter().rev() {
+        if *c == b'\n' || *c == b'\r' || *c == b' ' || *c == b'\t' {
+            space_count += 1;
+        } else {
+            break;
+        }
+    }
+
+    if space_count > 0 {
+        node.token.length = node.token.length.saturating_sub(space_count);
+        node.end_pos = node.token.pos + node.token.length;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn add_node(&mut self, node: ParseNode) -> usize {
+    self.nodes.push(node);
+    self.nodes.len() - 1
+}
+// @
+```
+
+
+
+## Tests
+
+The test module exercises the parser through the full lex→parse pipeline.
+`lex_parse` is a helper that runs both stages and returns `Ok(())` or an error
+string; `lex_parse_err` additionally accepts lex-stage errors so that tests
+for unclosed constructs can check both paths.
+
+Tests are grouped into:
+
+* **Tagged block helpers** — basic open/close matching and mismatches
+* **Tagged block — valid structures** — nesting, mixed named/anonymous blocks,
+  Unicode content, comments inside blocks
+* **Tagged block — mismatch errors** — wrong tag name, crossed nesting
+* **Unclosed block errors** — various ways to leave blocks open
+* **Unclosed macro / lex-level errors** — unclosed `%foo(` and `%/* … */`
+* **EOF token must not appear in AST** — guards against a historical bug where
+  the zero-length EOF token leaked as a `Text` node
+* **Root block `end_pos`** — the root node's `end_pos` must equal the input length
+
+
+```rust
+// <[@file weaveback-macro/src/parser/tests.rs]>=
+// weaveback-macro/src/parser/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// src/parser/tests.rs
+
+use crate::lexer::Lexer;
+use crate::line_index::LineIndex;
+use crate::parser::Parser;
+use crate::types::{Token, TokenKind};
+
+// -----------------------------------------------------------------------
+// Tagged block helpers
+// -----------------------------------------------------------------------
+
+fn lex_parse(src: &str) -> Result<(), String> {
+    let (tokens, lex_errors) = Lexer::new(src, '%', 0).lex();
+    assert!(lex_errors.is_empty(), "unexpected lex errors: {:?}", lex_errors);
+    let line_index = LineIndex::new(src);
+    let mut parser = Parser::new();
+    parser.parse(&tokens, src.as_bytes(), &line_index).map_err(|e| e.to_string())
+}
+
+#[test]
+fn test_tagged_block_match() {
+    assert!(lex_parse("%foo{ content %foo}").is_ok());
+}
+
+#[test]
+fn test_anonymous_block_match() {
+    assert!(lex_parse("%{ content %}").is_ok());
+}
+
+#[test]
+fn test_tagged_block_mismatch() {
+    let err = lex_parse("%foo{ content %bar}").unwrap_err();
+    assert!(err.contains("foo"), "expected 'foo' in error: {}", err);
+    assert!(err.contains("bar"), "expected 'bar' in error: {}", err);
+}
+
+#[test]
+fn test_tagged_vs_anonymous_mismatch() {
+    let err = lex_parse("%foo{ content %}").unwrap_err();
+    assert!(err.contains("foo"), "expected 'foo' in error: {}", err);
+    assert!(err.contains("anonymous"), "expected 'anonymous' in error: {}", err);
+}
+
+#[test]
+fn test_anonymous_vs_tagged_mismatch() {
+    let err = lex_parse("%{ content %foo}").unwrap_err();
+    assert!(err.contains("foo"), "expected 'foo' in error: {}", err);
+    assert!(err.contains("anonymous"), "expected 'anonymous' in error: {}", err);
+}
+
+#[test]
+fn test_nested_tagged_blocks_match() {
+    assert!(lex_parse("%outer{ %inner{ content %inner} %outer}").is_ok());
+}
+
+#[test]
+fn test_unclosed_tagged_block() {
+    let err = lex_parse("%foo{ no close").unwrap_err();
+    assert!(err.contains("foo"), "expected tag name in error: {}", err);
+}
+
+#[test]
+fn test_unclosed_anonymous_block() {
+    let err = lex_parse("%{ no close").unwrap_err();
+    assert!(err.contains("anonymous"), "expected 'anonymous' in error: {}", err);
+}
+
+#[test]
+fn test_basic_parsing() {
+    let tokens = vec![
+        Token {
+            src: 0,
+            kind: TokenKind::Text,
+            pos: 0,
+            length: 5,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::BlockOpen,
+            pos: 5,
+            length: 2,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::Text,
+            pos: 7,
+            length: 3,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::BlockClose,
+            pos: 10,
+            length: 2,
+        },
+    ];
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(&tokens, &[], &LineIndex::from_bytes(&[])).is_ok());
+
+    let json = parser.to_json();
+    assert!(!json.is_empty());
+}
+
+#[test]
+fn test_empty_input() {
+    let tokens = vec![];
+    let mut parser = Parser::new();
+    assert!(parser.parse(&tokens, &[], &LineIndex::from_bytes(&[])).is_ok());
+}
+
+#[test]
+fn test_macro_parsing() {
+    let tokens = vec![
+        Token {
+            src: 0,
+            kind: TokenKind::Macro,
+            pos: 0,
+            length: 2,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::Ident,
+            pos: 2,
+            length: 4,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::Space,
+            pos: 6,
+            length: 1,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::Equal,
+            pos: 7,
+            length: 1,
+        },
+        Token {
+            src: 0,
+            kind: TokenKind::CloseParen,
+            pos: 8,
+            length: 1,
+        },
+    ];
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(&tokens, &[], &LineIndex::from_bytes(&[])).is_ok());
+
+    let json = parser.to_json();
+    assert!(!json.is_empty());
+}
+
+#[test]
+fn test_token_kind_conversion() {
+    use std::convert::TryFrom;
+    assert!(TokenKind::try_from(0).is_ok());
+    assert!(TokenKind::try_from(16).is_ok());
+    assert!(TokenKind::try_from(-1).is_err());
+    assert!(TokenKind::try_from(17).is_err());
+}
+
+// -----------------------------------------------------------------------
+// Helper: lex+parse expecting an error from either stage
+// -----------------------------------------------------------------------
+
+fn lex_parse_err(src: &str) -> String {
+    let (tokens, lex_errors) = Lexer::new(src, '%', 0).lex();
+    if !lex_errors.is_empty() {
+        return lex_errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("; ");
+    }
+    let line_index = LineIndex::new(src);
+    let mut parser = Parser::new();
+    parser
+        .parse(&tokens, src.as_bytes(), &line_index)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default()
+}
+
+// -----------------------------------------------------------------------
+// Tagged block — valid structures
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_empty_tagged_block() {
+    assert!(lex_parse("%a{%a}").is_ok());
+}
+
+#[test]
+fn test_single_char_tag() {
+    assert!(lex_parse("%x{ content %x}").is_ok());
+}
+
+#[test]
+fn test_tag_with_underscores_and_digits() {
+    assert!(lex_parse("%block_1{ body %block_1}").is_ok());
+}
+
+#[test]
+fn test_sequential_same_tag() {
+    // The same tag can be reused after closing — no state leak.
+    assert!(lex_parse("%foo{first%foo}%foo{second%foo}").is_ok());
+}
+
+#[test]
+fn test_sequential_different_tags() {
+    assert!(lex_parse("%a{x%a}%b{y%b}%c{z%c}").is_ok());
+}
+
+#[test]
+fn test_three_level_nesting() {
+    assert!(lex_parse("%a{ %b{ %c{ deep %c} %b} %a}").is_ok());
+}
+
+#[test]
+fn test_four_level_nesting() {
+    assert!(lex_parse("%a{%b{%c{%d{deep%d}%c}%b}%a}").is_ok());
+}
+
+#[test]
+fn test_tagged_inside_anonymous() {
+    assert!(lex_parse("%{ %foo{ inner %foo} %}").is_ok());
+}
+
+#[test]
+fn test_anonymous_inside_tagged() {
+    assert!(lex_parse("%foo{ %{ inner %} %foo}").is_ok());
+}
+
+#[test]
+fn test_anonymous_nested_three_deep() {
+    assert!(lex_parse("%{ %{ %{ deep %} %} %}").is_ok());
+}
+
+#[test]
+fn test_text_before_and_after_block() {
+    assert!(lex_parse("before %foo{ inside %foo} after").is_ok());
+}
+
+#[test]
+fn test_var_inside_tagged_block() {
+    assert!(lex_parse("%foo{ %(x) %(y) %foo}").is_ok());
+}
+
+#[test]
+fn test_macro_call_inside_tagged_block() {
+    assert!(lex_parse("%foo{ %bar(arg1, arg2) %foo}").is_ok());
+}
+
+#[test]
+fn test_line_comment_inside_block() {
+    assert!(lex_parse("%foo{\n%// this is a comment\ncontent\n%foo}").is_ok());
+}
+
+#[test]
+fn test_block_comment_inside_block() {
+    assert!(lex_parse("%foo{ %/* ignored %*/ content %foo}").is_ok());
+}
+
+#[test]
+fn test_unicode_content_in_block() {
+    // Tags are ASCII identifiers; content can be arbitrary UTF-8.
+    assert!(lex_parse("%foo{ héllo wörld %foo}").is_ok());
+}
+
+#[test]
+fn test_long_tag_name() {
+    let src = "%very_long_tag_name_here{ body %very_long_tag_name_here}";
+    assert!(lex_parse(src).is_ok());
+}
+
+#[test]
+fn test_multiple_macros_across_blocks() {
+    let src = "%a{ %def(x, hello) %(x) %a}%b{ %(x) %b}";
+    // Just structural validity — tag matching and lex/parse pass.
+    assert!(lex_parse(src).is_ok());
+}
+
+// -----------------------------------------------------------------------
+// Tagged block — mismatch errors
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_mismatch_different_names() {
+    let err = lex_parse("%foo{ %bar}").unwrap_err();
+    assert!(err.contains("foo") && err.contains("bar"), "bad error: {}", err);
+}
+
+#[test]
+fn test_wrong_nesting_order_causes_unclosed_error() {
+    // '%a}' structurally closes the top block ('%b{'), leaving '%a{' unclosed.
+    // The lexer reports '%a{' as unclosed; the parser never sees a tag mismatch.
+    let err = lex_parse_err("%a{ %b{ content %a}");
+    assert!(!err.is_empty(), "expected an error");
+    assert!(err.contains('a'), "expected 'a' in error: {}", err);
+}
+
+#[test]
+fn test_wrong_close_in_three_levels_causes_unclosed() {
+    // '%b}' closes the top (Block c), leaving '%a{' and '%b{' both unclosed.
+    let err = lex_parse_err("%a{ %b{ %c{ deep %b}");
+    assert!(!err.is_empty(), "expected errors");
+    // Both 'a' and 'b' should be reported as unclosed.
+    assert!(err.contains('a'), "expected 'a' in error: {}", err);
+    assert!(err.contains('b'), "expected 'b' in error: {}", err);
+}
+
+#[test]
+fn test_mismatch_tagged_close_on_anonymous_open() {
+    let err = lex_parse("%{ content %foo}").unwrap_err();
+    assert!(err.contains("anonymous"), "expected 'anonymous' in error: {}", err);
+    assert!(err.contains("foo"), "expected 'foo' in error: {}", err);
+}
+
+#[test]
+fn test_mismatch_anonymous_close_on_tagged_open() {
+    let err = lex_parse("%foo{ content %}").unwrap_err();
+    assert!(err.contains("foo"), "expected 'foo' in error: {}", err);
+    assert!(err.contains("anonymous"), "expected 'anonymous' in error: {}", err);
+}
+
+// -----------------------------------------------------------------------
+// Unclosed block errors
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_unclosed_tagged_reports_tag_name() {
+    let err = lex_parse("%myblock{ no close").unwrap_err();
+    assert!(err.contains("myblock"), "expected tag name: {}", err);
+}
+
+#[test]
+fn test_unclosed_innermost_reported() {
+    // The innermost block ('%c{') has no '%' chars after it, so run_block_state
+    // consumes the trailing text as Text and returns false (self-pops at EOF).
+    // The remaining unclosed blocks on the stack are '%a{' and '%b{'.
+    // The parser sees the error from lex stage; use lex_parse_err.
+    let err = lex_parse_err("%a{ %b{ %c{ deep");
+    assert!(!err.is_empty(), "expected an error");
+    assert!(err.contains('a') || err.contains('b'), "expected 'a' or 'b' in error: {}", err);
+}
+
+#[test]
+fn test_deeply_unclosed_reports_remaining() {
+    // '%c{' pops naturally at EOF; '%a{' and '%b{' remain on the lexer stack.
+    // Both are reported as unclosed (not '%c{', which was already popped).
+    let err = lex_parse_err("%a{ %b{ %c{ deep");
+    assert!(err.contains('a'), "expected '%a{{' in error: {}", err);
+    assert!(err.contains('b'), "expected '%b{{' in error: {}", err);
+}
+
+#[test]
+fn test_unclosed_after_valid_content() {
+    let err = lex_parse("some text %foo{ more text").unwrap_err();
+    assert!(err.contains("foo"), "expected 'foo': {}", err);
+}
+
+// -----------------------------------------------------------------------
+// Unclosed macro / lex-level errors
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_unclosed_macro_args_lex_error() {
+    let (_, errors) = Lexer::new("%foo(arg", '%', 0).lex();
+    assert!(!errors.is_empty(), "expected a lex error for unclosed macro args");
+    let msg = &errors[0].message;
+    assert!(
+        msg.contains("macro") || msg.contains("Unclosed"),
+        "unexpected error message: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_unclosed_block_comment_lex_error() {
+    let (_, errors) = Lexer::new("%/* not closed", '%', 0).lex();
+    assert!(!errors.is_empty(), "expected lex error for unclosed comment");
+    assert!(errors[0].message.contains("comment") || errors[0].message.contains("Unclosed"));
+}
+
+// -----------------------------------------------------------------------
+// EOF token must not appear as a Text node in the AST
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_eof_token_not_in_ast() {
+    use crate::types::NodeKind;
+    let src = "hello";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let mut parser = Parser::new();
+    parser.parse(&tokens, src.as_bytes(), &LineIndex::new(src)).unwrap();
+    // Walk all nodes — none should have NodeKind::Text with length 0 from EOF.
+    // More directly: the EOF token has length 0 and kind EOF.
+    // If it were added as Text it would appear as a zero-length Text child of root.
+    let root = parser.get_node(0).unwrap();
+    for &child_idx in &root.parts {
+        let child = parser.get_node(child_idx).unwrap();
+        // EOF token (length 0, kind Text) must not appear
+        assert!(
+            !(child.kind == NodeKind::Text && child.token.length == 0
+                && child.token.pos == src.len()),
+            "EOF token leaked into AST as Text node"
+        );
+    }
+}
+
+// -----------------------------------------------------------------------
+// Root block end_pos is set correctly
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_root_end_pos_set() {
+    let src = "hello world";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let mut parser = Parser::new();
+    parser.parse(&tokens, src.as_bytes(), &LineIndex::new(src)).unwrap();
+    let root = parser.get_node(0).unwrap();
+    assert_eq!(root.end_pos, src.len(), "root end_pos should equal input length");
+}
+
+#[test]
+fn test_root_end_pos_with_block() {
+    let src = "%foo{ content %foo}";
+    let (tokens, _) = Lexer::new(src, '%', 0).lex();
+    let mut parser = Parser::new();
+    parser.parse(&tokens, src.as_bytes(), &LineIndex::new(src)).unwrap();
+    let root = parser.get_node(0).unwrap();
+    assert_eq!(root.end_pos, src.len());
+}
+
+// @
+```
+

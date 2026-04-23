@@ -1,4 +1,4 @@
-= weaveback-macro Parser
+¤h1(weaveback-macro Parser)
 :description: Literate source for crates/weaveback-macro/src/parser/mod.rs
 :toc: left
 :toclevels: 3
@@ -64,7 +64,7 @@ end note
 @enduml
 ....
 
-== State Termination Table
+¤h2(State Termination Table)
 
 Each row names a parser state and defines what tokens it acts on directly.
 Every other token falls through to the opener/leaf handler in `parse()`.
@@ -82,51 +82,43 @@ Every other token falls through to the opener/leaf handler in `parse()`.
 `Param`, which is always pushed immediately after `Macro`.  Receiving a token
 with `Macro` on top is an internal invariant violation.
 
-== File Structure
+¤h2(File Structure)
 
 The single output file is assembled from all the chunks defined below.
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/parser/mod.rs>>=
+¤rust_file(weaveback-macro/src/parser/mod.rs, ¤[
 // crates/weaveback-macro/src/parser/mod.rs — generated from parser.adoc
-// <<parser preamble>>
-// <<parser serialization>>
+// <[parser preamble]>
+// <[parser serialization]>
 
-// <<parser state>>
+// <[parser state]>
 
-// <<parser struct>>
+// <[parser struct]>
 
-// <<parser impl>>
-// @
-----
+// <[parser impl]>
+¤])
 
-== `impl Parser` Structure
+¤h2(`impl Parser` Structure)
 
 The impl block assembles every method sub-chunk in declaration order.
 The sections below define each sub-chunk in the same sequence.
 
-[source,rust]
-----
-// <<parser impl>>=
+¤rust_chunk(parser impl, ¤[
 impl Parser {
-    // <<parser arena>>
-    // <<parser block_tag>>
-    // <<parser handle_block>>
-    // <<parser handle_param>>
-    // <<parser handle_comment>>
-    // <<parser parse>>
-    // <<parser token_io>>
-    // <<parser api>>
+    // <[parser arena]>
+    // <[parser block_tag]>
+    // <[parser handle_block]>
+    // <[parser handle_param]>
+    // <[parser handle_comment]>
+    // <[parser parse]>
+    // <[parser token_io]>
+    // <[parser api]>
 }
-// @
-----
+¤])
 
-== Module Preamble
+¤h2(Module Preamble)
 
-[source,rust]
-----
-// <<parser preamble>>=
+¤rust_chunk(parser preamble, ¤[
 use crate::line_index::LineIndex;
 use crate::types::{ASTNode, NodeKind, ParseNode, Token, TokenKind};
 use std::fs::File;
@@ -154,18 +146,15 @@ impl From<String> for ParserError {
         ParserError::TokenData(s)
     }
 }
-// @
-----
+¤])
 
-== Serialization Helpers
+¤h2(Serialization Helpers)
 
 JSON serialization of tokens and parse nodes, used only in tests to dump
 the parse tree for inspection.  Both `impl` blocks are gated `#[cfg(test)]`
 so they compile away entirely in production builds.
 
-[source,rust]
-----
-// <<parser serialization>>=
+¤rust_chunk(parser serialization, ¤[
 #[cfg(test)]
 impl Token {
     pub fn to_json(&self) -> String {
@@ -200,12 +189,11 @@ impl ParseNode {
         )
     }
 }
-// @
-----
+¤])
 
-== The Parser State Machine
+¤h2(The Parser State Machine)
 
-=== Stack Frame Variants
+¤h3(Stack Frame Variants)
 
 `Block` carries the tag extent so `BlockClose` can validate the matching tag.
 `tag_len == 0` means an anonymous block (`%{`/`%}`).
@@ -215,9 +203,7 @@ stack.  `Param` receives individual tokens; `Macro` is only ever visible
 after `Param` is popped (at `)`) so that `handle_param` can verify the
 expected stack shape.
 
-[source,rust]
-----
-// <<parser state>>=
+¤rust_chunk(parser state, ¤[
 /// Stack frame state.  Each variant owns its termination tokens;
 /// everything else falls through to the shared opener/leaf handler.
 ///
@@ -241,21 +227,18 @@ enum ParserState {
     Comment,
 }
 
-// <<parser context>>
+// <[parser context]>
 
-// <<parser block_tag_label>>
-// @
-----
+// <[parser block_tag_label]>
+¤])
 
-=== Parse Context
+¤h3(Parse Context)
 
 `ParseContext` bundles the raw source bytes with a cached `LineIndex`.
 It is built once per `parse()` call so the O(n) newline scan happens at most
 once regardless of how many errors are emitted.
 
-[source,rust]
-----
-// <<parser context>>=
+¤rust_chunk(parser context, ¤[
 /// Bundles the source bytes with a borrowed `LineIndex`.
 /// The index is built once by the caller (who may already need it for lexer
 /// error formatting) and passed in, so the O(n) newline scan never happens
@@ -303,17 +286,14 @@ impl<'a> ParseContext<'a> {
             .unwrap_or("")
     }
 }
-// @
-----
+¤])
 
-=== Block Tag Label
+¤h3(Block Tag Label)
 
 A small free function centralises the formatting of block-tag error labels so
 all error messages use the same `%name{` / `(anonymous)` style.
 
-[source,rust]
-----
-// <<parser block_tag_label>>=
+¤rust_chunk(parser block_tag_label, ¤[
 /// Format a block tag for error messages.
 /// Anonymous blocks (`tag == ""`) render as `(anonymous)`;
 /// named blocks render as `%name{` / `%name}` or `%name[` / `%name]`.
@@ -331,18 +311,15 @@ fn block_delim_chars(delim: BlockDelim) -> (char, char) {
         BlockDelim::Square => ('[', ']'),
     }
 }
-// @
-----
+¤])
 
-== Parser Struct and Arena
+¤h2(Parser Struct and Arena)
 
 The `Parser` owns a flat arena of `ParseNode` values (`nodes`) and a stack of
 `(ParserState, arena_index)` pairs.  All tree structure is encoded as index
 lists inside `ParseNode::parts`; no heap pointers are stored.
 
-[source,rust]
-----
-// <<parser struct>>=
+¤rust_chunk(parser struct, ¤[
 pub struct Parser {
     nodes: Vec<ParseNode>,
     stack: Vec<(ParserState, usize)>,
@@ -353,14 +330,11 @@ impl Default for Parser {
         Self::new()
     }
 }
-// @
-----
+¤])
 
-=== Arena Primitives
+¤h3(Arena Primitives)
 
-[source,rust]
-----
-// <<parser arena>>=
+¤rust_chunk(parser arena, ¤[
 pub fn new() -> Self {
     Parser {
         nodes: Vec::new(),
@@ -429,14 +403,11 @@ fn unwind_stack(&mut self, end: usize) {
         self.stack.pop();
     }
 }
-// @
-----
+¤])
 
-=== Block Tag Extraction
+¤h3(Block Tag Extraction)
 
-[source,rust]
-----
-// <<parser block_tag>>=
+¤rust_chunk(parser block_tag, ¤[
 /// Extract the tag sub-span from a `BlockOpen` or `BlockClose` token.
 /// For `%{` / `%}` (length 2) the tag is empty (tag_len == 0).
 /// For `%foo{` / `%foo}` (length > 2) the tag is bytes
@@ -451,21 +422,18 @@ fn block_tag(token: &Token, content: &[u8]) -> (usize, usize) {
     let tag_len = token.length.saturating_sub(special_len + 1);
     (token.pos + special_len, tag_len)
 }
-// @
-----
+¤])
 
-== State Handlers
+¤h2(State Handlers)
 
-=== `handle_block`
+¤h3(`handle_block`)
 
 Called when the top of the stack is a `Block` state.  The only token a `Block`
 responds to directly is `BlockClose`; everything else falls through.
 `tag_pos`/`tag_len` come from the caller's pattern match to avoid a redundant
 second stack lookup.
 
-[source,rust]
-----
-// <<parser handle_block>>=
+¤rust_chunk(parser handle_block, ¤[
 /// Handle a token when the top of the stack is a `Block`.
 /// `tag_pos`/`tag_len` come directly from the caller's pattern match —
 /// no second stack lookup needed.
@@ -503,19 +471,16 @@ fn handle_block(
     self.stack.pop();
     Ok(true)
 }
-// @
-----
+¤])
 
-=== `handle_param`
+¤h3(`handle_param`)
 
 Called when the top of the stack is a `Param` state.  Handles comma (open next
 param), close-paren (close param and its enclosing macro), and the three token
 kinds that are direct children of a param node.  Everything else falls through
 to allow nested blocks, macros, and variables inside parameter values.
 
-[source,rust]
-----
-// <<parser handle_param>>=
+¤rust_chunk(parser handle_param, ¤[
 /// Handle a token when the top of the stack is a `Param`.
 /// Returns `Ok(true)` if the token was consumed (caller should `continue`).
 fn handle_param(&mut self, token: Token) -> Result<bool, ParserError> {
@@ -560,10 +525,9 @@ fn handle_param(&mut self, token: Token) -> Result<bool, ParserError> {
         _ => Ok(false),
     }
 }
-// @
-----
+¤])
 
-=== `handle_comment`
+¤h3(`handle_comment`)
 
 Comment state is total: it consumes every token it sees.  The only interesting
 tokens are `CommentOpen` (push a nested comment frame) and `CommentClose` (pop
@@ -571,9 +535,7 @@ the frame).  Everything else is silently swallowed.  Because this handler
 always consumes, it returns `Result<(), ParserError>` rather than `Result<bool,
 ParserError>`.
 
-[source,rust]
-----
-// <<parser handle_comment>>=
+¤rust_chunk(parser handle_comment, ¤[
 /// Handle a token when the top of the stack is a `Comment`.
 /// Comment state always consumes every token, so no bool return is needed.
 fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
@@ -590,19 +552,16 @@ fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
     }
     Ok(())
 }
-// @
-----
+¤])
 
-== Main Dispatch Loop
+¤h2(Main Dispatch Loop)
 
 `parse()` is the public entry point.  It builds a `ParseContext` once, seeds
 the stack with a synthetic root `Block`, then dispatches each token to the
 appropriate state handler.  Tokens not consumed by the state handler fall
 through to the opener/leaf arm.
 
-[source,rust]
-----
-// <<parser parse>>=
+¤rust_chunk(parser parse, ¤[
 /// Main parse function.
 /// `content` is the raw source bytes — used for block-tag comparison and diagnostics.
 /// `line_index` is borrowed from the caller, who may have built it already for
@@ -760,18 +719,15 @@ pub fn parse(&mut self, tokens: &[Token], content: &[u8], line_index: &LineIndex
 
     Ok(())
 }
-// @
-----
+¤])
 
-== Token I/O
+¤h2(Token I/O)
 
 These methods read token streams from files or stdin (used by the
 `weaveback-macro` binary when it receives tokens from a preceding pipeline
 stage).
 
-[source,rust]
-----
-// <<parser token_io>>=
+¤rust_chunk(parser token_io, ¤[
 fn parse_token_from_parts(parts: Vec<&str>) -> Result<Token, ParserError> {
     if parts.len() != 4 {
         return Err(ParserError::TokenData(format!(
@@ -820,17 +776,14 @@ pub fn read_tokens_from_stdin() -> Result<Vec<Token>, ParserError> {
     let stdin = io::stdin();
     Self::parse_tokens(stdin.lock().lines())
 }
-// @
-----
+¤])
 
-== Public API
+¤h2(Public API)
 
 Node accessors, JSON serialization, AST construction, and space-stripping are
 grouped here.  These are called by the evaluator and by `ast/mod.rs`.
 
-[source,rust]
-----
-// <<parser api>>=
+¤rust_chunk(parser api, ¤[
 /// Get a reference to a node by index
 pub fn get_node(&self, idx: usize) -> Option<&ParseNode> {
     self.nodes.get(idx)
@@ -914,11 +867,10 @@ pub fn add_node(&mut self, node: ParseNode) -> usize {
     self.nodes.push(node);
     self.nodes.len() - 1
 }
-// @
-----
+¤])
 
 
-== Tests
+¤h2(Tests)
 
 The test module exercises the parser through the full lex→parse pipeline.
 `lex_parse` is a helper that runs both stages and returns `Ok(())` or an error
@@ -937,9 +889,7 @@ Tests are grouped into:
   the zero-length EOF token leaked as a `Text` node
 * **Root block `end_pos`** — the root node's `end_pos` must equal the input length
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/parser/tests.rs>>=
+¤rust_file(weaveback-macro/src/parser/tests.rs, ¤[
 // src/parser/tests.rs
 
 use crate::lexer::Lexer;
@@ -1369,5 +1319,4 @@ fn test_root_end_pos_with_block() {
     let root = parser.get_node(0).unwrap();
     assert_eq!(root.end_pos, src.len());
 }
-// @
-----
+¤])

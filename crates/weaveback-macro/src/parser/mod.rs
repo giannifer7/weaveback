@@ -1,3 +1,6 @@
+// weaveback-macro/src/parser/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/parser/mod.rs — generated from parser.adoc
 use crate::line_index::LineIndex;
 use crate::types::{ASTNode, NodeKind, ParseNode, Token, TokenKind};
@@ -630,3 +633,4 @@ impl Parser {
         self.nodes.len() - 1
     }
 }
+

@@ -1,4 +1,4 @@
-= weaveback-macro crate
+# weaveback-macro crate
 :toc: left
 
 `weaveback-macro` is the macro-expansion engine at the heart of the weaveback
@@ -9,7 +9,7 @@ emits the expanded text.
 This page is the crate-level index.  It generates `lib.rs` and links to every
 sub-module documented as a literate AsciiDoc source.
 
-== Architecture
+## Architecture
 
 .Module structure
 [plantuml,format=svg]
@@ -81,7 +81,7 @@ cli_rs --> eval_rs
 @enduml
 ----
 
-== Modules
+## Modules
 
 .Literate sources
 [cols="1,2,3",options="header"]
@@ -145,36 +145,42 @@ cli_rs --> eval_rs
 | `weaveback-macro` binary: clap args, `--dir` discovery, `--dump-ast`
 |===
 
-== `lib.rs` — crate root
+## `lib.rs` — crate root
 
 The crate root re-exports the two most commonly used entry types
 (`Lexer` and `Parser`) at the crate level and declares each module.
 
-=== File structure
+### File structure
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/lib.rs>>=
-// <<lib preamble>>
-// <<lib modules>>
-// <<lib reexports>>
+
+```rust
+// <[@file weaveback-macro/src/lib.rs]>=
+// weaveback-macro/src/lib.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[lib preamble]>
+// <[lib modules]>
+// <[lib reexports]>
+
 // @
-----
+```
 
-=== Module declarations
 
-[source,rust]
-----
-// <<lib preamble>>=
+### Module declarations
+
+
+```rust
+// <[lib preamble]>=
 // crates/weaveback-macro/src/lib.rs
 mod types;
 pub use types::*;
 // @
-----
+```
 
-[source,rust]
-----
-// <<lib modules>>=
+
+
+```rust
+// <[lib modules]>=
 pub mod ast;
 pub mod evaluator;
 pub mod lexer;
@@ -182,12 +188,14 @@ pub mod line_index;
 pub mod macro_api;
 pub mod parser;
 // @
-----
+```
 
-[source,rust]
-----
-// <<lib reexports>>=
+
+
+```rust
+// <[lib reexports]>=
 pub use lexer::Lexer;
 pub use parser::Parser;
 // @
-----
+```
+

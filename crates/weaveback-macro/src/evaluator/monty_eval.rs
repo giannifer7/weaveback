@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/monty_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/monty_eval.rs
 
 use monty::{MontyObject, MontyRun};
@@ -64,3 +67,4 @@ pub fn monty_object_to_string(obj: MontyObject) -> String {
         other => format!("{other:?}"),
     }
 }
+

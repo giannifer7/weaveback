@@ -1,11 +1,11 @@
-= weaveback-macro evaluator
+¤h1(¤[weaveback-macro evaluator¤])
 :toc: left
 
 The evaluator is the macro-expansion engine of weaveback-macro.
 It walks the AST produced by the lexer+parser and resolves every macro call,
 variable reference, and conditional, emitting the expanded text.
 
-== Architecture overview
+¤h2(¤[Architecture overview¤])
 
 .Component relationships inside the evaluator package
 [plantuml,format=svg]
@@ -46,9 +46,9 @@ core --> lp : parse_string
 @enduml
 ----
 
-== Design rationale
+¤h2(¤[Design rationale¤])
 
-=== Dual evaluation paths
+¤h3(¤[Dual evaluation paths¤])
 
 `Evaluator` exposes two evaluation paths:
 
@@ -62,21 +62,21 @@ core --> lp : parse_string
 The two paths share scope management and parameter-binding logic; only the leaf
 "push text" calls differ.
 
-=== Lexical scope via a stack of frames
+¤h3(¤[Lexical scope via a stack of frames¤])
 
 Variables and macros live in a `Vec<ScopeFrame>`.  Each macro call pushes a
 new frame and pops it on exit; lookups walk the stack from top (inner) to
 bottom (outer).  This is simpler than a hash-chain and makes `%export` easy:
 copy a binding one frame down.
 
-=== Built-in dispatch before user macros
+¤h3(¤[Built-in dispatch before user macros¤])
 
 `Evaluator` holds a `HashMap<String, BuiltinFn>` (function pointers, not
 closures).  When a macro call node is encountered, the hash map is checked
 first; only if the name is absent do we look in the scope stack for a
 user-defined macro.  This prevents user macros from shadowing built-ins.
 
-=== Evaluation model
+¤h3(¤[Evaluation model¤])
 
 The evaluator is **strict** (call-by-value): all macro arguments are expanded
 to strings before the macro body runs.  At a `%foo(a, b)` call site the
@@ -110,13 +110,13 @@ Consequences worth knowing:
   string immediately.  No further macro calls, no further argument evaluation,
   no further output — the file is considered fully processed.
 
-=== Script back-ends as pluggable singletons
+¤h3(¤[Script back-ends as pluggable singletons¤])
 
 `MontyEvaluator` (Python via monty) lives as a field on `Evaluator`.  The
 persistent store (`py_store`) is a `HashMap` that survives across calls so
 scripts can accumulate state.
 
-== Submodule roles
+¤h2(¤[Submodule roles¤])
 
 [cols="2,5",options="header"]
 |===
@@ -148,40 +148,33 @@ scripts can accumulate state.
 | 240+ unit and integration tests for all builtins, scripting, tracing, and API
 |===
 
-== This file generates
+¤h2(¤[This file generates¤])
 
 * `mod.rs` — module declarations and public re-exports
 * `errors.rs` — `EvalError` enum and `EvalResult` type alias
 * `lexer_parser.rs` — glue function `lex_parse_content` that chains
   the lexer, parser, and AST builder
 
-=== File structure
+¤h3(¤[File structure¤])
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/evaluator/mod.rs>>=
-// <<evaluator mod preamble>>
-// @
+¤rust_file(weaveback-macro/src/evaluator/mod.rs, ¤[
+// <[evaluator mod preamble]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/errors.rs, ¤[
+// <[evaluator errors]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/lexer_parser.rs, ¤[
+// <[evaluator lexer parser]>
+¤])
 
-// <<@file weaveback-macro/src/evaluator/errors.rs>>=
-// <<evaluator errors>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/lexer_parser.rs>>=
-// <<evaluator lexer parser>>
-// @
-----
-
-== Module preamble (`mod.rs`)
+¤h2(¤[Module preamble (`mod.rs`)¤])
 
 `mod.rs` declares the private submodules, the public `tests` module under
 `#[cfg(test)]`, and re-exports every public symbol that the rest of the crate
 (and external callers) needs.  Keeping re-exports here means importers never
 have to know which submodule owns a type.
 
-[source,rust]
-----
-// <<evaluator mod preamble>>=
+¤rust_chunk(evaluator mod preamble, ¤[
 // crates/weaveback-macro/src/evaluator/mod.rs
 
 mod builtins;
@@ -210,19 +203,16 @@ pub use lexer_parser::lex_parse_content;
 pub use monty_eval::MontyEvaluator;
 pub use output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
 pub use state::{EvalConfig, MacroDefinition, ScriptKind};
-// @
-----
+¤])
 
-== Error types (`errors.rs`)
+¤h2(¤[Error types (`errors.rs`)¤])
 
 `EvalError` covers every failure mode that can occur during expansion.
 `IoError` uses `#[from]` so `?` works on `std::io::Error` inside built-ins.
 The blanket `From<String>` impl lets built-in functions return
 `Err("message".into())` without naming a specific variant.
 
-[source,rust]
-----
-// <<evaluator errors>>=
+¤rust_chunk(evaluator errors, ¤[
 // crates/weaveback-macro/src/evaluator/errors.rs
 
 use thiserror::Error;
@@ -267,10 +257,9 @@ impl From<String> for EvalError {
         EvalError::Runtime(s)
     }
 }
-// @
-----
+¤])
 
-== Lexer-parser glue (`lexer_parser.rs`)
+¤h2(¤[Lexer-parser glue (`lexer_parser.rs`)¤])
 
 `lex_parse_content` is a thin orchestrator that runs the three pipeline stages
 — `Lexer`, `Parser`, and `process_ast` — in sequence.  It lives here rather
@@ -281,9 +270,7 @@ The `LineIndex` is built once from the source bytes and shared across both
 lexer-error formatting and the parser; it avoids repeated line-number
 computation.
 
-[source,rust]
-----
-// <<evaluator lexer parser>>=
+¤rust_chunk(evaluator lexer parser, ¤[
 // weaveback/crates/weaveback-macro/src/evaluator/lexer_parser.rs
 
 use crate::lexer::Lexer;
@@ -317,5 +304,4 @@ pub fn lex_parse_content(source: &str, sigil: char, src: u32) -> Result<ASTNode,
 
     Ok(ast)
 }
-// @
-----
+¤])

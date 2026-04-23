@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/mod.rs
 
 mod builtins;
@@ -26,3 +29,4 @@ pub use lexer_parser::lex_parse_content;
 pub use monty_eval::MontyEvaluator;
 pub use output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
 pub use state::{EvalConfig, MacroDefinition, ScriptKind};
+

@@ -1,0 +1,343 @@
+# weaveback-macro evaluator
+:toc: left
+
+The evaluator is the macro-expansion engine of weaveback-macro.
+It walks the AST produced by the lexer+parser and resolves every macro call,
+variable reference, and conditional, emitting the expanded text.
+
+## Architecture overview
+
+.Component relationships inside the evaluator package
+[plantuml,format=svg]
+----
+@startuml
+skinparam componentStyle rectangle
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam PackageBorderColor #504945
+skinparam PackageBackgroundColor #1d2021
+skinparam PackageFontColor #fabd2f
+
+package "evaluator" {
+  component "eval_api" as api
+  component "core (Evaluator)" as core
+  component "state (EvaluatorState)" as state
+  component "output (EvalOutput)" as output
+  component "builtins" as builtins
+  component "case_conversion" as case
+  component "source_utils" as su
+  component "monty_eval (MontyEvaluator)" as monty
+  component "lexer_parser" as lp
+}
+
+api --> core : creates / drives
+core --> state : owns / mutates
+core --> output : pushes text
+core --> builtins : dispatches built-in macro calls
+core --> monty : delegates %pydef bodies
+builtins --> case : case conversion
+builtins --> su : %here writes source
+core --> lp : parse_string
+@enduml
+----
+
+## Design rationale
+
+### Dual evaluation paths
+
+`Evaluator` exposes two evaluation paths:
+
+* `evaluate(node) -> String` — the original path.  Fast, zero overhead, used
+  everywhere in built-in implementations.
+* `evaluate_to(node, &mut dyn EvalOutput)` — the tracing path.  Writes to a
+  pluggable sink (`PlainOutput`, `TracingOutput`, or `PreciseTracingOutput`).
+  Used by the MCP server's oracle loop and for building the `macro_map` database
+  table.
+
+The two paths share scope management and parameter-binding logic; only the leaf
+"push text" calls differ.
+
+### Lexical scope via a stack of frames
+
+Variables and macros live in a `Vec<ScopeFrame>`.  Each macro call pushes a
+new frame and pops it on exit; lookups walk the stack from top (inner) to
+bottom (outer).  This is simpler than a hash-chain and makes `%export` easy:
+copy a binding one frame down.
+
+### Built-in dispatch before user macros
+
+`Evaluator` holds a `HashMap<String, BuiltinFn>` (function pointers, not
+closures).  When a macro call node is encountered, the hash map is checked
+first; only if the name is absent do we look in the scope stack for a
+user-defined macro.  This prevents user macros from shadowing built-ins.
+
+### Evaluation model
+
+The evaluator is **strict** (call-by-value): all macro arguments are expanded
+to strings before the macro body runs.  At a `%foo(a, b)` call site the
+sequence is:
+
+1. Each argument node is evaluated left-to-right in the **caller scope**,
+   producing a `String`.
+2. A new `ScopeFrame` is pushed onto the scope stack.
+3. The resulting strings are bound to the corresponding formal parameters in
+   the new frame.
+4. The macro body is evaluated inside the frame.
+5. The frame is popped.
+6. For `%pydef` macros, the _already-expanded_ body string is then
+   passed to the Python engine; there is no lazy re-expansion.
+
+To preserve local reasoning, effectful builtins are not allowed in argument
+position.  In particular, `%set(x, v)` inside a macro argument is rejected with
+`InvalidUsage` instead of silently mutating some scope before the callee runs.
+
+Consequences worth knowing:
+
+* **Eager, not lazy.**  Argument expressions are fully expanded before the body
+  runs, so argument side-effects fire in left-to-right call order.
+* **Argument expressions are value-producing only.**  `%set` is rejected in
+  argument position; arguments are not assignment sites.
+* **Recursion depth limit.**  A macro calling itself (directly or indirectly)
+  will hit `MAX_RECURSION_DEPTH` and return a runtime error rather than
+  stack-overflow.
+* **`early_exit` stops everything.**  Once `%here` sets `early_exit = true`,
+  every subsequent call to `evaluate()` or `evaluate_to()` returns an empty
+  string immediately.  No further macro calls, no further argument evaluation,
+  no further output — the file is considered fully processed.
+
+### Script back-ends as pluggable singletons
+
+`MontyEvaluator` (Python via monty) lives as a field on `Evaluator`.  The
+persistent store (`py_store`) is a `HashMap` that survives across calls so
+scripts can accumulate state.
+
+## Submodule roles
+
+[cols="2,5",options="header"]
+|===
+| Document | Role
+
+| link:state.adoc[state.adoc]
+| All mutable state: `EvalConfig`, `EvaluatorState`, `ScopeFrame`,
+  `SourceManager`, `MacroDefinition`, `TrackedValue`, `VarDefRaw`, `MacroDefRaw`
+
+| link:output.adoc[output.adoc]
+| Output-sink abstraction: `EvalOutput` trait, `PlainOutput`, `TracingOutput`,
+  `PreciseTracingOutput`, `SpanKind`, `SourceSpan`, `MacroMapEntry`
+
+| link:core.adoc[core.adoc]
+| Main evaluation engine: `Evaluator` struct, `evaluate()`, `evaluate_to()`,
+  macro-call dispatch, scope management, `%include` handling
+
+| link:builtins.adoc[builtins.adoc]
+| Built-in macros (`%def`, `%set`, `%if`, `%include`, `%here`, …),
+  case-conversion utilities, and `modify_source`
+
+| link:scripting.adoc[scripting.adoc]
+| Script back-end: `MontyEvaluator` (Python via the monty crate)
+
+| link:eval_api.adoc[eval_api.adoc]
+| Thin public API: `eval_string`, `eval_file`, `eval_files`, `eval_string_with_defaults`
+
+| link:tests.adoc[tests.adoc]
+| 240+ unit and integration tests for all builtins, scripting, tracing, and API
+|===
+
+## This file generates
+
+* `mod.rs` — module declarations and public re-exports
+* `errors.rs` — `EvalError` enum and `EvalResult` type alias
+* `lexer_parser.rs` — glue function `lex_parse_content` that chains
+  the lexer, parser, and AST builder
+
+### File structure
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/mod.rs]>=
+// weaveback-macro/src/evaluator/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[evaluator mod preamble]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/errors.rs]>=
+// weaveback-macro/src/evaluator/errors.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[evaluator errors]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/lexer_parser.rs]>=
+// weaveback-macro/src/evaluator/lexer_parser.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[evaluator lexer parser]>
+
+// @
+```
+
+
+## Module preamble (`mod.rs`)
+
+`mod.rs` declares the private submodules, the public `tests` module under
+`#[cfg(test)]`, and re-exports every public symbol that the rest of the crate
+(and external callers) needs.  Keeping re-exports here means importers never
+have to know which submodule owns a type.
+
+
+```rust
+// <[evaluator mod preamble]>=
+// crates/weaveback-macro/src/evaluator/mod.rs
+
+mod builtins;
+mod case_conversion;
+mod core;
+mod errors;
+mod eval_api;
+pub mod lexer_parser;
+pub mod monty_eval;
+pub mod output;
+mod source_utils;
+mod state;
+
+#[cfg(test)]
+mod tests;
+
+// Re-export everything needed by the rest of the crate
+pub use crate::types::ASTNode;
+pub use core::Evaluator;
+pub use errors::{EvalError, EvalResult};
+pub use eval_api::{
+    eval_file, eval_file_with_config, eval_files, eval_files_with_config, eval_string,
+    eval_string_with_defaults,
+};
+pub use lexer_parser::lex_parse_content;
+pub use monty_eval::MontyEvaluator;
+pub use output::{EvalOutput, PlainOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
+pub use state::{EvalConfig, MacroDefinition, ScriptKind};
+// @
+```
+
+
+## Error types (`errors.rs`)
+
+`EvalError` covers every failure mode that can occur during expansion.
+`IoError` uses `#[from]` so `?` works on `std::io::Error` inside built-ins.
+The blanket `From<String>` impl lets built-in functions return
+`Err("message".into())` without naming a specific variant.
+
+
+```rust
+// <[evaluator errors]>=
+// crates/weaveback-macro/src/evaluator/errors.rs
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum EvalError {
+    #[error("Undefined macro: {0}")]
+    UndefinedMacro(String),
+
+    #[error("Undefined variable: {0}")]
+    UndefinedVariable(String),
+
+    #[error("Unbound parameter '{param_name}' in macro '{macro_name}'")]
+    UnboundParameter { macro_name: String, param_name: String },
+
+    #[error("Builtin error: {0}")]
+    BuiltinError(String),
+
+    #[error("Include not found: {0}")]
+    IncludeNotFound(String),
+
+    #[error("Circular include: {0}")]
+    CircularInclude(String),
+
+    #[error("Invalid usage: {0}")]
+    InvalidUsage(String),
+
+    #[error("Runtime error: {0}")]
+    Runtime(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+pub type EvalResult<T> = Result<T, EvalError>;
+
+impl From<String> for EvalError {
+    fn from(s: String) -> Self {
+        EvalError::Runtime(s)
+    }
+}
+// @
+```
+
+
+## Lexer-parser glue (`lexer_parser.rs`)
+
+`lex_parse_content` is a thin orchestrator that runs the three pipeline stages
+— `Lexer`, `Parser`, and `process_ast` — in sequence.  It lives here rather
+than in each call site so the three stages are always invoked in the right
+order with the right error formatting.
+
+The `LineIndex` is built once from the source bytes and shared across both
+lexer-error formatting and the parser; it avoids repeated line-number
+computation.
+
+
+```rust
+// <[evaluator lexer parser]>=
+// weaveback/crates/weaveback-macro/src/evaluator/lexer_parser.rs
+
+use crate::lexer::Lexer;
+use crate::line_index::LineIndex;
+use crate::parser::Parser;
+use crate::types::ASTNode;
+
+pub fn lex_parse_content(source: &str, sigil: char, src: u32) -> Result<ASTNode, String> {
+    let (tokens, lex_errors) = Lexer::new(source, sigil, src).lex();
+    let line_index = LineIndex::new(source);
+    if !lex_errors.is_empty() {
+        let errs = lex_errors
+            .iter()
+            .map(|e| {
+                let (line, col) = line_index.line_col(e.pos);
+                format!("{}:{}: {}", line, col, e.message)
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(format!("Lexer errors: {}", errs));
+    }
+
+    let mut parser = Parser::new();
+    parser
+        .parse(&tokens, source.as_bytes(), &line_index)
+        .map_err(|e| format!("Parse error: {}", e))?;
+
+    let ast = parser
+        .process_ast(source.as_bytes())
+        .map_err(|e| format!("AST build error: {:?}", e))?;
+
+    Ok(ast)
+}
+// @
+```
+

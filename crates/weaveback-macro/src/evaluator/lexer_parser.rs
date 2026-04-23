@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/lexer_parser.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // weaveback/crates/weaveback-macro/src/evaluator/lexer_parser.rs
 
 use crate::lexer::Lexer;
@@ -31,3 +34,4 @@ pub fn lex_parse_content(source: &str, sigil: char, src: u32) -> Result<ASTNode,
 
     Ok(ast)
 }
+

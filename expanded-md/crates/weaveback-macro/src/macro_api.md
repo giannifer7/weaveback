@@ -1,4 +1,4 @@
-= Public macro API
+# Public macro API
 :toc: left
 
 `macro_api.rs` is the byte-oriented public interface used by the combined
@@ -6,16 +6,16 @@
 xref:evaluator/eval_api.adoc[eval_api] layer but returns `Vec<u8>` and offers
 a streaming `dyn Write` variant.
 
-== Design rationale
+## Design rationale
 
-=== `Vec<u8>` output, not `String`
+### `Vec<u8>` output, not `String`
 
 `eval_api.rs` returns `String`; `macro_api.rs` converts to `Vec<u8>`.  The
 combined binary writes bytes directly to a file or stdout without an extra
 UTF-8 round-trip, and weaveback-tangle's safe writer compares byte content for
 change detection.
 
-=== Tracing variants
+### Tracing variants
 
 `process_string_tracing` runs the evaluator through `TracingOutput` and
 returns both the expanded bytes and a `Vec<(u32, MacroMapEntry)>` ready for
@@ -26,20 +26,20 @@ the combined binary builds a source map alongside the expanded output.
 used by the backpropagation tool when it needs to trace individual characters
 back to source tokens.
 
-=== `process_files` with stdout support
+### `process_files` with stdout support
 
 `process_files` accepts `"-"` as the output path and writes all input files to
 stdout in sequence.  This is the mode used when `weaveback-macro` is invoked
 without `--output`.
 
-=== Shared evaluator across calls
+### Shared evaluator across calls
 
 `process_string`, `process_string_tracing`, and `process_file_with_writer` all
 accept a mutable `&mut Evaluator`.  Callers that process a batch of files use
 a single evaluator so macro definitions in file N are visible in file N+1 —
 the same semantics as `eval_files`.
 
-=== Separate discovery API, shared evaluator core
+### Separate discovery API, shared evaluator core
 
 Dependency discovery still needs macro evaluation because `%include(...)` and
 `%import(...)` paths may be built from variables, `%if`, or helper macros.
@@ -50,38 +50,43 @@ This module therefore exposes explicit discovery entry points that reuse the
 same evaluator and builtin path-resolution machinery while flipping an internal
 dependency-discovery switch only for the duration of that call.
 
-=== File context on failures
+### File context on failures
 
 Multi-file tangle passes are painful to debug if a parse error reports only
 `line:column` without naming the input document.  `process_file_with_writer`
 already knows the current file, so this module is the right place to wrap
 evaluation failures with that path.
 
-== File structure
+## File structure
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/macro_api.rs>>=
-// <<macro api preamble>>
-// <<input error context>>
-// <<process string>>
-// <<process string tracing>>
-// <<process file with writer>>
-// <<process file>>
-// <<process files>>
-// <<process files from config>>
-// <<process string defaults>>
-// <<discover includes in string>>
-// <<discover includes in file>>
-// <<process string precise>>
+
+```rust
+// <[@file weaveback-macro/src/macro_api.rs]>=
+// weaveback-macro/src/macro_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[macro api preamble]>
+// <[input error context]>
+// <[process string]>
+// <[process string tracing]>
+// <[process file with writer]>
+// <[process file]>
+// <[process files]>
+// <[process files from config]>
+// <[process string defaults]>
+// <[discover includes in string]>
+// <[discover includes in file]>
+// <[process string precise]>
+
 // @
-----
+```
 
-== Preamble
 
-[source,rust]
-----
-// <<macro api preamble>>=
+## Preamble
+
+
+```rust
+// <[macro api preamble]>=
 // crates/weaveback-macro/src/macro_api.rs
 
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -92,28 +97,30 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 // @
-----
+```
 
-== Input error context
 
-[source,rust]
-----
-// <<input error context>>=
+## Input error context
+
+
+```rust
+// <[input error context]>=
 fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
     EvalError::Runtime(format!("{}: {}", input_file.display(), error))
 }
 // @
-----
+```
 
-== `process_string`
+
+## `process_string`
 
 Parse and evaluate a source string, returning the expansion as bytes.
 If `real_path` is given, it is used for source attribution in error messages
 and for `%here`.
 
-[source,rust]
-----
-// <<process string>>=
+
+```rust
+// <[process string]>=
 pub fn process_string(
     source: &str,
     real_path: Option<&Path>,
@@ -132,18 +139,19 @@ pub fn process_string(
     Ok(output_string.into_bytes())
 }
 // @
-----
+```
 
-== `process_string_tracing`
+
+## `process_string_tracing`
 
 Like `process_string` but uses `TracingOutput` to capture per-line macro
 attribution alongside the expanded bytes.  The returned `Vec<(u32, MacroMapEntry)>`
 is keyed by output line number and is ready to store in the `macro_map` redb
 table.
 
-[source,rust]
-----
-// <<process string tracing>>=
+
+```rust
+// <[process string tracing]>=
 pub fn process_string_tracing(
     source: &str,
     real_path: Option<&Path>,
@@ -168,16 +176,17 @@ pub fn process_string_tracing(
     Ok((output_string.into_bytes(), db_entries))
 }
 // @
-----
+```
 
-== `process_file_with_writer`
+
+## `process_file_with_writer`
 
 Read an input file, expand it, and write the bytes to any `dyn Write` sink —
 typically a file handle or stdout.
 
-[source,rust]
-----
-// <<process file with writer>>=
+
+```rust
+// <[process file with writer]>=
 pub fn process_file_with_writer(
     input_file: &Path,
     writer: &mut dyn Write,
@@ -193,16 +202,17 @@ pub fn process_file_with_writer(
     Ok(())
 }
 // @
-----
+```
 
-== `process_file`
+
+## `process_file`
 
 Write the expansion of `input_file` to `output_file`, creating parent
 directories as needed.
 
-[source,rust]
-----
-// <<process file>>=
+
+```rust
+// <[process file]>=
 pub fn process_file(
     input_file: &Path,
     output_file: &Path,
@@ -217,16 +227,17 @@ pub fn process_file(
     process_file_with_writer(input_file, &mut file, evaluator)
 }
 // @
-----
+```
 
-== `process_files`
+
+## `process_files`
 
 Process a batch of input files through a shared evaluator.  The output path
 may be a file, a directory, or `"-"` for stdout.
 
-[source,rust]
-----
-// <<process files>>=
+
+```rust
+// <[process files]>=
 pub fn process_files(
     inputs: &[PathBuf],
     output_path: &Path,
@@ -259,16 +270,17 @@ pub fn process_files(
     Ok(())
 }
 // @
-----
+```
 
-== `process_files_from_config`
+
+## `process_files_from_config`
 
 Convenience wrapper: creates a fresh `Evaluator` from `config` and forwards to
 `process_files`.  Use this for isolated single-run invocations.
 
-[source,rust]
-----
-// <<process files from config>>=
+
+```rust
+// <[process files from config]>=
 pub fn process_files_from_config(
     inputs: &[PathBuf],
     output_dir: &Path,
@@ -278,32 +290,34 @@ pub fn process_files_from_config(
     process_files(inputs, output_dir, &mut evaluator)
 }
 // @
-----
+```
 
-== `process_string_defaults`
+
+## `process_string_defaults`
 
 The simplest entry point: default `%` sigil, no path.  Useful for
 one-shot calls in integration tests and tooling.
 
-[source,rust]
-----
-// <<process string defaults>>=
+
+```rust
+// <[process string defaults]>=
 pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
     let mut evaluator = Evaluator::new(EvalConfig::default());
     process_string(source, None, &mut evaluator)
 }
 // @
-----
+```
 
-== `discover_includes_in_string`
+
+## `discover_includes_in_string`
 
 Evaluate only enough to resolve `%include` / `%import` targets, then return the
 resolved dependency edges. The path argument is still evaluated normally; only
 the target file expansion is skipped.
 
-[source,rust]
-----
-// <<discover includes in string>>=
+
+```rust
+// <[discover includes in string]>=
 pub fn discover_includes_in_string(
     source: &str,
     real_path: Option<&Path>,
@@ -316,16 +330,17 @@ pub fn discover_includes_in_string(
     result.map(|_| includes)
 }
 // @
-----
+```
 
-== `discover_includes_in_file`
+
+## `discover_includes_in_file`
 
 Read a file, resolve its include/import dependencies, and return the resolved
 paths without expanding the target files.
 
-[source,rust]
-----
-// <<discover includes in file>>=
+
+```rust
+// <[discover includes in file]>=
 pub fn discover_includes_in_file(
     input_file: &Path,
     evaluator: &mut Evaluator,
@@ -336,18 +351,19 @@ pub fn discover_includes_in_file(
         .map_err(|e| with_input_context(input_file, e))
 }
 // @
-----
+```
 
-== `process_string_precise`
+
+## `process_string_precise`
 
 Evaluate `source` with per-byte token attribution via `PreciseTracingOutput`.
 Returns the expanded string and a sorted `Vec<SpanRange>` — one entry per
 source-token transition.  Used by the backpropagation tool to locate individual
 characters in the literate source.
 
-[source,rust]
-----
-// <<process string precise>>=
+
+```rust
+// <[process string precise]>=
 /// Evaluate `source` with precise per-byte token attribution.
 ///
 /// Returns the expanded string and a sorted list of `SpanRange` entries —
@@ -373,4 +389,5 @@ pub fn process_string_precise(
     Ok(out.into_parts())
 }
 // @
-----
+```
+

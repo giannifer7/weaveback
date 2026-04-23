@@ -1,0 +1,181 @@
+¤h1(¤[weaveback-macro crate¤])
+:toc: left
+
+`weaveback-macro` is the macro-expansion engine at the heart of the weaveback
+literate-programming toolchain.  It reads a document containing `%def` /
+`%set` / `%if` / `%pydef` macro calls, evaluates them, and
+emits the expanded text.
+
+This page is the crate-level index.  It generates `lib.rs` and links to every
+sub-module documented as a literate AsciiDoc source.
+
+¤h2(¤[Architecture¤])
+
+.Module structure
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ComponentStyle rectangle
+skinparam ComponentBorderColor #83a598
+skinparam ComponentBackgroundColor #282828
+skinparam ComponentFontColor #ebdbb2
+skinparam PackageBorderColor #504945
+skinparam PackageBackgroundColor #1d2021
+skinparam PackageFontColor #fabd2f
+
+package "weaveback-macro" {
+  component "lib.rs"        as lib_rs
+  component "types.rs"      as types_rs
+  component "line_index.rs" as lineindex_rs
+
+  package "lexer pkg" as lexer_pkg {
+    component "lexer/mod.rs" as lex_rs
+  }
+  package "parser pkg" as parser_pkg {
+    component "parser/mod.rs" as par_rs
+  }
+  package "ast pkg" as ast_pkg {
+    component "ast/mod.rs" as ast_rs
+  }
+  package "evaluator pkg" as eval_pkg {
+    component "evaluator/mod.rs" as eval_rs
+    component "core.rs"          as core_rs
+    component "state.rs"         as state_rs
+    component "output.rs"        as output_rs
+    component "builtins.rs"      as builtins_rs
+    component "monty_eval.rs"    as monty_rs
+    component "eval_api.rs"      as eapi_rs
+  }
+  component "macro_api.rs" as mapi_rs
+  package "bin pkg" as bin_pkg {
+    component "weaveback-macro.rs" as cli_rs
+  }
+}
+
+lib_rs --> types_rs
+lib_rs --> lex_rs
+lib_rs --> par_rs
+lib_rs --> ast_rs
+lib_rs --> eval_rs
+lib_rs --> lineindex_rs
+lib_rs --> mapi_rs
+
+par_rs --> lex_rs
+ast_rs --> par_rs
+eval_rs --> ast_rs
+eval_rs --> state_rs
+eval_rs --> output_rs
+eval_rs --> builtins_rs
+eval_rs --> monty_rs
+eval_rs --> core_rs
+eapi_rs --> eval_rs
+
+mapi_rs --> eval_rs
+mapi_rs --> output_rs
+cli_rs --> mapi_rs
+cli_rs --> eval_rs
+@enduml
+----
+
+¤h2(¤[Modules¤])
+
+.Literate sources
+[cols="1,2,3",options="header"]
+|===
+| Module | Adoc source | Description
+
+| `types`
+| xref:types.adoc[types.adoc]
+| Shared vocabulary: `TokenKind`, `NodeKind`, `Token`, `ParseNode`, `ASTNode`
+
+| `line_index`
+| xref:../src-wvb/line_index.wvb[line_index.wvb]
+| Byte-offset → (line, column) via SIMD newline scan
+
+| `lexer`
+| xref:lexer/lexer.adoc[lexer/lexer.adoc]
+| DFA tokeniser; emits `Token` stream from source text
+
+| `parser`
+| xref:parser/parser.adoc[parser/parser.adoc]
+| Recursive-descent parser; builds `ParseNode` arena
+
+| `ast`
+| xref:ast/ast.adoc[ast/ast.adoc]
+| Arena → tree conversion, serialisation, AST dump
+
+| `evaluator`
+| xref:evaluator/evaluator.adoc[evaluator/evaluator.adoc]
+| Macro expansion engine — see sub-modules below
+
+| `evaluator::state`
+| xref:evaluator/state.adoc[evaluator/state.adoc]
+| `EvalConfig`, scope stack, `TrackedValue`, `EvaluatorState`
+
+| `evaluator::output`
+| xref:evaluator/output.adoc[evaluator/output.adoc]
+| `EvalOutput` trait, `PlainOutput`, `TracingOutput`, `PreciseTracingOutput`
+
+| `evaluator::core`
+| xref:evaluator/core.adoc[evaluator/core.adoc]
+| Main eval loop — node dispatch, macro call, freeze/export
+
+| `evaluator::builtins`
+| xref:evaluator/builtins.adoc[evaluator/builtins.adoc]
+| Built-in dispatch table, case conversion, `%here`, `WordSplitter`
+
+| `evaluator::scripting`
+| xref:evaluator/scripting.adoc[evaluator/scripting.adoc]
+| Monty (Python) script back-end
+
+| `evaluator::eval_api`
+| xref:evaluator/eval_api.adoc[evaluator/eval_api.adoc]
+| String / file / batch entry points; in==out guard
+
+| `macro_api`
+| xref:macro_api.adoc[macro_api.adoc]
+| Byte-oriented public API with tracing and precise attribution
+
+| CLI binary
+| xref:bin/cli.adoc[bin/cli.adoc]
+| `weaveback-macro` binary: clap args, `--dir` discovery, `--dump-ast`
+|===
+
+¤h2(¤[`lib.rs` — crate root¤])
+
+The crate root re-exports the two most commonly used entry types
+(`Lexer` and `Parser`) at the crate level and declares each module.
+
+¤h3(¤[File structure¤])
+
+¤rust_file(weaveback-macro/src/lib.rs, ¤[
+// <[lib preamble]>
+// <[lib modules]>
+// <[lib reexports]>
+¤])
+
+¤h3(¤[Module declarations¤])
+
+¤rust_chunk(lib preamble, ¤[
+// crates/weaveback-macro/src/lib.rs
+mod types;
+pub use types::*;
+¤])
+
+¤rust_chunk(lib modules, ¤[
+pub mod ast;
+pub mod evaluator;
+pub mod lexer;
+pub mod line_index;
+pub mod macro_api;
+pub mod parser;
+¤])
+
+¤rust_chunk(lib reexports, ¤[
+pub use lexer::Lexer;
+pub use parser::Parser;
+¤])

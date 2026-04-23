@@ -1,13 +1,13 @@
-= Script Back-End: Python
+# Script Back-End: Python
 :toc: left
 
 `monty_eval.rs` wraps the monty crate, which compiles a Python function body to
 bytecode and runs it in a pure-Rust interpreter. It is called from `core.rs`
 after the macro body has been expanded to a string.
 
-== Design rationale
+## Design rationale
 
-=== Python (monty): compile-once, run-no-limits
+### Python (monty): compile-once, run-no-limits
 
 monty compiles the function body to bytecode once per call and runs it in a
 pure-Rust interpreter. This avoids PyO3 and CPython entirely: no dynamic
@@ -21,19 +21,24 @@ variables. Declared params shadow any store key with the same name.
 **No automatic store write-back**: the Python store is not written back
 automatically after the script runs. Use `%pyset` to persist values explicitly.
 
-== File structure
+## File structure
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/evaluator/monty_eval.rs>>=
-// <<monty eval preamble>>
-// <<monty evaluator struct>>
-// <<monty evaluator impl>>
-// <<monty object to string>>
+
+```rust
+// <[@file weaveback-macro/src/evaluator/monty_eval.rs]>=
+// weaveback-macro/src/evaluator/monty_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[monty eval preamble]>
+// <[monty evaluator struct]>
+// <[monty evaluator impl]>
+// <[monty object to string]>
+
 // @
-----
+```
 
-== Monty evaluator (Python)
+
+## Monty evaluator (Python)
 
 .Monty evaluation flow
 [plantuml,format=svg]
@@ -72,23 +77,24 @@ stop
 @enduml
 ----
 
-== Preamble
+## Preamble
 
-[source,rust]
-----
-// <<monty eval preamble>>=
+
+```rust
+// <[monty eval preamble]>=
 // crates/weaveback-macro/src/evaluator/monty_eval.rs
 
 use monty::{MontyObject, MontyRun};
 use std::collections::{HashMap, HashSet};
 // @
-----
+```
 
-== `MontyEvaluator` struct
 
-[source,rust]
-----
-// <<monty evaluator struct>>=
+## `MontyEvaluator` struct
+
+
+```rust
+// <[monty evaluator struct]>=
 pub struct MontyEvaluator;
 
 impl Default for MontyEvaluator {
@@ -97,18 +103,19 @@ impl Default for MontyEvaluator {
     }
 }
 // @
-----
+```
 
-== `MontyEvaluator` implementation
+
+## `MontyEvaluator` implementation
 
 Store keys are prepended before declared params so that `prefix + name` works
 inside Python without explicit parameter declaration. Declared params always
 shadow same-named store keys because params are appended last and positional
 binding is left-to-right.
 
-[source,rust]
-----
-// <<monty evaluator impl>>=
+
+```rust
+// <[monty evaluator impl]>=
 impl MontyEvaluator {
     pub fn new() -> Self {
         Self
@@ -152,17 +159,18 @@ impl MontyEvaluator {
     }
 }
 // @
-----
+```
 
-== `monty_object_to_string`
+
+## `monty_object_to_string`
 
 `MontyObject::List` items are concatenated without a separator. This matches
 the behaviour of returning a list of strings from a Python function as if they
 were a single concatenated string.
 
-[source,rust]
-----
-// <<monty object to string>>=
+
+```rust
+// <[monty object to string]>=
 pub fn monty_object_to_string(obj: MontyObject) -> String {
     match obj {
         MontyObject::None => String::new(),
@@ -177,4 +185,5 @@ pub fn monty_object_to_string(obj: MontyObject) -> String {
     }
 }
 // @
-----
+```
+

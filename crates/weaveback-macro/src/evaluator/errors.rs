@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/errors.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/errors.rs
 
 use thiserror::Error;
@@ -42,3 +45,4 @@ impl From<String> for EvalError {
         EvalError::Runtime(s)
     }
 }
+

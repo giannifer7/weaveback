@@ -1,13 +1,13 @@
-= Public eval API
+# Public eval API
 :toc: left
 
 `eval_api.rs` provides thin wrappers around `Evaluator` that cover the common
 entry points: evaluating a string, a single file, or a batch of files.  These
 are the functions used by the binary, the test suite, and external callers.
 
-== Design rationale
+## Design rationale
 
-=== Shared evaluator across multiple files
+### Shared evaluator across multiple files
 
 `eval_files` processes each input file through the *same* `Evaluator` instance.
 This means macro definitions in file N are visible in file N+1 — the intended
@@ -17,46 +17,51 @@ a common macro library.
 `eval_files_with_config` creates a fresh evaluator; use it when isolation
 between runs is required.
 
-=== `eval_string` vs `eval_string_with_defaults`
+### `eval_string` vs `eval_string_with_defaults`
 
 `eval_string` accepts an existing evaluator and an optional `real_path` for
 source attribution (used when the string originated from a file on disk).
 `eval_string_with_defaults` is the simplest entry point — a fresh evaluator,
 no path, `%` as the sigil.  It is used extensively in tests.
 
-=== `canonical()` — resolving paths that do not yet exist
+### `canonical()` — resolving paths that do not yet exist
 
 The output file may not exist before the first run.  `canonical` resolves the
 parent directory (which must exist) and appends the file name.  This keeps the
 in == out guard reliable without requiring the output file to be created first.
 
-=== Input == output guard
+### Input == output guard
 
 `eval_file` compares canonical input and output paths before evaluating.
 Without this guard, `weaveback-macro src.adoc src.adoc` would silently
 overwrite the source with the expanded output.
 
-== File structure
+## File structure
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/evaluator/eval_api.rs>>=
-// <<eval api preamble>>
-// <<eval string>>
-// <<canonical helper>>
-// <<eval file>>
-// <<eval file with config>>
-// <<eval files>>
-// <<eval files with config>>
-// <<eval string with defaults>>
+
+```rust
+// <[@file weaveback-macro/src/evaluator/eval_api.rs]>=
+// weaveback-macro/src/evaluator/eval_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[eval api preamble]>
+// <[eval string]>
+// <[canonical helper]>
+// <[eval file]>
+// <[eval file with config]>
+// <[eval files]>
+// <[eval files with config]>
+// <[eval string with defaults]>
+
 // @
-----
+```
 
-== Preamble
 
-[source,rust]
-----
-// <<eval api preamble>>=
+## Preamble
+
+
+```rust
+// <[eval api preamble]>=
 // crates/weaveback-macro/src/evaluator/eval_api.rs
 
 use std::fs;
@@ -66,17 +71,18 @@ use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
 use super::state::EvalConfig;
 // @
-----
+```
 
-== `eval_string`
+
+## `eval_string`
 
 Parses `source` using `evaluator.parse_string` and then evaluates the AST.
 If `real_path` is supplied, the evaluator's `current_file` is updated so that
 `%here` and error messages reference the correct file path.
 
-[source,rust]
-----
-// <<eval string>>=
+
+```rust
+// <[eval string]>=
 pub fn eval_string(
     source: &str,
     real_path: Option<&Path>,
@@ -93,13 +99,14 @@ pub fn eval_string(
     evaluator.evaluate(&ast)
 }
 // @
-----
+```
 
-== `canonical` — resolve path through parent when file does not exist
 
-[source,rust]
-----
-// <<canonical helper>>=
+## `canonical` — resolve path through parent when file does not exist
+
+
+```rust
+// <[canonical helper]>=
 /// Returns the canonical path of `p`, resolving through the parent directory
 /// when `p` itself does not yet exist (common for output files).
 fn canonical(p: &Path) -> std::io::Result<PathBuf> {
@@ -111,13 +118,14 @@ fn canonical(p: &Path) -> std::io::Result<PathBuf> {
     Ok(parent.canonicalize()?.join(name))
 }
 // @
-----
+```
 
-== `eval_file`
 
-[source,rust]
-----
-// <<eval file>>=
+## `eval_file`
+
+
+```rust
+// <[eval file]>=
 pub fn eval_file(
     input_file: &Path,
     output_file: &Path,
@@ -152,13 +160,14 @@ pub fn eval_file(
     Ok(())
 }
 // @
-----
+```
 
-== `eval_file_with_config`
 
-[source,rust]
-----
-// <<eval file with config>>=
+## `eval_file_with_config`
+
+
+```rust
+// <[eval file with config]>=
 pub fn eval_file_with_config(
     input_file: &Path,
     output_file: &Path,
@@ -168,16 +177,17 @@ pub fn eval_file_with_config(
     eval_file(input_file, output_file, &mut evaluator)
 }
 // @
-----
+```
 
-== `eval_files`
+
+## `eval_files`
 
 Processes a batch of inputs through the same evaluator, writing each output
 to `output_dir / input_filename`.
 
-[source,rust]
-----
-// <<eval files>>=
+
+```rust
+// <[eval files]>=
 pub fn eval_files(
     inputs: &[PathBuf],
     output_dir: &Path,
@@ -198,13 +208,14 @@ pub fn eval_files(
     Ok(())
 }
 // @
-----
+```
 
-== `eval_files_with_config`
 
-[source,rust]
-----
-// <<eval files with config>>=
+## `eval_files_with_config`
+
+
+```rust
+// <[eval files with config]>=
 pub fn eval_files_with_config(
     inputs: &[PathBuf],
     output_dir: &Path,
@@ -214,19 +225,21 @@ pub fn eval_files_with_config(
     eval_files(inputs, output_dir, &mut evaluator)
 }
 // @
-----
+```
 
-== `eval_string_with_defaults`
+
+## `eval_string_with_defaults`
 
 The simplest entry point: fresh evaluator, default `%` sigil, no path.
 Used extensively in unit tests.
 
-[source,rust]
-----
-// <<eval string with defaults>>=
+
+```rust
+// <[eval string with defaults]>=
 pub fn eval_string_with_defaults(source: &str) -> EvalResult<String> {
     let mut evaluator = Evaluator::new(EvalConfig::default());
     eval_string(source, None, &mut evaluator)
 }
 // @
-----
+```
+

@@ -1,6 +1,82 @@
-// weaveback-macro/src/macro_api.rs
-// I'd Really Rather You Didn't edit this generated file.
+¤h1(¤[Public macro API¤])
+:toc: left
 
+`macro_api.rs` is the byte-oriented public interface used by the combined
+`weaveback` binary and external callers.  It wraps the string-based
+xref:evaluator/eval_api.adoc[eval_api] layer but returns `Vec<u8>` and offers
+a streaming `dyn Write` variant.
+
+¤h2(¤[Design rationale¤])
+
+¤h3(¤[`Vec<u8>` output, not `String`¤])
+
+`eval_api.rs` returns `String`; `macro_api.rs` converts to `Vec<u8>`.  The
+combined binary writes bytes directly to a file or stdout without an extra
+UTF-8 round-trip, and weaveback-tangle's safe writer compares byte content for
+change detection.
+
+¤h3(¤[Tracing variants¤])
+
+`process_string_tracing` runs the evaluator through `TracingOutput` and
+returns both the expanded bytes and a `Vec<(u32, MacroMapEntry)>` ready for
+insertion into the redb `macro_map` table.  This is the code path taken when
+the combined binary builds a source map alongside the expanded output.
+
+`process_string_precise` uses `PreciseTracingOutput` for per-byte attribution —
+used by the backpropagation tool when it needs to trace individual characters
+back to source tokens.
+
+¤h3(¤[`process_files` with stdout support¤])
+
+`process_files` accepts `"-"` as the output path and writes all input files to
+stdout in sequence.  This is the mode used when `weaveback-macro` is invoked
+without `--output`.
+
+¤h3(¤[Shared evaluator across calls¤])
+
+`process_string`, `process_string_tracing`, and `process_file_with_writer` all
+accept a mutable `&mut Evaluator`.  Callers that process a batch of files use
+a single evaluator so macro definitions in file N are visible in file N+1 —
+the same semantics as `eval_files`.
+
+¤h3(¤[Separate discovery API, shared evaluator core¤])
+
+Dependency discovery still needs macro evaluation because `%include(...)` and
+`%import(...)` paths may be built from variables, `%if`, or helper macros.
+But "discover dependency edges" is not the same public operation as "produce
+final expanded output".
+
+This module therefore exposes explicit discovery entry points that reuse the
+same evaluator and builtin path-resolution machinery while flipping an internal
+dependency-discovery switch only for the duration of that call.
+
+¤h3(¤[File context on failures¤])
+
+Multi-file tangle passes are painful to debug if a parse error reports only
+`line:column` without naming the input document.  `process_file_with_writer`
+already knows the current file, so this module is the right place to wrap
+evaluation failures with that path.
+
+¤h2(¤[File structure¤])
+
+¤rust_file(weaveback-macro/src/macro_api.rs, ¤[
+// <[macro api preamble]>
+// <[input error context]>
+// <[process string]>
+// <[process string tracing]>
+// <[process file with writer]>
+// <[process file]>
+// <[process files]>
+// <[process files from config]>
+// <[process string defaults]>
+// <[discover includes in string]>
+// <[discover includes in file]>
+// <[process string precise]>
+¤])
+
+¤h2(¤[Preamble¤])
+
+¤rust_chunk(macro api preamble, ¤[
 // crates/weaveback-macro/src/macro_api.rs
 
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -10,9 +86,23 @@ pub type TracingResult = (Vec<u8>, Vec<(u32, MacroMapEntry)>);
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+¤])
+
+¤h2(¤[Input error context¤])
+
+¤rust_chunk(input error context, ¤[
 fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
     EvalError::Runtime(format!("{}: {}", input_file.display(), error))
 }
+¤])
+
+¤h2(¤[`process_string`¤])
+
+Parse and evaluate a source string, returning the expansion as bytes.
+If `real_path` is given, it is used for source attribution in error messages
+and for `%here`.
+
+¤rust_chunk(process string, ¤[
 pub fn process_string(
     source: &str,
     real_path: Option<&Path>,
@@ -30,6 +120,16 @@ pub fn process_string(
     let output_string = evaluator.evaluate(&ast)?;
     Ok(output_string.into_bytes())
 }
+¤])
+
+¤h2(¤[`process_string_tracing`¤])
+
+Like `process_string` but uses `TracingOutput` to capture per-line macro
+attribution alongside the expanded bytes.  The returned `Vec<(u32, MacroMapEntry)>`
+is keyed by output line number and is ready to store in the `macro_map` redb
+table.
+
+¤rust_chunk(process string tracing, ¤[
 pub fn process_string_tracing(
     source: &str,
     real_path: Option<&Path>,
@@ -53,6 +153,14 @@ pub fn process_string_tracing(
 
     Ok((output_string.into_bytes(), db_entries))
 }
+¤])
+
+¤h2(¤[`process_file_with_writer`¤])
+
+Read an input file, expand it, and write the bytes to any `dyn Write` sink —
+typically a file handle or stdout.
+
+¤rust_chunk(process file with writer, ¤[
 pub fn process_file_with_writer(
     input_file: &Path,
     writer: &mut dyn Write,
@@ -67,6 +175,14 @@ pub fn process_file_with_writer(
         .map_err(|e| EvalError::Runtime(format!("Cannot write to output: {e}")))?;
     Ok(())
 }
+¤])
+
+¤h2(¤[`process_file`¤])
+
+Write the expansion of `input_file` to `output_file`, creating parent
+directories as needed.
+
+¤rust_chunk(process file, ¤[
 pub fn process_file(
     input_file: &Path,
     output_file: &Path,
@@ -80,6 +196,14 @@ pub fn process_file(
         .map_err(|e| EvalError::Runtime(format!("Cannot create {output_file:?}: {e}")))?;
     process_file_with_writer(input_file, &mut file, evaluator)
 }
+¤])
+
+¤h2(¤[`process_files`¤])
+
+Process a batch of input files through a shared evaluator.  The output path
+may be a file, a directory, or `"-"` for stdout.
+
+¤rust_chunk(process files, ¤[
 pub fn process_files(
     inputs: &[PathBuf],
     output_path: &Path,
@@ -111,6 +235,14 @@ pub fn process_files(
 
     Ok(())
 }
+¤])
+
+¤h2(¤[`process_files_from_config`¤])
+
+Convenience wrapper: creates a fresh `Evaluator` from `config` and forwards to
+`process_files`.  Use this for isolated single-run invocations.
+
+¤rust_chunk(process files from config, ¤[
 pub fn process_files_from_config(
     inputs: &[PathBuf],
     output_dir: &Path,
@@ -119,10 +251,27 @@ pub fn process_files_from_config(
     let mut evaluator = Evaluator::new(config);
     process_files(inputs, output_dir, &mut evaluator)
 }
+¤])
+
+¤h2(¤[`process_string_defaults`¤])
+
+The simplest entry point: default `%` sigil, no path.  Useful for
+one-shot calls in integration tests and tooling.
+
+¤rust_chunk(process string defaults, ¤[
 pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
     let mut evaluator = Evaluator::new(EvalConfig::default());
     process_string(source, None, &mut evaluator)
 }
+¤])
+
+¤h2(¤[`discover_includes_in_string`¤])
+
+Evaluate only enough to resolve `%include` / `%import` targets, then return the
+resolved dependency edges. The path argument is still evaluated normally; only
+the target file expansion is skipped.
+
+¤rust_chunk(discover includes in string, ¤[
 pub fn discover_includes_in_string(
     source: &str,
     real_path: Option<&Path>,
@@ -134,6 +283,14 @@ pub fn discover_includes_in_string(
     evaluator.set_dependency_discovery_active(false);
     result.map(|_| includes)
 }
+¤])
+
+¤h2(¤[`discover_includes_in_file`¤])
+
+Read a file, resolve its include/import dependencies, and return the resolved
+paths without expanding the target files.
+
+¤rust_chunk(discover includes in file, ¤[
 pub fn discover_includes_in_file(
     input_file: &Path,
     evaluator: &mut Evaluator,
@@ -143,6 +300,16 @@ pub fn discover_includes_in_file(
     discover_includes_in_string(&content, Some(input_file), evaluator)
         .map_err(|e| with_input_context(input_file, e))
 }
+¤])
+
+¤h2(¤[`process_string_precise`¤])
+
+Evaluate `source` with per-byte token attribution via `PreciseTracingOutput`.
+Returns the expanded string and a sorted `Vec<SpanRange>` — one entry per
+source-token transition.  Used by the backpropagation tool to locate individual
+characters in the literate source.
+
+¤rust_chunk(process string precise, ¤[
 /// Evaluate `source` with precise per-byte token attribution.
 ///
 /// Returns the expanded string and a sorted list of `SpanRange` entries —
@@ -167,4 +334,4 @@ pub fn process_string_precise(
     evaluator.evaluate_to(&ast, &mut out)?;
     Ok(out.into_parts())
 }
-
+¤])

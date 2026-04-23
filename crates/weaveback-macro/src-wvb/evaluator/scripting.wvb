@@ -1,0 +1,165 @@
+¤h1(¤[Script Back-End: Python¤])
+:toc: left
+
+`monty_eval.rs` wraps the monty crate, which compiles a Python function body to
+bytecode and runs it in a pure-Rust interpreter. It is called from `core.rs`
+after the macro body has been expanded to a string.
+
+¤h2(¤[Design rationale¤])
+
+¤h3(¤[Python (monty): compile-once, run-no-limits¤])
+
+monty compiles the function body to bytecode once per call and runs it in a
+pure-Rust interpreter. This avoids PyO3 and CPython entirely: no dynamic
+linking, no Python installation required at runtime.
+
+**Parameter injection**: declared parameters are passed as positional
+arguments. Store entries are prepended as additional parameters (store keys not
+in the declared parameter set), so they are visible inside the script as plain
+variables. Declared params shadow any store key with the same name.
+
+**No automatic store write-back**: the Python store is not written back
+automatically after the script runs. Use `%pyset` to persist values explicitly.
+
+¤h2(¤[File structure¤])
+
+¤rust_file(weaveback-macro/src/evaluator/monty_eval.rs, ¤[
+// <[monty eval preamble]>
+// <[monty evaluator struct]>
+// <[monty evaluator impl]>
+// <[monty object to string]>
+¤])
+
+¤h2(¤[Monty evaluator (Python)¤])
+
+.Monty evaluation flow
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ActivityBorderColor #83a598
+skinparam ActivityBackgroundColor #282828
+skinparam ActivityFontColor #ebdbb2
+skinparam ActivityBarColor #b8bb26
+skinparam ConditionBorderColor #fabd2f
+skinparam ConditionBackgroundColor #3c3836
+skinparam StartColor #b8bb26
+skinparam EndColor #fb4934
+
+start
+:MontyEvaluator::evaluate(code, params, args, store, name);
+:build all_params: store keys not in params, then declared params;
+:build all_args: store values, then arg strings;
+:MontyRun::new(code, filename, all_params);
+if (compile error?) then (yes)
+  :return Err;
+else (no)
+  :runner.run_no_limits(all_args);
+  if (runtime error?) then (yes)
+    :return Err;
+  else (no)
+    :monty_object_to_string(result);
+    :return Ok(String);
+  endif
+endif
+stop
+@enduml
+----
+
+¤h2(¤[Preamble¤])
+
+¤rust_chunk(monty eval preamble, ¤[
+// crates/weaveback-macro/src/evaluator/monty_eval.rs
+
+use monty::{MontyObject, MontyRun};
+use std::collections::{HashMap, HashSet};
+¤])
+
+¤h2(¤[`MontyEvaluator` struct¤])
+
+¤rust_chunk(monty evaluator struct, ¤[
+pub struct MontyEvaluator;
+
+impl Default for MontyEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+¤])
+
+¤h2(¤[`MontyEvaluator` implementation¤])
+
+Store keys are prepended before declared params so that `prefix + name` works
+inside Python without explicit parameter declaration. Declared params always
+shadow same-named store keys because params are appended last and positional
+binding is left-to-right.
+
+¤rust_chunk(monty evaluator impl, ¤[
+impl MontyEvaluator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn evaluate(
+        &self,
+        code: &str,
+        params: &[String],
+        args: &[String],
+        store: &HashMap<String, String>,
+        name: Option<&str>,
+    ) -> Result<String, String> {
+        let macro_name = name.unwrap_or("pydef");
+
+        // Inject store entries as additional parameters that come before the
+        // declared params. Declared params shadow any store key with the same name.
+        let param_set: HashSet<&str> = params.iter().map(String::as_str).collect();
+        let mut all_params: Vec<String> = store
+            .keys()
+            .filter(|k| !param_set.contains(k.as_str()))
+            .cloned()
+            .collect();
+        all_params.extend_from_slice(params);
+
+        let mut all_args: Vec<MontyObject> = store
+            .iter()
+            .filter(|(k, _)| !param_set.contains(k.as_str()))
+            .map(|(_, v)| MontyObject::String(v.clone()))
+            .collect();
+        all_args.extend(args.iter().map(|s| MontyObject::String(s.clone())));
+
+        let runner = MontyRun::new(code.to_owned(), &format!("{macro_name}.py"), all_params)
+            .map_err(|e| format!("pydef '{macro_name}': compile error: {e:?}"))?;
+
+        let result = runner
+            .run_no_limits(all_args)
+            .map_err(|e| format!("pydef '{macro_name}': runtime error: {e:?}"))?;
+
+        Ok(monty_object_to_string(result))
+    }
+}
+¤])
+
+¤h2(¤[`monty_object_to_string`¤])
+
+`MontyObject::List` items are concatenated without a separator. This matches
+the behaviour of returning a list of strings from a Python function as if they
+were a single concatenated string.
+
+¤rust_chunk(monty object to string, ¤[
+pub fn monty_object_to_string(obj: MontyObject) -> String {
+    match obj {
+        MontyObject::None => String::new(),
+        MontyObject::Bool(b) => {
+            if b { "true".into() } else { String::new() }
+        }
+        MontyObject::Int(i) => i.to_string(),
+        MontyObject::Float(f) => f.to_string(),
+        MontyObject::String(s) => s,
+        MontyObject::List(items) => items.into_iter().map(monty_object_to_string).collect(),
+        other => format!("{other:?}"),
+    }
+}
+¤])

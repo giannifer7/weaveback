@@ -199,6 +199,290 @@ fn evaluate_macro_preludes(
     }
     Ok(())
 }
+// @
+```
+
+
+## Markdown Expanded-Document Normalization
+
+`.wvb` sources may use AsciiDoc table blocks because the same source can
+expand to AsciiDoc and Markdown.  The Markdown pass normalizes those table
+blocks after macro expansion: uniform header tables become Markdown pipe
+tables, while structurally richer tables fall back to HTML.
+
+
+```rust
+// <[process-markdown-normalize]>=
+fn is_markdown_ext(expanded_ext: Option<&str>) -> bool {
+    matches!(
+        expanded_ext.unwrap_or_default().trim_start_matches('.'),
+        "md" | "markdown"
+    )
+}
+
+fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
+    let attr = attr?;
+    let cols_pos = attr.find("cols=")?;
+    let after = &attr[cols_pos + "cols=".len()..];
+    let quote = after.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let rest = &after[quote.len_utf8()..];
+    let end = rest.find(quote)?;
+    let count = rest[..end]
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .count();
+    (count > 0).then_some(count)
+}
+
+fn adoc_table_has_header(attr: Option<&str>) -> bool {
+    attr.map(|attr| attr.replace(' ', "").contains("options=\"header\"")
+        || attr.replace(' ', "").contains("options='header'")
+        || attr.replace(' ', "").contains("options=header"))
+        .unwrap_or(false)
+}
+
+fn split_adoc_cells(line: &str) -> Vec<String> {
+    line.trim_start()
+        .trim_start_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AdocTable {
+    has_header: bool,
+    rows: Vec<Vec<String>>,
+    complex: bool,
+}
+
+fn parse_adoc_table(attr: Option<&str>, body: &[&str]) -> Option<AdocTable> {
+    let mut expected_cols = adoc_table_col_count(attr);
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut complex = false;
+
+    for line in body {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.starts_with('|') {
+            let cells = split_adoc_cells(line);
+            if expected_cols.is_none() {
+                expected_cols = Some(cells.len());
+            }
+            let cols = expected_cols?;
+            if cells.is_empty() || cols == 0 {
+                return None;
+            }
+            for cell in cells {
+                row.push(cell);
+                if row.len() == cols {
+                    rows.push(std::mem::take(&mut row));
+                }
+            }
+        } else if let Some(last) = row.last_mut().or_else(|| rows.last_mut().and_then(|r| r.last_mut())) {
+            if !last.is_empty() {
+                last.push('\n');
+            }
+            last.push_str(trimmed);
+            complex = true;
+        } else {
+            return None;
+        }
+    }
+
+    if !row.is_empty() {
+        if let Some(cols) = expected_cols {
+            row.resize(cols, String::new());
+            rows.push(row);
+            complex = true;
+        } else {
+            return None;
+        }
+    }
+
+    let cols = expected_cols?;
+    if rows.is_empty() || rows.iter().any(|row| row.len() != cols) {
+        return None;
+    }
+
+    Some(AdocTable {
+        has_header: adoc_table_has_header(attr),
+        rows,
+        complex,
+    })
+}
+
+fn escape_markdown_table_cell(cell: &str) -> String {
+    cell.replace('\n', " ").replace('|', "\\|").trim().to_string()
+}
+
+fn render_markdown_table(table: &AdocTable) -> Option<String> {
+    if table.complex || !table.has_header || table.rows.is_empty() {
+        return None;
+    }
+
+    let cols = table.rows.first()?.len();
+    let mut out = String::new();
+    out.push('|');
+    for cell in &table.rows[0] {
+        out.push(' ');
+        out.push_str(&escape_markdown_table_cell(cell));
+        out.push_str(" |");
+    }
+    out.push('\n');
+    out.push('|');
+    for _ in 0..cols {
+        out.push_str(" --- |");
+    }
+    out.push('\n');
+    for row in table.rows.iter().skip(1) {
+        out.push('|');
+        for cell in row {
+            out.push(' ');
+            out.push_str(&escape_markdown_table_cell(cell));
+            out.push_str(" |");
+        }
+        out.push('\n');
+    }
+    Some(out.trim_end().to_string())
+}
+
+fn escape_html_cell(cell: &str) -> String {
+    cell.chars()
+        .flat_map(|ch| match ch {
+            '&' => "&amp;".chars().collect::<Vec<_>>(),
+            '<' => "&lt;".chars().collect::<Vec<_>>(),
+            '>' => "&gt;".chars().collect::<Vec<_>>(),
+            '"' => "&quot;".chars().collect::<Vec<_>>(),
+            '\'' => "&#39;".chars().collect::<Vec<_>>(),
+            '\n' => "<br>\n".chars().collect::<Vec<_>>(),
+            _ => vec![ch],
+        })
+        .collect()
+}
+
+fn render_html_table(table: &AdocTable) -> String {
+    let mut out = String::from("<table>\n");
+    for (idx, row) in table.rows.iter().enumerate() {
+        let tag = if idx == 0 && table.has_header { "th" } else { "td" };
+        out.push_str("  <tr>");
+        for cell in row {
+            out.push('<');
+            out.push_str(tag);
+            out.push('>');
+            out.push_str(&escape_html_cell(cell));
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+        }
+        out.push_str("</tr>\n");
+    }
+    out.push_str("</table>");
+    out
+}
+
+fn render_adoc_table_for_markdown(attr: Option<&str>, body: &[&str], original: &[&str]) -> String {
+    let Some(table) = parse_adoc_table(attr, body) else {
+        return original.join("\n");
+    };
+    render_markdown_table(&table).unwrap_or_else(|| render_html_table(&table))
+}
+
+fn normalize_adoc_tables_for_markdown(input: &str) -> String {
+    let lines: Vec<&str> = input.lines().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut idx = 0;
+    let mut in_fence: Option<&str> = None;
+
+    while idx < lines.len() {
+        let trimmed = lines[idx].trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = if in_fence == Some("```") { None } else { Some("```") };
+            out.push(lines[idx].to_string());
+            idx += 1;
+            continue;
+        }
+        if trimmed.starts_with("~~~") {
+            in_fence = if in_fence == Some("~~~") { None } else { Some("~~~") };
+            out.push(lines[idx].to_string());
+            idx += 1;
+            continue;
+        }
+        if in_fence.is_some() {
+            out.push(lines[idx].to_string());
+            idx += 1;
+            continue;
+        }
+
+        let mut attr: Option<&str> = None;
+        let start_idx;
+        if lines[idx].trim_start().starts_with("[cols=")
+            && idx + 1 < lines.len()
+            && lines[idx + 1].trim() == "|==="
+        {
+            attr = Some(lines[idx].trim());
+            start_idx = idx;
+            idx += 2;
+        } else if lines[idx].trim() == "|===" {
+            start_idx = idx;
+            idx += 1;
+        } else {
+            out.push(lines[idx].to_string());
+            idx += 1;
+            continue;
+        }
+
+        let body_start = idx;
+        while idx < lines.len() && lines[idx].trim() != "|===" {
+            idx += 1;
+        }
+        if idx == lines.len() {
+            out.extend(lines[start_idx..].iter().map(|line| (*line).to_string()));
+            break;
+        }
+
+        let original = &lines[start_idx..=idx];
+        out.push(render_adoc_table_for_markdown(
+            attr,
+            &lines[body_start..idx],
+            original,
+        ));
+        idx += 1;
+    }
+
+    let mut rendered = out.join("\n");
+    if input.ends_with('\n') {
+        rendered.push('\n');
+    }
+    rendered
+}
+
+fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: &[u8]) -> String {
+    let expanded = String::from_utf8_lossy(expanded);
+    if is_markdown_ext(expanded_ext) {
+        normalize_adoc_tables_for_markdown(&expanded)
+    } else {
+        expanded.into_owned()
+    }
+}
+
+// @
+```
+
+
+## Expanded Document Paths
+
+
+```rust
+// <[process-expanded-paths]>=
 
 fn with_replaced_extension(path: &Path, expanded_ext: Option<&str>) -> PathBuf {
     let mut out = path.to_path_buf();
@@ -243,12 +527,9 @@ fn write_expanded_document(
     expanded_adoc_dir: &Path,
     expanded_md_dir: &Path,
     expanded_ext: Option<&str>,
-    expanded: &[u8],
+    expanded: &str,
 ) -> Result<PathBuf, String> {
-    let expanded_dir = match expanded_ext.unwrap_or_default().trim_start_matches('.') {
-        "md" | "markdown" => expanded_md_dir,
-        _ => expanded_adoc_dir,
-    };
+    let expanded_dir = if is_markdown_ext(expanded_ext) { expanded_md_dir } else { expanded_adoc_dir };
     let out_path = expanded_output_path(full_path, base_dir, expanded_dir, expanded_ext);
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -499,7 +780,7 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
             clip.read(&content, &src_key);
         } else {
             let expanded = process_string(&content, Some(full_path), &mut evaluator).map_err(|e| e.to_string())?;
-            let expanded_str = String::from_utf8_lossy(&expanded);
+            let expanded_str = normalize_expanded_document(expanded_ext, &expanded);
             if args.dump_expanded {
                 eprintln!("=== expanded: {} ===", src_key);
                 eprintln!("{}", expanded_str);
@@ -513,13 +794,13 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
                     &args.expanded_adoc_dir,
                     &args.expanded_md_dir,
                     expanded_ext,
-                    expanded.as_slice(),
+                    &expanded_str,
                 )?;
             }
             if args.macro_only {
                 continue;
             }
-            source_contents.insert(src_key.clone(), expanded_str.to_string());
+            source_contents.insert(src_key.clone(), expanded_str.clone());
             clip.read(&expanded_str, &src_key);
 
             let src_files = evaluator.sources().source_files().to_vec();
@@ -671,6 +952,81 @@ fn write_depfile_escapes_spaces_in_paths() {
     let content = fs::read_to_string(&dep_path).unwrap();
     assert!(content.contains(r"my\ out.rs"));
     assert!(content.contains(r"my\ file.adoc"));
+}
+
+#[test]
+fn normalize_adoc_table_to_markdown_pipe_table() {
+    let input = concat!(
+        "[cols=\"1,2\",options=\"header\"]\n",
+        "|===\n",
+        "| Name | Meaning\n",
+        "\n",
+        "| `%def` | Constant binding\n",
+        "| `%redef` | Rebindable binding\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert_eq!(
+        out,
+        concat!(
+            "| Name | Meaning |\n",
+            "| --- | --- |\n",
+            "| `%def` | Constant binding |\n",
+            "| `%redef` | Rebindable binding |\n",
+        )
+    );
+}
+
+#[test]
+fn normalize_adoc_table_handles_split_rows() {
+    let input = concat!(
+        "[cols=\"2,1,4\",options=\"header\"]\n",
+        "|===\n",
+        "| Path | Method | Description\n",
+        "\n",
+        "| `/__events` | GET\n",
+        "| SSE stream.\n",
+        "| `/__open` | GET\n",
+        "| Opens an editor.\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert!(out.contains("| `/__events` | GET | SSE stream. |"), "out: {out}");
+    assert!(out.contains("| `/__open` | GET | Opens an editor. |"), "out: {out}");
+}
+
+#[test]
+fn normalize_adoc_table_uses_html_for_complex_cells() {
+    let input = concat!(
+        "[cols=\"1,2\",options=\"header\"]\n",
+        "|===\n",
+        "| Error | Meaning\n",
+        "| `UndefinedChunk`\n",
+        "| A reference names a chunk that was never defined. Silently expands to\n",
+        "  nothing by default.\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert!(out.starts_with("<table>"), "out: {out}");
+    assert!(out.contains("<br>"), "out: {out}");
+    assert!(out.contains("nothing by default."), "out: {out}");
+}
+
+#[test]
+fn normalize_adoc_table_skips_fenced_code_blocks() {
+    let input = concat!(
+        "```text\n",
+        "[cols=\"1,1\",options=\"header\"]\n",
+        "|===\n",
+        "| A | B\n",
+        "|===\n",
+        "```\n",
+    );
+
+    assert_eq!(normalize_adoc_tables_for_markdown(input), input);
 }
 
 #[test]
@@ -994,6 +1350,45 @@ fn run_single_pass_macro_only_writes_expanded_documents() {
 }
 
 
+#[test]
+fn run_single_pass_normalizes_adoc_tables_in_markdown_expanded_documents() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.wvb");
+    fs::write(&src, concat!(
+        "[cols=\"1,1\",options=\"header\"]\n",
+        "|===\n",
+        "| A | B\n",
+        "| one | two\n",
+        "|===\n",
+    )).unwrap();
+
+    let gen_dir = tmp.path().join("gen");
+    let expanded_adoc_dir = tmp.path().join("expanded-adoc");
+    let expanded_md_dir = tmp.path().join("expanded-md");
+
+    let args = SinglePassArgs {
+        inputs: vec![src.file_name().unwrap().into()],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir,
+        expanded_adoc_dir: expanded_adoc_dir.clone(),
+        expanded_md_dir: expanded_md_dir.clone(),
+        db: tmp.path().join("wb.db"),
+        no_fts: true,
+        no_macros: false,
+        expanded_ext: Some("md".to_string()),
+        macro_only: true,
+        sigil: '¤',
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+
+    let expanded = fs::read_to_string(expanded_md_dir.join("input.md")).unwrap();
+    assert!(expanded.contains("| A | B |"), "expanded: {expanded}");
+    assert!(!expanded.contains("|==="), "expanded: {expanded}");
+    assert!(!expanded_adoc_dir.join("input.md").exists());
+}
+
+
     #[test]
 fn run_single_pass_with_custom_sigil() {
     let tmp = tempdir().unwrap();
@@ -1283,6 +1678,8 @@ fn run_single_pass_bench_no_fts() {
 // <[process-args]>
 // <[process-fs]>
 // <[process-macro-prelude]>
+// <[process-markdown-normalize]>
+// <[process-expanded-paths]>
 // <[process-skip]>
 // <[process-run]>
 #[cfg(test)]

@@ -107,67 +107,27 @@ Whitespace control for accumulated noweb fragments lives in the tangle layer
 instead (`@compact`, `@tight` on chunk references), because that problem is
 about chunk composition rather than macro evaluation.
 
-[cols="1,4",options="header"]
-|===
-| Name | Behaviour
-
-| *Definition and scope*
-| 
-
-| `%def(name, [p1, …,] body)`
-| Define a constant text-substitution macro.
-
-| `%redef(name, [p1, …,] body)`
-| Define or replace a rebindable text-substitution macro.
-
-| `%pydef(name, [p1, …,] body)`
-| Define a Python-scripted macro via monty.
-
-| `%set(name, value)`
-| Set a variable in the current scope.
-
-| `%export(name)`
-| Move a variable or macro from the current scope into the parent scope, freezing free variables.
-
-| *Control and inclusion*
-| 
-
-| `%include(path)`
-| Evaluate the named file and splice its output inline.
-
-| `%import(path)`
-| Evaluate the named file for its side effects (macro/variable definitions) only; output is discarded.
-
-| `%if(cond, then[, else])`
-| If `cond` is non-empty (after trim), expand `then`; otherwise expand `else` (if provided).
-
-| `%eval(name, args…)`
-| Look up `name` at evaluation time and call the macro with `args`.  Used for dynamic dispatch.
-
-| `%here(name, args…)`
-| Expand the macro and splice the result into the current source file (one-shot source patching).
-
-| *String transforms*
-| 
-
-| `%capitalize(s)` / `%decapitalize(s)`
-| Upper- / lower-case the first character.
-
-| `%convert_case(s, style)` / `%to_snake_case(s)` / `%to_camel_case(s)` / `%to_pascal_case(s)` / `%to_screaming_case(s)`
-| Convert identifier case.  `convert_case` accepts any style string; the others are shortcuts.
-
-| *Persistent script stores*
-| 
-
-| `%pyset(key, val)` / `%pyget(key)`
-| Manage the persistent Python store.
-
-| *Environment*
-| 
-
-| `%env(NAME)`
-| Read an environment variable.  Requires `--allow-env`.
-|===
+| Name | Behaviour |
+| --- | --- |
+| *Definition and scope* |  |
+| `%def(name, [p1, …,] body)` | Define a constant text-substitution macro. |
+| `%redef(name, [p1, …,] body)` | Define or replace a rebindable text-substitution macro. |
+| `%pydef(name, [p1, …,] body)` | Define a Python-scripted macro via monty. |
+| `%set(name, value)` | Set a variable in the current scope. |
+| `%export(name)` | Move a variable or macro from the current scope into the parent scope, freezing free variables. |
+| *Control and inclusion* |  |
+| `%include(path)` | Evaluate the named file and splice its output inline. |
+| `%import(path)` | Evaluate the named file for its side effects (macro/variable definitions) only; output is discarded. |
+| `%if(cond, then[, else])` | If `cond` is non-empty (after trim), expand `then`; otherwise expand `else` (if provided). |
+| `%eval(name, args…)` | Look up `name` at evaluation time and call the macro with `args`.  Used for dynamic dispatch. |
+| `%here(name, args…)` | Expand the macro and splice the result into the current source file (one-shot source patching). |
+| *String transforms* |  |
+| `%capitalize(s)` / `%decapitalize(s)` | Upper- / lower-case the first character. |
+| `%convert_case(s, style)` / `%to_snake_case(s)` / `%to_camel_case(s)` / `%to_pascal_case(s)` / `%to_screaming_case(s)` | Convert identifier case.  `convert_case` accepts any style string; the others are shortcuts. |
+| *Persistent script stores* |  |
+| `%pyset(key, val)` / `%pyget(key)` | Manage the persistent Python store. |
+| *Environment* |  |
+| `%env(NAME)` | Read an environment variable.  Requires `--allow-env`. |
 
 ## File structure
 

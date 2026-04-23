@@ -46,22 +46,11 @@ avoids backtracking while making all legal transitions explicit.
 
 The first pass of `analyze_param` is a three-state machine:
 
-[cols="1,2,2",options="header"]
-|===
-| State | Transitions in | Carries
-
-| `Start`
-| initial state
-| —
-
-| `SeenName`
-| `Start` + `Ident` token
-| the `name: Token` and its `name_idx: usize`
-
-| `SeenEqual`
-| `SeenName` + `Equal` token
-| the `name: Token`
-|===
+| State | Transitions in | Carries |
+| --- | --- | --- |
+| `Start` | initial state | — |
+| `SeenName` | `Start` + `Ident` token | the `name: Token` and its `name_idx: usize` |
+| `SeenEqual` | `SeenName` + `Equal` token | the `name: Token` |
 
 The `SeenName` state has two exits: `Equal` advances to `SeenEqual`; any
 other non-skip token `break`s the scan and the parameter is classified as
@@ -284,19 +273,11 @@ pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
 The most complex function in the module.  It handles the three structural
 cases of a macro parameter:
 
-[cols="1,3",options="header"]
-|===
-| Pattern | Result
-
-| `[spaces] Ident [spaces] = value...`
-| Named param — `name` token set, parts start after `=`
-
-| `[spaces] Ident [spaces] =` (nothing after `=`)
-| Named param with blank value — `name` set, `parts` empty
-
-| anything else
-| Positional param — `name` is `None`, parts start from first non-skippable node
-|===
+| Pattern | Result |
+| --- | --- |
+| `[spaces] Ident [spaces] = value...` | Named param — `name` token set, parts start after `=` |
+| `[spaces] Ident [spaces] =` (nothing after `=`) | Named param with blank value — `name` set, `parts` empty |
+| anything else | Positional param — `name` is `None`, parts start from first non-skippable node |
 
 The first pass (lines labelled "First pass") scans children, skipping
 `Space`, `LineComment`, and `BlockComment` nodes.  It sets four state
@@ -646,31 +627,22 @@ After `process_ast` completes the following hold for every `ASTNode` in
 the returned tree.  Tests assert subsets of these; `debug_assert!` guards
 catch violations in debug builds at the point of construction.
 
-[cols="1,3",options="header"]
-|===
-| Invariant | Explanation
-
-| No comment nodes
-| `clean_node` returns `None` for `LineComment` and `BlockComment` nodes;
-callers in `clean_node`'s own recursion skip `None` results.  The root
-`build_ast` call surfaces a `None` root as an error.
-
-| `Param.name` iff `SeenEqual`
-| `analyze_param` sets `name: Some(token)` exactly when the DFA reaches
-`SeenEqual`, i.e. the pattern `Ident =` was found.  Positional params
-always have `name: None`.
-
-| Leaf nodes have no children
-| `Text`, `Space`, `Ident`, and `Equal` nodes are lexer terminals; they
-carry no children in the parse arena and therefore produce `ASTNode`s
-with `parts: vec![]`.  Asserted by `debug_assert!` in `clean_node`.
-
-| BFS output is contiguous
-| The serialization walk writes nodes in BFS order; each node's children
-occupy a contiguous range immediately following all previously written
-sibling subtrees.  Consumers can compute child ranges from child counts
-alone without storing back-references.
-|===
+<table>
+  <tr><th>Invariant</th><th>Explanation</th></tr>
+  <tr><td>No comment nodes</td><td>`clean_node` returns `None` for `LineComment` and `BlockComment` nodes;<br>
+callers in `clean_node`&#39;s own recursion skip `None` results.  The root<br>
+`build_ast` call surfaces a `None` root as an error.</td></tr>
+  <tr><td>`Param.name` iff `SeenEqual`</td><td>`analyze_param` sets `name: Some(token)` exactly when the DFA reaches<br>
+`SeenEqual`, i.e. the pattern `Ident =` was found.  Positional params<br>
+always have `name: None`.</td></tr>
+  <tr><td>Leaf nodes have no children</td><td>`Text`, `Space`, `Ident`, and `Equal` nodes are lexer terminals; they<br>
+carry no children in the parse arena and therefore produce `ASTNode`s<br>
+with `parts: vec![]`.  Asserted by `debug_assert!` in `clean_node`.</td></tr>
+  <tr><td>BFS output is contiguous</td><td>The serialization walk writes nodes in BFS order; each node&#39;s children<br>
+occupy a contiguous range immediately following all previously written<br>
+sibling subtrees.  Consumers can compute child ranges from child counts<br>
+alone without storing back-references.</td></tr>
+</table>
 
 ## Serialization (`serialization.rs`)
 

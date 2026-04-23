@@ -122,35 +122,20 @@ scripts can accumulate state.
 
 ## Submodule roles
 
-[cols="2,5",options="header"]
-|===
-| Document | Role
-
-| link:state.adoc[state.adoc]
-| All mutable state: `EvalConfig`, `EvaluatorState`, `ScopeFrame`,
-  `SourceManager`, `MacroDefinition`, `TrackedValue`, `VarDefRaw`, `MacroDefRaw`
-
-| link:output.adoc[output.adoc]
-| Output-sink abstraction: `EvalOutput` trait, `PlainOutput`, `TracingOutput`,
-  `PreciseTracingOutput`, `SpanKind`, `SourceSpan`, `MacroMapEntry`
-
-| link:core.adoc[core.adoc]
-| Main evaluation engine: `Evaluator` struct, `evaluate()`, `evaluate_to()`,
-  macro-call dispatch, scope management, `%include` handling
-
-| link:builtins.adoc[builtins.adoc]
-| Built-in macros (`%def`, `%set`, `%if`, `%include`, `%here`, …),
-  case-conversion utilities, and `modify_source`
-
-| link:scripting.adoc[scripting.adoc]
-| Script back-end: `MontyEvaluator` (Python via the monty crate)
-
-| link:eval_api.adoc[eval_api.adoc]
-| Thin public API: `eval_string`, `eval_file`, `eval_files`, `eval_string_with_defaults`
-
-| link:tests.adoc[tests.adoc]
-| 240+ unit and integration tests for all builtins, scripting, tracing, and API
-|===
+<table>
+  <tr><th>Document</th><th>Role</th></tr>
+  <tr><td>link:state.adoc[state.adoc]</td><td>All mutable state: `EvalConfig`, `EvaluatorState`, `ScopeFrame`,<br>
+`SourceManager`, `MacroDefinition`, `TrackedValue`, `VarDefRaw`, `MacroDefRaw`</td></tr>
+  <tr><td>link:output.adoc[output.adoc]</td><td>Output-sink abstraction: `EvalOutput` trait, `PlainOutput`, `TracingOutput`,<br>
+`PreciseTracingOutput`, `SpanKind`, `SourceSpan`, `MacroMapEntry`</td></tr>
+  <tr><td>link:core.adoc[core.adoc]</td><td>Main evaluation engine: `Evaluator` struct, `evaluate()`, `evaluate_to()`,<br>
+macro-call dispatch, scope management, `%include` handling</td></tr>
+  <tr><td>link:builtins.adoc[builtins.adoc]</td><td>Built-in macros (`%def`, `%set`, `%if`, `%include`, `%here`, …),<br>
+case-conversion utilities, and `modify_source`</td></tr>
+  <tr><td>link:scripting.adoc[scripting.adoc]</td><td>Script back-end: `MontyEvaluator` (Python via the monty crate)</td></tr>
+  <tr><td>link:eval_api.adoc[eval_api.adoc]</td><td>Thin public API: `eval_string`, `eval_file`, `eval_files`, `eval_string_with_defaults`</td></tr>
+  <tr><td>link:tests.adoc[tests.adoc]</td><td>240+ unit and integration tests for all builtins, scripting, tracing, and API</td></tr>
+</table>
 
 ## This file generates
 

@@ -21,83 +21,40 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 ## Test organisation
 
-[cols="2,4",options="header"]
-|===
-| Module | Coverage
-
-| `test_utils`
-| Shared helpers: `config_in_temp_dir`, `evaluator_in_temp_dir`
-
-| `test_macros`
-| `%def` basic call, parameters, nested, scope isolation
-
-| `test_def`
-| `%def` error paths: missing args, numeric names, duplicate params, `=`-style params
-
-| `test_var`
-| Variable substitution through `%def` parameter binding
-
-| `test_set`
-| `%set` builtin: sets a variable in the current scope
-
-| `test_if`
-| `%if` conditionals: truthy/falsy strings, nested, macro conditions
-
-| `test_include`
-| `%include`: basic, macros, missing file, circular detection, symlinks, scope,
-  `open_includes` cleanup on error (regression for bug #6)
-
-| `test_import`
-| `%import`: definitions-only include; text output discarded
-
-| `test_export`
-| `%export`: frozen arguments, wrong-arity error
-
-| `test_eval`
-| `%eval`: dynamic macro dispatch by name, nested macros, empty args
-
-| `test_here`
-| `%here`: source-file patching via `modify_source`
-
-| `test_case_conversion`
-| `Case` enum, `convert_case`, `convert_case_str`: all nine styles, delimiters,
-  numbers, acronyms, SCREAMING-KEBAB edge cases
-
-| `test_case_modifiers`
-| `%capitalize`, `%decapitalize`, `%convert_case`, `%to_snake_case`,
-  `%to_camel_case`, `%to_pascal_case`, `%to_screaming_case`
-
-| `test_pydef`
-| `%pydef` arithmetic, multi-param, greet, error propagation;
-  `%pyset`/`%pyget` store operations, param shadowing store key
-
-| `test_output`
-| `PlainOutput` parity with `evaluate()`; `SpyOutput` (test-only sink);
-  `TracingOutput` per-line spans; `into_macro_map_entries`
-
-| `test_eval_api`
-| `eval_string_with_defaults`, `eval_file_with_config`, `eval_files_with_config`:
-  basic, include, error, nested macros, sigil, shared macros
-
-| `test_macro_api`
-| `process_string`, `process_file`, `process_files_from_config`, `discover_includes_in_file` at the macro_api layer
-
-| `test_skill_examples`
-| Exact examples from `SKILL.md`: positional/named params, arity edge cases,
-  dynamic vs lexical scoping, `%export` freeze
-
-| `test_predicates`
-| `%eq`, `%neq`, `%not`: equality, inequality, logical negation, arity errors,
-  canonical boolean output, integration with `%if`
-
-| `test_raw_scripts`
-| Verbatim `%[ ... %]` blocks inside `%pydef`: literal script bodies,
-  param injection, and contrast with macro-aware `%{ ... %}` blocks
-
-| `test_warnings`
-| Warning infrastructure: `%export` at global scope, `%if()` with no args,
-  `take_warnings()` drains the list, `%export` inside macro does not warn
-|===
+<table>
+  <tr><th>Module</th><th>Coverage</th></tr>
+  <tr><td>`test_utils`</td><td>Shared helpers: `config_in_temp_dir`, `evaluator_in_temp_dir`</td></tr>
+  <tr><td>`test_macros`</td><td>`%def` basic call, parameters, nested, scope isolation</td></tr>
+  <tr><td>`test_def`</td><td>`%def` error paths: missing args, numeric names, duplicate params, `=`-style params</td></tr>
+  <tr><td>`test_var`</td><td>Variable substitution through `%def` parameter binding</td></tr>
+  <tr><td>`test_set`</td><td>`%set` builtin: sets a variable in the current scope</td></tr>
+  <tr><td>`test_if`</td><td>`%if` conditionals: truthy/falsy strings, nested, macro conditions</td></tr>
+  <tr><td>`test_include`</td><td>`%include`: basic, macros, missing file, circular detection, symlinks, scope,<br>
+`open_includes` cleanup on error (regression for bug #6)</td></tr>
+  <tr><td>`test_import`</td><td>`%import`: definitions-only include; text output discarded</td></tr>
+  <tr><td>`test_export`</td><td>`%export`: frozen arguments, wrong-arity error</td></tr>
+  <tr><td>`test_eval`</td><td>`%eval`: dynamic macro dispatch by name, nested macros, empty args</td></tr>
+  <tr><td>`test_here`</td><td>`%here`: source-file patching via `modify_source`</td></tr>
+  <tr><td>`test_case_conversion`</td><td>`Case` enum, `convert_case`, `convert_case_str`: all nine styles, delimiters,<br>
+numbers, acronyms, SCREAMING-KEBAB edge cases</td></tr>
+  <tr><td>`test_case_modifiers`</td><td>`%capitalize`, `%decapitalize`, `%convert_case`, `%to_snake_case`,<br>
+`%to_camel_case`, `%to_pascal_case`, `%to_screaming_case`</td></tr>
+  <tr><td>`test_pydef`</td><td>`%pydef` arithmetic, multi-param, greet, error propagation;<br>
+`%pyset`/`%pyget` store operations, param shadowing store key</td></tr>
+  <tr><td>`test_output`</td><td>`PlainOutput` parity with `evaluate()`; `SpyOutput` (test-only sink);<br>
+`TracingOutput` per-line spans; `into_macro_map_entries`</td></tr>
+  <tr><td>`test_eval_api`</td><td>`eval_string_with_defaults`, `eval_file_with_config`, `eval_files_with_config`:<br>
+basic, include, error, nested macros, sigil, shared macros</td></tr>
+  <tr><td>`test_macro_api`</td><td>`process_string`, `process_file`, `process_files_from_config`, `discover_includes_in_file` at the macro_api layer</td></tr>
+  <tr><td>`test_skill_examples`</td><td>Exact examples from `SKILL.md`: positional/named params, arity edge cases,<br>
+dynamic vs lexical scoping, `%export` freeze</td></tr>
+  <tr><td>`test_predicates`</td><td>`%eq`, `%neq`, `%not`: equality, inequality, logical negation, arity errors,<br>
+canonical boolean output, integration with `%if`</td></tr>
+  <tr><td>`test_raw_scripts`</td><td>Verbatim `%[ ... %]` blocks inside `%pydef`: literal script bodies,<br>
+param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
+  <tr><td>`test_warnings`</td><td>Warning infrastructure: `%export` at global scope, `%if()` with no args,<br>
+`take_warnings()` drains the list, `%export` inside macro does not warn</td></tr>
+</table>
 
 ## File structure
 

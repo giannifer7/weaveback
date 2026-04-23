@@ -37,29 +37,16 @@ CLI / Clip  (cli.adoc, noweb.adoc)
       gen_baselines · noweb_map · src_snapshots · var/macro_defs
 ....
 
-[cols="1,3",options="header"]
-|===
-| Module | Role
-
-| link:cli.adoc[main.rs]
-| CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge
-
-| link:noweb.adoc[noweb.rs]
-| Parse chunk definitions, expand recursively, write via `ChunkWriter`,
-  populate `noweb_map`
-
-| link:safe_writer.adoc[safe_writer.rs]
-| Atomic writes, content-based diffs, formatter hooks, modification detection
-
-| link:db.adoc[db.rs]
-| SQLite persistence: baselines, source maps, snapshots, definition spans
-
-| link:lookup.adoc[lookup.rs]
-| Source lookup and line tracing — shared by trace and apply-back
-
-| link:tests/tests.adoc[tests/]
-| Integration tests for all five modules
-|===
+<table>
+  <tr><th>Module</th><th>Role</th></tr>
+  <tr><td>link:cli.adoc[main.rs]</td><td>CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge</td></tr>
+  <tr><td>link:noweb.adoc[noweb.rs]</td><td>Parse chunk definitions, expand recursively, write via `ChunkWriter`,<br>
+populate `noweb_map`</td></tr>
+  <tr><td>link:safe_writer.adoc[safe_writer.rs]</td><td>Atomic writes, content-based diffs, formatter hooks, modification detection</td></tr>
+  <tr><td>link:db.adoc[db.rs]</td><td>SQLite persistence: baselines, source maps, snapshots, definition spans</td></tr>
+  <tr><td>link:lookup.adoc[lookup.rs]</td><td>Source lookup and line tracing — shared by trace and apply-back</td></tr>
+  <tr><td>link:tests/tests.adoc[tests/]</td><td>Integration tests for all five modules</td></tr>
+</table>
 
 See link:../../../docs/architecture.adoc[architecture.adoc] for the full
 pipeline context, including apply-back and the MCP server.

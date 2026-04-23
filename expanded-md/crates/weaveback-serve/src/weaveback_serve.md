@@ -41,23 +41,12 @@ block.
 
 ### HTTP endpoints
 
-[cols="2,1,4",options="header"]
-|===
-| Path | Method | Description
-
-| `/__events` | GET
-| SSE stream; sends `event: reload` whenever an HTML file changes.
-
-| `/__open` | GET
-| Opens `file` at `line` in `$VISUAL` / `$EDITOR`.
-
-| `/__chunk` | GET
-| Returns the current body and line bounds of a named chunk.
-
-| `/__apply` | POST
-| Edits a chunk body: verifies `old_body`, runs tangle oracle, writes file.
-
-|===
+| Path | Method | Description |
+| --- | --- | --- |
+| `/__events` | GET | SSE stream; sends `event: reload` whenever an HTML file changes. |
+| `/__open` | GET | Opens `file` at `line` in `$VISUAL` / `$EDITOR`. |
+| `/__chunk` | GET | Returns the current body and line bounds of a named chunk. |
+| `/__apply` | POST | Edits a chunk body: verifies `old_body`, runs tangle oracle, writes file. |
 
 ## Imports
 

@@ -183,17 +183,15 @@ when absent, only noweb-level patches (no macro tracing) are applied.
 
 `PatchSource` classifies where a patch lands:
 
-[cols="1,3"]
-|===
-| Variant | Meaning
-
-| `Noweb` | No macro attribution available; patch at noweb-expanded line.
-| `Literal` | Original literate source text — safe to auto-patch.
-| `MacroBodyLiteral` | Macro body with no variable references — safe to auto-patch.
-| `MacroBodyWithVars` | Macro body containing `%%(...)` — heuristic fix + oracle.
-| `MacroArg` | Argument at a call site — column-based replacement + oracle.
-| `Unpatchable` | `VarBinding` or `Computed` — reported only.
-|===
+<table>
+  <tr><td>Variant</td><td>Meaning</td></tr>
+  <tr><td>`Noweb`</td><td>No macro attribution available; patch at noweb-expanded line.</td></tr>
+  <tr><td>`Literal`</td><td>Original literate source text — safe to auto-patch.</td></tr>
+  <tr><td>`MacroBodyLiteral`</td><td>Macro body with no variable references — safe to auto-patch.</td></tr>
+  <tr><td>`MacroBodyWithVars`</td><td>Macro body containing `%%(...)` — heuristic fix + oracle.</td></tr>
+  <tr><td>`MacroArg`</td><td>Argument at a call site — column-based replacement + oracle.</td></tr>
+  <tr><td>`Unpatchable`</td><td>`VarBinding` or `Computed` — reported only.</td></tr>
+</table>
 
 The important detail is that `PatchSource` is not yet the final edit.  It is
 the starting hypothesis that determines which search strategy weaveback uses:

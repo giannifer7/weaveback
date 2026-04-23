@@ -74,14 +74,12 @@ end note
 Each row names a parser state and defines what tokens it acts on directly.
 Every other token falls through to the opener/leaf handler in `parse()`.
 
-[cols="1,2,2,2", options="header"]
-|===
-| State   | Terminates on             | Accepted directly              | Fallthrough
-| Block   | `BlockClose` (tag check)  | _none_ — only terminates       | all others via opener/leaf
-| Param   | `Comma`, `CloseParen`     | `Ident`, `Space`, `Equal`      | nested `BlockOpen`, `Macro`, etc.
-| Macro   | _never_ (invariant state) | _none_                         | error on any token
-| Comment | `CommentClose`            | `CommentOpen` (nested)         | all others ignored
-|===
+| State | Terminates on | Accepted directly | Fallthrough |
+| --- | --- | --- | --- |
+| Block | `BlockClose` (tag check) | _none_ — only terminates | all others via opener/leaf |
+| Param | `Comma`, `CloseParen` | `Ident`, `Space`, `Equal` | nested `BlockOpen`, `Macro`, etc. |
+| Macro | _never_ (invariant state) | _none_ | error on any token |
+| Comment | `CommentClose` | `CommentOpen` (nested) | all others ignored |
 
 `Macro` is never the top of the stack when a token arrives: it sits _below_
 `Param`, which is always pushed immediately after `Macro`.  Receiving a token

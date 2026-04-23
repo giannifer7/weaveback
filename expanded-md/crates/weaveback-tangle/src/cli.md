@@ -12,24 +12,22 @@ overview.
 
 ## Arguments
 
-[cols="1,1,3"]
-|===
-| Flag | Default | Description
-
-| `--gen DIR` | `gen` | Base directory for generated output files.
-| `--open-delim STR` | `<[` | Chunk open delimiter.
-| `--close-delim STR` | `]>` | Chunk close delimiter.
-| `--chunk-end STR` | `@` | Marker that closes a chunk definition.
-| `--comment-markers LIST` | `#,//` | Comma-separated comment prefixes.
-| `--formatter EXT=CMD` | — | Formatter to run on files with a given extension.
-| `--allow-home` | off | Allow `@file ~/…` chunks to write outside `gen/`.
-| `--strict` | off | Treat undefined chunk references as fatal errors (default: expand to nothing).
-| `--dry-run` | off | Print output paths without writing anything.
-| `--db FILE` | `weaveback.db` | Path to the persistent source-map database.
-| `--chunks LIST` | — | Named chunks to extract to stdout (or `--output`).
-| `--output FILE` | stdout | Destination for `--chunks` output.
-| `FILES…` | — | Input literate source files (`-` for stdin).
-|===
+<table>
+  <tr><td>Flag</td><td>Default</td><td>Description</td></tr>
+  <tr><td>`--gen DIR`</td><td>`gen`</td><td>Base directory for generated output files.</td></tr>
+  <tr><td>`--open-delim STR`</td><td>`&lt;[`</td><td>Chunk open delimiter.</td></tr>
+  <tr><td>`--close-delim STR`</td><td>`]&gt;`</td><td>Chunk close delimiter.</td></tr>
+  <tr><td>`--chunk-end STR`</td><td>`@`</td><td>Marker that closes a chunk definition.</td></tr>
+  <tr><td>`--comment-markers LIST`</td><td>`#,//`</td><td>Comma-separated comment prefixes.</td></tr>
+  <tr><td>`--formatter EXT=CMD`</td><td>—</td><td>Formatter to run on files with a given extension.</td></tr>
+  <tr><td>`--allow-home`</td><td>off</td><td>Allow `@file ~/…` chunks to write outside `gen/`.</td></tr>
+  <tr><td>`--strict`</td><td>off</td><td>Treat undefined chunk references as fatal errors (default: expand to nothing).</td></tr>
+  <tr><td>`--dry-run`</td><td>off</td><td>Print output paths without writing anything.</td></tr>
+  <tr><td>`--db FILE`</td><td>`weaveback.db`</td><td>Path to the persistent source-map database.</td></tr>
+  <tr><td>`--chunks LIST`</td><td>—</td><td>Named chunks to extract to stdout (or `--output`).</td></tr>
+  <tr><td>`--output FILE`</td><td>stdout</td><td>Destination for `--chunks` output.</td></tr>
+  <tr><td>`FILES…`</td><td>—</td><td>Input literate source files (`-` for stdin).</td></tr>
+</table>
 
 
 ```rust

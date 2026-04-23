@@ -116,26 +116,15 @@ impl ChunkDef {
 
 `ChunkError` covers every failure that can occur during parsing or expansion:
 
-[cols="2,3",options="header"]
-|===
-| Variant | When it is produced
-
-| `RecursionLimit`
-| Expansion depth exceeds `MAX_RECURSION_DEPTH`.
-
-| `RecursiveReference`
-| A chunk directly or indirectly references itself.
-
-| `UndefinedChunk`
-| A reference names a chunk that was never defined.  Silently expands to
-  nothing by default; fatal when `strict_undefined` is `true` (CLI: `--strict`).
-
-| `IoError`
-| An I/O failure in `ChunkWriter`.
-
-| `FileChunkRedefinition`
-| An `@file` chunk is defined twice without `@replace`.
-|===
+<table>
+  <tr><th>Variant</th><th>When it is produced</th></tr>
+  <tr><td>`RecursionLimit`</td><td>Expansion depth exceeds `MAX_RECURSION_DEPTH`.</td></tr>
+  <tr><td>`RecursiveReference`</td><td>A chunk directly or indirectly references itself.</td></tr>
+  <tr><td>`UndefinedChunk`</td><td>A reference names a chunk that was never defined.  Silently expands to<br>
+nothing by default; fatal when `strict_undefined` is `true` (CLI: `--strict`).</td></tr>
+  <tr><td>`IoError`</td><td>An I/O failure in `ChunkWriter`.</td></tr>
+  <tr><td>`FileChunkRedefinition`</td><td>An `@file` chunk is defined twice without `@replace`.</td></tr>
+</table>
 
 
 ```rust

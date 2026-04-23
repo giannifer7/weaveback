@@ -39,40 +39,23 @@ Xref selection:
 
 ## CLI flags
 
-[cols="1,3",options="header"]
-|===
-| Flag | Description
-
-| `--out-dir <path>`
-| Output directory for rendered HTML (default: `<root>/docs/html`)
-
-| `--theme-dir <path>`
-| Directory containing `docinfo.html` / `docinfo-footer.html`
-  (default: `<root>/scripts/asciidoc-theme`)
-
-| `--special <char>`
-| De-duplicate doubled occurrences of CHAR before passing `.adoc` files to
-  the acdc renderer. Repeatable.
-
-| `--xref-cmd <cmd>`
-| External command supplying cross-reference data. Receives project root as
-  first argument; must print `HashMap<key,XrefEntry>` JSON to stdout.
-
-| `--no-xref`
-| Skip cross-reference analysis entirely.
-
-| `--ai-xref`
-| Use LSP (rust-analyzer) to build precise cross-references (calls, trait impls).
-
-| `--plantuml-jar <path>`
-| Path to `plantuml.jar`.  When given, `[plantuml]` blocks are rendered by
-  calling `java -jar <path>` directly; no Ruby toolchain is required.
-  SVGs are cached by BLAKE3 hash in `<out-dir>/../.plantuml-cache/` (survives
-  `rm -rf <out-dir>`) and copied to the per-file output directory.
-
-| `--help` / `-h`
-| Print help and exit.
-|===
+<table>
+  <tr><th>Flag</th><th>Description</th></tr>
+  <tr><td>`--out-dir &lt;path&gt;`</td><td>Output directory for rendered HTML (default: `&lt;root&gt;/docs/html`)</td></tr>
+  <tr><td>`--theme-dir &lt;path&gt;`</td><td>Directory containing `docinfo.html` / `docinfo-footer.html`<br>
+(default: `&lt;root&gt;/scripts/asciidoc-theme`)</td></tr>
+  <tr><td>`--special &lt;char&gt;`</td><td>De-duplicate doubled occurrences of CHAR before passing `.adoc` files to<br>
+the acdc renderer. Repeatable.</td></tr>
+  <tr><td>`--xref-cmd &lt;cmd&gt;`</td><td>External command supplying cross-reference data. Receives project root as<br>
+first argument; must print `HashMap&lt;key,XrefEntry&gt;` JSON to stdout.</td></tr>
+  <tr><td>`--no-xref`</td><td>Skip cross-reference analysis entirely.</td></tr>
+  <tr><td>`--ai-xref`</td><td>Use LSP (rust-analyzer) to build precise cross-references (calls, trait impls).</td></tr>
+  <tr><td>`--plantuml-jar &lt;path&gt;`</td><td>Path to `plantuml.jar`.  When given, `[plantuml]` blocks are rendered by<br>
+calling `java -jar &lt;path&gt;` directly; no Ruby toolchain is required.<br>
+SVGs are cached by BLAKE3 hash in `&lt;out-dir&gt;/../.plantuml-cache/` (survives<br>
+`rm -rf &lt;out-dir&gt;`) and copied to the per-file output directory.</td></tr>
+  <tr><td>`--help` / `-h`</td><td>Print help and exit.</td></tr>
+</table>
 
 NOTE: The built-in xref scanner is Rust-specific: it parses `.rs` files with
 `syn` and expects workspace members under `<root>/crates/`.  Workspaces using a
@@ -81,22 +64,12 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 
 ## Module map
 
-[cols="1,3",options="header"]
-|===
-| Module | Role
-
-| link:render.wvb[render.rs]
-| Discover `.adoc` files, render with acdc in-process (parallel, incremental)
-
-| link:xref.wvb[xref.rs]
-| Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph
-
-| link:inject.wvb[inject.rs]
-| Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>`
-
-| link:literate_index.wvb[literate_index.rs]
-| Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages
-|===
+| Module | Role |
+| --- | --- |
+| link:render.wvb[render.rs] | Discover `.adoc` files, render with acdc in-process (parallel, incremental) |
+| link:xref.wvb[xref.rs] | Parse `.rs` files with `syn`, resolve imports, build forward+reverse xref graph |
+| link:inject.wvb[inject.rs] | Rewrite `.adoc` hrefs; inject `window.__xref` JSON into HTML `<head>` |
+| link:literate_index.wvb[literate_index.rs] | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages |
 
 ## Project-root detection
 

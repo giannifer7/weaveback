@@ -60,28 +60,25 @@ every call to `run_comment_state`.
 
 ## Token vocabulary
 
-[cols="1,1,4",options="header"]
-|===
-| `TokenKind` | Sequence | Meaning
-
-| `Text`        | _any_           | Literal pass-through content
-| `Space`       | whitespace run  | Whitespace inside macro args (preserved)
-| `Special`     | `%%`            | Escaped sigil → literal `%` in output
-| `BlockOpen`   | `%{` / `%name{` | Opens a named or anonymous macro-aware block
-| `BlockClose`  | `%}` / `%name}` | Closes the innermost open macro-aware block
-| `VerbatimOpen` | `%[` / `%name[` | Opens a named or anonymous opaque verbatim block
-| `VerbatimClose` | `%]` / `%name]` | Closes the innermost opaque verbatim block
-| `Macro`       | `%name(`        | Macro call head; starts arg-list scanning
-| `Var`         | `%(name)`       | Variable substitution
-| `Ident`       | `[A-Za-z_][…]`  | Identifier inside a macro arg list
-| `Comma`       | `,`             | Arg separator inside a macro arg list
-| `CloseParen`  | `)`             | Closes the current macro arg list
-| `Equal`       | `=`             | Named-arg `=` inside a macro arg list
-| `LineComment` | `%//` / `%--` / `%#` | Single-line comment (consumed to `\n`)
-| `CommentOpen` | `%/*`           | Opens a nestable block comment
-| `CommentClose`| `%*/`           | Closes the innermost open block comment
-| `EOF`         | _end of input_  | Sentinel; always the last token
-|===
+| `TokenKind` | Sequence | Meaning |
+| --- | --- | --- |
+| `Text` | _any_ | Literal pass-through content |
+| `Space` | whitespace run | Whitespace inside macro args (preserved) |
+| `Special` | `%%` | Escaped sigil → literal `%` in output |
+| `BlockOpen` | `%{` / `%name{` | Opens a named or anonymous macro-aware block |
+| `BlockClose` | `%}` / `%name}` | Closes the innermost open macro-aware block |
+| `VerbatimOpen` | `%[` / `%name[` | Opens a named or anonymous opaque verbatim block |
+| `VerbatimClose` | `%]` / `%name]` | Closes the innermost opaque verbatim block |
+| `Macro` | `%name(` | Macro call head; starts arg-list scanning |
+| `Var` | `%(name)` | Variable substitution |
+| `Ident` | `[A-Za-z_][…]` | Identifier inside a macro arg list |
+| `Comma` | `,` | Arg separator inside a macro arg list |
+| `CloseParen` | `)` | Closes the current macro arg list |
+| `Equal` | `=` | Named-arg `=` inside a macro arg list |
+| `LineComment` | `%//` / `%--` / `%#` | Single-line comment (consumed to `\n`) |
+| `CommentOpen` | `%/*` | Opens a nestable block comment |
+| `CommentClose` | `%*/` | Closes the innermost open block comment |
+| `EOF` | _end of input_ | Sentinel; always the last token |
 
 ## State machine
 
@@ -800,23 +797,20 @@ decides what to emit and whether to push or pop.
 
 The dispatch table (by the next byte):
 
-[cols="1,4",options="header"]
-|===
-| Next byte | Action
-
-| `(`       | `%(varname)` variable substitution — delegated to `handle_var`
-| `{`       | Anonymous block open — push `State::Block`
-| `}`       | Macro-aware block close — pop current frame
-| `[`       | Anonymous verbatim block open — push `State::Verbatim`
-| `]`       | Verbatim block close — pop current frame
-| `/`       | Line (`%//`) or block (`%/*`) comment; `%/*` pushes `State::Comment`
-| `-`       | Line comment `%--`
-| `#`       | Line comment `%#`
-| `sc`      | Escaped sigil `%%` → `Special` token
-| identifier start | Named macro `%name(`, named block `%name{`/`%name}`, or plain text
-| anything else | Error + emit `%` as `Text`; unrecognised byte left for next iteration
-| EOF       | Emit `%` as `Text`
-|===
+| Next byte | Action |
+| --- | --- |
+| `(` | `%(varname)` variable substitution — delegated to `handle_var` |
+| `{` | Anonymous block open — push `State::Block` |
+| `}` | Macro-aware block close — pop current frame |
+| `[` | Anonymous verbatim block open — push `State::Verbatim` |
+| `]` | Verbatim block close — pop current frame |
+| `/` | Line (`%//`) or block (`%/*`) comment; `%/*` pushes `State::Comment` |
+| `-` | Line comment `%--` |
+| `#` | Line comment `%#` |
+| `sc` | Escaped sigil `%%` → `Special` token |
+| identifier start | Named macro `%name(`, named block `%name{`/`%name}`, or plain text |
+| anything else | Error + emit `%` as `Text`; unrecognised byte left for next iteration |
+| EOF | Emit `%` as `Text` |
 
 `handle_var` handles the `%(name)` form: it demands an identifier
 immediately after `(` and a `)` immediately after the identifier.  Any

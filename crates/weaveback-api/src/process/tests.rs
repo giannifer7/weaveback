@@ -62,6 +62,81 @@ fn write_depfile_escapes_spaces_in_paths() {
 }
 
 #[test]
+fn normalize_adoc_table_to_markdown_pipe_table() {
+    let input = concat!(
+        "[cols=\"1,2\",options=\"header\"]\n",
+        "|===\n",
+        "| Name | Meaning\n",
+        "\n",
+        "| `%def` | Constant binding\n",
+        "| `%redef` | Rebindable binding\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert_eq!(
+        out,
+        concat!(
+            "| Name | Meaning |\n",
+            "| --- | --- |\n",
+            "| `%def` | Constant binding |\n",
+            "| `%redef` | Rebindable binding |\n",
+        )
+    );
+}
+
+#[test]
+fn normalize_adoc_table_handles_split_rows() {
+    let input = concat!(
+        "[cols=\"2,1,4\",options=\"header\"]\n",
+        "|===\n",
+        "| Path | Method | Description\n",
+        "\n",
+        "| `/__events` | GET\n",
+        "| SSE stream.\n",
+        "| `/__open` | GET\n",
+        "| Opens an editor.\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert!(out.contains("| `/__events` | GET | SSE stream. |"), "out: {out}");
+    assert!(out.contains("| `/__open` | GET | Opens an editor. |"), "out: {out}");
+}
+
+#[test]
+fn normalize_adoc_table_uses_html_for_complex_cells() {
+    let input = concat!(
+        "[cols=\"1,2\",options=\"header\"]\n",
+        "|===\n",
+        "| Error | Meaning\n",
+        "| `UndefinedChunk`\n",
+        "| A reference names a chunk that was never defined. Silently expands to\n",
+        "  nothing by default.\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert!(out.starts_with("<table>"), "out: {out}");
+    assert!(out.contains("<br>"), "out: {out}");
+    assert!(out.contains("nothing by default."), "out: {out}");
+}
+
+#[test]
+fn normalize_adoc_table_skips_fenced_code_blocks() {
+    let input = concat!(
+        "```text\n",
+        "[cols=\"1,1\",options=\"header\"]\n",
+        "|===\n",
+        "| A | B\n",
+        "|===\n",
+        "```\n",
+    );
+
+    assert_eq!(normalize_adoc_tables_for_markdown(input), input);
+}
+
+#[test]
 fn compute_skip_set_with_no_prev_db_returns_empty() {
     let mut current_db = weaveback_tangle::db::WeavebackDb::open_temp().unwrap();
     let sources: HashMap<String, String> = HashMap::new();
@@ -379,6 +454,45 @@ fn run_single_pass_macro_only_writes_expanded_documents() {
     assert!(expanded.contains("hello"));
     assert!(!gen_dir.join("input.adoc").exists());
     assert!(!expanded_md_dir.join("input.adoc").exists());
+}
+
+
+#[test]
+fn run_single_pass_normalizes_adoc_tables_in_markdown_expanded_documents() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.wvb");
+    fs::write(&src, concat!(
+        "[cols=\"1,1\",options=\"header\"]\n",
+        "|===\n",
+        "| A | B\n",
+        "| one | two\n",
+        "|===\n",
+    )).unwrap();
+
+    let gen_dir = tmp.path().join("gen");
+    let expanded_adoc_dir = tmp.path().join("expanded-adoc");
+    let expanded_md_dir = tmp.path().join("expanded-md");
+
+    let args = SinglePassArgs {
+        inputs: vec![src.file_name().unwrap().into()],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir,
+        expanded_adoc_dir: expanded_adoc_dir.clone(),
+        expanded_md_dir: expanded_md_dir.clone(),
+        db: tmp.path().join("wb.db"),
+        no_fts: true,
+        no_macros: false,
+        expanded_ext: Some("md".to_string()),
+        macro_only: true,
+        sigil: '¤',
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+
+    let expanded = fs::read_to_string(expanded_md_dir.join("input.md")).unwrap();
+    assert!(expanded.contains("| A | B |"), "expanded: {expanded}");
+    assert!(!expanded.contains("|==="), "expanded: {expanded}");
+    assert!(!expanded_adoc_dir.join("input.md").exists());
 }
 
 

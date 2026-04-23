@@ -83,6 +83,7 @@ cli_rs --> eval_rs
 ¤h2(¤[Modules¤])
 
 .Literate sources
+¤table(adoc, ¤[
 [cols="1,2,3",options="header"]
 |===
 | Module | Adoc source | Description
@@ -143,6 +144,7 @@ cli_rs --> eval_rs
 | xref:bin/cli.adoc[bin/cli.adoc]
 | `weaveback-macro` binary: clap args, `--dir` discovery, `--dump-ast`
 |===
+¤])
 
 ¤h2(¤[`lib.rs` — crate root¤])
 

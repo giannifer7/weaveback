@@ -41,6 +41,7 @@ block.
 
 ¤h3(¤[HTTP endpoints¤])
 
+¤table(adoc, ¤[
 [cols="2,1,4",options="header"]
 |===
 | Path | Method | Description
@@ -58,6 +59,7 @@ block.
 | Edits a chunk body: verifies `old_body`, runs tangle oracle, writes file.
 
 |===
+¤])
 
 ¤h2(¤[Imports¤])
 

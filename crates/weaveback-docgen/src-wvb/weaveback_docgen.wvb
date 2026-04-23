@@ -39,6 +39,7 @@ Xref selection:
 
 ¤h2(¤[CLI flags¤])
 
+¤table(adoc, ¤[
 [cols="1,3",options="header"]
 |===
 | Flag | Description
@@ -73,6 +74,7 @@ Xref selection:
 | `--help` / `-h`
 | Print help and exit.
 |===
+¤])
 
 NOTE: The built-in xref scanner is Rust-specific: it parses `.rs` files with
 `syn` and expects workspace members under `<root>/crates/`.  Workspaces using a
@@ -81,6 +83,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 
 ¤h2(¤[Module map¤])
 
+¤table(adoc, ¤[
 [cols="1,3",options="header"]
 |===
 | Module | Role
@@ -97,6 +100,7 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 | link:literate_index.wvb[literate_index.rs]
 | Walk `out_dir/crates/`, inject "Implementation pages" into literate crate pages
 |===
+¤])
 
 ¤h2(¤[Project-root detection¤])
 

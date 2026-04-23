@@ -12,6 +12,7 @@ overview.
 
 ¤h2(¤[Arguments¤])
 
+¤table(adoc, ¤[
 [cols="1,1,3"]
 |===
 | Flag | Default | Description
@@ -30,6 +31,7 @@ overview.
 | `--output FILE` | stdout | Destination for `--chunks` output.
 | `FILES…` | — | Input literate source files (`-` for stdin).
 |===
+¤])
 
 ¤rust_file(weaveback-tangle/src/main.rs, ¤[
 use weaveback_tangle::{WeavebackError, Clip, SafeFileWriter, SafeWriterConfig};

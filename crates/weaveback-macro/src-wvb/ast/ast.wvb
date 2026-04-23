@@ -38,6 +38,7 @@ avoids backtracking while making all legal transitions explicit.
 
 The first pass of `analyze_param` is a three-state machine:
 
+¤table(adoc, ¤[
 [cols="1,2,2",options="header"]
 |===
 | State | Transitions in | Carries
@@ -54,6 +55,7 @@ The first pass of `analyze_param` is a three-state machine:
 | `SeenName` + `Equal` token
 | the `name: Token`
 |===
+¤])
 
 The `SeenName` state has two exits: `Equal` advances to `SeenEqual`; any
 other non-skip token `break`s the scan and the parameter is classified as
@@ -240,6 +242,7 @@ pub fn build_ast(parser: &Parser) -> Result<ASTNode, ASTError> {
 The most complex function in the module.  It handles the three structural
 cases of a macro parameter:
 
+¤table(adoc, ¤[
 [cols="1,3",options="header"]
 |===
 | Pattern | Result
@@ -253,6 +256,7 @@ cases of a macro parameter:
 | anything else
 | Positional param — `name` is `None`, parts start from first non-skippable node
 |===
+¤])
 
 The first pass (lines labelled "First pass") scans children, skipping
 `Space`, `LineComment`, and `BlockComment` nodes.  It sets four state
@@ -590,6 +594,7 @@ After `process_ast` completes the following hold for every `ASTNode` in
 the returned tree.  Tests assert subsets of these; `debug_assert!` guards
 catch violations in debug builds at the point of construction.
 
+¤table(adoc, ¤[
 [cols="1,3",options="header"]
 |===
 | Invariant | Explanation
@@ -615,6 +620,7 @@ occupy a contiguous range immediately following all previously written
 sibling subtrees.  Consumers can compute child ranges from child counts
 alone without storing back-references.
 |===
+¤])
 
 ¤h2(Serialization (`serialization.rs`))
 

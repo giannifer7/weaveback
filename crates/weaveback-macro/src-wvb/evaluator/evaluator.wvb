@@ -117,6 +117,7 @@ scripts can accumulate state.
 
 ¤h2(¤[Submodule roles¤])
 
+¤table(adoc, ¤[
 [cols="2,5",options="header"]
 |===
 | Document | Role
@@ -146,6 +147,7 @@ scripts can accumulate state.
 | link:tests.adoc[tests.adoc]
 | 240+ unit and integration tests for all builtins, scripting, tracing, and API
 |===
+¤])
 
 ¤h2(¤[This file generates¤])
 

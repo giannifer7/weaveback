@@ -35,6 +35,10 @@ title: |-
 ```
 ¤})
 
+¤redef(table, format, body, ¤{<!-- weaveback-table:¤(format) -->
+¤(body)
+<!-- /weaveback-table -->¤})
+
 ¤redef(xref, target, label, ¤{[¤(label)](¤(target))¤})
 
 ¤redef(note, body, ¤{

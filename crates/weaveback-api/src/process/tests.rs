@@ -137,6 +137,55 @@ fn normalize_adoc_table_skips_fenced_code_blocks() {
 }
 
 #[test]
+fn explicit_adoc_table_block_renders_as_markdown_for_markdown_output() {
+    let input = concat!(
+        "before\n",
+        "<", "!-- weaveback-table:adoc -->\n",
+        "[cols=\"1,1\",options=\"header\"]\n",
+        "|===\n",
+        "| A | B\n",
+        "| one | two\n",
+        "|===\n",
+        "<", "!-- /weaveback-table -->\n",
+        "after\n",
+    );
+
+    let out = normalize_expanded_document(Some("md"), input.as_bytes());
+    assert!(out.contains("| A | B |"), "out: {out}");
+    assert!(!out.contains("weaveback-table"), "out: {out}");
+    assert!(!out.contains("|==="), "out: {out}");
+}
+
+#[test]
+fn explicit_markdown_table_block_renders_as_asciidoc_for_asciidoc_output() {
+    let input = concat!(
+        "<", "!-- weaveback-table:md -->\n",
+        "| A | B |\n",
+        "| --- | --- |\n",
+        "| one | two |\n",
+        "<", "!-- /weaveback-table -->\n",
+    );
+
+    let out = normalize_expanded_document(Some("adoc"), input.as_bytes());
+    assert!(out.contains("[cols=\"1,1\",options=\"header\"]"), "out: {out}");
+    assert!(out.contains("| A | B"), "out: {out}");
+    assert!(out.contains("| one | two"), "out: {out}");
+    assert!(!out.contains("weaveback-table"), "out: {out}");
+}
+
+#[test]
+fn explicit_html_table_block_is_asciidoc_passthrough_block() {
+    let input = concat!(
+        "<", "!-- weaveback-table:html -->\n",
+        "<table><tr><td>A</td></tr></table>\n",
+        "<", "!-- /weaveback-table -->\n",
+    );
+
+    let out = normalize_expanded_document(Some("adoc"), input.as_bytes());
+    assert_eq!(out.trim(), "++++\n<table><tr><td>A</td></tr></table>\n++++");
+}
+
+#[test]
 fn compute_skip_set_with_no_prev_db_returns_empty() {
     let mut current_db = weaveback_tangle::db::WeavebackDb::open_temp().unwrap();
     let sources: HashMap<String, String> = HashMap::new();

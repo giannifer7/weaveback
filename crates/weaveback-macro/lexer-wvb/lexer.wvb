@@ -52,6 +52,7 @@ every call to `run_comment_state`.
 
 ¤h2(Token vocabulary)
 
+¤table(adoc, ¤[
 [cols="1,1,4",options="header"]
 |===
 | `TokenKind` | Sequence | Meaning
@@ -74,6 +75,7 @@ every call to `run_comment_state`.
 | `CommentClose`| `%*/`           | Closes the innermost open block comment
 | `EOF`         | _end of input_  | Sentinel; always the last token
 |===
+¤])
 
 ¤h2(State machine)
 
@@ -742,6 +744,7 @@ decides what to emit and whether to push or pop.
 
 The dispatch table (by the next byte):
 
+¤table(adoc, ¤[
 [cols="1,4",options="header"]
 |===
 | Next byte | Action
@@ -759,6 +762,7 @@ The dispatch table (by the next byte):
 | anything else | Error + emit `%` as `Text`; unrecognised byte left for next iteration
 | EOF       | Emit `%` as `Text`
 |===
+¤])
 
 `handle_var` handles the `%(name)` form: it demands an identifier
 immediately after `(` and a `)` immediately after the identifier.  Any

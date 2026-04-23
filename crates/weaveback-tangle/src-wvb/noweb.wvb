@@ -112,6 +112,7 @@ impl ChunkDef {
 
 `ChunkError` covers every failure that can occur during parsing or expansion:
 
+¤table(adoc, ¤[
 [cols="2,3",options="header"]
 |===
 | Variant | When it is produced
@@ -132,6 +133,7 @@ impl ChunkDef {
 | `FileChunkRedefinition`
 | An `@file` chunk is defined twice without `@replace`.
 |===
+¤])
 
 ¤rust_chunk(noweb-errors, ¤[
 use thiserror::Error;

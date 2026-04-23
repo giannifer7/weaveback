@@ -102,6 +102,7 @@ Whitespace control for accumulated noweb fragments lives in the tangle layer
 instead (`@compact`, `@tight` on chunk references), because that problem is
 about chunk composition rather than macro evaluation.
 
+¤table(adoc, ¤[
 [cols="1,4",options="header"]
 |===
 | Name | Behaviour
@@ -163,6 +164,7 @@ about chunk composition rather than macro evaluation.
 | `%env(NAME)`
 | Read an environment variable.  Requires `--allow-env`.
 |===
+¤])
 
 ¤h2(¤[File structure¤])
 

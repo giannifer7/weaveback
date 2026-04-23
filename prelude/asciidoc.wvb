@@ -32,6 +32,10 @@
 ----
 ¤})
 
+¤redef(table, format, body, ¤{<!-- weaveback-table:¤(format) -->
+¤(body)
+<!-- /weaveback-table -->¤})
+
 ¤redef(xref, target, label, ¤{link:¤(target)[¤(label)]¤})
 
 ¤redef(note, body, ¤{

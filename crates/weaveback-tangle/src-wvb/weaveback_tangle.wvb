@@ -37,6 +37,7 @@ CLI / Clip  (cli.adoc, noweb.adoc)
       gen_baselines · noweb_map · src_snapshots · var/macro_defs
 ....
 
+¤table(adoc, ¤[
 [cols="1,3",options="header"]
 |===
 | Module | Role
@@ -60,6 +61,7 @@ CLI / Clip  (cli.adoc, noweb.adoc)
 | link:tests/tests.adoc[tests/]
 | Integration tests for all five modules
 |===
+¤])
 
 See link:../../../docs/architecture.adoc[architecture.adoc] for the full
 pipeline context, including apply-back and the MCP server.

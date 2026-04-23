@@ -16,6 +16,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 ¤h2(¤[Test organisation¤])
 
+¤table(adoc, ¤[
 [cols="2,4",options="header"]
 |===
 | Module | Coverage
@@ -93,6 +94,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 | Warning infrastructure: `%export` at global scope, `%if()` with no args,
   `take_warnings()` drains the list, `%export` inside macro does not warn
 |===
+¤])
 
 ¤h2(¤[File structure¤])
 

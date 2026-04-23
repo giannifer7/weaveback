@@ -4,7 +4,6 @@ The `lookup` module provides shared logic for mapping between generated files
 and their literate sources.  It is used by the `wb-query trace` command
 and the `apply-back` reconciliation tool.
 
-
 ```rust
 // <[lookup-types]>=
 use std::path::Path;
@@ -161,7 +160,6 @@ pub fn find_best_source_config(
 ```
 
 
-
 ```rust
 // <[@file weaveback-tangle/src/lookup.rs]>=
 // weaveback-tangle/src/lookup.rs
@@ -176,7 +174,6 @@ mod tests;
 
 
 ## Tests
-
 
 ```rust
 // <[@file weaveback-tangle/src/lookup/tests.rs]>=

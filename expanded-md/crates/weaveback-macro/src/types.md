@@ -45,7 +45,6 @@ zero-length placeholder so that `end_pos` computation remains correct.
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/types.rs]>=
 // weaveback-macro/src/types.rs
@@ -68,7 +67,6 @@ zero-length placeholder so that `end_pos` computation remains correct.
 
 ## Preamble
 
-
 ```rust
 // <[types preamble]>=
 // crates/weaveback-macro/src/types.rs
@@ -83,7 +81,6 @@ use std::convert::TryFrom;
 
 Token kinds produced by the lexer.  See
 xref:../lexer/lexer.adoc[lexer] for the state machine that emits them.
-
 
 ```rust
 // <[token kind]>=
@@ -118,7 +115,6 @@ Node kinds used in `ParseNode` and `ASTNode`.  Discriminant 0 (`NotUsed`) is
 reserved so that Python `IntEnum` discriminants (which start at 1 by default)
 align without an offset.
 
-
 ```rust
 // <[node kind]>=
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -146,7 +142,6 @@ pub enum NodeKind {
 A lightweight (all `Copy`) source reference.  `src` is an index into the
 evaluator's `SourceManager`; `pos` and `length` are byte offsets into that
 source string.
-
 
 ```rust
 // <[token struct]>=
@@ -182,7 +177,6 @@ impl Token {
 
 ## `LexerError`
 
-
 ```rust
 // <[lexer error]>=
 #[derive(Debug)]
@@ -198,7 +192,6 @@ pub struct LexerError {
 
 Produced by the parser; children are stored as indices into the parser's flat
 arena.  Converted to `ASTNode` by the post-pass in `ast/mod.rs`.
-
 
 ```rust
 // <[parse node]>=
@@ -219,7 +212,6 @@ pub struct ParseNode {
 The materialised tree form.  `parts` contains owned child nodes;
 `name` carries the identifier token for `Macro` and `Var` nodes.
 
-
 ```rust
 // <[ast node]>=
 #[derive(Debug, Clone)]
@@ -236,7 +228,6 @@ pub struct ASTNode {
 
 
 ## `TryFrom<i32>` for `TokenKind`
-
 
 ```rust
 // <[try from token kind]>=
@@ -271,7 +262,6 @@ impl TryFrom<i32> for TokenKind {
 
 ## `TryFrom<i32>` for `NodeKind`
 
-
 ```rust
 // <[try from node kind]>=
 impl TryFrom<i32> for NodeKind {
@@ -299,7 +289,6 @@ impl TryFrom<i32> for NodeKind {
 
 
 ## Tests
-
 
 ```rust
 // <[types tests]>=

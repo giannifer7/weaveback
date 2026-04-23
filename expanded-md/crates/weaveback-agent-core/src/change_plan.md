@@ -1,6 +1,5 @@
 # weaveback-agent-core change_plan
 
-
 ```rust
 // <[@file weaveback-agent-core/src/change_plan.rs]>=
 // weaveback-agent-core/src/change_plan.rs

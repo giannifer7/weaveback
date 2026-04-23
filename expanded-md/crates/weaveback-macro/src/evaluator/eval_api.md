@@ -42,7 +42,6 @@ overwrite the source with the expanded output.
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/eval_api.rs]>=
 // weaveback-macro/src/evaluator/eval_api.rs
@@ -63,7 +62,6 @@ overwrite the source with the expanded output.
 
 ## Preamble
 
-
 ```rust
 // <[eval api preamble]>=
 // crates/weaveback-macro/src/evaluator/eval_api.rs
@@ -83,7 +81,6 @@ use super::state::EvalConfig;
 Parses `source` using `evaluator.parse_string` and then evaluates the AST.
 If `real_path` is supplied, the evaluator's `current_file` is updated so that
 `%here` and error messages reference the correct file path.
-
 
 ```rust
 // <[eval string]>=
@@ -108,7 +105,6 @@ pub fn eval_string(
 
 ## `canonical` — resolve path through parent when file does not exist
 
-
 ```rust
 // <[canonical helper]>=
 /// Returns the canonical path of `p`, resolving through the parent directory
@@ -126,7 +122,6 @@ fn canonical(p: &Path) -> std::io::Result<PathBuf> {
 
 
 ## `eval_file`
-
 
 ```rust
 // <[eval file]>=
@@ -169,7 +164,6 @@ pub fn eval_file(
 
 ## `eval_file_with_config`
 
-
 ```rust
 // <[eval file with config]>=
 pub fn eval_file_with_config(
@@ -188,7 +182,6 @@ pub fn eval_file_with_config(
 
 Processes a batch of inputs through the same evaluator, writing each output
 to `output_dir / input_filename`.
-
 
 ```rust
 // <[eval files]>=
@@ -217,7 +210,6 @@ pub fn eval_files(
 
 ## `eval_files_with_config`
 
-
 ```rust
 // <[eval files with config]>=
 pub fn eval_files_with_config(
@@ -236,7 +228,6 @@ pub fn eval_files_with_config(
 
 The simplest entry point: fresh evaluator, default `%` sigil, no path.
 Used extensively in unit tests.
-
 
 ```rust
 // <[eval string with defaults]>=

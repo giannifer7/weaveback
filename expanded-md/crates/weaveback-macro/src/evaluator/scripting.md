@@ -27,7 +27,6 @@ automatically after the script runs. Use `%pyset` to persist values explicitly.
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/monty_eval.rs]>=
 // weaveback-macro/src/evaluator/monty_eval.rs
@@ -43,7 +42,6 @@ automatically after the script runs. Use `%pyset` to persist values explicitly.
 
 
 ## Monty evaluator (Python)
-
 
 <!-- graph: monty-evaluation-flow -->
 ```plantuml
@@ -86,7 +84,6 @@ stop
 
 ## Preamble
 
-
 ```rust
 // <[monty eval preamble]>=
 // crates/weaveback-macro/src/evaluator/monty_eval.rs
@@ -98,7 +95,6 @@ use std::collections::{HashMap, HashSet};
 
 
 ## `MontyEvaluator` struct
-
 
 ```rust
 // <[monty evaluator struct]>=
@@ -119,7 +115,6 @@ Store keys are prepended before declared params so that `prefix + name` works
 inside Python without explicit parameter declaration. Declared params always
 shadow same-named store keys because params are appended last and positional
 binding is left-to-right.
-
 
 ```rust
 // <[monty evaluator impl]>=
@@ -174,7 +169,6 @@ impl MontyEvaluator {
 `MontyObject::List` items are concatenated without a separator. This matches
 the behaviour of returning a list of strings from a Python function as if they
 were a single concatenated string.
-
 
 ```rust
 // <[monty object to string]>=

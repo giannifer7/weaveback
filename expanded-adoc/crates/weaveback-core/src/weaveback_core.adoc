@@ -7,7 +7,6 @@ between the macro and tangle crates.
 
 == Shared Constants
 
-
 [source,rust]
 ----
 // <[core-constants]>=
@@ -29,7 +28,6 @@ is also the directory from which weaveback was originally run.  Using the db
 location (rather than the current working directory) ensures that paths resolve
 correctly when subcommands like `apply-back` are invoked from a different
 directory.
-
 
 [source,rust]
 ----
@@ -97,7 +95,6 @@ impl PathResolver {
 
 
 == Assembly
-
 
 [source,rust]
 ----

@@ -32,7 +32,6 @@ module together with its public symbol list.  Both types derive `Serialize` and
 `Deserialize` so they can be written to `xref.json` and embedded as JSON in
 HTML pages.
 
-
 ```rust
 // <[xref-types]>=
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -59,7 +58,6 @@ pub struct XrefEntry {
 
 
 ## Module key helpers
-
 
 ```rust
 // <[xref-module-key]>=
@@ -106,7 +104,6 @@ pub fn html_path_for_key(key: &str) -> String {
 crate names (normalised to underscore form).  The list is used by
 `resolve_import` to recognise cross-crate `use` paths.
 
-
 ```rust
 // <[xref-workspace]>=
 pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
@@ -147,7 +144,6 @@ constants, and modules feed into the `symbols` list.
 `analyze_file` reads and parses a `.rs` file, returning `(use_paths,
 symbols)`.  Parse failures are silently ignored — an empty result is safe
 because the module will simply have no edges in the graph.
-
 
 ```rust
 // <[xref-use-tree]>=
@@ -252,7 +248,6 @@ foo::Bar` resolves to module `foo` even though `Bar` is a type, not a module.
 Anything else (standard library, external crates, trait-only imports) is
 silently dropped and produces no graph edge.
 
-
 ```rust
 // <[xref-resolve]>=
 fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> Option<String> {
@@ -325,7 +320,6 @@ weaveback-macro adocs.  Crates that use other delimiters (e.g. `<[ ]>`) will
 not be scanned here; their module pages are handled by the direct key lookup
 in `inject_xref` so long as the `.adoc` stem matches the `.rs` stem.
 
-
 ```rust
 // <[xref-adoc-scan]>=
 fn atfile_re() -> &'static Regex {
@@ -380,7 +374,6 @@ pub fn scan_adoc_file_declarations(
 here but not in `render.rs` because xref analysis only needs original source
 files, not generated output.
 
-
 ```rust
 // <[xref-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "gen", "node_modules", ".venv"];
@@ -403,7 +396,6 @@ with `syn`, resolve imports into module keys, and build the forward and reverse
 edges.  The local `RawData` struct accumulates per-file data before resolution
 so that the two passes (forward edge collection, reverse edge derivation) can
 share the same analysis results.
-
 
 ```rust
 // <[xref-build]>=
@@ -567,7 +559,6 @@ fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
 
 ## Assembly
 
-
 ```rust
 // <[@file weaveback-docgen/src/xref.rs]>=
 // weaveback-docgen/src/xref.rs
@@ -600,7 +591,6 @@ mod tests;
 
 The test body is generated as `xref/tests.rs` and linked from
 `xref.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/xref/tests.rs]>=

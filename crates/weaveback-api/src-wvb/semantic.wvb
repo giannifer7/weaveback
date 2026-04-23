@@ -18,14 +18,13 @@ the system local and inspectable.
 
 Add a `[semantic]` section to `weaveback.toml`:
 
-[source,toml]
-----
+¤code_block(toml, ¤[
 [semantic]
 backend    = "openai"                  # or gemini / ollama / any openai-compatible
 model      = "text-embedding-3-small"
 batch_size = 24                        # blocks per embedding request
 # endpoint = "http://localhost:11434/v1"  # for ollama or openai-compatible
-----
+¤])
 
 Supported backends:
 

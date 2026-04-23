@@ -8,7 +8,6 @@ Test helpers and tests for `%def` (basic calls, error paths, parameter binding),
 
 == Test helpers (`test_utils.rs`)
 
-
 [source,rust]
 ----
 // <[test utils]>=
@@ -36,7 +35,6 @@ pub fn evaluator_in_temp_dir(temp_dir: &Path) -> Evaluator {
 
 
 == Basic macro definition and call (`test_macros.rs`)
-
 
 [source,rust]
 ----
@@ -135,7 +133,6 @@ fn test_scope_isolation() {
 
 
 == `%def` error paths (`test_def.rs`)
-
 
 [source,rust]
 ----
@@ -359,7 +356,6 @@ fn test_arguments_evaluated_before_body() {
 
 == Variable substitution (`test_var.rs`)
 
-
 [source,rust]
 ----
 // <[test var]>=
@@ -511,7 +507,6 @@ fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
 
 == `%set` (`test_set.rs`)
 
-
 [source,rust]
 ----
 // <[test set]>=
@@ -601,7 +596,6 @@ mod tests {
 
 == `%env` macro (`test_env.rs`)
 
-
 [source,rust]
 ----
 // <[test env]>=
@@ -673,7 +667,6 @@ fn test_eval_with_whitespace_only_arg_is_still_missing_name() {
 
 
 == Miscellaneous builtin edge cases (`test_builtins_misc.rs`)
-
 
 [source,rust]
 ----

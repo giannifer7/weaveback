@@ -9,8 +9,7 @@
 
 ¤redef(h3, title, ¤{=== ¤(title)¤})
 
-¤redef(code_block, language, body, ¤{
-[source,¤(language)]
+¤redef(code_block, language, body, ¤{[source,¤(language)]
 ----¤(body)----
 ¤})
 
@@ -24,8 +23,7 @@
 ¤(body)
 ¤})¤})
 
-¤redef(graph, format, name, body, ¤{
-.¤(name)
+¤redef(graph, format, name, body, ¤{.¤(name)
 [source,¤(format)]
 ----
 ¤(body)
@@ -36,14 +34,14 @@
 ¤(body)
 <!-- /weaveback-table -->¤})
 
-¤redef(xref, target, label, ¤{link:¤(target)[¤(label)]¤})
+¤redef(link, target, label, ¤{link:¤(target)[¤(label)]¤})
 
-¤redef(note, body, ¤{
-NOTE: ¤(body)
+¤redef(xref, target, label, ¤{xref:¤(target)[¤(label)]¤})
+
+¤redef(note, body, ¤{NOTE: ¤(body)
 ¤})
 
-¤redef(code_doc, path, title, language, body, ¤{
-.¤xref(¤(path), ¤(title))
+¤redef(code_doc, path, title, language, body, ¤{.¤xref(¤(path), ¤(title))
 ¤code_block(¤(language), ¤(body))
 ¤})
 

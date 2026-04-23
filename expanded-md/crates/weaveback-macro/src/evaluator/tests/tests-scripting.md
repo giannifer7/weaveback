@@ -12,7 +12,6 @@ Tests for the monty-backed Python scripting path (`%pydef`, `%pyset`,
 
 ## Python scripting (`test_pydef.rs`)
 
-
 ```rust
 // <[test pydef]>=
 // crates/weaveback-macro/src/evaluator/tests/test_pydef.rs
@@ -135,7 +134,6 @@ str(int(base) + int(size))
 
 
 ## MontyEvaluator unit tests (`test_monty_eval.rs`)
-
 
 ```rust
 // <[test monty eval]>=

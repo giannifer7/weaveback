@@ -12,7 +12,6 @@ and `%here`.
 
 ## `%if` conditionals (`test_if.rs`)
 
-
 ```rust
 // <[test if]>=
 use crate::macro_api::process_string_defaults;
@@ -125,7 +124,6 @@ fn test_if_with_macro_condition() {
 
 
 ## `%include` (`test_include.rs`)
-
 
 ```rust
 // <[test include]>=
@@ -332,7 +330,6 @@ fn test_include_scope() {
 
 ## `%import` (`test_import.rs`)
 
-
 ```rust
 // <[test import]>=
 #[cfg(test)]
@@ -387,7 +384,6 @@ mod tests {
 
 ## `%export` (`test_export.rs`)
 
-
 ```rust
 // <[test export]>=
 // crates/weaveback-macro/src/evaluator/tests/test_export.rs
@@ -441,7 +437,6 @@ mod tests {
 
 
 ## `%eval` (`test_eval.rs`)
-
 
 ```rust
 // <[test eval]>=
@@ -573,7 +568,6 @@ fn test_eval_macro_call_with_dynamic_macro_name() {
 
 
 ## `%here` (`test_here.rs`)
-
 
 ```rust
 // <[test here]>=

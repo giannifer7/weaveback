@@ -77,7 +77,6 @@ automatic xref — use `--xref-cmd` or `--no-xref`.
 contains `[workspace]`.  This lets the binary be invoked from any subdirectory
 of the project.
 
-
 ```rust
 // <[docgen-root]>=
 fn find_project_root() -> PathBuf {
@@ -104,7 +103,6 @@ fn find_project_root() -> PathBuf {
 
 The help string is a `const` so it appears verbatim in `--help` output and
 serves as the canonical record of all supported flags.
-
 
 ```rust
 // <[docgen-help]>=
@@ -148,7 +146,6 @@ Cross-reference notes:
 `Args` collects all CLI options.  `parse_args_from` parses a slice of
 strings (enabling unit tests), while `parse_args` wraps it for production
 use with `std::env::args()`.
-
 
 ```rust
 // <[docgen-args]>=
@@ -275,7 +272,6 @@ sole argument and parses stdout as `HashMap<String, XrefEntry>` JSON.  The
 schema matches `XrefEntry` in `xref.rs` — any language can implement a
 compatible scanner.
 
-
 ```rust
 // <[docgen-xref-cmd]>=
 fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
@@ -304,7 +300,6 @@ fn run_xref_cmd(cmd: &str, project_root: &Path) -> HashMap<String, XrefEntry> {
 
 `main` wires everything together: detect root, render docs, select xref
 strategy, write `xref.json`, then run the HTML post-processing passes.
-
 
 ```rust
 // <[docgen-main]>=
@@ -381,7 +376,6 @@ fn main() {
 
 ## Assembly
 
-
 ```rust
 // <[@file weaveback-docgen/src/main.rs]>=
 // weaveback-docgen/src/main.rs
@@ -421,7 +415,6 @@ inline shell script to test the external xref command path.
 
 The test body is generated as `tests.rs` and linked from
 `main.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/tests.rs]>=

@@ -6,7 +6,6 @@ literate source location via `perform_trace`.
 
 == Command Type
 
-
 [source,rust]
 ----
 // <[lsp-runner-cmd]>=
@@ -22,7 +21,6 @@ pub enum LspCmd {
 
 
 == Implementation
-
 
 [source,rust]
 ----
@@ -153,7 +151,6 @@ pub fn run_lsp(
 
 The test body is generated as `lsp_runner/tests.rs` and linked from
 `lsp_runner.rs` with `#[cfg(test)] mod tests;`.
-
 
 [source,rust]
 ----
@@ -319,7 +316,6 @@ while True:
 
 
 == Assembly
-
 
 [source,rust]
 ----

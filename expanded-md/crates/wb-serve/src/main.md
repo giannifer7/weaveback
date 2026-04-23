@@ -8,7 +8,6 @@ and apply-back for propagating edits back to literate sources.
 
 Generated from `cli-spec/wb-serve-cli.adoc`.
 
-
 ```rust
 // <[wb-serve-cli]>=
 mod cli_generated;
@@ -19,7 +18,6 @@ use clap::Parser;
 
 
 ## Main
-
 
 ```rust
 // <[wb-serve-main]>=
@@ -54,7 +52,6 @@ fn main() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file wb-serve/src/main.rs]>=

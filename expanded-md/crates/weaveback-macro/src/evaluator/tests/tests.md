@@ -58,7 +58,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/mod.rs]>=
 // weaveback-macro/src/evaluator/tests/mod.rs
@@ -68,7 +67,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_utils.rs]>=
@@ -80,7 +78,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_macros.rs]>=
 // weaveback-macro/src/evaluator/tests/test_macros.rs
@@ -90,7 +87,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_def.rs]>=
@@ -102,7 +98,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_var.rs]>=
 // weaveback-macro/src/evaluator/tests/test_var.rs
@@ -112,7 +107,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_set.rs]>=
@@ -124,7 +118,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_if.rs]>=
 // weaveback-macro/src/evaluator/tests/test_if.rs
@@ -134,7 +127,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_include.rs]>=
@@ -146,7 +138,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_import.rs]>=
 // weaveback-macro/src/evaluator/tests/test_import.rs
@@ -156,7 +147,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_export.rs]>=
@@ -168,7 +158,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_eval.rs]>=
 // weaveback-macro/src/evaluator/tests/test_eval.rs
@@ -178,7 +167,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_here.rs]>=
@@ -190,7 +178,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_case_conversion.rs]>=
 // weaveback-macro/src/evaluator/tests/test_case_conversion.rs
@@ -200,7 +187,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_case_modifiers.rs]>=
@@ -212,7 +198,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_pydef.rs]>=
 // weaveback-macro/src/evaluator/tests/test_pydef.rs
@@ -222,7 +207,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_output.rs]>=
@@ -234,7 +218,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_eval_api.rs]>=
 // weaveback-macro/src/evaluator/tests/test_eval_api.rs
@@ -244,7 +227,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_macro_api.rs]>=
@@ -256,7 +238,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_skill_examples.rs]>=
 // weaveback-macro/src/evaluator/tests/test_skill_examples.rs
@@ -266,7 +247,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_lexer_parser.rs]>=
@@ -278,7 +258,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_core.rs]>=
 // weaveback-macro/src/evaluator/tests/test_core.rs
@@ -288,7 +267,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_state.rs]>=
@@ -300,7 +278,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_source_utils.rs]>=
 // weaveback-macro/src/evaluator/tests/test_source_utils.rs
@@ -310,7 +287,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_env.rs]>=
@@ -322,7 +298,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_builtins_misc.rs]>=
 // weaveback-macro/src/evaluator/tests/test_builtins_misc.rs
@@ -332,7 +307,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/tests/test_monty_eval.rs]>=
@@ -346,7 +320,6 @@ param injection, and contrast with macro-aware `%{ ... %}` blocks</td></tr>
 
 
 ## `tests/mod.rs` — module registry
-
 
 ```rust
 // <[tests mod]>=
@@ -384,7 +357,6 @@ mod test_warnings;
 
 
 ## `tests/test_lexer_parser.rs` — lex/parse error paths
-
 
 ```rust
 // <[test lexer parser]>=

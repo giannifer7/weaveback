@@ -86,9 +86,11 @@ wants clean output must go through `process_ast`.
 
 In idiomatic weaveback source, comments appear on their own line:
 
+[source,text]
 ----
 some text %%// strip me
 ----
+
 
 The space before `%%//` is syntactically part of the preceding `Text` or
 `Space` node.  If left in, it pollutes the generated output.
@@ -119,7 +121,6 @@ references.
 
 Three files are generated from this document.
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/ast/mod.rs]>=
@@ -141,7 +142,6 @@ Three files are generated from this document.
 
 // @
 ----
-
 
 
 [source,rust]
@@ -169,7 +169,6 @@ Three files are generated from this document.
 ----
 
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/ast/tests.rs]>=
@@ -183,7 +182,6 @@ Three files are generated from this document.
 
 
 == Module preamble
-
 
 [source,rust]
 ----
@@ -232,7 +230,6 @@ fn normalized_end_pos(token: Token, end_pos: usize) -> usize {
 catch-all for other processing problems.  `From<String>` lets `?` on
 `String`-returning helpers propagate into `ASTError::Other` without noise.
 
-
 [source,rust]
 ----
 // <[ast error]>=
@@ -262,7 +259,6 @@ root index (which may be absent if the source was empty), then delegates
 to `clean_node`.  A `None` result from `clean_node` — which can only
 happen if the root itself is a comment node, an unlikely but legal state —
 is reported as an error rather than silently returning an empty tree.
-
 
 [source,rust]
 ----
@@ -313,7 +309,6 @@ The `break` at line `if seen_equal { ... } break` is intentional: once the
 pattern `Ident = first-value-item` is fully determined, further scanning
 would only add complexity.  Everything from `start_idx` onwards is
 processed by `clean_node` in the second pass.
-
 
 [source,rust]
 ----
@@ -436,7 +431,6 @@ A `debug_assert!` enforces that leaf node kinds (`Equal`, `Ident`, `Text`,
 and catches parser regressions immediately rather than producing a
 silently-wrong AST.
 
-
 [source,rust]
 ----
 // <[ast clean node]>=
@@ -535,7 +529,6 @@ cloned _after_ splicing so removed nodes are not visited.
 Tiny helper: checks whether the byte at `node.end_pos` in the raw content
 buffer is `\n`.  Kept separate to keep `strip_space_before_comments`
 readable.
-
 
 [source,rust]
 ----
@@ -680,7 +673,6 @@ alone without storing back-references.
 
 === Preamble
 
-
 [source,rust]
 ----
 // <[ast serialization preamble]>=
@@ -700,7 +692,6 @@ Tokens are encoded as a comma-separated tuple: `src,kind,pos,length`.
 `src` is a file-index integer assigned by the lexer; `kind` is the
 `TokenKind` discriminant cast to `i32` for a stable numeric wire format.
 
-
 [source,rust]
 ----
 // <[ast serialize token]>=
@@ -717,9 +708,11 @@ Each node is encoded as a JSON-like array.  The token tuple is expanded
 _inline_ by `serialize_token` (which returns a comma-separated string), so
 the full wire format is:
 
+[source,text]
 ----
 [node_kind, token_src, token_kind, token_pos, token_length, end_pos, [child_indices...]]
 ----
+
 
 The `format!` call has four `{}` slots — `node_kind`, `serialize_token(…)`,
 `end_pos`, and `parts` — but `serialize_token` itself emits four
@@ -729,7 +722,6 @@ BFS traversal (via `VecDeque`) ensures that child indices are always a
 contiguous range starting at `next_idx`.  The root is always at index 0.
 `next_idx` is advanced by `node.parts.len()` for each dequeued node,
 mirroring the order in which children are enqueued.
-
 
 [source,rust]
 ----
@@ -783,7 +775,6 @@ pub fn serialize_ast_nodes(root: &ASTNode) -> Vec<String> {
 `write_ast` is the generic writer; `write_ast_to_file` adds stdout-vs-file
 dispatch based on the `-` convention used throughout the codebase.
 
-
 [source,rust]
 ----
 // <[ast write ast]>=
@@ -813,7 +804,6 @@ pub fn write_ast_to_file(header: &str, nodes: &[String], output_path: &PathBuf) 
 
 `read_input` applies the same `-`-means-stdin convention to the input side.
 
-
 [source,rust]
 ----
 // <[ast read input]>=
@@ -839,7 +829,6 @@ the source with a `.ast` extension (or to stdout for `-`).
 The header line carries a `# src:0=<path>` annotation so external
 consumers can map the `src` field of each token back to the originating
 file.
-
 
 [source,rust]
 ----
@@ -874,7 +863,6 @@ pub fn dump_macro_ast(sigil: char, input_files: &[PathBuf]) -> Result<(), EvalEr
 
 
 === Serialization tests
-
 
 [source,rust]
 ----
@@ -993,7 +981,6 @@ Key tests and what they guard:
   twice produces the same result as running it once (no double-trim).
 * **`test_ast_no_comments_invariant`** — `lex_parse_content` leaves no
   `LineComment` or `BlockComment` nodes anywhere in the AST tree.
-
 
 [source,rust]
 ----

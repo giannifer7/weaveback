@@ -4,7 +4,6 @@ The `lookup` module provides shared logic for mapping between generated files
 and their literate sources.  It is used by the `wb-query trace` command
 and the `apply-back` reconciliation tool.
 
-
 [source,rust]
 ----
 // <[lookup-types]>=
@@ -162,7 +161,6 @@ pub fn find_best_source_config(
 ----
 
 
-
 [source,rust]
 ----
 // <[@file weaveback-tangle/src/lookup.rs]>=
@@ -178,7 +176,6 @@ mod tests;
 
 
 == Tests
-
 
 [source,rust]
 ----

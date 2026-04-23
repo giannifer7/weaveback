@@ -53,17 +53,16 @@ pipeline context, including apply-back and the MCP server.
 
 ## Error hierarchy
 
-[source]
-----
+```text
 WeavebackError
 ├── Chunk(ChunkError)        ← link:noweb.adoc[noweb.rs] — parse/expand errors
 ├── SafeWriter(SafeWriterError)  ← link:safe_writer.adoc[safe_writer.rs] — I/O, security, formatter
 └── Db(DbError)              ← link:db.adoc[db.rs] — SQLite errors
-----
+```
+
 
 `std::io::Error` converts to `WeavebackError::SafeWriter(SafeWriterError::IoError(_))`
 so callers can use `?` on I/O operations without wrapping manually.
-
 
 ```rust
 // <[@file weaveback-tangle/src/lib.rs]>=

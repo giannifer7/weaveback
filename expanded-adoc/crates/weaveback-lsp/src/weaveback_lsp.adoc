@@ -9,7 +9,6 @@ semantic information in generated code and map it back to literate sources.
 `LspClient` manages a background LSP server process and handles the JSON-RPC
 protocol over stdin/stdout.
 
-
 [source,rust]
 ----
 // <[lsp-client]>=
@@ -213,7 +212,6 @@ impl Drop for LspClient {
 
 == Semantic Navigation
 
-
 [source,rust]
 ----
 // <[lsp-nav]>=
@@ -321,7 +319,6 @@ impl LspClient {
 
 == LSP Registry
 
-
 [source,rust]
 ----
 // <[lsp-registry]>=
@@ -339,7 +336,6 @@ pub fn get_lsp_config(ext: &str) -> Option<(String, String)> {
 
 
 == Tests
-
 
 [source,rust]
 ----
@@ -407,7 +403,6 @@ msg2 = read_msg()
 
 
 == Assembly
-
 
 [source,rust]
 ----

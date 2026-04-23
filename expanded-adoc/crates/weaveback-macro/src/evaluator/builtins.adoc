@@ -167,7 +167,6 @@ about chunk composition rather than macro evaluation.
 
 == File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/builtins.rs]>=
@@ -192,7 +191,6 @@ about chunk composition rather than macro evaluation.
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/case_conversion.rs]>=
@@ -208,7 +206,6 @@ about chunk composition rather than macro evaluation.
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/source_utils.rs]>=
@@ -222,7 +219,6 @@ about chunk composition rather than macro evaluation.
 
 
 == Builtins preamble
-
 
 [source,rust]
 ----
@@ -243,7 +239,6 @@ use crate::types::{ASTNode, NodeKind};
 
 
 == `BuiltinFn` type and default registry
-
 
 [source,rust]
 ----
@@ -304,7 +299,6 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
 
 == `DefMacroConfig` — shared configuration for `%def` / `%pydef`
 
-
 [source,rust]
 ----
 // <[builtins def macro config]>=
@@ -326,7 +320,6 @@ struct DefMacroConfig {
 Validates that a `Param` node contains exactly one `Ident` child (no spaces,
 no `=`, no leading digit).  Used for macro names, formal parameter names, and
 variable names in `%set` / `%export`.
-
 
 [source,rust]
 ----
@@ -395,7 +388,6 @@ Extracts `(name, [p1, p2, …,] body)` from the node's parts, validates each
 identifier, records the call site for tracing, and stores the
 `MacroDefinition` with either constant or rebindable binding semantics.
 
-
 [source,rust]
 ----
 // <[builtins define macro helper]>=
@@ -462,7 +454,6 @@ fn define_macro(
 
 == `%def`, `%redef`, `%pydef`
 
-
 [source,rust]
 ----
 // <[builtins def pydef]>=
@@ -527,7 +518,6 @@ alias targets are often used as a dispatch slot in spec-generation patterns
 (`emit_option`, etc.), so repeating `%alias(slot, ...)` in the same frame
 should replace the slot instead of tripping the `%def` constant-binding rule.
 
-
 [source,rust]
 ----
 // <[builtins include import]>=
@@ -558,7 +548,6 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
 == `%if`
 
 `%if` treats any non-empty string as truthy.
-
 
 [source,rust]
 ----
@@ -598,7 +587,6 @@ argument's token as the origin (so error messages point to the right place).
 the macro, then calls `modify_source` with two insertions: a sigil
 prefix before the `%here` call (neutralising it) and the expansion after it
 (skipping the rest of the original line).  Then it sets `early_exit`.
-
 
 [source,rust]
 ----
@@ -743,7 +731,6 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
 
 == Capitalisation builtins
 
-
 [source,rust]
 ----
 // <[builtins capitalize]>=
@@ -776,7 +763,6 @@ pub fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<
 
 
 == Case-conversion builtins
-
 
 [source,rust]
 ----
@@ -828,7 +814,6 @@ pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalRe
 
 == Python store builtins
 
-
 [source,rust]
 ----
 // <[builtins py store builtins]>=
@@ -857,7 +842,6 @@ pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
 
 
 == `%env`
-
 
 [source,rust]
 ----
@@ -890,7 +874,6 @@ suitable for use as the condition argument to `%if`.
 
 `%not` accepts 0 or 1 arguments; 0 args is treated as an empty-string input,
 which is falsy, so `%not()` → `"1"`.
-
 
 [source,rust]
 ----
@@ -941,7 +924,6 @@ pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
 
 === Preamble
 
-
 [source,rust]
 ----
 // <[case conversion preamble]>=
@@ -956,7 +938,6 @@ use std::str::FromStr;
 
 Nine target case styles are supported.  The `FromStr` impl accepts multiple
 aliases (e.g. `"snake"`, `"snake_case"`) and is case-insensitive.
-
 
 [source,rust]
 ----
@@ -1009,7 +990,6 @@ It recognises four boundary types:
 2. **camelCase transition**: lowercase→uppercase (e.g. `hello|World`).
 3. **Acronym end**: uppercase→uppercase→lowercase (`XML|Http`).
 4. **Digit transitions**: letter→digit and digit→letter.
-
 
 [source,rust]
 ----
@@ -1099,7 +1079,6 @@ impl<'a> Iterator for WordSplitter<'a> {
 
 === `convert_case` and `convert_case_str`
 
-
 [source,rust]
 ----
 // <[convert case functions]>=
@@ -1175,7 +1154,6 @@ pub fn convert_case(input: &str, target_case: Case) -> String {
 
 === `capitalize` helper
 
-
 [source,rust]
 ----
 // <[capitalize helper]>=
@@ -1199,7 +1177,6 @@ fn capitalize(s: &str) -> String {
 `modify_source` sorts the insertions by byte offset, copies unchanged ranges
 verbatim, injects the new bytes at each position, and optionally skips to the
 next newline (used by `%here` to overwrite the rest of the original call line).
-
 
 [source,rust]
 ----

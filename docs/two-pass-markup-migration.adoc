@@ -137,6 +137,7 @@ Both prelude implementations currently define:
 * `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
 * `¤table(format, body)`
+* `¤link(target, label)`
 * `¤xref(target, label)`
 * `¤note(body)`
 * `¤code_doc(path, title, language, body)`
@@ -157,6 +158,11 @@ pub fn answer() -> u8 {
 
 The AsciiDoc projection emits a source block.  The Markdown projection emits a
 fenced code block.  Both contain equivalent noweb chunks.
+
+Links remain explicit.  `¤link(target, label)` and `¤xref(target, label)` do not
+guess target extensions or rewrite paths; they only render the same author
+target in the selected markup.  This keeps `.wvb` neutral without hiding the
+actual reference being made.
 
 == Pass Configuration
 

@@ -8,7 +8,6 @@ Tests for the monty-backed Python scripting path (`%pydef`, `%pyset`,
 
 == Python scripting (`test_pydef.rs`)
 
-
 [source,rust]
 ----
 // <[test pydef]>=
@@ -132,7 +131,6 @@ str(int(base) + int(size))
 
 
 == MontyEvaluator unit tests (`test_monty_eval.rs`)
-
 
 [source,rust]
 ----

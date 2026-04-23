@@ -28,7 +28,6 @@ source positions.
 
 == File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/line_index.rs]>=
@@ -46,7 +45,6 @@ mod tests;
 
 == Preamble
 
-
 [source,rust]
 ----
 // <[line index preamble]>=
@@ -56,7 +54,6 @@ use memchr::memchr_iter;
 
 
 == `LineIndex`
-
 
 [source,rust]
 ----
@@ -99,7 +96,6 @@ impl LineIndex {
 The tests are generated as `line_index/tests.rs` and linked from the runtime
 module with `#[cfg(test)] mod tests;`.  This keeps runtime code short while
 preserving local literate ownership.
-
 
 [source,rust]
 ----

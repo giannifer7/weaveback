@@ -8,7 +8,6 @@ and apply-back for propagating edits back to literate sources.
 
 Generated from `cli-spec/wb-serve-cli.adoc`.
 
-
 [source,rust]
 ----
 // <[wb-serve-cli]>=
@@ -20,7 +19,6 @@ use clap::Parser;
 
 
 == Main
-
 
 [source,rust]
 ----
@@ -56,7 +54,6 @@ fn main() {
 
 
 == Assembly
-
 
 [source,rust]
 ----

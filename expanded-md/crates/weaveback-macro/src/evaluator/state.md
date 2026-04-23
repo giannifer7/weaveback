@@ -54,7 +54,6 @@ so that the MCP tracing tools can answer "where was this variable set?" or
 
 ## State type overview
 
-
 <!-- graph: state-type-overview -->
 ```plantuml
 
@@ -128,7 +127,6 @@ ScopeFrame o-- MacroDefinition
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/state.rs]>=
 // weaveback-macro/src/evaluator/state.rs
@@ -151,7 +149,6 @@ ScopeFrame o-- MacroDefinition
 
 
 ## Preamble
-
 
 ```rust
 // <[state preamble]>=
@@ -183,7 +180,6 @@ With `env_prefix = Some("WB_".into())`, `%env(PATH)` reads `WB_PATH`.
 `recursion_limit` caps macro-call nesting for this evaluator run.  The default
 comes from `weaveback_core::MAX_RECURSION_DEPTH`, but callers can lower or
 raise it explicitly.
-
 
 ```rust
 // <[eval config]>=
@@ -226,7 +222,6 @@ impl Default for EvalConfig {
   script environment.  Use verbatim blocks (`%[ ... %]`) inside the body when
   literal script text is required.
 
-
 ```rust
 // <[script kind]>=
 #[derive(Debug, Clone, PartialEq)]
@@ -246,7 +241,6 @@ Macro bindings carry their rebinding policy explicitly.
   cannot be bound again in that frame.
 * `Rebindable` is the `%redef` case: later `%redef` calls in the same frame may
   replace it.
-
 
 ```rust
 // <[macro binding kind]>=
@@ -272,7 +266,6 @@ This is the sole explicit capture mechanism; `%export` now does a plain copy.
 `binding_kind` records whether the current-frame binding was introduced as a
 constant (`%def`) or explicitly rebindable (`%redef`).
 
-
 ```rust
 // <[macro definition]>=
 #[derive(Debug, Clone)]
@@ -289,7 +282,6 @@ pub struct MacroDefinition {
 
 
 ## `TrackedValue` — value with optional source attribution
-
 
 ```rust
 // <[tracked value]>=
@@ -312,7 +304,6 @@ Each macro call creates a new `ScopeFrame`.  A frame holds the variables bound
 by that call's parameter list (and by `%set` calls within the macro body) and
 any macros defined inside the call body via `%def` / `%redef`.
 
-
 ```rust
 // <[scope frame]>=
 #[derive(Debug, Default, Clone)]
@@ -330,7 +321,6 @@ pub struct ScopeFrame {
 during this evaluation run.  Files are deduplicated by canonical path so that
 including the same file through two different relative paths yields the same
 `u32` index.
-
 
 ```rust
 // <[source manager]>=
@@ -390,7 +380,6 @@ call encountered during evaluation.  The MCP server drains them after each run
 to build the `var_defs_map` and `macro_defs_map` that answer "where was this
 symbol defined?".
 
-
 ```rust
 // <[var def raw]>=
 /// Raw record of a `%set(var_name, ...)` call site, captured during evaluation.
@@ -407,7 +396,6 @@ pub struct VarDefRaw {
 }
 // @
 ```
-
 
 
 ```rust
@@ -436,7 +424,6 @@ map).
 The helper methods on `EvaluatorState` encapsulate common patterns: the three
 `set_*_variable` variants manage the span-density levels of `TrackedValue`,
 and `get_variable` / `get_macro` both walk the scope stack from top to bottom.
-
 
 ```rust
 // <[evaluator state]>=

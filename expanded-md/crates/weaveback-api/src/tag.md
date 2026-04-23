@@ -18,19 +18,18 @@ Claude Haiku; incremental runs are nearly free.
 
 Add a `[tags]` section to `weaveback.toml`:
 
-[source,toml]
-----
+```toml
 [tags]
 backend    = "anthropic"               # or gemini / openai / ollama
 model      = "claude-haiku-4-5-20251001"
 batch_size = 15                        # blocks per LLM request
 # endpoint = "http://localhost:11434/v1"  # for ollama or openai-compatible
-----
+```
+
 
 If the section is absent, or the relevant API key env var
 (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`) is not set,
 the step is silently skipped — no behaviour change for existing setups.
-
 
 ```rust
 // <[tag-config]>=
@@ -58,7 +57,6 @@ and a tiny `ureq` wrapper.  This lets unit tests cover the data-mapping
 logic without network access.
 
 `call_llm` dispatches to the right backend using `cfg.backend`.
-
 
 ```rust
 // <[tag-llm-clients]>=
@@ -200,7 +198,6 @@ fn call_llm(cfg: &TagConfig, prompt: &str) -> Result<String, String> {
 `block_first_line` extracts the first non-empty line of a block from the
 source snapshot; it is used as the preview sent to the LLM.
 
-
 ```rust
 // <[tag-prompts]>=
 fn build_prompt(items: &[(usize, &str, &str)]) -> String {
@@ -275,7 +272,6 @@ and stores the resulting tags back into `block_tags`.
 
 Errors from any individual LLM call or DB write are printed as warnings
 and do not abort the overall run.
-
 
 ```rust
 // <[tag-orchestration]>=
@@ -367,7 +363,6 @@ pub fn run_auto_tag(db: &mut WeavebackDb, cfg: &TagConfig) {
 
 
 ## Tests
-
 
 ```rust
 // <[@file weaveback-api/src/tag/tests.rs]>=
@@ -682,7 +677,6 @@ fn test_parse_openai_response_errors_on_empty_choices() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/tag.rs]>=

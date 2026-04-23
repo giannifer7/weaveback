@@ -49,7 +49,6 @@ some generated files drifted locally", not for normal interactive use.
 
 ## Error type
 
-
 ```rust
 // <[safe-writer-errors]>=
 use thiserror::Error;
@@ -79,7 +78,6 @@ pub enum SafeWriterError {
 
 `SafeWriterConfig` carries the per-run settings.  It implements `Default` so
 callers can use struct-update syntax and only specify the fields they care about.
-
 
 ```rust
 // <[safe-writer-config]>=
@@ -116,7 +114,6 @@ impl Default for SafeWriterConfig {
 construction time), the in-memory database, the active configuration, and the
 staging map that keeps each `NamedTempFile` alive between `before_write` and
 `after_write`.
-
 
 ```rust
 // <[safe-writer-struct]>=
@@ -175,7 +172,6 @@ chunks rather than loading them entirely into memory.
 `shlex::split` to tokenise the command string so that quoted arguments and
 paths with spaces work correctly.  The temp-file path is appended as the
 final argument.
-
 
 ```rust
 // <[safe-writer-helpers]>=
@@ -308,7 +304,6 @@ creates a `NamedTempFile` with the correct extension (so formatters like
 `after_write` implements the four-step write pipeline described in the Write
 flow section above.
 
-
 ```rust
 // <[safe-writer-rw]>=
 impl SafeFileWriter {
@@ -424,7 +419,6 @@ impl SafeFileWriter {
 
 ## Accessors and finish
 
-
 ```rust
 // <[safe-writer-accessors]>=
 impl SafeFileWriter {
@@ -468,7 +462,6 @@ impl SafeFileWriter {
 `validate_filename` is called by both `before_write` and `after_write`.
 It enforces the same three rules described in the Security section above.
 
-
 ```rust
 // <[validate-filename]>=
 fn validate_filename(path: &Path) -> Result<(), SafeWriterError> {
@@ -508,7 +501,6 @@ fn validate_filename(path: &Path) -> Result<(), SafeWriterError> {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-tangle/src/safe_writer.rs]>=

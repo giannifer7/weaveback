@@ -16,7 +16,6 @@ See link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
 Page titles are read from the HTML `<title>` element and used as link labels.
 When no title is found the file stem is used as a fallback.
 
-
 ```rust
 // <[litindex-title]>=
 fn extract_title(html: &str) -> String {
@@ -37,7 +36,6 @@ fn extract_title(html: &str) -> String {
 `generate_and_inject_all` walks `out_dir/crates/`, sorts entries for
 deterministic output, and calls `generate_and_inject_crate` for each crate
 whose `src/{crate_underscored}.html` index page exists.
-
 
 ```rust
 // <[litindex-all]>=
@@ -79,7 +77,6 @@ pub fn generate_and_inject_all(out_dir: &Path) {
 index page itself and groups them by their first path component.  A
 subdirectory name becomes a group heading; top-level files go into
 "Top-level modules".
-
 
 ```rust
 // <[litindex-crate]>=
@@ -189,7 +186,6 @@ fn generate_and_inject_crate(src_dir: &Path, index_page: &Path, crate_name: &str
 back to before `</body>`).  `strip_existing` removes any previous injection by
 finding the `sect1#literate-sources` div and its closing double-`</div>`.
 
-
 ```rust
 // <[litindex-inject]>=
 fn inject_into_page(page: &Path, section: &str, total: usize, crate_name: &str) {
@@ -220,7 +216,6 @@ fn inject_into_page(page: &Path, section: &str, total: usize, crate_name: &str) 
 ```
 
 
-
 ```rust
 // <[litindex-strip]>=
 fn strip_existing(content: &str) -> String {
@@ -241,7 +236,6 @@ fn strip_existing(content: &str) -> String {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-docgen/src/literate_index.rs]>=
@@ -267,7 +261,6 @@ mod tests;
 
 The test body is generated as `literate_index/tests.rs` and linked from
 `literate_index.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/literate_index/tests.rs]>=

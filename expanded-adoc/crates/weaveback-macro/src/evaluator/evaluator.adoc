@@ -7,7 +7,6 @@ variable reference, and conditional, emitting the expanded text.
 
 == Architecture overview
 
-
 .evaluator-components
 [source,plantuml]
 ----
@@ -161,7 +160,6 @@ scripts can accumulate state.
 
 === File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/mod.rs]>=
@@ -173,7 +171,6 @@ scripts can accumulate state.
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/errors.rs]>=
@@ -184,7 +181,6 @@ scripts can accumulate state.
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -204,7 +200,6 @@ scripts can accumulate state.
 `#[cfg(test)]`, and re-exports every public symbol that the rest of the crate
 (and external callers) needs.  Keeping re-exports here means importers never
 have to know which submodule owns a type.
-
 
 [source,rust]
 ----
@@ -247,7 +242,6 @@ pub use state::{EvalConfig, MacroDefinition, ScriptKind};
 `IoError` uses `#[from]` so `?` works on `std::io::Error` inside built-ins.
 The blanket `From<String>` impl lets built-in functions return
 `Err("message".into())` without naming a specific variant.
-
 
 [source,rust]
 ----
@@ -310,7 +304,6 @@ order with the right error formatting.
 The `LineIndex` is built once from the source bytes and shared across both
 lexer-error formatting and the parser; it avoids repeated line-number
 computation.
-
 
 [source,rust]
 ----

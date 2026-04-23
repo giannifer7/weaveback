@@ -11,7 +11,6 @@ as `import _weaveback` from Python.
 Wraps a `Workspace` instance.  All methods return JSON-serialisable
 Python objects via `pythonize`.
 
-
 ```rust
 // <[@file weaveback-py/src/lib.rs]>=
 // weaveback-py/src/lib.rs
@@ -96,7 +95,6 @@ mod tests;
 
 // @
 ```
-
 
 
 ```rust

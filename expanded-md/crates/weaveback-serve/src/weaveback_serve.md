@@ -50,7 +50,6 @@ block.
 
 ## Imports
 
-
 ```rust
 // <[serve-imports]>=
 use std::collections::HashMap;
@@ -77,7 +76,6 @@ server shuts down) `read` returns `Ok(0)` signalling EOF.
 
 The initial payload is a comment (`": weaveback-serve\n\n"`) sent immediately
 to confirm the connection to the browser's `EventSource`.
-
 
 ```rust
 // <[serve-sse-reader]>=
@@ -133,7 +131,6 @@ arrive as soon as the kernel delivers them.
 The watcher is kept alive for the lifetime of the background thread by
 binding it to a local variable before entering the event loop.
 
-
 ```rust
 // <[serve-watcher]>=
 type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
@@ -169,7 +166,6 @@ fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion
 `content_type` maps a file extension to a MIME type.  `safe_path` sanitises a
 URL path to a filesystem path under `html_dir`, rejecting `..` components and
 appending `index.html` for directory requests.
-
 
 ```rust
 // <[serve-static]>=
@@ -278,7 +274,6 @@ fn serve_static(request: Request, url: &str, html_dir: &Path) {
 Most terminal editors (`vim`, `nvim`, `nano`, `helix`) accept `+LINE FILE`.
 VS Code uses `--goto FILE:LINE`.
 
-
 ```rust
 // <[serve-open]>=
 fn open_in_editor(file: &str, line: u32, project_root: &Path) {
@@ -347,7 +342,6 @@ fn percent_decode(s: &str) -> String {
 oracle used by `/__apply`.  The defaults match the weaveback project's own
 conventions (`<[` / `]>` / `@@` / `//`).
 
-
 ```rust
 // <[serve-tangle-config]>=
 /// Which backend `/__ai` uses to answer questions.
@@ -397,7 +391,6 @@ impl Default for TangleConfig {
 
 
 ## Source manipulation helpers
-
 
 ```rust
 // <[serve-manipulation]>=
@@ -479,7 +472,6 @@ The handler:
 `tangle_oracle` encapsulates steps 4-5: it scans the source directory,
 loads sibling files unchanged, injects the new content for the modified
 file, and delegates to `tangle_check`.
-
 
 ```rust
 // <[serve-apply]>=
@@ -679,7 +671,6 @@ Response JSON on success:
 with `\n` (no trailing newline).  `def_start` and `def_end` are the 1-indexed
 line numbers of the chunk header and close marker, stored verbatim from the DB.
 
-
 ```rust
 // <[serve-chunk]>=
 fn handle_chunk(request: Request, url: &str, project_root: &Path) {
@@ -807,7 +798,6 @@ still forwarded without chunk-specific context.
 A background thread calls the Anthropic API, parses the SSE delta events,
 and sends formatted SSE lines through the channel.  This decouples the
 Anthropic response parsing from the tiny_http response write loop.
-
 
 ```rust
 // <[serve-ai]>=
@@ -1522,7 +1512,6 @@ the closing `----` fence of the chunk's listing block.  This persists AI
 responses as first-class literate documentation — they become part of
 `section_prose` for all future context queries.
 
-
 ```rust
 // <[serve-save-note]>=
 fn handle_save_note(mut request: Request, project_root: &Path) {
@@ -1582,7 +1571,6 @@ fn handle_save_note(mut request: Request, project_root: &Path) {
 ## Request dispatcher
 
 `handle_request` routes each request to the appropriate handler.
-
 
 ```rust
 // <[serve-dispatch]>=
@@ -1670,7 +1658,6 @@ fn handle_request(
 `run_serve` starts the file watcher, prints the URL, then blocks on the
 tiny_http request loop.  Each request is handled in a new thread to avoid
 blocking other clients during SSE streaming.
-
 
 ```rust
 // <[serve-run]>=
@@ -1787,7 +1774,6 @@ system path `/usr/share/java/plantuml/plantuml.jar` when present.
 debounces filesystem events for 500 ms of quiet, then calls `run_rebuild`.
 Events inside `docs/html/` and `target/` are ignored to avoid feedback loops.
 
-
 ```rust
 // <[serve-source-watcher]>=
 fn find_docgen_bin() -> PathBuf {
@@ -1895,7 +1881,6 @@ fn spawn_source_watcher(project_root: PathBuf) {
 The test body is generated as `tests.rs` and linked from `lib.rs`
 with `#[cfg(test)] mod tests;`.  This keeps the server implementation file
 shorter while preserving local literate ownership of the tests.
-
 
 
 ```rust
@@ -2575,7 +2560,6 @@ fn test_handler_integration() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-serve/src/lib.rs]>=

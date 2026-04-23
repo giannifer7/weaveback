@@ -21,8 +21,7 @@ all configurable; the defaults are `<[`, `]>`, `@`, and `#,//`.
 
 Using the classic `<<` / `>>` notation for illustration:
 
-[source]
-----
+```text
 // <<@file src/output.rs>>=   ← file chunk (declares an output file)
 ... body lines ...
 // @                          ← chunk-end
@@ -30,19 +29,20 @@ Using the classic `<<` / `>>` notation for illustration:
 // <<helper-chunk>>=          ← named chunk
 ... body lines ...
 // @@
-----
+```
+
 
 A _chunk reference_ inside a body causes the referenced chunk to be expanded
 inline, with indentation accumulated:
 
-[source]
-----
+```text
 // <<@file src/output.rs>>=
 fn main() {
     // <<body>>
 }
 // @@
-----
+```
+
 
 Modifiers on definitions and references:
 
@@ -78,7 +78,6 @@ number of leading spaces on the open marker line.  During expansion that many
 spaces are stripped from every content line before the caller's indentation
 prefix is prepended, so indentation stays relative to where the chunk is
 referenced, not where it was defined.
-
 
 ```rust
 // <[noweb-chunk-def]>=
@@ -125,7 +124,6 @@ nothing by default; fatal when `strict_undefined` is `true` (CLI: `--strict`).</
   <tr><td>`IoError`</td><td>An I/O failure in `ChunkWriter`.</td></tr>
   <tr><td>`FileChunkRedefinition`</td><td>An `@file` chunk is defined twice without `@replace`.</td></tr>
 </table>
-
 
 ```rust
 // <[noweb-errors]>=
@@ -276,7 +274,6 @@ expanded; the `@reversed` modifier on a reference reverses this order.
 Reference tracking is handled externally by the caller (see `write_files`),
 keeping `expand_inner` a pure function with no hidden mutable state.
 
-
 ```rust
 // <[noweb-named-chunk]>=
 #[derive(Debug)]
@@ -306,7 +303,6 @@ Two free functions gate output paths before any content is written.
 path resolves to an absolute path outside `gen/` — it therefore bypasses
 `path_is_safe` (which would reject it) and goes instead through the
 `allow_home` gate in `ChunkWriter::write_chunk`.
-
 
 ```rust
 // <[noweb-path-utils]>=
@@ -345,7 +341,6 @@ fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
 
 
 ### Struct
-
 
 ```rust
 // <[noweb-chunkstore-struct]>=
@@ -386,7 +381,6 @@ reused by other tools such as `lint`.
   name, and the close delimiter.
 * The _close pattern_ matches chunk-end markers: an optional comment prefix
   followed by the chunk-end string (default `@`).
-
 
 ```rust
 // <[noweb-chunkstore-new]>=
@@ -432,7 +426,6 @@ impl ChunkStore {
 `read` scans a source text line-by-line, maintaining a simple three-state
 machine:
 
-
 <!-- graph: noweb-read-loop -->
 ```plantuml
 
@@ -463,7 +456,6 @@ ins --> out : close_re matches\n(current_chunk = None)
 `@file` definitions without `@replace` are pushed to `parse_errors` in strict
 mode (fatal when `write_files` is called) or reported to stderr and skipped in
 permissive mode, keeping the first definition rather than silently clobbering it.
-
 
 ```rust
 // <[noweb-chunkstore-read]>=
@@ -613,7 +605,6 @@ cycle is detected.
 Reference tracking is performed externally by inserting chunk names into the
 caller-provided `referenced_chunks` set, which `check_unused_chunks` then
 consults.
-
 
 ```rust
 // <[noweb-chunkstore-expand]>=
@@ -873,7 +864,6 @@ After all `@file` chunks are written, `check_unused_chunks` warns about named
 chunks that were defined but never referenced — a common mistake when
 refactoring literate sources.
 
-
 ```rust
 // <[noweb-chunkstore-utils]>=
 impl ChunkStore {
@@ -955,7 +945,6 @@ time.  It dispatches on whether the expanded path is absolute or relative:
   `SafeWriterConfig` gates this; without it the write is rejected as a
   `SecurityViolation`.
 
-
 ```rust
 // <[noweb-chunkwriter]>=
 pub struct ChunkWriter<'a> {
@@ -1021,7 +1010,6 @@ impl<'a> ChunkWriter<'a> {
 
 
 ### Constructor and read / query methods
-
 
 ```rust
 // <[noweb-clip-core]>=
@@ -1131,7 +1119,6 @@ the oracle used by the `/__apply` HTTP endpoint to verify that an edited chunk
 body still produces valid tangle output before the `.adoc` source file is
 modified.
 
-
 ```rust
 // <[noweb-tangle-check]>=
 /// Verify that `texts` tangle without errors.
@@ -1193,7 +1180,6 @@ The remap uses a three-tier strategy, applied in order, and assigns a
 NOTE: Attribution is approximate when a formatter makes large-scale semantic
 changes (e.g. merges or splits blocks).  The `Confidence` field on
 `NowebMapEntry` lets callers distinguish exact mappings from inferred ones.
-
 
 ```rust
 // <[noweb-remap]>=
@@ -1367,7 +1353,6 @@ After all files are written, unused-chunk warnings are emitted.
 
 `list_output_files` resolves the same paths that `write_files` would write to,
 without touching the filesystem.  It is used by `--dry-run`.
-
 
 ```rust
 // <[noweb-clip-write]>=
@@ -1557,7 +1542,6 @@ impl Clip {
 The `@file` chunk assembles the module by expanding all sub-chunks in order.
 Imports are inlined here; the sub-chunks contain the type definitions and
 `impl` blocks.
-
 
 ```rust
 // <[@file weaveback-tangle/src/noweb.rs]>=

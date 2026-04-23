@@ -61,6 +61,7 @@ Both prelude implementations define the same names:
 * `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
 * `¤table(format, body)`
+* `¤link(target, label)`
 * `¤xref(target, label)`
 * `¤note(body)`
 * `¤code_doc(path, title, language, body)`
@@ -79,6 +80,13 @@ pipe tables, and wraps `html` tables in an AsciiDoc passthrough block.
 `¤graph(format, name, body)` makes diagram format explicit.  The AsciiDoc
 prelude emits renderable diagram source blocks, while the Markdown prelude emits
 ordinary fenced code blocks annotated with the graph name.
+
+`¤link(target, label)` and `¤xref(target, label)` preserve the target exactly as
+written.  They do not infer extensions, rewrite paths, or decide whether a
+document should be `.adoc`, `.md`, or `.html`.  Use `¤link` for ordinary URL or
+file links and `¤xref` when the author intends an intra-document or
+cross-document reference.  The prelude only projects that explicit intent to
+the target markup syntax.
 
 == Example
 

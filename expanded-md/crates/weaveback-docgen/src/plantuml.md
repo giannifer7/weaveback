@@ -27,7 +27,6 @@ copies from the now-warm cache — no further JVM invocations.
 
 ## Error type
 
-
 ```rust
 // <[plantuml-error]>=
 #[derive(Debug, thiserror::Error)]
@@ -70,7 +69,6 @@ record. This accepts both `[plantuml]` and `[source,plantuml]`.
   `----`)
 * `block.content().original().data()` — raw diagram source, pre-substitution
 
-
 ```rust
 // <[plantuml-collect]>=
 fn collect_plantuml_blocks(source: &str, label: &str) -> Vec<(usize, usize, String)> {
@@ -92,7 +90,6 @@ bytes. PlantUML writes the SVG to stdout and exits 0 on success.
 PlantUML also injects a white root SVG background by default, which looks wrong
 against the dark docs theme, so the output is normalized to transparent before
 it is cached.
-
 
 ```rust
 // <[plantuml-render]>=
@@ -166,7 +163,6 @@ yet in the persistent SVG cache.  Called by `render_docs` before the parallel
 render loop so that `batch_render_plantuml` can be invoked once for the whole
 project.
 
-
 ```rust
 // <[plantuml-collect-uncached]>=
 pub(crate) fn collect_uncached_plantuml_diagrams(
@@ -202,7 +198,6 @@ Each diagram source is written to a numbered `.puml` temp file in a
 `tempfile::TempDir`.  PlantUML is invoked with `-tsvg -o <tmpdir>` and all
 input paths at once; it writes `0.svg`, `1.svg`, … alongside the `.puml`
 files.  The SVGs are then copied to their respective cache paths.
-
 
 ```rust
 // <[plantuml-batch]>=
@@ -272,7 +267,6 @@ pub(crate) fn batch_render_plantuml(
 output tree (e.g. `docs/.plantuml-cache/`).  `images_out_dir` is the per-file
 output directory; SVGs are copied there so the HTML renderer can find them.
 
-
 ```rust
 // <[plantuml-preprocess]>=
 pub fn preprocess_plantuml(
@@ -335,7 +329,6 @@ pub fn preprocess_plantuml(
 
 The test body is generated as `plantuml/tests.rs` and linked from
 `plantuml.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/plantuml/tests.rs]>=
@@ -466,7 +459,6 @@ fn collect_plantuml_blocks_offsets_survive_include_directive() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-docgen/src/plantuml.rs]>=

@@ -14,7 +14,6 @@ See link:lib.adoc[lib.adoc] for the module map.
 
 ## Error type
 
-
 ```rust
 // <[lookup-types]>=
 use weaveback_macro::evaluator::output::{PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
@@ -43,7 +42,6 @@ pub enum LookupError {
 `perform_where` does a single noweb-map lookup and returns a JSON object with
 the chunk name and expanded-text source location.  It does not re-evaluate
 the macro expander — it only consults the stored `noweb_map` table.
-
 
 ```rust
 // <[lookup-where]>=
@@ -90,7 +88,6 @@ reproducibility; it falls back to the current file on disk.
 
 `col` is a 1-indexed character position in the *output* file line.  The
 noweb-induced indent is subtracted before querying the span map.
-
 
 ```rust
 // <[lookup-trace]>=
@@ -244,7 +241,6 @@ path and content from the evaluator's source manager.
 `append_def_locations` queries the database for all definition sites of a
 variable or macro name and appends them as a JSON array.  Each entry carries
 `file`, `line` (1-indexed), and `col` (1-indexed UTF-8 character position).
-
 
 ```rust
 // <[lookup-span]>=
@@ -485,7 +481,6 @@ fn append_def_locations(
 
 ## Tests
 
-
 ```rust
 // <[@file weaveback-api/src/lookup/tests.rs]>=
 // weaveback-api/src/lookup/tests.rs
@@ -669,7 +664,6 @@ fn perform_trace_validates_line_before_db_lookup() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/lookup.rs]>=

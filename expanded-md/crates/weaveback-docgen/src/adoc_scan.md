@@ -11,7 +11,6 @@ directive lines are replaced with spaces while preserving newline bytes.
 
 ## Public result
 
-
 ```rust
 // <[adoc-scan-types]>=
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +24,6 @@ pub(crate) struct AdocListingBlock {
 
 
 ## Entry point
-
 
 ```rust
 // <[adoc-scan-entry]>=
@@ -54,7 +52,6 @@ pub(crate) fn collect_listing_blocks_by_language(
 
 
 ## AST walk
-
 
 ```rust
 // <[adoc-scan-walk]>=
@@ -119,7 +116,6 @@ ACDC stores `[d2]` as the block style.  It stores `[source,d2]` as style
 `source` plus a positional attribute that has been moved into element
 attributes.  The language detector accepts both forms.
 
-
 ```rust
 // <[adoc-scan-language]>=
 fn block_language(block: &acdc_parser::DelimitedBlock) -> Option<String> {
@@ -149,7 +145,6 @@ fn block_language(block: &acdc_parser::DelimitedBlock) -> Option<String> {
 The AST tells us where the delimited block starts and where its delimiter
 lines are.  The diagram body is then sliced from the original source, not from
 ACDC's inline representation.
-
 
 ```rust
 // <[adoc-scan-content]>=
@@ -182,7 +177,6 @@ directive line is changed to `x`, which keeps the line as ordinary paragraph
 text while preventing ACDC's preprocessor from recognizing it.  Replacing the
 line with spaces is not safe because parser normalization may trim it and shift
 subsequent offsets.
-
 
 ```rust
 // <[adoc-scan-mask]>=
@@ -250,7 +244,6 @@ fn neutralize_preprocessor_directive(line: &str) -> String {
 The test body is generated as `adoc_scan/tests.rs` and linked from
 `adoc_scan.rs` with `#[cfg(test)] mod tests;`.
 
-
 ```rust
 // <[@file weaveback-docgen/src/adoc_scan/tests.rs]>=
 // weaveback-docgen/src/adoc_scan/tests.rs
@@ -317,7 +310,6 @@ fn masked_include_preserves_length() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-docgen/src/adoc_scan.rs]>=

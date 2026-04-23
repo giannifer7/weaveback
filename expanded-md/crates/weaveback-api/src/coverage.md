@@ -6,7 +6,6 @@ text/stdin attribution.
 
 ## Error Type
 
-
 ```rust
 // <[coverage error]>=
 use weaveback_tangle::WeavebackError;
@@ -62,7 +61,6 @@ impl From<crate::query::ApiError> for CoverageApiError {
 
 
 ## Implementation
-
 
 ```rust
 // <[coverage impl]>=
@@ -1639,7 +1637,6 @@ The test body is generated as `coverage/tests_coverage.rs` and linked from
 implementation file short while retaining local literate ownership.
 
 
-
 ```rust
 // <[@file weaveback-api/src/coverage/tests_coverage.rs]>=
 // weaveback-api/src/coverage/tests_coverage.rs
@@ -3099,7 +3096,6 @@ fn ws_write_file(root: &Path, rel: &str, content: &[u8]) {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/coverage.rs]>=

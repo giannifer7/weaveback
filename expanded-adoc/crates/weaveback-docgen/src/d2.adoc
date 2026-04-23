@@ -8,7 +8,6 @@ BLAKE3 and cached under `.plantuml-cache/` (shared with PlantUML).
 
 == Error type
 
-
 [source,rust]
 ----
 // <[d2-error]>=
@@ -37,7 +36,6 @@ both `[d2]` and `[source,d2]`, and returning their byte offsets and source
 text.  The shared scanner uses ACDC on a same-length masked copy of the source
 so AsciiDoc preprocessor directives cannot shift replacement offsets.
 
-
 [source,rust]
 ----
 // <[d2-collect]>=
@@ -58,7 +56,6 @@ stdin and reading SVG bytes from stdout.
 
 Tests can override the executable path via `WEAVEBACK_D2_BIN` so they do not
 need to mutate global `PATH` inside a parallel test process.
-
 
 [source,rust]
 ----
@@ -115,7 +112,6 @@ SVG.
 
 Missing `d2` is a hard error. Documentation rendering requires the `d2` CLI in
 the environment.
-
 
 [source,rust]
 ----
@@ -177,7 +173,6 @@ pub fn preprocess_d2(
 
 The test body is generated as `d2/tests.rs` and linked from
 `d2.rs` with `#[cfg(test)] mod tests;`.
-
 
 [source,rust]
 ----
@@ -295,7 +290,6 @@ fn test_render_d2_mock() {
 
 
 == Assembly
-
 
 [source,rust]
 ----

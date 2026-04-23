@@ -8,7 +8,6 @@ from Python via PyO3, and from MCP tool handlers.
 
 == Modules
 
-
 [source,rust]
 ----
 // <[weaveback-api-lib]>=
@@ -28,7 +27,6 @@ pub mod tangle;
 
 
 == Assembly
-
 
 [source,rust]
 ----

@@ -28,7 +28,6 @@ The hash is what makes incremental builds work: two runs on the same unchanged
 file produce identical hashes, so the database comparison can skip all
 downstream processing for that block's chunks.
 
-
 ```rust
 // <[block-parser-types]>=
 /// A parsed logical block with its line range and content hash.
@@ -49,7 +48,6 @@ pub struct SourceBlockEntry {
 The public entry point dispatches on `extension` and maps the raw
 `(start, end, type, content)` tuples into `SourceBlockEntry` values,
 hashing each block's content with BLAKE3 before storing it.
-
 
 ```rust
 // <[block-parser-entry]>=
@@ -105,7 +103,6 @@ text without changing byte positions.
 
 If ACDC fails to parse a file, `parse_adoc_raw_simple` remains the fallback.
 It splits on `----`/`....`/`++++` fences and `== …` section headers.
-
 
 ```rust
 // <[block-parser-adoc]>=
@@ -415,7 +412,6 @@ If `pulldown-cmark` finds no blocks (e.g. the file is empty or consists only
 of inline content) we fall back to a single full-file block, matching the
 behaviour of the unknown-extension path.
 
-
 ```rust
 // <[block-parser-markdown]>=
 /// Parse Markdown using pulldown-cmark's offset iterator.
@@ -487,7 +483,6 @@ fn parse_markdown_raw(source: &str) -> Vec<(u32, u32, &'static str, String)> {
 Markdown parsers to convert byte offsets (from parser spans) into 1-based
 line numbers.
 
-
 ```rust
 // <[block-parser-utils]>=
 /// Map of byte offset → 1-based line number.
@@ -523,7 +518,6 @@ Five unit tests exercise the public `parse_source_blocks` interface:
 * `markdown_heading_and_code` — a Markdown file yields both `"section"` and
   `"code"` blocks
 * `fallback_single_block` — an unknown extension yields exactly one block
-
 
 ```rust
 // <[@file weaveback-tangle/src/block_parser/tests.rs]>=
@@ -733,7 +727,6 @@ fn block_index_is_sequential() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-tangle/src/block_parser.rs]>=

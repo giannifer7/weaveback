@@ -4,7 +4,6 @@ This document provides a high-level "zoom out" of how `weaveback-tangle` process
 
 == The Tangle Pipeline
 
-
 .tangle-pipeline
 [source,d2]
 ----

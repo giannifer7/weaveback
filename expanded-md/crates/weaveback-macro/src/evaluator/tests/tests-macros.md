@@ -12,7 +12,6 @@ Test helpers and tests for `%def` (basic calls, error paths, parameter binding),
 
 ## Test helpers (`test_utils.rs`)
 
-
 ```rust
 // <[test utils]>=
 // crates/weaveback-macro/src/evaluator/tests/test_utils.rs
@@ -39,7 +38,6 @@ pub fn evaluator_in_temp_dir(temp_dir: &Path) -> Evaluator {
 
 
 ## Basic macro definition and call (`test_macros.rs`)
-
 
 ```rust
 // <[test macros]>=
@@ -137,7 +135,6 @@ fn test_scope_isolation() {
 
 
 ## `%def` error paths (`test_def.rs`)
-
 
 ```rust
 // <[test def]>=
@@ -360,7 +357,6 @@ fn test_arguments_evaluated_before_body() {
 
 ## Variable substitution (`test_var.rs`)
 
-
 ```rust
 // <[test var]>=
 use crate::macro_api::process_string_defaults;
@@ -511,7 +507,6 @@ fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
 
 ## `%set` (`test_set.rs`)
 
-
 ```rust
 // <[test set]>=
 #[cfg(test)]
@@ -600,7 +595,6 @@ mod tests {
 
 ## `%env` macro (`test_env.rs`)
 
-
 ```rust
 // <[test env]>=
 // crates/weaveback-macro/src/evaluator/tests/test_env.rs
@@ -671,7 +665,6 @@ fn test_eval_with_whitespace_only_arg_is_still_missing_name() {
 
 
 ## Miscellaneous builtin edge cases (`test_builtins_misc.rs`)
-
 
 ```rust
 // <[test builtins misc]>=

@@ -35,7 +35,6 @@ subdirectory in it, and wires up a `Clip` with `<<` / `>>` delimiters and
 
 
 
-
 ```rust
 // <[@file weaveback-tangle/src/tests/mod.rs]>=
 // weaveback-tangle/src/tests/mod.rs
@@ -53,7 +52,6 @@ pub(crate) use utils::*;
 
 // @@
 ```
-
 
 
 ```rust
@@ -181,7 +179,6 @@ pub(crate) const EMPTY_CHUNK: &str = r#"
 ```
 
 
-
 ```rust
 // <[@file weaveback-tangle/src/tests/utils.rs]>=
 // weaveback-tangle/src/tests/utils.rs
@@ -218,7 +215,6 @@ pub(crate) fn write_file(
 
 // @@
 ```
-
 
 
 ```rust
@@ -338,7 +334,6 @@ fn test_empty_chunk() {
 
 // @@
 ```
-
 
 
 ```rust
@@ -1232,7 +1227,6 @@ fn write_files_incremental_strict_rejects_parse_errors() {
 ```
 
 
-
 ```rust
 // <[@file weaveback-tangle/src/tests/safe_writer.rs]>=
 // weaveback-tangle/src/tests/safe_writer.rs
@@ -1652,7 +1646,6 @@ remain isolated from each other and from any on-disk `weaveback.db`.
 
 The helpers insert a fake source snapshot and matching `source_blocks` entries,
 then call `rebuild_prose_fts` and assert on the search results.
-
 
 ```rust
 // <[@file weaveback-tangle/src/tests/fts.rs]>=

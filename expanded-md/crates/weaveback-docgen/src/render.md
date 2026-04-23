@@ -9,7 +9,6 @@ See link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
 
 ## Constants
 
-
 ```rust
 // <[render-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
@@ -18,7 +17,6 @@ const EXCLUDE_DIRS: &[&str] = &["target", ".git", "node_modules", ".venv"];
 
 
 ## mtime helpers
-
 
 ```rust
 // <[render-mtime]>=
@@ -50,7 +48,6 @@ the doubled sequence verbatim.
 
 `dedup_specials` replaces every `{s}{s}` → `{s}` for each char in `specials`
 and returns the cleaned content, or `None` if no substitution was needed.
-
 
 ```rust
 // <[render-dedup]>=
@@ -89,7 +86,6 @@ Because the HTML tree may be nested (e.g.
 the site root when the site is served from a sub-path (e.g. GitHub Pages).
 Before injection the absolute paths are rewritten to relative paths by
 prepending the appropriate number of `../` components.
-
 
 ```rust
 // <[render-docinfo]>=
@@ -150,7 +146,6 @@ Rendering proceeds in two phases:
 
 The PlantUML SVG cache lives at `<out_dir>/../.plantuml-cache/` — a sibling of
 the output directory — so that `rm -rf <out_dir>` does not invalidate it.
-
 
 ```rust
 // <[render-entry]>=
@@ -378,7 +373,6 @@ pub fn render_docs(
 `find_adoc_files` walks the project tree, skipping `EXCLUDE_DIRS`, and returns
 a sorted list of all `.adoc` paths.
 
-
 ```rust
 // <[render-discover]>=
 fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
@@ -409,7 +403,6 @@ fn find_adoc_files(root: &Path) -> Vec<PathBuf> {
 
 ## Assembly
 
-
 ```rust
 // <[@file weaveback-docgen/src/render.rs]>=
 // weaveback-docgen/src/render.rs
@@ -435,7 +428,6 @@ mod tests;
 
 The test body is generated as `render/tests.rs` and linked from
 `render.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/render/tests.rs]>=

@@ -9,7 +9,6 @@ semantic information in generated code and map it back to literate sources.
 `LspClient` manages a background LSP server process and handles the JSON-RPC
 protocol over stdin/stdout.
 
-
 ```rust
 // <[lsp-client]>=
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -212,7 +211,6 @@ impl Drop for LspClient {
 
 ## Semantic Navigation
 
-
 ```rust
 // <[lsp-nav]>=
 impl LspClient {
@@ -319,7 +317,6 @@ impl LspClient {
 
 ## LSP Registry
 
-
 ```rust
 // <[lsp-registry]>=
 /// Returns (command, language_id) for a given file extension.
@@ -336,7 +333,6 @@ pub fn get_lsp_config(ext: &str) -> Option<(String, String)> {
 
 
 ## Tests
-
 
 ```rust
 // <[@file weaveback-lsp/src/tests.rs]>=
@@ -403,7 +399,6 @@ msg2 = read_msg()
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-lsp/src/lib.rs]>=

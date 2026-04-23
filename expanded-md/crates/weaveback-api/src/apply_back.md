@@ -129,7 +129,6 @@ See link:lib.adoc[weaveback.adoc] for the module map.
 
 ## Types
 
-
 ```rust
 // <[applyback-types]>=
 use weaveback_macro::evaluator::{EvalConfig, Evaluator};
@@ -200,7 +199,6 @@ the starting hypothesis that determines which search strategy weaveback uses:
 * body-template search for `MacroBodyWithVars`
 * argument-value search for `MacroArg`
 * reporting-only for `Unpatchable`
-
 
 ```rust
 // <[applyback-structs]>=
@@ -348,7 +346,6 @@ See link:lib.adoc[weaveback.adoc] for the module map.
 
 ## Types
 
-
 ```rust
 // <[applyback-fuzzy]>=
 /// Search `lines` in a ±`window` range around `center` for a unique line that
@@ -388,7 +385,6 @@ so the expander uses the in-memory patched string) and checks that line
 `expanded_line` of the output equals `desired`.
 
 `splice_line` is a helper that replaces one element of `lines` and rejoins.
-
 
 ```rust
 // <[applyback-oracle]>=
@@ -480,7 +476,6 @@ segments, extracts runtime variable values from the old expansion, then derives
 new literals from the new expansion while keeping variable references fixed.
 Returns `None` when the structure is ambiguous (e.g., adjacent variables with
 no literal separator).
-
 
 ```rust
 // <[applyback-heuristics]>=
@@ -909,7 +904,6 @@ fn search_macro_call_candidate(request: MacroCallSearch<'_>) -> Option<Candidate
 `MacroBodyWithVars` by scanning the stored snapshot line for the special
 character.
 
-
 ```rust
 // <[applyback-resolve]>=
 #[allow(clippy::too_many_arguments)]
@@ -1148,7 +1142,6 @@ writes back if anything changed, and reports skipped lines.
 
 `strip_indent` removes the noweb-induced indent from a `gen/` line before
 comparing it to the un-indented source.
-
 
 ```rust
 // <[applyback-apply]>=
@@ -1424,7 +1417,6 @@ fn strip_indent<'a>(line: &'a str, indent: &str) -> &'a str {
 the set of baselines to process (all of them, or just the requested paths),
 diffs each against the current `gen/` file, resolves patches, and calls
 `apply_patches_to_file` for each source file touched.
-
 
 ```rust
 // <[applyback-run]>=
@@ -1771,7 +1763,6 @@ pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(),
 The test body is generated as `apply_back/tests.rs` and linked from
 `apply_back.rs` with `#[cfg(test)] mod tests;`.  This keeps the recovery
 implementation shorter while preserving local literate ownership of the tests.
-
 
 
 ```rust
@@ -3084,7 +3075,6 @@ fn test_apply_patches_to_file_macro_body_literal_success() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/apply_back.rs]>=

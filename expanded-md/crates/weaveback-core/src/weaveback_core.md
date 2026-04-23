@@ -7,7 +7,6 @@ between the macro and tangle crates.
 
 ## Shared Constants
 
-
 ```rust
 // <[core-constants]>=
 /// Maximum recursion depth for macro expansion and noweb chunk expansion.
@@ -28,7 +27,6 @@ is also the directory from which weaveback was originally run.  Using the db
 location (rather than the current working directory) ensures that paths resolve
 correctly when subcommands like `apply-back` are invoked from a different
 directory.
-
 
 ```rust
 // <[core-path]>=
@@ -95,7 +93,6 @@ impl PathResolver {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-core/src/lib.rs]>=

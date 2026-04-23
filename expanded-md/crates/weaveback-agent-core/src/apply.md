@@ -2,7 +2,6 @@
 
 ## Implementation
 
-
 ```rust
 // <[@file weaveback-agent-core/src/apply.rs]>=
 // weaveback-agent-core/src/apply.rs
@@ -300,7 +299,6 @@ mod tests;
 
 The test body is generated as `apply/tests.rs` and linked from
 `apply.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-agent-core/src/apply/tests.rs]>=

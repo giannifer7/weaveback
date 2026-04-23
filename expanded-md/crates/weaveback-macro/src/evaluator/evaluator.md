@@ -11,7 +11,6 @@ variable reference, and conditional, emitting the expanded text.
 
 ## Architecture overview
 
-
 <!-- graph: evaluator-components -->
 ```plantuml
 
@@ -149,7 +148,6 @@ case-conversion utilities, and `modify_source`</td></tr>
 
 ### File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/mod.rs]>=
 // weaveback-macro/src/evaluator/mod.rs
@@ -160,7 +158,6 @@ case-conversion utilities, and `modify_source`</td></tr>
 // @
 ```
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/errors.rs]>=
 // weaveback-macro/src/evaluator/errors.rs
@@ -170,7 +167,6 @@ case-conversion utilities, and `modify_source`</td></tr>
 
 // @
 ```
-
 
 ```rust
 // <[@file weaveback-macro/src/evaluator/lexer_parser.rs]>=
@@ -189,7 +185,6 @@ case-conversion utilities, and `modify_source`</td></tr>
 `#[cfg(test)]`, and re-exports every public symbol that the rest of the crate
 (and external callers) needs.  Keeping re-exports here means importers never
 have to know which submodule owns a type.
-
 
 ```rust
 // <[evaluator mod preamble]>=
@@ -231,7 +226,6 @@ pub use state::{EvalConfig, MacroDefinition, ScriptKind};
 `IoError` uses `#[from]` so `?` works on `std::io::Error` inside built-ins.
 The blanket `From<String>` impl lets built-in functions return
 `Err("message".into())` without naming a specific variant.
-
 
 ```rust
 // <[evaluator errors]>=
@@ -293,7 +287,6 @@ order with the right error formatting.
 The `LineIndex` is built once from the source bytes and shared across both
 lexer-error formatting and the parser; it avoids repeated line-number
 computation.
-
 
 ```rust
 // <[evaluator lexer parser]>=

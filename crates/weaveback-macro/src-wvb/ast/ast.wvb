@@ -85,9 +85,9 @@ wants clean output must go through `process_ast`.
 
 In idiomatic weaveback source, comments appear on their own line:
 
-----
+¤code_block(text, ¤[
 some text %%// strip me
-----
+¤])
 
 The space before `%%//` is syntactically part of the preceding `Text` or
 `Space` node.  If left in, it pollutes the generated output.
@@ -653,9 +653,9 @@ Each node is encoded as a JSON-like array.  The token tuple is expanded
 _inline_ by `serialize_token` (which returns a comma-separated string), so
 the full wire format is:
 
-----
+¤code_block(text, ¤[
 [node_kind, token_src, token_kind, token_pos, token_length, end_pos, [child_indices...]]
-----
+¤])
 
 The `format!` call has four `{}` slots — `node_kind`, `serialize_token(…)`,
 `end_pos`, and `parts` — but `serialize_token` itself emits four

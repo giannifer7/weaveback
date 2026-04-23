@@ -18,14 +18,14 @@ the system local and inspectable.
 
 Add a `[semantic]` section to `weaveback.toml`:
 
-[source,toml]
-----
+```toml
 [semantic]
 backend    = "openai"                  # or gemini / ollama / any openai-compatible
 model      = "text-embedding-3-small"
 batch_size = 24                        # blocks per embedding request
 # endpoint = "http://localhost:11434/v1"  # for ollama or openai-compatible
-----
+```
+
 
 Supported backends:
 
@@ -39,7 +39,6 @@ does not expose a compatible embedding API.
 
 If the section is absent, or the relevant API key env var is not set, the
 step is silently skipped.
-
 
 ```rust
 // <[semantic-config]>=
@@ -84,7 +83,6 @@ a thin `ureq` transport wrapper.  Unit tests cover the data-mapping logic
 without any network access.
 
 `embed_texts` dispatches to the right backend using `cfg.backend`.
-
 
 ```rust
 // <[semantic-embedding-clients]>=
@@ -230,7 +228,6 @@ fn embed_texts(cfg: &EmbeddingConfig, inputs: &[String]) -> Result<Vec<Vec<f32>>
 already loaded in memory.  It is a pure function, easily testable, and avoids
 repeated `lines().collect()` calls at call sites.
 
-
 ```rust
 // <[semantic-helpers]>=
 /// Extract the text of a block (1-based `line_start`..`line_end`) from a
@@ -258,7 +255,6 @@ batches, and stores the resulting vectors in `block_embeddings`.
 
 Errors from any individual API call or DB write are printed as warnings and
 do not abort the overall run.
-
 
 ```rust
 // <[semantic-orchestration]>=
@@ -338,7 +334,6 @@ pub fn run_auto_embed(
 
 
 ## Tests
-
 
 ```rust
 // <[@file weaveback-api/src/semantic/tests.rs]>=
@@ -630,7 +625,6 @@ fn test_run_auto_embed_skips_when_no_blocks() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/semantic.rs]>=

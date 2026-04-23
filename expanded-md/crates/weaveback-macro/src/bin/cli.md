@@ -48,7 +48,6 @@ Skips evaluation entirely and serialises the parsed AST of each input file to
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/bin/weaveback-macro.rs]>=
 // weaveback-macro/src/bin/weaveback-macro.rs
@@ -69,7 +68,6 @@ Skips evaluation entirely and serialises the parsed AST of each input file to
 
 ## Preamble
 
-
 ```rust
 // <[cli preamble]>=
 // crates/weaveback-macro/src/bin/macro_cli.rs
@@ -84,7 +82,6 @@ use std::path::{Path, PathBuf};
 
 
 ## Platform path separator
-
 
 ```rust
 // <[cli default pathsep]>=
@@ -101,7 +98,6 @@ fn default_pathsep() -> String {
 
 
 ## CLI helpers
-
 
 ```rust
 // <[cli helpers]>=
@@ -134,7 +130,6 @@ fn apply_cli_defines(eval: &mut Evaluator, defines: &[String]) -> Result<(), Eva
 
 ## `find_files` — recursive extension scanner
 
-
 ```rust
 // <[cli find files]>=
 /// Recursively collect all files whose extension matches any entry in `exts` under `dir`.
@@ -157,7 +152,6 @@ fn find_files(dir: &Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::R
 
 
 ## CLI argument struct
-
 
 ```rust
 // <[cli args struct]>=
@@ -233,7 +227,6 @@ struct Args {
 
 ## `run` — core logic
 
-
 ```rust
 // <[cli run]>=
 fn run(args: Args) -> Result<(), EvalError> {
@@ -305,7 +298,6 @@ fn run(args: Args) -> Result<(), EvalError> {
 
 ## `main`
 
-
 ```rust
 // <[cli main]>=
 fn main() {
@@ -323,7 +315,6 @@ fn main() {
 
 
 ## Tests (in-process)
-
 
 ```rust
 // <[cli tests]>=
@@ -467,7 +458,6 @@ build and invoke the binary as a subprocess, exercising the full CLI contract:
 * `test_define_cli` — `-D NAME=VALUE` seeds top-level variables
 * `test_env_prefix_cli` — `--env-prefix` maps `%env(NAME)` to namespaced environment variables
 * `test_recursion_limit_cli` — `--recursion-limit` overrides the default macro nesting cap
-
 
 ```rust
 // <[@file weaveback-macro/tests/test_macro_cli.rs]>=

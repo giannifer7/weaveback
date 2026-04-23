@@ -19,7 +19,6 @@ link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
 The regex matches `href="…something.adoc…"` and replaces the `.adoc`
 extension.  It runs over all HTML files under `out_dir`.
 
-
 ```rust
 // <[inject-rewrite]>=
 fn adoc_href_re() -> &'static Regex {
@@ -65,7 +64,6 @@ from the generated `.rs` filename (e.g. `cli.adoc` generates
 `existing_html` is threaded through so links to unrendered modules (modules
 that have `.rs` but no `.adoc` literate source) are filtered out of the
 injected JSON.
-
 
 ```rust
 // <[inject-xref]>=
@@ -129,7 +127,6 @@ adoc that generates several `.rs` files), the xref entries for all those
 modules are merged: imports, `imported_by`, and symbols are concatenated,
 sorted, and de-duplicated.
 
-
 ```rust
 // <[inject-merge]>=
 fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
@@ -167,7 +164,6 @@ fn merge_xref_entries(html: &str, entries: &[&XrefEntry]) -> XrefEntry {
 re-runs are idempotent, then builds a compact xref object filtered to pages
 that were actually rendered, and inserts it as a `<script>` tag just before
 `</head>`.
-
 
 ```rust
 // <[inject-do]>=
@@ -235,7 +231,6 @@ chunk name within each HTML file, matching the storage convention in
 
 The pass is idempotent: existing `data-chunk-id` attributes are stripped at
 the start of each file's processing.
-
 
 ```rust
 // <[inject-chunk-ids]>=
@@ -342,7 +337,6 @@ generated production file.
 
 The test body is generated as `inject/tests.rs` and linked from
 `inject.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-docgen/src/inject/tests.rs]>=
@@ -512,7 +506,6 @@ fn inject_xref_handles_direct_html_and_adoc_override_maps() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-docgen/src/inject.rs]>=

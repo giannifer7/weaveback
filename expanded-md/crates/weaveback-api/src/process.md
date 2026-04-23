@@ -13,7 +13,6 @@ by the `wb-tangle` binary for its single-pass mode.
 `SinglePassArgs` mirrors `Args` from the CLI layer but without any
 `clap` annotations, so it can be constructed programmatically.
 
-
 ```rust
 // <[process-args]>=
 use std::path::{Path, PathBuf};
@@ -144,7 +143,6 @@ impl SinglePassArgs {
 
 ## Filesystem Helpers
 
-
 ```rust
 // <[process-fs]>=
 /// Recursively collect all files whose extension matches any entry in `exts`.
@@ -184,7 +182,6 @@ pub fn write_depfile(path: &std::path::Path, target: &std::path::Path, deps: &[P
 
 ## Macro Prelude Helpers
 
-
 ```rust
 // <[process-macro-prelude]>=
 fn evaluate_macro_preludes(
@@ -209,7 +206,6 @@ fn evaluate_macro_preludes(
 expand to AsciiDoc and Markdown.  The Markdown pass normalizes those table
 blocks after macro expansion: uniform header tables become Markdown pipe
 tables, while structurally richer tables fall back to HTML.
-
 
 ```rust
 // <[process-markdown-normalize]>=
@@ -657,7 +653,6 @@ fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: &[u8]) -> S
 
 ## Expanded Document Paths
 
-
 ```rust
 // <[process-expanded-paths]>=
 
@@ -719,7 +714,6 @@ fn write_expanded_document(
 
 
 ## Skip-Set Computation
-
 
 ```rust
 // <[process-skip]>=
@@ -828,7 +822,6 @@ pub fn compute_skip_set(
 
 
 ## run_single_pass
-
 
 ```rust
 // <[process-run]>=
@@ -1063,7 +1056,6 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
 The test body is generated as `process/tests.rs` and linked from
 `process.rs` with `#[cfg(test)] mod tests;`.  This keeps the single-pass
 pipeline implementation shorter while preserving local literate ownership.
-
 
 
 ```rust
@@ -1894,7 +1886,6 @@ fn run_single_pass_bench_no_fts() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/process.rs]>=

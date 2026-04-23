@@ -29,7 +29,6 @@ overview.
   <tr><td>`FILES…`</td><td>—</td><td>Input literate source files (`-` for stdin).</td></tr>
 </table>
 
-
 ```rust
 // <[@file weaveback-tangle/src/main.rs]>=
 // weaveback-tangle/src/main.rs
@@ -206,7 +205,6 @@ full argument-parsing / chunk-extraction contract:
 * `test_basic_chunk_extraction` — `@file` chunk written to `gen/` directory
 * `test_extract_specific_chunk_to_stdout` — `--chunks` prints named chunk
 * `test_extract_chunk_to_file` — `--chunks --output` writes chunk to file
-
 
 ```rust
 // <[@file weaveback-tangle/tests/main_tests.rs]>=

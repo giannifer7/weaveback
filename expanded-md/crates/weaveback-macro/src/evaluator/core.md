@@ -56,7 +56,6 @@ bug #6).
 
 ## Evaluation dispatch overview
 
-
 <!-- graph: evaluate-dispatch -->
 ```plantuml
 
@@ -110,7 +109,6 @@ stop
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/core.rs]>=
 // weaveback-macro/src/evaluator/core.rs
@@ -140,7 +138,6 @@ stop
 
 ## Preamble
 
-
 ```rust
 // <[core preamble]>=
 use std::collections::{HashMap, HashSet};
@@ -159,7 +156,6 @@ use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 
 ## `Evaluator` struct
 
-
 ```rust
 // <[evaluator struct]>=
 pub struct Evaluator {
@@ -170,7 +166,6 @@ pub struct Evaluator {
 }
 // @
 ```
-
 
 
 ```rust
@@ -197,7 +192,6 @@ struct BindingPlan<'a> {
 
 
 ## Constructor and accessors
-
 
 ```rust
 // <[evaluator new and accessors]>=
@@ -364,7 +358,6 @@ impl Evaluator {
 
 ## Python store
 
-
 ```rust
 // <[evaluator py store]>=
     pub fn pystore_set(&mut self, key: String, value: String) {
@@ -382,7 +375,6 @@ impl Evaluator {
 
 These thin methods forward to `EvaluatorState` and also handle call-site
 recording for the tracing maps.
-
 
 ```rust
 // <[evaluator macro and var]>=
@@ -435,7 +427,6 @@ recording for the tracing maps.
 
 ## Source and file management
 
-
 ```rust
 // <[evaluator source and file]>=
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
@@ -487,7 +478,6 @@ recording for the tracing maps.
 
 The plain path returns a `String`.  Comments are silently dropped.  All other
 node kinds recurse over their children.
-
 
 ```rust
 // <[evaluator plain evaluate]>=
@@ -543,7 +533,6 @@ Because the configurable sigil may now be multi-byte UTF-8, the leading
 delimiter length is derived from the source bytes at the token position instead
 of being hard-coded to one byte. `extract_name_value` returns the raw bytes for
 a plain `Ident` token (no stripping needed).
-
 
 ```rust
 // <[evaluator node text]>=
@@ -601,7 +590,6 @@ a plain `Ident` token (no stripping needed).
 ```
 
 
-
 ```rust
 // <[evaluator extract name]>=
     pub fn extract_name_value(&self, name_token: &Token) -> String {
@@ -642,7 +630,6 @@ to formal parameters.
 For `None`/`Python` script kinds, `evaluate(&mac.body)` then runs in
 the callee frame. Verbatim blocks (`%[ ... %]`) make parts of the body
 opaque to macro expansion, so `%pydef` no longer needs a separate raw mode.
-
 
 ```rust
 // <[evaluator macro call plain]>=
@@ -743,7 +730,6 @@ Use `%alias(new, src, k=v)` for explicit capture: the `k=v` overrides are
 evaluated at alias-definition time and stored in `frozen_args`, giving the
 same pin-at-definition-time effect without hidden semantics on `%export`.
 
-
 ```rust
 // <[evaluator export and freeze]>=
     pub fn export(&mut self, name: &str) {
@@ -810,7 +796,6 @@ first match.  Absolute paths are accepted as-is.
 cycles.  The path is always removed on exit — whether the include succeeds or
 fails — to prevent a failed include from permanently blocking re-includes.
 
-
 ```rust
 // <[evaluator parse string and find file]>=
     pub fn parse_string(&mut self, text: &str, path: &PathBuf) -> Result<ASTNode, EvalError> {
@@ -842,7 +827,6 @@ fails — to prevent a failed include from permanently blocking re-includes.
     }
 // @
 ```
-
 
 
 ```rust
@@ -891,7 +875,6 @@ token with `SpanKind::Literal`.  `evaluate_arg_to_traced` evaluates one
 argument into a `PreciseTracingOutput` to get both the value string and its
 `SpanRange` list.  `tag_as_macro_arg` re-tags those spans with
 `MacroArg { macro_name, param_name }`.
-
 
 ```rust
 // <[evaluator tracing helpers]>=
@@ -953,7 +936,6 @@ while keeping their own `pos`/`length` for exact line resolution.
 Multi-line `Text` tokens are split at `\n` boundaries, each segment emitted
 with its own adjusted `pos` within the original token, so every output line
 maps to the correct source line.
-
 
 ```rust
 // <[evaluator evaluate to]>=
@@ -1080,7 +1062,6 @@ machinery.  The body is evaluated with a `MacroBody` context span;
 script-kind macros use the same note as in the plain path — they arrive
 through the builtin map, so the `ScriptKind::Python`
 branch here is currently unreachable.
-
 
 ```rust
 // <[evaluator macro call to]>=

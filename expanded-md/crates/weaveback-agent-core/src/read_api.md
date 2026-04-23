@@ -2,7 +2,6 @@
 
 ## Implementation
 
-
 ```rust
 // <[@file weaveback-agent-core/src/read_api.rs]>=
 // weaveback-agent-core/src/read_api.rs
@@ -547,7 +546,6 @@ mod tests;
 
 The test body is generated as `read_api/tests.rs` and linked from
 `read_api.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-agent-core/src/read_api/tests.rs]>=

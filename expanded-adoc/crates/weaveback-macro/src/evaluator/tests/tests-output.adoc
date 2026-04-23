@@ -8,7 +8,6 @@ the `eval_api` public functions, the `macro_api` layer, and SKILL.md examples.
 
 == Output sinks (`test_output.rs`)
 
-
 [source,rust]
 ----
 // <[test output]>=
@@ -267,7 +266,6 @@ fn test_macro_map_entries() {
 
 == Eval API (`test_eval_api.rs`)
 
-
 [source,rust]
 ----
 // <[test eval api]>=
@@ -426,7 +424,6 @@ fn eval_files_with_config_creates_output_dir() {
 
 == Macro API (`test_macro_api.rs`)
 
-
 [source,rust]
 ----
 // <[test macro api]>=
@@ -552,7 +549,6 @@ fn test_process_files_with_shared_macros() {
 
 
 == SKILL.md examples (`test_skill_examples.rs`)
-
 
 [source,rust]
 ----

@@ -21,8 +21,7 @@ all configurable; the defaults are `<[`, `]>`, `@`, and `#,//`.
 
 Using the classic `<<` / `>>` notation for illustration:
 
-[source]
-----
+¤code_block(text, ¤[
 // <<@file src/output.rs>>=   ← file chunk (declares an output file)
 ... body lines ...
 // @                          ← chunk-end
@@ -30,19 +29,18 @@ Using the classic `<<` / `>>` notation for illustration:
 // <<helper-chunk>>=          ← named chunk
 ... body lines ...
 // @@
-----
+¤])
 
 A _chunk reference_ inside a body causes the referenced chunk to be expanded
 inline, with indentation accumulated:
 
-[source]
-----
+¤code_block(text, ¤[
 // <<@file src/output.rs>>=
 fn main() {
     // <<body>>
 }
 // @@
-----
+¤])
 
 Modifiers on definitions and references:
 

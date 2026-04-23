@@ -16,7 +16,6 @@ Two rules are implemented:
 
 ## Core Types
 
-
 ```rust
 // <[lint-core-types]>=
 use std::fs;
@@ -70,7 +69,6 @@ pub struct LintViolation {
 `should_skip_dir` prunes well-known generated or dependency directories that
 should never be linted.
 
-
 ```rust
 // <[lint-fs]>=
 fn should_skip_dir(path: &Path) -> bool {
@@ -117,7 +115,6 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
 `LintSyntaxEntry` per `[[pass]]` section, plus a default entry for
 the standard `<<`/`>>` syntax.  `lint_syntaxes_for_file` selects the
 entries whose `dir` prefix matches a given file path.
-
 
 ```rust
 // <[lint-config]>=
@@ -209,7 +206,6 @@ fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> V
 
 
 ## Rules
-
 
 ```rust
 // <[lint-rules]>=
@@ -352,7 +348,6 @@ pub fn lint_paths(
 
 ## Entry Point
 
-
 ```rust
 // <[lint-run]>=
 pub fn run_lint(
@@ -408,7 +403,6 @@ pub fn run_lint(
 
 
 ## Tests
-
 
 ```rust
 // <[@file weaveback-api/src/lint/tests.rs]>=
@@ -594,7 +588,6 @@ fn run_lint_can_emit_json() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/lint.rs]>=

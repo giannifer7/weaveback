@@ -15,7 +15,6 @@ sub-module documented as a literate AsciiDoc source.
 
 ## Architecture
 
-
 <!-- graph: module-structure -->
 ```plantuml
 
@@ -115,7 +114,6 @@ The crate root re-exports the two most commonly used entry types
 
 ### File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/lib.rs]>=
 // weaveback-macro/src/lib.rs
@@ -131,7 +129,6 @@ The crate root re-exports the two most commonly used entry types
 
 ### Module declarations
 
-
 ```rust
 // <[lib preamble]>=
 // crates/weaveback-macro/src/lib.rs
@@ -139,7 +136,6 @@ mod types;
 pub use types::*;
 // @
 ```
-
 
 
 ```rust
@@ -152,7 +148,6 @@ pub mod macro_api;
 pub mod parser;
 // @
 ```
-
 
 
 ```rust

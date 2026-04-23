@@ -86,7 +86,6 @@ Three mutually-recursive states share the same stack.  The driver loop
 dispatches to the correct handler and pops the stack when the handler
 returns `false`.
 
-
 <!-- graph: lexer-states -->
 ```plantuml
 
@@ -167,7 +166,6 @@ This source tests `<[ ... ]>` literally, so its generated noweb chunks use `<< .
 
 
 
-
 ```rust
 // <<@file weaveback-macro/src/lexer/mod.rs>>=
 // weaveback-macro/src/lexer/mod.rs
@@ -192,7 +190,6 @@ This source tests `<[ ... ]>` literally, so its generated noweb chunks use `<< .
 
 Every method group gets its own sub-chunk.  They are assembled here in
 the order they appear in the impl block.
-
 
 ```rust
 // <<lexer impl>>=
@@ -221,7 +218,6 @@ impl<'a> Lexer<'a> {
 
 ## Module preamble
 
-
 ```rust
 // <<lexer preamble>>=
 use crate::types::{LexerError, Token, TokenKind};
@@ -240,7 +236,6 @@ Three byte-level predicates used throughout the lexer.  They operate on
 structural punctuation are still ASCII, but the configurable sigil may
 now be any single Unicode scalar value, so the lexer stores both the `char`
 for diagnostics and its UTF-8 byte sequence for scanning.
-
 
 ```rust
 // <<lexer char classifiers>>=
@@ -281,7 +276,6 @@ encode exactly what the caller must do next:
   pops the current frame.
 * `Continue` — a token was emitted; continue the current loop.
 
-
 ```rust
 // <<lexer state types>>=
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -320,7 +314,6 @@ that top-level text and constructs are handled identically to nested ones.
 `open_comment` and `close_comment` are the precomputed comment delimiters
 for the configurable sigil (see <<_design_rationale>>).
 
-
 ```rust
 // <<lexer struct>>=
 pub struct Lexer<'a> {
@@ -351,7 +344,6 @@ comment delimiters, then seeds the stack with the outermost `Block` frame.
 `lex` consumes the lexer and returns the completed token stream alongside
 any errors.  Errors are non-fatal: the stream is always well-formed up to
 EOF even when errors occur.
-
 
 ```rust
 // <<lexer pub api>>=
@@ -402,7 +394,6 @@ from named blocks.
 `block_tag_at` reads the identifier immediately after a `%` at a given
 byte offset.  Named-block open and close use this to match tags
 (`%blk{...%blk}`) without storing the tag in the `State` frame.
-
 
 ```rust
 // <<lexer input helpers>>=
@@ -481,7 +472,6 @@ clean without forcing callers to check lengths.
 `error_at` appends to `errors`.  Errors never stop lexing — the lexer
 always produces a usable stream.
 
-
 ```rust
 // <<lexer emission>>=
 // ── Emission ──────────────────────────────────────────────────────────
@@ -512,7 +502,6 @@ unclosed.  The driver collects their error messages by borrowing
 `collect()` into a `Vec` breaks the simultaneous borrow.  `Comment`
 frames are omitted here because `run_comment_state` reports its own
 unclosed error when it hits EOF.
-
 
 ```rust
 // <<lexer run>>=
@@ -594,7 +583,6 @@ is consumed and control passes to `handle_after_sigil`.  The return
 value determines whether to push (return `true` immediately so the driver
 calls the new state), pop (return `false`), or stay in the loop.
 
-
 ```rust
 // <<lexer block state>>=
 // ── Block state ───────────────────────────────────────────────────────
@@ -634,7 +622,6 @@ fn run_block_state(&mut self) -> bool {
 Verbatim blocks are opaque to macro parsing.  Only `%[` / `%name[` opens and
 `%]` / `%name]` closes are recognised; everything else, including `%macro(...)`,
 `%(var)`, comments, and `%%`, is emitted literally.
-
 
 ```rust
 // <<lexer verbatim state>>=
@@ -725,7 +712,6 @@ The trailing check `if !matches!(self.state_stack.last(), Some(State::Macro(_)))
 handles the case where `handle_after_sigil` called `Pop` (e.g. a `%}`
 inside a macro arg): in that case, we are no longer the active state and
 must return false without consuming `)`.
-
 
 ```rust
 // <<lexer macro state>>=
@@ -819,7 +805,6 @@ The dispatch table (by the next byte):
 `handle_var` handles the `%(name)` form: it demands an identifier
 immediately after `(` and a `)` immediately after the identifier.  Any
 deviation produces an error and emits the malformed sequence as `Text`.
-
 
 ```rust
 // <<lexer sigil handler>>=
@@ -1019,7 +1004,6 @@ it is neither a comment delimiter nor a syntax error.
 On EOF, the accumulated text (if any) is emitted and an "Unclosed comment"
 error is recorded.  The frame is then popped by returning `false`.
 
-
 ```rust
 // <<lexer comment state>>=
 // ── Comment state ─────────────────────────────────────────────────────
@@ -1097,7 +1081,6 @@ isolation.  Key cases worth noting:
 * **`test_escaped_pubfunc_not_macro`** — `%%name(` must produce a
   `Special` token followed by `Text`, not a macro call.
 * **`test_verbatim_blocks_are_opaque`** — `%[` blocks keep inner macro syntax literal.
-
 
 ```rust
 // <<@file weaveback-macro/src/lexer/tests.rs>>=

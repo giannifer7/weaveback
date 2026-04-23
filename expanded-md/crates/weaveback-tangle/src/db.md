@@ -67,7 +67,6 @@ that were previously `TEXT` are now `INTEGER REFERENCES files(id)`, eliminating
 the redundant path storage on every row.  Indexes on `chunk_deps(to_chunk)` and
 `noweb_map(src_file, src_line)` keep reverse-dep and trace lookups O(log n).
 
-
 ```rust
 // <[db-schema]>=
 const CREATE_SCHEMA: &str = "
@@ -197,7 +196,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
 
 ## Error type and NowebMapEntry
 
-
 ```rust
 // <[db-types]>=
 use thiserror::Error;
@@ -317,7 +315,6 @@ the file-ID schema was introduced by inspecting the column type of
 affected tables (while preserving `gen_baselines` and `src_snapshots`) before
 running `CREATE_SCHEMA`.
 
-
 ```rust
 // <[db-open]>=
 pub struct WeavebackDb {
@@ -416,7 +413,6 @@ impl WeavebackDb {
 `set_baseline` / `get_baseline` maintain the modification-detection baseline
 for each generated file.  `list_baselines` is used during merge and in tests.
 
-
 ```rust
 // <[db-baselines]>=
 impl WeavebackDb {
@@ -458,7 +454,6 @@ impl WeavebackDb {
 transaction.  All file paths are interned before the transaction opens so the
 integer IDs are ready.  `get_noweb_entry` is used by the `wb-query where` and
 `trace` commands; it JOINs the `files` table to return path strings.
-
 
 ```rust
 // <[db-noweb-map]>=
@@ -649,7 +644,6 @@ this?").  `query_all_chunk_deps` returns every edge in the graph for DOT export.
 `query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
 lines to, enabling `wb-query impact` to report affected output files.
 
-
 ```rust
 // <[db-chunk-deps]>=
 impl WeavebackDb {
@@ -774,7 +768,6 @@ batch in a single transaction.  File paths are interned before the transaction;
 the unique-IDs list drives the delete pass.  `get_chunk_def` retrieves a single
 entry by `(src_file, chunk_name, nth)`, used by `wb-serve` to open the
 correct editor location.
-
 
 ```rust
 // <[db-chunk-defs-api]>=
@@ -936,7 +929,6 @@ Pre-serialized entries (opaque `BLOB` per line) written by the macro expander
 and read back during trace operations.  The driver file path is interned before
 the transaction; `get_macro_map_bytes` resolves the path via a JOIN.
 
-
 ```rust
 // <[db-macro-map]>=
 impl WeavebackDb {
@@ -991,7 +983,6 @@ impl WeavebackDb {
 translate literate source positions into generated file positions.
 `set_run_config` / `get_run_config` store free-form key→value pairs for the
 current run.
-
 
 ```rust
 // <[db-config]>=
@@ -1106,7 +1097,6 @@ pairs for a file — used by the incremental-build logic to detect which blocks
 changed since the last run.  `query_blocks_overlapping_range` returns all
 blocks whose line range overlaps a given `[line_start, line_end]` interval,
 enabling the caller to map a changed line range to a set of dirty blocks.
-
 
 ```rust
 // <[db-source-blocks]>=
@@ -1230,7 +1220,6 @@ failure.  `DETACH` always runs, even on error, to avoid leaking the attachment.
 SQLite's `ATTACH DATABASE` does not support parameterized paths, so the path
 is string-interpolated.  The `sqlite_string_literal` helper encapsulates
 single-quote escaping to prevent injection.
-
 
 ```rust
 // <[db-merge]>=
@@ -1452,7 +1441,6 @@ a run; apply-back uses these to reconstruct the original text when patching.
 re-running the macro expander.  The source file path is interned before each
 insert; queries JOIN through `files` to return path strings.
 
-
 ```rust
 // <[db-rest]>=
 impl WeavebackDb {
@@ -1580,7 +1568,6 @@ simple:
 
 This avoids an external vector store and keeps semantic retrieval a local
 augmentation over the existing FTS-plus-tags pipeline.
-
 
 ```rust
 // <[db-fts]>=
@@ -1987,7 +1974,6 @@ with `#[cfg(test)] mod tests;`.  This keeps the database implementation file
 shorter while preserving local literate ownership of the tests.
 
 
-
 ```rust
 // <[@file weaveback-tangle/src/db/tests.rs]>=
 // weaveback-tangle/src/db/tests.rs
@@ -2068,7 +2054,6 @@ fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-tangle/src/db.rs]>=

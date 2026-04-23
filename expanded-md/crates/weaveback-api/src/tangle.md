@@ -13,7 +13,6 @@ handles `--dir`, `--gen`, etc.) stays in the binary layer.
 
 ## Config Types
 
-
 ```rust
 // <[tangle-cfg]>=
 /// Per-pass configuration from `[[pass]]` in `weaveback.toml`.
@@ -91,7 +90,6 @@ pub struct TangleCfg {
 invocation.  It is kept separate from `run_tangle_all` so callers can
 inspect or override the command before running it.
 
-
 ```rust
 // <[tangle-cmd]>=
 /// Build a `std::process::Command` for one tangle pass.
@@ -159,7 +157,6 @@ rebuilds the FTS index and optionally runs the LLM tag and embedding
 passes. This is intentionally serialized because every pass merges into
 the same persistent SQLite database, and correctness matters more than
 parallelism here.
-
 
 ```rust
 // <[tangle-run]>=
@@ -234,7 +231,6 @@ pub fn run_tangle_all(
 
 The test body is generated as `tangle/tests.rs` and linked from
 `tangle.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-api/src/tangle/tests.rs]>=
@@ -609,7 +605,6 @@ fn test_run_tangle_all_fails_if_pass_fails() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/tangle.rs]>=

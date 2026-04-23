@@ -18,14 +18,13 @@ Claude Haiku; incremental runs are nearly free.
 
 Add a `[tags]` section to `weaveback.toml`:
 
-[source,toml]
-----
+¤code_block(toml, ¤[
 [tags]
 backend    = "anthropic"               # or gemini / openai / ollama
 model      = "claude-haiku-4-5-20251001"
 batch_size = 15                        # blocks per LLM request
 # endpoint = "http://localhost:11434/v1"  # for ollama or openai-compatible
-----
+¤])
 
 If the section is absent, or the relevant API key env var
 (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`) is not set,

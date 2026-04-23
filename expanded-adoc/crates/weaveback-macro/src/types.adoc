@@ -41,7 +41,6 @@ zero-length placeholder so that `end_pos` computation remains correct.
 
 == File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/types.rs]>=
@@ -65,7 +64,6 @@ zero-length placeholder so that `end_pos` computation remains correct.
 
 == Preamble
 
-
 [source,rust]
 ----
 // <[types preamble]>=
@@ -81,7 +79,6 @@ use std::convert::TryFrom;
 
 Token kinds produced by the lexer.  See
 xref:../lexer/lexer.adoc[lexer] for the state machine that emits them.
-
 
 [source,rust]
 ----
@@ -117,7 +114,6 @@ Node kinds used in `ParseNode` and `ASTNode`.  Discriminant 0 (`NotUsed`) is
 reserved so that Python `IntEnum` discriminants (which start at 1 by default)
 align without an offset.
 
-
 [source,rust]
 ----
 // <[node kind]>=
@@ -146,7 +142,6 @@ pub enum NodeKind {
 A lightweight (all `Copy`) source reference.  `src` is an index into the
 evaluator's `SourceManager`; `pos` and `length` are byte offsets into that
 source string.
-
 
 [source,rust]
 ----
@@ -183,7 +178,6 @@ impl Token {
 
 == `LexerError`
 
-
 [source,rust]
 ----
 // <[lexer error]>=
@@ -200,7 +194,6 @@ pub struct LexerError {
 
 Produced by the parser; children are stored as indices into the parser's flat
 arena.  Converted to `ASTNode` by the post-pass in `ast/mod.rs`.
-
 
 [source,rust]
 ----
@@ -222,7 +215,6 @@ pub struct ParseNode {
 The materialised tree form.  `parts` contains owned child nodes;
 `name` carries the identifier token for `Macro` and `Var` nodes.
 
-
 [source,rust]
 ----
 // <[ast node]>=
@@ -240,7 +232,6 @@ pub struct ASTNode {
 
 
 == `TryFrom<i32>` for `TokenKind`
-
 
 [source,rust]
 ----
@@ -276,7 +267,6 @@ impl TryFrom<i32> for TokenKind {
 
 == `TryFrom<i32>` for `NodeKind`
 
-
 [source,rust]
 ----
 // <[try from node kind]>=
@@ -305,7 +295,6 @@ impl TryFrom<i32> for NodeKind {
 
 
 == Tests
-
 
 [source,rust]
 ----

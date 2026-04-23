@@ -97,7 +97,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 == File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/mod.rs]>=
@@ -108,7 +107,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -121,7 +119,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_macros.rs]>=
@@ -132,7 +129,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -145,7 +141,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_var.rs]>=
@@ -156,7 +151,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -169,7 +163,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_if.rs]>=
@@ -180,7 +173,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -193,7 +185,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_import.rs]>=
@@ -204,7 +195,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -217,7 +207,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_eval.rs]>=
@@ -228,7 +217,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -241,7 +229,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_case_conversion.rs]>=
@@ -252,7 +239,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -265,7 +251,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_pydef.rs]>=
@@ -276,7 +261,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -289,7 +273,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_eval_api.rs]>=
@@ -300,7 +283,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -313,7 +295,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_skill_examples.rs]>=
@@ -324,7 +305,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -337,7 +317,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_core.rs]>=
@@ -348,7 +327,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -361,7 +339,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_source_utils.rs]>=
@@ -372,7 +349,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -385,7 +361,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 // @
 ----
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/tests/test_builtins_misc.rs]>=
@@ -396,7 +371,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 // @
 ----
-
 
 [source,rust]
 ----
@@ -411,7 +385,6 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 
 == `tests/mod.rs` — module registry
-
 
 [source,rust]
 ----
@@ -450,7 +423,6 @@ mod test_warnings;
 
 
 == `tests/test_lexer_parser.rs` — lex/parse error paths
-
 
 [source,rust]
 ----

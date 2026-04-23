@@ -8,7 +8,6 @@ No I/O to stdout; callers decide how to present results.
 
 ## Error Type
 
-
 ```rust
 // <[query-error]>=
 use std::path::Path;
@@ -47,7 +46,6 @@ pub fn open_db(db_path: &Path) -> Result<WeavebackDb, ApiError> {
 
 It performs a BFS forward through `chunk_deps` to collect all transitively
 reachable chunks and the output files each chunk contributes to.
-
 
 ```rust
 // <[query-impact]>=
@@ -102,7 +100,6 @@ pub fn impact_analysis(
 output.  Passing `chunk = Some(root)` limits the graph to the subgraph
 reachable from `root`; `None` emits the full workspace graph.
 
-
 ```rust
 // <[query-graph]>=
 fn dot_id(name: &str) -> String {
@@ -154,7 +151,6 @@ pub fn chunk_graph_dot(
 `list_block_tags` returns all tagged source blocks, optionally filtered
 to a single source file.
 
-
 ```rust
 // <[query-tags]>=
 /// List source blocks that have LLM-generated tags, optionally filtered by file.
@@ -174,7 +170,6 @@ pub fn list_block_tags(
 
 The test body is generated as `query/tests.rs` and linked from
 `query.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-api/src/query/tests.rs]>=
@@ -327,7 +322,6 @@ fn list_block_tags_with_filter_returns_empty_for_fresh_db() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/query.rs]>=

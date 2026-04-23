@@ -8,7 +8,6 @@ updating prose tags in place and rebuilding FTS afterward.
 
 Generated from `cli-spec/wb-query-cli.adoc`.
 
-
 ```rust
 // <[wb-query-cli]>=
 mod cli_generated;
@@ -20,7 +19,6 @@ use std::path::PathBuf;
 
 
 ## Error Type
-
 
 ```rust
 // <[wb-query-error]>=
@@ -53,7 +51,6 @@ impl From<weaveback_tangle::db::DbError> for Error {
 
 
 ## Dispatch
-
 
 ```rust
 // <[wb-query-dispatch]>=
@@ -248,7 +245,6 @@ fn main() {
 
 
 ## Tests
-
 
 ```rust
 // <[@file wb-query/src/tests.rs]>=
@@ -495,7 +491,6 @@ fn run_coverage_success() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file wb-query/src/main.rs]>=

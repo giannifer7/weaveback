@@ -6,7 +6,6 @@ literate source location via `perform_trace`.
 
 ## Command Type
 
-
 ```rust
 // <[lsp-runner-cmd]>=
 /// LSP operation to perform.
@@ -21,7 +20,6 @@ pub enum LspCmd {
 
 
 ## Implementation
-
 
 ```rust
 // <[lsp-runner-impl]>=
@@ -151,7 +149,6 @@ pub fn run_lsp(
 
 The test body is generated as `lsp_runner/tests.rs` and linked from
 `lsp_runner.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-api/src/lsp_runner/tests.rs]>=
@@ -316,7 +313,6 @@ while True:
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/lsp_runner.rs]>=

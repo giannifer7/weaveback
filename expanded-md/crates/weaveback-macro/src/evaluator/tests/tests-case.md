@@ -13,7 +13,6 @@ Tests for the `case_conversion` module and the case-modifier builtins
 
 ## Case conversion (`test_case_conversion.rs`)
 
-
 ```rust
 // <[test case conversion]>=
 // crates/weaveback-macro/src/evaluator/tests/test_case_conversion.rs
@@ -261,7 +260,6 @@ mod string_case_conversion {
 
 
 ## Case modifier builtins (`test_case_modifiers.rs`)
-
 
 ```rust
 // <[test case modifiers]>=

@@ -27,7 +27,6 @@ See link:lib.adoc[weaveback.adoc] for the module map.
 
 ## Imports
 
-
 ```rust
 // <[mcp-types]>=
 use crate::apply_back::{self, ApplyBackOptions};
@@ -60,7 +59,6 @@ JSON-RPC 2.0 request.  The method dispatch handles:
 * `notifications/initialized` — no-op (client acknowledgement)
 
 The loop exits cleanly on EOF or an I/O error.
-
 
 ```rust
 // <[mcp-run]>=
@@ -843,7 +841,6 @@ These three functions build and print JSON-RPC 2.0 response objects on stdout.
 `send_text` wraps plain text in the MCP `content` array format.
 `send_error` sets `isError: true` and wraps the message.
 
-
 ```rust
 // <[mcp-helpers]>=
 fn send_response<W: Write>(writer: &mut W, id: Option<Value>, result: Value) {
@@ -876,7 +873,6 @@ fn send_error<W: Write>(writer: &mut W, id: Option<Value>, msg: &str) {
 The test body is generated as `mcp/tests.rs` and linked from `mcp.rs`
 with `#[cfg(test)] mod tests;`.  This keeps the server implementation file
 shorter while preserving local literate ownership of the tests.
-
 
 
 ```rust
@@ -1615,7 +1611,6 @@ fn mcp_coverage_success_path() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file weaveback-api/src/mcp.rs]>=

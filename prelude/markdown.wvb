@@ -14,8 +14,7 @@ title: |-
 
 ¤redef(h3, title, ¤{### ¤(title)¤})
 
-¤redef(code_block, language, body, ¤{
-```¤(language)¤(body)```
+¤redef(code_block, language, body, ¤{```¤(language)¤(body)```
 ¤})
 
 ¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
@@ -28,8 +27,7 @@ title: |-
 ¤(body)
 ¤})¤})
 
-¤redef(graph, format, name, body, ¤{
-<!-- graph: ¤(name) -->
+¤redef(graph, format, name, body, ¤{<!-- graph: ¤(name) -->
 ```¤(format)
 ¤(body)
 ```
@@ -39,15 +37,15 @@ title: |-
 ¤(body)
 <!-- /weaveback-table -->¤})
 
+¤redef(link, target, label, ¤{[¤(label)](¤(target))¤})
+
 ¤redef(xref, target, label, ¤{[¤(label)](¤(target))¤})
 
-¤redef(note, body, ¤{
-> [!NOTE]
+¤redef(note, body, ¤{> [!NOTE]
 > ¤(body)
 ¤})
 
-¤redef(code_doc, path, title, language, body, ¤{
-¤xref(¤(path), ¤(title))
+¤redef(code_doc, path, title, language, body, ¤{¤xref(¤(path), ¤(title))
 
 ¤code_block(¤(language), ¤(body))
 ¤})

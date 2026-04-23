@@ -21,7 +21,7 @@ all configurable; the defaults are `<[`, `]>`, `@`, and `#,//`.
 
 Using the classic `<<` / `>>` notation for illustration:
 
-[source]
+[source,text]
 ----
 // <<@file src/output.rs>>=   ← file chunk (declares an output file)
 ... body lines ...
@@ -32,10 +32,11 @@ Using the classic `<<` / `>>` notation for illustration:
 // @@
 ----
 
+
 A _chunk reference_ inside a body causes the referenced chunk to be expanded
 inline, with indentation accumulated:
 
-[source]
+[source,text]
 ----
 // <<@file src/output.rs>>=
 fn main() {
@@ -43,6 +44,7 @@ fn main() {
 }
 // @@
 ----
+
 
 Modifiers on definitions and references:
 
@@ -78,7 +80,6 @@ number of leading spaces on the open marker line.  During expansion that many
 spaces are stripped from every content line before the caller's indentation
 prefix is prepended, so indentation stays relative to where the chunk is
 referenced, not where it was defined.
-
 
 [source,rust]
 ----
@@ -137,7 +138,6 @@ impl ChunkDef {
 | `FileChunkRedefinition`
 | An `@file` chunk is defined twice without `@replace`.
 |===
-
 
 [source,rust]
 ----
@@ -289,7 +289,6 @@ expanded; the `@reversed` modifier on a reference reverses this order.
 Reference tracking is handled externally by the caller (see `write_files`),
 keeping `expand_inner` a pure function with no hidden mutable state.
 
-
 [source,rust]
 ----
 // <[noweb-named-chunk]>=
@@ -320,7 +319,6 @@ Two free functions gate output paths before any content is written.
 path resolves to an absolute path outside `gen/` — it therefore bypasses
 `path_is_safe` (which would reject it) and goes instead through the
 `allow_home` gate in `ChunkWriter::write_chunk`.
-
 
 [source,rust]
 ----
@@ -360,7 +358,6 @@ fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
 
 
 === Struct
-
 
 [source,rust]
 ----
@@ -402,7 +399,6 @@ reused by other tools such as `lint`.
   name, and the close delimiter.
 * The _close pattern_ matches chunk-end markers: an optional comment prefix
   followed by the chunk-end string (default `@`).
-
 
 [source,rust]
 ----
@@ -449,7 +445,6 @@ impl ChunkStore {
 `read` scans a source text line-by-line, maintaining a simple three-state
 machine:
 
-
 .noweb-read-loop
 [source,plantuml]
 ----
@@ -481,7 +476,6 @@ ins --> out : close_re matches\n(current_chunk = None)
 `@file` definitions without `@replace` are pushed to `parse_errors` in strict
 mode (fatal when `write_files` is called) or reported to stderr and skipped in
 permissive mode, keeping the first definition rather than silently clobbering it.
-
 
 [source,rust]
 ----
@@ -632,7 +626,6 @@ cycle is detected.
 Reference tracking is performed externally by inserting chunk names into the
 caller-provided `referenced_chunks` set, which `check_unused_chunks` then
 consults.
-
 
 [source,rust]
 ----
@@ -893,7 +886,6 @@ After all `@file` chunks are written, `check_unused_chunks` warns about named
 chunks that were defined but never referenced — a common mistake when
 refactoring literate sources.
 
-
 [source,rust]
 ----
 // <[noweb-chunkstore-utils]>=
@@ -976,7 +968,6 @@ time.  It dispatches on whether the expanded path is absolute or relative:
   `SafeWriterConfig` gates this; without it the write is rejected as a
   `SecurityViolation`.
 
-
 [source,rust]
 ----
 // <[noweb-chunkwriter]>=
@@ -1043,7 +1034,6 @@ impl<'a> ChunkWriter<'a> {
 
 
 === Constructor and read / query methods
-
 
 [source,rust]
 ----
@@ -1154,7 +1144,6 @@ the oracle used by the `/__apply` HTTP endpoint to verify that an edited chunk
 body still produces valid tangle output before the `.adoc` source file is
 modified.
 
-
 [source,rust]
 ----
 // <[noweb-tangle-check]>=
@@ -1217,7 +1206,6 @@ The remap uses a three-tier strategy, applied in order, and assigns a
 NOTE: Attribution is approximate when a formatter makes large-scale semantic
 changes (e.g. merges or splits blocks).  The `Confidence` field on
 `NowebMapEntry` lets callers distinguish exact mappings from inferred ones.
-
 
 [source,rust]
 ----
@@ -1392,7 +1380,6 @@ After all files are written, unused-chunk warnings are emitted.
 
 `list_output_files` resolves the same paths that `write_files` would write to,
 without touching the filesystem.  It is used by `--dry-run`.
-
 
 [source,rust]
 ----
@@ -1583,7 +1570,6 @@ impl Clip {
 The `@file` chunk assembles the module by expanding all sub-chunks in order.
 Imports are inlined here; the sub-chunks contain the type definitions and
 `impl` blocks.
-
 
 [source,rust]
 ----

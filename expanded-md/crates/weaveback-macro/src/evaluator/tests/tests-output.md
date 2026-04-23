@@ -12,7 +12,6 @@ the `eval_api` public functions, the `macro_api` layer, and SKILL.md examples.
 
 ## Output sinks (`test_output.rs`)
 
-
 ```rust
 // <[test output]>=
 // crates/weaveback-macro/src/evaluator/tests/test_output.rs
@@ -270,7 +269,6 @@ fn test_macro_map_entries() {
 
 ## Eval API (`test_eval_api.rs`)
 
-
 ```rust
 // <[test eval api]>=
 // crates/weaveback-macro/src/evaluator/tests/test_eval_api.rs
@@ -428,7 +426,6 @@ fn eval_files_with_config_creates_output_dir() {
 
 ## Macro API (`test_macro_api.rs`)
 
-
 ```rust
 // <[test macro api]>=
 // crates/weaveback-macro/src/evaluator/tests/test_macro_api.rs
@@ -553,7 +550,6 @@ fn test_process_files_with_shared_macros() {
 
 
 ## SKILL.md examples (`test_skill_examples.rs`)
-
 
 ```rust
 // <[test skill examples]>=

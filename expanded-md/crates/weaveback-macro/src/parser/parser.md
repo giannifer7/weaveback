@@ -13,7 +13,6 @@ into a tree of `ParseNode` values.  It is a hand-written deterministic pushdown
 automaton (DPDA): each state owns its set of termination tokens and delegates
 everything else to a shared opener/leaf fallthrough handler.
 
-
 <!-- graph: parser-states -->
 ```plantuml
 
@@ -93,7 +92,6 @@ with `Macro` on top is an internal invariant violation.
 
 The single output file is assembled from all the chunks defined below.
 
-
 ```rust
 // <[@file weaveback-macro/src/parser/mod.rs]>=
 // weaveback-macro/src/parser/mod.rs
@@ -118,7 +116,6 @@ The single output file is assembled from all the chunks defined below.
 The impl block assembles every method sub-chunk in declaration order.
 The sections below define each sub-chunk in the same sequence.
 
-
 ```rust
 // <[parser impl]>=
 impl Parser {
@@ -136,7 +133,6 @@ impl Parser {
 
 
 ## Module Preamble
-
 
 ```rust
 // <[parser preamble]>=
@@ -176,7 +172,6 @@ impl From<String> for ParserError {
 JSON serialization of tokens and parse nodes, used only in tests to dump
 the parse tree for inspection.  Both `impl` blocks are gated `#[cfg(test)]`
 so they compile away entirely in production builds.
-
 
 ```rust
 // <[parser serialization]>=
@@ -230,7 +225,6 @@ stack.  `Param` receives individual tokens; `Macro` is only ever visible
 after `Param` is popped (at `)`) so that `handle_param` can verify the
 expected stack shape.
 
-
 ```rust
 // <[parser state]>=
 /// Stack frame state.  Each variant owns its termination tokens;
@@ -268,7 +262,6 @@ enum ParserState {
 `ParseContext` bundles the raw source bytes with a cached `LineIndex`.
 It is built once per `parse()` call so the O(n) newline scan happens at most
 once regardless of how many errors are emitted.
-
 
 ```rust
 // <[parser context]>=
@@ -328,7 +321,6 @@ impl<'a> ParseContext<'a> {
 A small free function centralises the formatting of block-tag error labels so
 all error messages use the same `%name{` / `(anonymous)` style.
 
-
 ```rust
 // <[parser block_tag_label]>=
 /// Format a block tag for error messages.
@@ -358,7 +350,6 @@ The `Parser` owns a flat arena of `ParseNode` values (`nodes`) and a stack of
 `(ParserState, arena_index)` pairs.  All tree structure is encoded as index
 lists inside `ParseNode::parts`; no heap pointers are stored.
 
-
 ```rust
 // <[parser struct]>=
 pub struct Parser {
@@ -376,7 +367,6 @@ impl Default for Parser {
 
 
 ### Arena Primitives
-
 
 ```rust
 // <[parser arena]>=
@@ -454,7 +444,6 @@ fn unwind_stack(&mut self, end: usize) {
 
 ### Block Tag Extraction
 
-
 ```rust
 // <[parser block_tag]>=
 /// Extract the tag sub-span from a `BlockOpen` or `BlockClose` token.
@@ -483,7 +472,6 @@ Called when the top of the stack is a `Block` state.  The only token a `Block`
 responds to directly is `BlockClose`; everything else falls through.
 `tag_pos`/`tag_len` come from the caller's pattern match to avoid a redundant
 second stack lookup.
-
 
 ```rust
 // <[parser handle_block]>=
@@ -534,7 +522,6 @@ Called when the top of the stack is a `Param` state.  Handles comma (open next
 param), close-paren (close param and its enclosing macro), and the three token
 kinds that are direct children of a param node.  Everything else falls through
 to allow nested blocks, macros, and variables inside parameter values.
-
 
 ```rust
 // <[parser handle_param]>=
@@ -594,7 +581,6 @@ the frame).  Everything else is silently swallowed.  Because this handler
 always consumes, it returns `Result<(), ParserError>` rather than `Result<bool,
 ParserError>`.
 
-
 ```rust
 // <[parser handle_comment]>=
 /// Handle a token when the top of the stack is a `Comment`.
@@ -623,7 +609,6 @@ fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
 the stack with a synthetic root `Block`, then dispatches each token to the
 appropriate state handler.  Tokens not consumed by the state handler fall
 through to the opener/leaf arm.
-
 
 ```rust
 // <[parser parse]>=
@@ -794,7 +779,6 @@ These methods read token streams from files or stdin (used by the
 `weaveback-macro` binary when it receives tokens from a preceding pipeline
 stage).
 
-
 ```rust
 // <[parser token_io]>=
 fn parse_token_from_parts(parts: Vec<&str>) -> Result<Token, ParserError> {
@@ -853,7 +837,6 @@ pub fn read_tokens_from_stdin() -> Result<Vec<Token>, ParserError> {
 
 Node accessors, JSON serialization, AST construction, and space-stripping are
 grouped here.  These are called by the evaluator and by `ast/mod.rs`.
-
 
 ```rust
 // <[parser api]>=
@@ -963,7 +946,6 @@ Tests are grouped into:
 * **EOF token must not appear in AST** — guards against a historical bug where
   the zero-length EOF token leaked as a `Text` node
 * **Root block `end_pos`** — the root node's `end_pos` must equal the input length
-
 
 ```rust
 // <[@file weaveback-macro/src/parser/tests.rs]>=

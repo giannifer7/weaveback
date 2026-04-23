@@ -27,6 +27,7 @@ batch_size = 24                        # blocks per embedding request
 # endpoint = "http://localhost:11434/v1"  # for ollama or openai-compatible
 ----
 
+
 Supported backends:
 
 * `openai` (default) — uses `OPENAI_API_KEY`; set `endpoint` to point at any
@@ -39,7 +40,6 @@ does not expose a compatible embedding API.
 
 If the section is absent, or the relevant API key env var is not set, the
 step is silently skipped.
-
 
 [source,rust]
 ----
@@ -85,7 +85,6 @@ a thin `ureq` transport wrapper.  Unit tests cover the data-mapping logic
 without any network access.
 
 `embed_texts` dispatches to the right backend using `cfg.backend`.
-
 
 [source,rust]
 ----
@@ -232,7 +231,6 @@ fn embed_texts(cfg: &EmbeddingConfig, inputs: &[String]) -> Result<Vec<Vec<f32>>
 already loaded in memory.  It is a pure function, easily testable, and avoids
 repeated `lines().collect()` calls at call sites.
 
-
 [source,rust]
 ----
 // <[semantic-helpers]>=
@@ -261,7 +259,6 @@ batches, and stores the resulting vectors in `block_embeddings`.
 
 Errors from any individual API call or DB write are printed as warnings and
 do not abort the overall run.
-
 
 [source,rust]
 ----
@@ -342,7 +339,6 @@ pub fn run_auto_embed(
 
 
 == Tests
-
 
 [source,rust]
 ----
@@ -635,7 +631,6 @@ fn test_run_auto_embed_skips_when_no_blocks() {
 
 
 == Assembly
-
 
 [source,rust]
 ----

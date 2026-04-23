@@ -52,7 +52,6 @@ N?"  The first token on the line is the best answer.
 
 == Output sink types
 
-
 .eval-output-hierarchy
 [source,plantuml]
 ----
@@ -107,7 +106,6 @@ EvalOutput <|.. PreciseTracingOutput
 
 == File structure
 
-
 [source,rust]
 ----
 // <[@file weaveback-macro/src/evaluator/output.rs]>=
@@ -129,7 +127,6 @@ EvalOutput <|.. PreciseTracingOutput
 
 
 == `SpanKind` — classification of how output was produced
-
 
 [source,rust]
 ----
@@ -169,7 +166,6 @@ no conversion is needed when creating a span from an AST node's token.
 Line and column numbers are derived on demand via `LineIndex` —
 they are not cached here to keep the struct small.
 
-
 [source,rust]
 ----
 // <[output source span]>=
@@ -199,7 +195,6 @@ macro argument that expands to non-empty text.  `push_untracked` is called for
 built-in results and script outputs.  `finish` consumes the accumulator and
 returns the assembled string.  `is_tracing` signals whether the caller should
 invest the extra effort of per-argument span threading.
-
 
 [source,rust]
 ----
@@ -231,7 +226,6 @@ pub trait EvalOutput {
 
 
 == `PlainOutput` — zero-overhead fast path
-
 
 [source,rust]
 ----
@@ -285,7 +279,6 @@ When a `\n` byte is encountered inside a `push_str` call, `advance_line`
 moves the current span into `line_spans`.  If the text continues after the
 `\n` on the same call (a multi-line literal), the span is propagated to the
 next line so intermediate lines are not left unattributed.
-
 
 [source,rust]
 ----
@@ -405,7 +398,6 @@ When a single `push_str` call contains multiple `\n` bytes (a multi-line string 
 
 == `MacroMapEntry` — database record
 
-
 [source,rust]
 ----
 // <[output macro map entry]>=
@@ -432,7 +424,6 @@ pub struct MacroMapEntry {
 Converts the per-line span records into `MacroMapEntry` values.  The final
 open line (if the output does not end with `\n`) is included via a chained
 iterator.  Lines with no tracked span are silently skipped.
-
 
 [source,rust]
 ----
@@ -503,7 +494,6 @@ impl TracingOutput {
 The `start`/`end` fields index into the output buffer (or variable value);
 `span` gives the source token that produced those bytes.
 
-
 [source,rust]
 ----
 // <[output span range]>=
@@ -526,7 +516,6 @@ single `SpanRange` (same `src`+`pos`+`length`).  `flush_current` is called
 when the token changes or on `push_untracked`.  Gaps (untracked segments) are
 simply absent from the `ranges` list — callers use `span_at_byte` with a
 binary search to query the coverage.
-
 
 [source,rust]
 ----

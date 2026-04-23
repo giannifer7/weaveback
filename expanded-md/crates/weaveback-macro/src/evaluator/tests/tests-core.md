@@ -12,7 +12,6 @@ Tests for the `Evaluator` core API (`core.rs`), `EvaluatorState` internals
 
 ## `test_core.rs` — Evaluator core API
 
-
 ```rust
 // <[test core]>=
 // crates/weaveback-macro/src/evaluator/tests/test_core.rs
@@ -132,7 +131,6 @@ fn test_core_do_include_accepts_absolute_existing_path() {
 
 
 ## `test_state.rs` — EvaluatorState internals
-
 
 ```rust
 // <[test state]>=
@@ -360,7 +358,6 @@ fn test_state_drain_defs_and_unicode_sigil() {
 
 
 ## `test_source_utils.rs` — `modify_source` file-patching
-
 
 ```rust
 // <[test source utils]>=

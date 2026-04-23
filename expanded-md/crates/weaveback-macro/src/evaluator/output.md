@@ -56,7 +56,6 @@ N?"  The first token on the line is the best answer.
 
 ## Output sink types
 
-
 <!-- graph: eval-output-hierarchy -->
 ```plantuml
 
@@ -110,7 +109,6 @@ EvalOutput <|.. PreciseTracingOutput
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/evaluator/output.rs]>=
 // weaveback-macro/src/evaluator/output.rs
@@ -131,7 +129,6 @@ EvalOutput <|.. PreciseTracingOutput
 
 
 ## `SpanKind` — classification of how output was produced
-
 
 ```rust
 // <[output span kind]>=
@@ -170,7 +167,6 @@ no conversion is needed when creating a span from an AST node's token.
 Line and column numbers are derived on demand via `LineIndex` —
 they are not cached here to keep the struct small.
 
-
 ```rust
 // <[output source span]>=
 /// Byte-offset span referencing the source token that produced a piece of output.
@@ -199,7 +195,6 @@ macro argument that expands to non-empty text.  `push_untracked` is called for
 built-in results and script outputs.  `finish` consumes the accumulator and
 returns the assembled string.  `is_tracing` signals whether the caller should
 invest the extra effort of per-argument span threading.
-
 
 ```rust
 // <[output eval output trait]>=
@@ -230,7 +225,6 @@ pub trait EvalOutput {
 
 
 ## `PlainOutput` — zero-overhead fast path
-
 
 ```rust
 // <[output plain output]>=
@@ -283,7 +277,6 @@ When a `\n` byte is encountered inside a `push_str` call, `advance_line`
 moves the current span into `line_spans`.  If the text continues after the
 `\n` on the same call (a multi-line literal), the span is propagated to the
 next line so intermediate lines are not left unattributed.
-
 
 ```rust
 // <[output tracing output]>=
@@ -402,7 +395,6 @@ When a single `push_str` call contains multiple `\n` bytes (a multi-line string 
 
 ## `MacroMapEntry` — database record
 
-
 ```rust
 // <[output macro map entry]>=
 /// A serialized entry stored in the `macro_map` database table.
@@ -428,7 +420,6 @@ pub struct MacroMapEntry {
 Converts the per-line span records into `MacroMapEntry` values.  The final
 open line (if the output does not end with `\n`) is included via a chained
 iterator.  Lines with no tracked span are silently skipped.
-
 
 ```rust
 // <[output tracing into macro map]>=
@@ -498,7 +489,6 @@ impl TracingOutput {
 The `start`/`end` fields index into the output buffer (or variable value);
 `span` gives the source token that produced those bytes.
 
-
 ```rust
 // <[output span range]>=
 /// A contiguous byte range in the output attributed to one source token.
@@ -520,7 +510,6 @@ single `SpanRange` (same `src`+`pos`+`length`).  `flush_current` is called
 when the token changes or on `push_untracked`.  Gaps (untracked segments) are
 simply absent from the `ranges` list — callers use `span_at_byte` with a
 binary search to query the coverage.
-
 
 ```rust
 // <[output precise tracing output]>=

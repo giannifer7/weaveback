@@ -63,7 +63,6 @@ evaluation failures with that path.
 
 ## File structure
 
-
 ```rust
 // <[@file weaveback-macro/src/macro_api.rs]>=
 // weaveback-macro/src/macro_api.rs
@@ -88,7 +87,6 @@ evaluation failures with that path.
 
 ## Preamble
 
-
 ```rust
 // <[macro api preamble]>=
 // crates/weaveback-macro/src/macro_api.rs
@@ -106,7 +104,6 @@ use std::path::{Path, PathBuf};
 
 ## Input error context
 
-
 ```rust
 // <[input error context]>=
 fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
@@ -121,7 +118,6 @@ fn with_input_context(input_file: &Path, error: EvalError) -> EvalError {
 Parse and evaluate a source string, returning the expansion as bytes.
 If `real_path` is given, it is used for source attribution in error messages
 and for `%here`.
-
 
 ```rust
 // <[process string]>=
@@ -152,7 +148,6 @@ Like `process_string` but uses `TracingOutput` to capture per-line macro
 attribution alongside the expanded bytes.  The returned `Vec<(u32, MacroMapEntry)>`
 is keyed by output line number and is ready to store in the `macro_map` redb
 table.
-
 
 ```rust
 // <[process string tracing]>=
@@ -188,7 +183,6 @@ pub fn process_string_tracing(
 Read an input file, expand it, and write the bytes to any `dyn Write` sink —
 typically a file handle or stdout.
 
-
 ```rust
 // <[process file with writer]>=
 pub fn process_file_with_writer(
@@ -214,7 +208,6 @@ pub fn process_file_with_writer(
 Write the expansion of `input_file` to `output_file`, creating parent
 directories as needed.
 
-
 ```rust
 // <[process file]>=
 pub fn process_file(
@@ -238,7 +231,6 @@ pub fn process_file(
 
 Process a batch of input files through a shared evaluator.  The output path
 may be a file, a directory, or `"-"` for stdout.
-
 
 ```rust
 // <[process files]>=
@@ -282,7 +274,6 @@ pub fn process_files(
 Convenience wrapper: creates a fresh `Evaluator` from `config` and forwards to
 `process_files`.  Use this for isolated single-run invocations.
 
-
 ```rust
 // <[process files from config]>=
 pub fn process_files_from_config(
@@ -302,7 +293,6 @@ pub fn process_files_from_config(
 The simplest entry point: default `%` sigil, no path.  Useful for
 one-shot calls in integration tests and tooling.
 
-
 ```rust
 // <[process string defaults]>=
 pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
@@ -318,7 +308,6 @@ pub fn process_string_defaults(source: &str) -> Result<Vec<u8>, EvalError> {
 Evaluate only enough to resolve `%include` / `%import` targets, then return the
 resolved dependency edges. The path argument is still evaluated normally; only
 the target file expansion is skipped.
-
 
 ```rust
 // <[discover includes in string]>=
@@ -342,7 +331,6 @@ pub fn discover_includes_in_string(
 Read a file, resolve its include/import dependencies, and return the resolved
 paths without expanding the target files.
 
-
 ```rust
 // <[discover includes in file]>=
 pub fn discover_includes_in_file(
@@ -364,7 +352,6 @@ Evaluate `source` with per-byte token attribution via `PreciseTracingOutput`.
 Returns the expanded string and a sorted `Vec<SpanRange>` — one entry per
 source-token transition.  Used by the backpropagation tool to locate individual
 characters in the literate source.
-
 
 ```rust
 // <[process string precise]>=

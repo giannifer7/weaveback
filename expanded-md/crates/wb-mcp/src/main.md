@@ -9,7 +9,6 @@ without requiring the full `weaveback` binary.
 
 Generated from `cli-spec/wb-mcp-cli.adoc`.
 
-
 ```rust
 // <[wb-mcp-cli]>=
 mod cli_generated;
@@ -20,7 +19,6 @@ use clap::Parser;
 
 
 ## Main
-
 
 ```rust
 // <[wb-mcp-main]>=
@@ -55,7 +53,6 @@ fn main() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file wb-mcp/src/main.rs]>=

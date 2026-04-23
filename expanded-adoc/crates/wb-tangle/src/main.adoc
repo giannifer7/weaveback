@@ -13,7 +13,6 @@ surfaces:
 
 == Error Type
 
-
 [source,rust]
 ----
 // <[wb-tangle-error]>=
@@ -42,7 +41,6 @@ enum Error {
 
 Generated from `cli-spec/wb-tangle-cli.adoc`.
 
-
 [source,rust]
 ----
 // <[wb-tangle-cli]>=
@@ -54,7 +52,6 @@ use clap::Parser;
 
 
 == Main
-
 
 [source,rust]
 ----
@@ -153,7 +150,6 @@ fn main() {
 
 
 == Tests
-
 
 [source,rust]
 ----
@@ -307,7 +303,6 @@ fn test_bin_run_apply_back() {
 
 
 == Assembly
-
 
 [source,rust]
 ----

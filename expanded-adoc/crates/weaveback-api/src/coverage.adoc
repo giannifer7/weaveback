@@ -6,7 +6,6 @@ text/stdin attribution.
 
 == Error Type
 
-
 [source,rust]
 ----
 // <[coverage error]>=
@@ -63,7 +62,6 @@ impl From<crate::query::ApiError> for CoverageApiError {
 
 
 == Implementation
-
 
 [source,rust]
 ----
@@ -1641,7 +1639,6 @@ The test body is generated as `coverage/tests_coverage.rs` and linked from
 implementation file short while retaining local literate ownership.
 
 
-
 [source,rust]
 ----
 // <[@file weaveback-api/src/coverage/tests_coverage.rs]>=
@@ -3102,7 +3099,6 @@ fn ws_write_file(root: &Path, rel: &str, content: &[u8]) {
 
 
 == Assembly
-
 
 [source,rust]
 ----

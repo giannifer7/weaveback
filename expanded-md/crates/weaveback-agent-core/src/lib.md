@@ -1,6 +1,5 @@
 # weaveback-agent-core lib
 
-
 ```rust
 // <[@file weaveback-agent-core/src/lib.rs]>=
 // weaveback-agent-core/src/lib.rs

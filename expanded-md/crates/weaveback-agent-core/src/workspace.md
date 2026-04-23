@@ -2,7 +2,6 @@
 
 ## Implementation
 
-
 ```rust
 // <[@file weaveback-agent-core/src/workspace.rs]>=
 // weaveback-agent-core/src/workspace.rs
@@ -79,7 +78,6 @@ mod tests;
 
 The test body is generated as `workspace/tests.rs` and linked from
 `workspace.rs` with `#[cfg(test)] mod tests;`.
-
 
 ```rust
 // <[@file weaveback-agent-core/src/workspace/tests.rs]>=

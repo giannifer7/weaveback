@@ -13,7 +13,6 @@ surfaces:
 
 ## Error Type
 
-
 ```rust
 // <[wb-tangle-error]>=
 use thiserror::Error;
@@ -41,7 +40,6 @@ enum Error {
 
 Generated from `cli-spec/wb-tangle-cli.adoc`.
 
-
 ```rust
 // <[wb-tangle-cli]>=
 mod cli_generated;
@@ -52,7 +50,6 @@ use clap::Parser;
 
 
 ## Main
-
 
 ```rust
 // <[wb-tangle-main]>=
@@ -150,7 +147,6 @@ fn main() {
 
 
 ## Tests
-
 
 ```rust
 // <[@file wb-tangle/src/tests.rs]>=
@@ -303,7 +299,6 @@ fn test_bin_run_apply_back() {
 
 
 ## Assembly
-
 
 ```rust
 // <[@file wb-tangle/src/main.rs]>=

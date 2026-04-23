@@ -1,6 +1,155 @@
+= Evaluator state
+:toc: left
+
+`state.rs` defines all the mutable data that the evaluator carries through an
+expansion run: configuration, the scope stack of variables and macros, the
+source-file registry, and call-site records for the tracing infrastructure.
+
+== Design rationale
+
+=== Scope stack instead of a hash-chain
+
+`EvaluatorState` keeps a `Vec<ScopeFrame>`.  Each macro call pushes a new
+`ScopeFrame` and pops it on return.  Variable and macro lookups walk the
+stack from top (innermost scope) to bottom (global scope), returning the first
+match.  This gives correct lexical shadowing without the overhead of cloning
+entire hash maps or maintaining parent pointers.
+
+`%export` exploits the flat Vec: it copies a binding one index down
+(`stack_len - 2`) into the parent frame, making the binding survive the
+child's pop.
+
+=== TrackedValue: three span-density levels
+
+`TrackedValue` wraps a `String` value with a `Vec<SpanRange>` that carries
+source attribution:
+
+* **Empty spans** — untracked (script result).  The value is
+  pushed to the output sink as `push_untracked`, contributing no source
+  information.
+* **One coarse span** covering `[0, value.len()]` — the fast path.  The tracer
+  knows the value came from a particular token but does not record per-character
+  attribution.
+* **Multiple spans** — full per-token threading.  Each element covers a
+  sub-range of `value` and attributes it to a different source token.  This
+  is produced only on the `PreciseTracingOutput` path when argument evaluation
+  returns a `Vec<SpanRange>`.
+
+=== SourceManager: u32 indices into a byte registry
+
+`SourceManager` stores raw `Vec<u8>` (not `String`) because the lexer operates
+on byte slices.  Each source file gets a `u32` index that fits in `Token.src`.
+Canonical paths are used as the deduplication key so that including the same
+file through two different relative paths resolves to the same index.
+
+=== VarDefRaw / MacroDefRaw: call-site byte offsets
+
+These records capture the exact byte position of every `%set` or `%def` call
+so that the MCP tracing tools can answer "where was this variable set?" or
+"where was this macro defined?" without a full re-parse.
+
+== State type overview
+
+.Main state types and their relationships
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ClassBorderColor #83a598
+skinparam ClassBackgroundColor #282828
+skinparam ClassFontColor #ebdbb2
+skinparam ClassHeaderBackgroundColor #3c3836
+skinparam ClassStereotypeFontColor #8ec07c
+
+class EvalConfig {
+  +sigil: char
+  +include_paths: Vec<PathBuf>
+  +allow_env: bool
+  +env_prefix: Option<String>
+  +recursion_limit: usize
+}
+
+class ScopeFrame {
+  +variables: HashMap<String, TrackedValue>
+  +macros: HashMap<String, MacroDefinition>
+}
+
+class TrackedValue {
+  +value: String
+  +spans: Vec<SpanRange>
+}
+
+class MacroDefinition {
+  +name: String
+  +params: Vec<String>
+  +body: Arc<ASTNode>
+  +script_kind: ScriptKind
+  +binding_kind: MacroBindingKind
+  +frozen_args: HashMap<String, String>
+}
+
+class SourceManager {
+  -source_files: Vec<Vec<u8>>
+  -file_names: Vec<PathBuf>
+  -sources_by_path: HashMap<PathBuf, usize>
+}
+
+class EvaluatorState {
+  +config: EvalConfig
+  +dependency_discovery_active: bool
+  +scope_stack: Vec<ScopeFrame>
+  +open_includes: HashSet<PathBuf>
+  +current_file: PathBuf
+  +source_manager: SourceManager
+  +call_depth: usize
+  +early_exit: bool
+  +discovered_dependency_paths: Vec<PathBuf>
+  +var_defs: Vec<VarDefRaw>
+  +macro_defs: Vec<MacroDefRaw>
+}
+
+EvaluatorState *-- EvalConfig
+EvaluatorState *-- "1..*" ScopeFrame
+EvaluatorState *-- SourceManager
+ScopeFrame o-- TrackedValue
+ScopeFrame o-- MacroDefinition
+@enduml
+----
+
+== File structure
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/state.rs]>=
 // weaveback-macro/src/evaluator/state.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+// <[state preamble]>
+// <[eval config]>
+// <[script kind]>
+// <[macro binding kind]>
+// <[macro definition]>
+// <[tracked value]>
+// <[scope frame]>
+// <[source manager]>
+// <[var def raw]>
+// <[macro def raw]>
+// <[evaluator state]>
+
+// @
+----
+
+
+== Preamble
+
+
+[source,rust]
+----
+// <[state preamble]>=
 // crates/weaveback-macro/src/evaluator/state.rs
 
 use crate::evaluator::errors::{EvalError, EvalResult};
@@ -9,6 +158,31 @@ use crate::types::ASTNode;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+// @
+----
+
+
+== `EvalConfig` — per-run configuration
+
+`EvalConfig` is created once per evaluation run (or shared across a batch of
+files via `eval_files`).  It is immutable after construction; all mutable
+per-call state lives in `EvaluatorState`.
+
+`allow_env` gates access to environment variables via `%env(NAME)`.  It is
+disabled by default so templates cannot silently exfiltrate secrets without
+an explicit `--allow-env` flag.
+
+`env_prefix` optionally prepends a namespace prefix to `%env(NAME)` lookups.
+With `env_prefix = Some("WB_".into())`, `%env(PATH)` reads `WB_PATH`.
+
+`recursion_limit` caps macro-call nesting for this evaluator run.  The default
+comes from `weaveback_core::MAX_RECURSION_DEPTH`, but callers can lower or
+raise it explicitly.
+
+
+[source,rust]
+----
+// <[eval config]>=
 #[derive(Debug, Clone)]
 pub struct EvalConfig {
     pub sigil: char,
@@ -34,16 +208,72 @@ impl Default for EvalConfig {
         }
     }
 }
+// @
+----
+
+
+== `ScriptKind` — which engine evaluates a macro body
+
+`ScriptKind` determines how a macro's body is processed:
+
+`None`:: Body is macro-expanded and returned as-is.
+`Python`:: Body is macro-expanded first, then the result string is
+  executed as a script.  All visible scope variables are injected into the
+  script environment.  Use verbatim blocks (`%[ ... %]`) inside the body when
+  literal script text is required.
+
+
+[source,rust]
+----
+// <[script kind]>=
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptKind {
     None,
     Python,
 }
+// @
+----
+
+
+== `MacroBindingKind` — constant vs rebindable names
+
+Macro bindings carry their rebinding policy explicitly.
+
+* `Constant` is the normal `%def` case: once bound in a frame, the same name
+  cannot be bound again in that frame.
+* `Rebindable` is the `%redef` case: later `%redef` calls in the same frame may
+  replace it.
+
+
+[source,rust]
+----
+// <[macro binding kind]>=
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacroBindingKind {
     Constant,
     Rebindable,
 }
+// @
+----
+
+
+== `MacroDefinition` — stored macro
+
+`MacroDefinition` is cloned out of the scope stack at every call site.
+`body` is an `Arc<ASTNode>` so cloning is cheap (no deep copy of the AST).
+
+`frozen_args` is populated by `%alias(new, src, k=v, …)` overrides.  Each
+`k=v` pair is evaluated at alias-definition time and merged into the copy's
+`frozen_args`, pinning those free variables for all future calls to the alias.
+This is the sole explicit capture mechanism; `%export` now does a plain copy.
+
+`binding_kind` records whether the current-frame binding was introduced as a
+constant (`%def`) or explicitly rebindable (`%redef`).
+
+
+[source,rust]
+----
+// <[macro definition]>=
 #[derive(Debug, Clone)]
 pub struct MacroDefinition {
     pub name: String,
@@ -53,6 +283,16 @@ pub struct MacroDefinition {
     pub binding_kind: MacroBindingKind,
     pub frozen_args: HashMap<String, String>,
 }
+// @
+----
+
+
+== `TrackedValue` — value with optional source attribution
+
+
+[source,rust]
+----
+// <[tracked value]>=
 #[derive(Debug, Clone)]
 pub struct TrackedValue {
     pub value: String,
@@ -62,11 +302,40 @@ pub struct TrackedValue {
     /// Multiple entries carry full per-token attribution threaded through argument evaluation.
     pub spans: Vec<SpanRange>,
 }
+// @
+----
+
+
+== `ScopeFrame` — one lexical scope level
+
+Each macro call creates a new `ScopeFrame`.  A frame holds the variables bound
+by that call's parameter list (and by `%set` calls within the macro body) and
+any macros defined inside the call body via `%def` / `%redef`.
+
+
+[source,rust]
+----
+// <[scope frame]>=
 #[derive(Debug, Default, Clone)]
 pub struct ScopeFrame {
     pub variables: HashMap<String, TrackedValue>,
     pub macros: HashMap<String, MacroDefinition>,
 }
+// @
+----
+
+
+== `SourceManager` — source file registry
+
+`SourceManager` stores the raw bytes of every source file that has been read
+during this evaluation run.  Files are deduplicated by canonical path so that
+including the same file through two different relative paths yields the same
+`u32` index.
+
+
+[source,rust]
+----
+// <[source manager]>=
 pub struct SourceManager {
     source_files: Vec<Vec<u8>>,
     file_names: Vec<PathBuf>,
@@ -112,6 +381,21 @@ impl SourceManager {
         &self.file_names
     }
 }
+// @
+----
+
+
+== `VarDefRaw` and `MacroDefRaw` — call-site records
+
+These lightweight structs record the byte position of every `%set` and `%def`
+call encountered during evaluation.  The MCP server drains them after each run
+to build the `var_defs_map` and `macro_defs_map` that answer "where was this
+symbol defined?".
+
+
+[source,rust]
+----
+// <[var def raw]>=
 /// Raw record of a `%set(var_name, ...)` call site, captured during evaluation.
 /// Positions are absolute byte offsets in the source file (same as Token.pos / Token.length).
 #[derive(Debug, Clone)]
@@ -124,6 +408,14 @@ pub struct VarDefRaw {
     /// Byte length of the whole `set(...)` call.
     pub length: u32,
 }
+// @
+----
+
+
+
+[source,rust]
+----
+// <[macro def raw]>=
 /// Raw record of a `%def / %pydef(name, ...)` call site.
 #[derive(Debug, Clone)]
 pub struct MacroDefRaw {
@@ -135,6 +427,24 @@ pub struct MacroDefRaw {
     /// Byte length of the whole def(...) call.
     pub length: u32,
 }
+// @
+----
+
+
+== `EvaluatorState` — full mutable evaluation state
+
+`EvaluatorState` owns all mutable state.  `Evaluator` (in `core.rs`) holds an
+`EvaluatorState` plus the stateless singletons (`MontyEvaluator`, `builtins`
+map).
+
+The helper methods on `EvaluatorState` encapsulate common patterns: the three
+`set_*_variable` variants manage the span-density levels of `TrackedValue`,
+and `get_variable` / `get_macro` both walk the scope stack from top to bottom.
+
+
+[source,rust]
+----
+// <[evaluator state]>=
 pub struct EvaluatorState {
     pub config: EvalConfig,
     pub(crate) dependency_discovery_active: bool,
@@ -307,4 +617,6 @@ impl EvaluatorState {
         self.config.sigil.to_string().into_bytes()
     }
 }
+// @
+----
 

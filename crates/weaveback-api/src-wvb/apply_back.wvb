@@ -2,7 +2,7 @@
 
 `apply_back.rs` implements `wb-tangle apply-back`: it propagates edits made
 directly in `gen/` back to the literate source.  It is also the backend for
-the `weaveback_apply_back` MCP tool in link:mcp.adoc[`mcp.rs`].
+the `weaveback_apply_back` MCP tool in ¤link(mcp.adoc, `mcp.rs`).
 
 Most of weaveback is designed around a forward, disciplined workflow:
 edit the literate source, tangle it, then verify the generated result.
@@ -79,7 +79,7 @@ For each modified `gen/` file (current bytes ≠ stored baseline):
 . For each changed line in a `Replace` hunk of equal size:
   .. Look up `noweb_map` to find the expanded-text source and line.
   .. Probe several changed columns, not just one, and call
-     `perform_trace` (link:lookup.adoc[`lookup.rs`]) to collect macro-level
+     `perform_trace` (¤link(lookup.adoc, `lookup.rs`)) to collect macro-level
      attribution candidates.
   .. Optionally query the language-specific LSP definition at the changed
      generated position and use that as a ranking hint.
@@ -125,7 +125,7 @@ unrelated edit above it), a broader bounded search is used:
 * nearby-line exploration inside the same source file
 * macro-call fallback search when body-level attribution is too coarse
 
-See link:lib.adoc[weaveback.adoc] for the module map.
+See ¤link(lib.adoc, weaveback.adoc) for the module map.
 
 ¤h2(¤[Types¤])
 
@@ -340,7 +340,7 @@ unrelated edit above it), a broader bounded search is used:
 * nearby-line exploration inside the same source file
 * macro-call fallback search when body-level attribution is too coarse
 
-See link:lib.adoc[weaveback.adoc] for the module map.
+See ¤link(lib.adoc, weaveback.adoc) for the module map.
 
 ¤h2(¤[Types¤])
 

@@ -39,25 +39,25 @@ CLI / Clip  (cli.adoc, noweb.adoc)
 
 <table>
   <tr><th>Module</th><th>Role</th></tr>
-  <tr><td>link:cli.adoc[main.rs]</td><td>CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge</td></tr>
-  <tr><td>link:noweb.adoc[noweb.rs]</td><td>Parse chunk definitions, expand recursively, write via `ChunkWriter`,<br>
+  <tr><td>[main.rs](cli.adoc)</td><td>CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge</td></tr>
+  <tr><td>[noweb.rs](noweb.adoc)</td><td>Parse chunk definitions, expand recursively, write via `ChunkWriter`,<br>
 populate `noweb_map`</td></tr>
-  <tr><td>link:safe_writer.adoc[safe_writer.rs]</td><td>Atomic writes, content-based diffs, formatter hooks, modification detection</td></tr>
-  <tr><td>link:db.adoc[db.rs]</td><td>SQLite persistence: baselines, source maps, snapshots, definition spans</td></tr>
-  <tr><td>link:lookup.adoc[lookup.rs]</td><td>Source lookup and line tracing — shared by trace and apply-back</td></tr>
-  <tr><td>link:tests/tests.adoc[tests/]</td><td>Integration tests for all five modules</td></tr>
+  <tr><td>[safe_writer.rs](safe_writer.adoc)</td><td>Atomic writes, content-based diffs, formatter hooks, modification detection</td></tr>
+  <tr><td>[db.rs](db.adoc)</td><td>SQLite persistence: baselines, source maps, snapshots, definition spans</td></tr>
+  <tr><td>[lookup.rs](lookup.adoc)</td><td>Source lookup and line tracing — shared by trace and apply-back</td></tr>
+  <tr><td>[tests/](tests/tests.adoc)</td><td>Integration tests for all five modules</td></tr>
 </table>
 
-See link:../../../docs/architecture.adoc[architecture.adoc] for the full
+See [architecture.adoc](../../../docs/architecture.adoc) for the full
 pipeline context, including apply-back and the MCP server.
 
 ## Error hierarchy
 
 ```text
 WeavebackError
-├── Chunk(ChunkError)        ← link:noweb.adoc[noweb.rs] — parse/expand errors
-├── SafeWriter(SafeWriterError)  ← link:safe_writer.adoc[safe_writer.rs] — I/O, security, formatter
-└── Db(DbError)              ← link:db.adoc[db.rs] — SQLite errors
+├── Chunk(ChunkError)            ← noweb.rs — parse/expand errors
+├── SafeWriter(SafeWriterError)  ← safe_writer.rs — I/O, security, formatter
+└── Db(DbError)                  ← db.rs — SQLite errors
 ```
 
 

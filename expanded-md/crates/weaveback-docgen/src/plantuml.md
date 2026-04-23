@@ -5,7 +5,7 @@ string, renders each diagram by calling a local PlantUML JAR, caches the SVG
 output by its BLAKE3 hash, and returns the modified source with every plantuml
 block replaced by an `image::` macro.
 
-The caller (link:../src-wvb/render.wvb[render.rs]) calls `collect_uncached_plantuml_diagrams`
+The caller ([render.rs](../src-wvb/render.wvb)) calls `collect_uncached_plantuml_diagrams`
 across all stale files first, then calls `batch_render_plantuml` once (single
 JVM startup), and finally calls `preprocess_plantuml` per file, which only
 copies from the now-warm cache — no further JVM invocations.

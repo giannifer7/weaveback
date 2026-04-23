@@ -1,6 +1,6 @@
 ¤doc(¤[Evaluator tests — macro definitions¤], ¤[¤], ¤[left¤], ¤[¤])
 
-link:tests.adoc[← back to test index]
+¤link(tests.adoc, ← back to test index)
 
 Test helpers and tests for `%def` (basic calls, error paths, parameter binding),
 `%set`, and variable substitution.

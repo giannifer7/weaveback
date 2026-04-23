@@ -80,7 +80,7 @@ use std::convert::TryFrom;
 ## `TokenKind`
 
 Token kinds produced by the lexer.  See
-xref:../lexer/lexer.adoc[lexer] for the state machine that emits them.
+[lexer](../lexer/lexer.adoc) for the state machine that emits them.
 
 ```rust
 // <[token kind]>=

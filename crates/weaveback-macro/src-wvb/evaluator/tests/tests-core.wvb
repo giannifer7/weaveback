@@ -1,6 +1,6 @@
 ¤doc(¤[Evaluator tests -- core, state, source utilities¤], ¤[¤], ¤[left¤], ¤[¤])
 
-link:tests.adoc[← back to test index]
+¤link(tests.adoc, ← back to test index)
 
 Tests for the `Evaluator` core API (`core.rs`), `EvaluatorState` internals
 (`state.rs`), and the `modify_source` file-patching utility (`source_utils.rs`).

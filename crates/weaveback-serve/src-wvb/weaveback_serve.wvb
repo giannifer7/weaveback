@@ -6,7 +6,7 @@ changes, and sends a live-reload event to connected browsers via
 Server-Sent Events (SSE).  An `/__open` endpoint lets the browser signal the
 server to open a source file in the configured editor.
 
-See link:weaveback_serve.adoc[weaveback.adoc] for the module map.
+See ¤link(weaveback_serve.adoc, weaveback.adoc) for the module map.
 
 ¤h2(¤[Design¤])
 

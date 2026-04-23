@@ -5,7 +5,7 @@ toc: left
 ---
 # Evaluator tests — output infrastructure and API
 
-link:tests.adoc[← back to test index]
+[← back to test index](tests.adoc)
 
 Tests for `EvalOutput` / `PlainOutput` / `TracingOutput` sink infrastructure,
 the `eval_api` public functions, the `macro_api` layer, and SKILL.md examples.

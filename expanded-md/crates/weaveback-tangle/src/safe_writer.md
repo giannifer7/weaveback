@@ -5,9 +5,9 @@ concern is protecting manually edited generated files: if a file in `gen/` was
 changed by hand since weaveback last wrote it, the next run refuses to
 overwrite it and returns `ModifiedExternally` instead.
 
-`SafeFileWriter` is used by link:noweb.adoc[`ChunkWriter`] in `noweb.rs`.
-Baseline and source-map data is persisted to link:db.adoc[`WeavebackDb`].
-See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map.
+`SafeFileWriter` is used by [`ChunkWriter`](noweb.adoc) in `noweb.rs`.
+Baseline and source-map data is persisted to [`WeavebackDb`](db.adoc).
+See [weaveback_tangle.adoc](weaveback_tangle.adoc) for the module map.
 
 ## Write flow
 

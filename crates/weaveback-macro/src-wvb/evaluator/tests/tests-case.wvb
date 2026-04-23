@@ -1,6 +1,6 @@
 ¤doc(¤[Evaluator tests — case conversion¤], ¤[¤], ¤[left¤], ¤[¤])
 
-link:tests.adoc[← back to test index]
+¤link(tests.adoc, ← back to test index)
 
 Tests for the `case_conversion` module and the case-modifier builtins
 (`%capitalize`, `%decapitalize`, `%convert_case`, `%to_snake_case`,

@@ -1,6 +1,6 @@
 ¤doc(¤[Evaluator tests — control flow and file operations¤], ¤[¤], ¤[left¤], ¤[¤])
 
-link:tests.adoc[← back to test index]
+¤link(tests.adoc, ← back to test index)
 
 Test coverage for `%if`, `%include`, `%import`, `%export`, `%eval`,
 and `%here`.

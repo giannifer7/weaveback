@@ -1,6 +1,6 @@
 ¤doc(¤[Evaluator tests — output infrastructure and API¤], ¤[¤], ¤[left¤], ¤[¤])
 
-link:tests.adoc[← back to test index]
+¤link(tests.adoc, ← back to test index)
 
 Tests for `EvalOutput` / `PlainOutput` / `TracingOutput` sink infrastructure,
 the `eval_api` public functions, the `macro_api` layer, and SKILL.md examples.

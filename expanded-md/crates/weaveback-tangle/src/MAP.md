@@ -64,7 +64,7 @@ Instead of expanding chunks in-memory during parsing, we populate a **Noweb Data
 *   **Incrementalism**: In the future, the DB will allow us to only re-tangle files whose chunks have actually changed.
 
 ### 2. Why Atomic Writing?
-The `SafeWriter` (see xref:safe_writer.adoc[safe_writer.adoc]) never overwrites a file if the content is identical. 
+The `SafeWriter` (see [safe_writer.adoc](safe_writer.adoc)) never overwrites a file if the content is identical.
 *   **Build Stability**: Compilers like `rustc` won't recompile a module just because `weaveback` ran; they only recompile if the timestamp changes.
 *   **Safety**: We write to a `.tmp` file first and use an atomic rename to prevent half-written files on crash.
 
@@ -74,6 +74,6 @@ The `SafeWriter` (see xref:safe_writer.adoc[safe_writer.adoc]) never overwrites 
 *   **Separation of Concerns**: Tangle only cares about `<<noweb>>` syntax; it doesn't need to know about `%macros`.
 
 ## Where to go next?
-*   To see how we parse blocks: link:block_parser.adoc[block_parser.adoc]
-*   To see the expansion logic: link:noweb.adoc[noweb.adoc]
-*   To see the database schema: link:db.adoc[db.adoc]
+*   To see how we parse blocks: [block_parser.adoc](block_parser.adoc)
+*   To see the expansion logic: [noweb.adoc](noweb.adoc)
+*   To see the database schema: [db.adoc](db.adoc)

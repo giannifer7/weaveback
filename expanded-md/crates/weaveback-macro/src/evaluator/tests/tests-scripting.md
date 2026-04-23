@@ -5,7 +5,7 @@ toc: left
 ---
 # Evaluator tests — Python scripting
 
-link:tests.adoc[← back to test index]
+[← back to test index](tests.adoc)
 
 Tests for the monty-backed Python scripting path (`%pydef`, `%pyset`,
 `%pyget`) including persistent store behaviour and verbatim script blocks.

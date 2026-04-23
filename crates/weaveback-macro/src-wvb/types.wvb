@@ -65,7 +65,7 @@ use std::convert::TryFrom;
 ¤h2(¤[`TokenKind`¤])
 
 Token kinds produced by the lexer.  See
-xref:../lexer/lexer.adoc[lexer] for the state machine that emits them.
+¤xref(../lexer/lexer.adoc, lexer) for the state machine that emits them.
 
 ¤rust_chunk(token kind, ¤[
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

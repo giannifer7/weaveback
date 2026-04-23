@@ -5,7 +5,7 @@ toc: left
 ---
 # Evaluator tests -- core, state, source utilities
 
-link:tests.adoc[← back to test index]
+[← back to test index](tests.adoc)
 
 Tests for the `Evaluator` core API (`core.rs`), `EvaluatorState` internals
 (`state.rs`), and the `modify_source` file-patching utility (`source_utils.rs`).

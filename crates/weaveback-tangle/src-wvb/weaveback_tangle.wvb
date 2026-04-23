@@ -37,42 +37,42 @@ CLI / Clip  (cli.adoc, noweb.adoc)
       gen_baselines · noweb_map · src_snapshots · var/macro_defs
 ....
 
-¤table(adoc, ¤[
+¤table(adoc, ¤{
 [cols="1,3",options="header"]
 |===
 | Module | Role
 
-| link:cli.adoc[main.rs]
+| ¤link(cli.adoc, main.rs)
 | CLI entry point — argument parsing, `--dry-run`, `--allow-home`, db merge
 
-| link:noweb.adoc[noweb.rs]
+| ¤link(noweb.adoc, noweb.rs)
 | Parse chunk definitions, expand recursively, write via `ChunkWriter`,
   populate `noweb_map`
 
-| link:safe_writer.adoc[safe_writer.rs]
+| ¤link(safe_writer.adoc, safe_writer.rs)
 | Atomic writes, content-based diffs, formatter hooks, modification detection
 
-| link:db.adoc[db.rs]
+| ¤link(db.adoc, db.rs)
 | SQLite persistence: baselines, source maps, snapshots, definition spans
 
-| link:lookup.adoc[lookup.rs]
+| ¤link(lookup.adoc, lookup.rs)
 | Source lookup and line tracing — shared by trace and apply-back
 
-| link:tests/tests.adoc[tests/]
+| ¤link(tests/tests.adoc, tests/)
 | Integration tests for all five modules
 |===
-¤])
+¤})
 
-See link:../../../docs/architecture.adoc[architecture.adoc] for the full
+See ¤link(../../../docs/architecture.adoc, architecture.adoc) for the full
 pipeline context, including apply-back and the MCP server.
 
 ¤h2(¤[Error hierarchy¤])
 
 ¤code_block(text, ¤[
 WeavebackError
-├── Chunk(ChunkError)        ← link:noweb.adoc[noweb.rs] — parse/expand errors
-├── SafeWriter(SafeWriterError)  ← link:safe_writer.adoc[safe_writer.rs] — I/O, security, formatter
-└── Db(DbError)              ← link:db.adoc[db.rs] — SQLite errors
+├── Chunk(ChunkError)            ← noweb.rs — parse/expand errors
+├── SafeWriter(SafeWriterError)  ← safe_writer.rs — I/O, security, formatter
+└── Db(DbError)                  ← db.rs — SQLite errors
 ¤])
 
 `std::io::Error` converts to `WeavebackError::SafeWriter(SafeWriterError::IoError(_))`

@@ -12,12 +12,12 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 
 ## Focused test pages
 
-* link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
-* link:tests-control.adoc[tests-control.adoc] — `%if`, `%include`, `%import`, `%export`, `%eval`, `%here`
-* link:tests-case.adoc[tests-case.adoc] — case conversion module + case-modifier builtins
-* link:tests-scripting.adoc[tests-scripting.adoc] — Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
-* link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
-* link:tests-core.adoc[tests-core.adoc] — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
+* [tests-macros.adoc](tests-macros.adoc) — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
+* [tests-control.adoc](tests-control.adoc) — `%if`, `%include`, `%import`, `%export`, `%eval`, `%here`
+* [tests-case.adoc](tests-case.adoc) — case conversion module + case-modifier builtins
+* [tests-scripting.adoc](tests-scripting.adoc) — Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
+* [tests-output.adoc](tests-output.adoc) — output sinks, eval API, macro API, SKILL.md examples
+* [tests-core.adoc](tests-core.adoc) — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
 
 ## Test organisation
 

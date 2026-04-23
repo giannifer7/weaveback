@@ -5,7 +5,7 @@
 before parsing so that `acdc` never sees diagram blocks; a `plantuml.jar`
 is sufficient and no Ruby toolchain is needed.
 
-See link:weaveback_docgen.wvb[weaveback_docgen.wvb] for the module map.
+See [weaveback_docgen.wvb](weaveback_docgen.wvb) for the module map.
 
 ## Constants
 

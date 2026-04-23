@@ -2,12 +2,12 @@
 
 `main.rs` is the entry point for the `weaveback-tangle` binary.  It parses
 command-line arguments with `clap`, builds a
-link:noweb.adoc[`Clip`], reads the input files, writes all `@file` chunks to
-disk via link:safe_writer.adoc[`SafeFileWriter`], and merges the run's database
+[`Clip`](noweb.adoc), reads the input files, writes all `@file` chunks to
+disk via [`SafeFileWriter`](safe_writer.adoc), and merges the run's database
 into the path given by `--db` (default `weaveback.db`).
 
-See link:weaveback_tangle.adoc[weaveback_tangle.adoc] for the module map and
-link:../../../docs/architecture.adoc[architecture.adoc] for the pipeline
+See [weaveback_tangle.adoc](weaveback_tangle.adoc) for the module map and
+[architecture.adoc](../../../docs/architecture.adoc) for the pipeline
 overview.
 
 ## Arguments

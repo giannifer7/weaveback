@@ -1,5 +1,4 @@
-¤h1(¤[Evaluator tests¤])
-:toc: left
+¤doc(¤[Evaluator tests¤], ¤[¤], ¤[left¤], ¤[¤])
 
 The evaluator test suite covers every built-in macro, the Python
 scripting back-end, the output-sink tracing infrastructure, and the public

@@ -1,5 +1,10 @@
 ¤redef(h1, title, ¤{= ¤(title)¤})
 
+¤redef(doc, title, description, toc, toclevels, ¤{= ¤(title)
+¤if(¤(description), ¤{:description: ¤(description)
+¤})¤if(¤(toc), ¤{:toc: ¤(toc)¤})¤if(¤(toclevels), ¤{
+:toclevels: ¤(toclevels)¤})¤})
+
 ¤redef(h2, title, ¤{== ¤(title)¤})
 
 ¤redef(h3, title, ¤{=== ¤(title)¤})

@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests — control flow and file operations
+toc: left
+---
 # Evaluator tests — control flow and file operations
-:toc: left
 
 link:tests.adoc[← back to test index]
 

@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests -- core, state, source utilities
+toc: left
+---
 # Evaluator tests -- core, state, source utilities
-:toc: left
 
 link:tests.adoc[← back to test index]
 

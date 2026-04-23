@@ -1,5 +1,9 @@
+---
+title: |-
+  Script Back-End: Python
+toc: left
+---
 # Script Back-End: Python
-:toc: left
 
 `monty_eval.rs` wraps the monty crate, which compiles a Python function body to
 bytecode and runs it in a pure-Rust interpreter. It is called from `core.rs`

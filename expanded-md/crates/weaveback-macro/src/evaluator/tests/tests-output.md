@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests — output infrastructure and API
+toc: left
+---
 # Evaluator tests — output infrastructure and API
-:toc: left
 
 link:tests.adoc[← back to test index]
 

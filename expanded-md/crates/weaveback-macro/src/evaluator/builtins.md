@@ -1,5 +1,9 @@
+---
+title: |-
+  Built-in macros, case conversion, and source patching
+toc: left
+---
 # Built-in macros, case conversion, and source patching
-:toc: left
 
 `builtins.rs` registers all built-in macros as function pointers in a
 `HashMap`.  `case_conversion.rs` provides the `Case` enum, a word-splitting

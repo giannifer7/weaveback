@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests — case conversion
+toc: left
+---
 # Evaluator tests — case conversion
-:toc: left
 
 link:tests.adoc[← back to test index]
 

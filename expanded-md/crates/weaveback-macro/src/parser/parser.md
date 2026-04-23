@@ -1,7 +1,12 @@
+---
+title: |-
+  weaveback-macro Parser
+description: |-
+  Literate source for crates/weaveback-macro/src/parser/mod.rs
+toc: left
+toclevels: 3
+---
 # weaveback-macro Parser
-:description: Literate source for crates/weaveback-macro/src/parser/mod.rs
-:toc: left
-:toclevels: 3
 
 The weaveback-macro parser transforms a flat token stream produced by the lexer
 into a tree of `ParseNode` values.  It is a hand-written deterministic pushdown

@@ -1,5 +1,4 @@
-¤h1(¤[Public macro API¤])
-:toc: left
+¤doc(¤[Public macro API¤], ¤[¤], ¤[left¤], ¤[¤])
 
 `macro_api.rs` is the byte-oriented public interface used by the combined
 `weaveback` binary and external callers.  It wraps the string-based

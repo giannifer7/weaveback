@@ -1,7 +1,12 @@
+---
+title: |-
+  weaveback-macro AST
+description: |-
+  Literate source for crates/weaveback-macro/src/ast/
+toc: left
+toclevels: 3
+---
 # weaveback-macro AST
-:description: Literate source for crates/weaveback-macro/src/ast/
-:toc: left
-:toclevels: 3
 
 The AST phase sits between the parser and the evaluator — it is the
 _normalization_ (or _lowering_) step.  The parser produces a `ParseNode`

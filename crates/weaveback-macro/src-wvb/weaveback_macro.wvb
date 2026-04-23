@@ -1,5 +1,4 @@
-¤h1(¤[weaveback-macro crate¤])
-:toc: left
+¤doc(¤[weaveback-macro crate¤], ¤[¤], ¤[left¤], ¤[¤])
 
 `weaveback-macro` is the macro-expansion engine at the heart of the weaveback
 literate-programming toolchain.  It reads a document containing `%def` /

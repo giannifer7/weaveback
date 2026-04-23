@@ -1,5 +1,9 @@
+---
+title: |-
+  weaveback-macro evaluator
+toc: left
+---
 # weaveback-macro evaluator
-:toc: left
 
 The evaluator is the macro-expansion engine of weaveback-macro.
 It walks the AST produced by the lexer+parser and resolves every macro call,

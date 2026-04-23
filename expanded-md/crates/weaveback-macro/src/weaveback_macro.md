@@ -1,5 +1,9 @@
+---
+title: |-
+  weaveback-macro crate
+toc: left
+---
 # weaveback-macro crate
-:toc: left
 
 `weaveback-macro` is the macro-expansion engine at the heart of the weaveback
 literate-programming toolchain.  It reads a document containing `%def` /

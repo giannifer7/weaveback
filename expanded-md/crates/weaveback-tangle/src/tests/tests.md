@@ -1,6 +1,9 @@
+---
+title: |-
+  Test Suite
+toc: left
+---
 # Test Suite
-:toc: left
-:source-highlighter: syntect
 
 The test suite for `weaveback-tangle` lives in `src/tests/` and is compiled
 only under `#[cfg(test)]`.  It is structured as six modules:

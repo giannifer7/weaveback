@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests
+toc: left
+---
 # Evaluator tests
-:toc: left
 
 The evaluator test suite covers every built-in macro, the Python
 scripting back-end, the output-sink tracing infrastructure, and the public

@@ -1,5 +1,4 @@
-¤h1(¤[weaveback-macro evaluator¤])
-:toc: left
+¤doc(¤[weaveback-macro evaluator¤], ¤[¤], ¤[left¤], ¤[¤])
 
 The evaluator is the macro-expansion engine of weaveback-macro.
 It walks the AST produced by the lexer+parser and resolves every macro call,

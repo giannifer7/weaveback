@@ -1,5 +1,9 @@
+---
+title: |-
+  Shared types
+toc: left
+---
 # Shared types
-:toc: left
 
 `types.rs` defines the primitive vocabulary shared by every layer of the
 pipeline: the token and node enumerations produced by the lexer, the concrete

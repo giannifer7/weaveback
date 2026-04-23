@@ -1,5 +1,9 @@
+---
+title: |-
+  CLI binary — `weaveback-macro`
+toc: left
+---
 # CLI binary — `weaveback-macro`
-:toc: left
 
 `src/bin/weaveback-macro.rs` is the `weaveback-macro` command-line binary.
 It wraps the xref:../macro_api.adoc[macro_api] layer with a clap argument

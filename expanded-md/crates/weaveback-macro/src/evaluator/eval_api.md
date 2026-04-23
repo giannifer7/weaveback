@@ -1,5 +1,9 @@
+---
+title: |-
+  Public eval API
+toc: left
+---
 # Public eval API
-:toc: left
 
 `eval_api.rs` provides thin wrappers around `Evaluator` that cover the common
 entry points: evaluating a string, a single file, or a batch of files.  These

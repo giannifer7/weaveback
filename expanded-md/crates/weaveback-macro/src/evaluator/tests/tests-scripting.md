@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests — Python scripting
+toc: left
+---
 # Evaluator tests — Python scripting
-:toc: left
 
 link:tests.adoc[← back to test index]
 

@@ -1,7 +1,12 @@
+---
+title: |-
+  weaveback-macro Lexer
+description: |-
+  Literate source for crates/weaveback-macro/src/lexer/mod.rs
+toc: left
+toclevels: 3
+---
 # weaveback-macro Lexer
-:description: Literate source for crates/weaveback-macro/src/lexer/mod.rs
-:toc: left
-:toclevels: 3
 
 The weaveback-macro lexer converts a raw `&str` into a flat `Vec<Token>`
 that the parser then assembles into a tree.  It is a hand-written

@@ -1,5 +1,9 @@
+---
+title: |-
+  Output sinks and source tracing
+toc: left
+---
 # Output sinks and source tracing
-:toc: left
 
 `output.rs` defines the `EvalOutput` trait and its three implementations,
 the span types used to attribute output text back to source tokens, and the

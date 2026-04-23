@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator state
+toc: left
+---
 # Evaluator state
-:toc: left
 
 `state.rs` defines all the mutable data that the evaluator carries through an
 expansion run: configuration, the scope stack of variables and macros, the

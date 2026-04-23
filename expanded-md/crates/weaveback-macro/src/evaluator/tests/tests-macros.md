@@ -1,5 +1,9 @@
+---
+title: |-
+  Evaluator tests — macro definitions
+toc: left
+---
 # Evaluator tests — macro definitions
-:toc: left
 
 link:tests.adoc[← back to test index]
 

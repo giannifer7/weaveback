@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/builtins.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/builtins.rs
 
 use std::collections::HashMap;
@@ -541,3 +544,4 @@ pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     };
     if x.is_empty() { Ok("1".into()) } else { Ok("".into()) }
 }
+

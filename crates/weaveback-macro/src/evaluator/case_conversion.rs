@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/case_conversion.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/case_conversion.rs
 
 use std::str::FromStr;
@@ -191,3 +194,4 @@ fn capitalize(s: &str) -> String {
         }
     }
 }
+

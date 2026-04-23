@@ -1,4 +1,6 @@
-// <[@file crates/weaveback-macro/src/evaluator/source_utils.rs]>=
+// weaveback-macro/src/evaluator/source_utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // weaveback/crates/weaveback-macro/src/evaluator/source_utils.rs
 
 use std::fs;
@@ -46,3 +48,4 @@ pub fn modify_source(
     f.write_all(&result)?;
     Ok(())
 }
+

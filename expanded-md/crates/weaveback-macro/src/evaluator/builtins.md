@@ -1,0 +1,1233 @@
+# Built-in macros, case conversion, and source patching
+:toc: left
+
+`builtins.rs` registers all built-in macros as function pointers in a
+`HashMap`.  `case_conversion.rs` provides the `Case` enum, a word-splitting
+iterator, and the `convert_case` function used by the case-transformation
+builtins.  `source_utils.rs` provides `modify_source`, the low-level routine
+used by `%here`.
+
+## Design rationale
+
+### Function-pointer dispatch table
+
+Built-ins are stored as `fn(&mut Evaluator, &ASTNode) -> EvalResult<String>`
+function pointers — not closures — because they receive the `Evaluator` by
+`&mut` reference and so cannot capture it.  The `HashMap<String, BuiltinFn>`
+is populated once at construction time by `default_builtins()`.
+
+Checking the builtin map *before* the user-macro scope ensures that built-in
+names (`def`, `set`, `if`, …) are reserved and cannot be shadowed.
+
+### Shared `define_macro` helper
+
+`%def` and `%pydef` have identical argument-parsing logic (two or
+more params: name, optional formal params, body).  A `DefMacroConfig` struct
+carries the variant-specific error messages and `ScriptKind`, and a shared
+`define_macro` function uses it.  This avoids duplicating 40 lines of
+parameter-extraction code.
+
+### `single_ident_param`: strict identifier validation
+
+Many built-ins require an argument to be a plain identifier (no spaces, no
+commas, no `=`, no leading digit).  `single_ident_param` enforces this.
+Accepting `=`-style params here would silently interpret `%def(foo, x=y, body)`
+as a named argument assignment rather than a parameter name, which would be
+confusing.
+
+Allowed identifier charset (enforced jointly by the lexer and this validator):
+
+* **Start**: `[A-Za-z_]` — the lexer never emits an `Ident` token whose first
+  byte is a digit or a sigil.
+* **Continue**: `[A-Za-z0-9_]` — digits are allowed after the first character.
+* `single_ident_param` additionally rejects names that start with an ASCII digit
+  even if the text somehow arrived as an `Ident` node, matching the "no leading
+  digit" convention of most programming languages.
+
+Practical consequence: `foo`, `_bar`, `my_param2` are valid; `foo-bar`,
+`2fast`, `foo bar`, and `x=y` are all rejected with `InvalidUsage`.
+
+Inside macro argument parsing, a hyphen is not a delimiter, so `foo-bar` is
+lexed as a single `Text` token `"foo-bar"` (the `else` branch in the args-state
+loop consumes all bytes that are not whitespace, `,`, `)`, `=`, or the sigil).
+`single_ident_param` then rejects it because the Param node's only
+non-space child has kind `Text`, not `Ident` — identifiers can only start
+with `[A-Za-z_]` and the lexer never emits an `Ident` token for `foo-bar`.
+
+(`TokenKind::Special` is emitted only for the doubled sigil — e.g. `%%`
+is the escape sequence for a literal `%` — not for arbitrary punctuation.)
+
+### `%here`: the one side-effecting builtin
+
+`%here(macro_name, args...)` calls `builtin_eval` to get the expansion, then
+uses `modify_source` to patch the current source file in place — prepending the
+sigil before the `%here` token (to neutralise the call site) and
+appending the expanded text after it, skipping the rest of the line.  It then
+sets `early_exit` so the evaluator stops cleanly.
+
+The three safety properties and how they are guaranteed:
+
+**Single-fire per run.**  After `modify_source` writes the file, `set_early_exit()`
+flips a flag that makes every subsequent `evaluate()` / `evaluate_to()` call
+return immediately.  Even if a file contains multiple `%here` calls, only the
+first one encountered reaches `builtin_here`; all later ones are unreachable.
+
+**Source-position stability.**  The AST built before the call is now stale
+(byte offsets no longer match the modified file), but `early_exit` ensures no
+further evaluation touches it.  The next tool run starts fresh with a new
+`Evaluator`, re-parses the modified file, and sees the neutralised call site.
+
+**Idempotency.**  The prepend step inserts one extra sigil, turning
+`%here(...)` into `%%here(...)`.  A double sigil is lexed as literal
+text (the escape sequence for a single `%`), so re-running on the already-patched
+file produces no macro call and no second patch.
+
+### Case conversion: `WordSplitter` iterator
+
+A custom `WordSplitter` iterator handles all common word boundaries: delimiter
+characters (`_`, `-`, space), camelCase transitions (lowercase→uppercase),
+acronyms (uppercase→uppercase→lowercase), and digit transitions
+(letter→digit, digit→letter).  All nine `Case` variants are implemented as
+simple transformations over the collected word slices.
+
+## Built-in macro table
+
+This table is the practical entry point for the builtin surface registered by
+`default_builtins()`.  The exact registry lives in the code below; this section
+exists to make the available operations and their intended use visible without
+reading the implementation first.
+
+One useful boundary is worth calling out explicitly: evaluator builtins are for
+evaluation semantics, scope, scripting, and string-level transformations.
+Whitespace control for accumulated noweb fragments lives in the tangle layer
+instead (`@compact`, `@tight` on chunk references), because that problem is
+about chunk composition rather than macro evaluation.
+
+[cols="1,4",options="header"]
+|===
+| Name | Behaviour
+
+| *Definition and scope*
+| 
+
+| `%def(name, [p1, …,] body)`
+| Define a constant text-substitution macro.
+
+| `%redef(name, [p1, …,] body)`
+| Define or replace a rebindable text-substitution macro.
+
+| `%pydef(name, [p1, …,] body)`
+| Define a Python-scripted macro via monty.
+
+| `%set(name, value)`
+| Set a variable in the current scope.
+
+| `%export(name)`
+| Move a variable or macro from the current scope into the parent scope, freezing free variables.
+
+| *Control and inclusion*
+| 
+
+| `%include(path)`
+| Evaluate the named file and splice its output inline.
+
+| `%import(path)`
+| Evaluate the named file for its side effects (macro/variable definitions) only; output is discarded.
+
+| `%if(cond, then[, else])`
+| If `cond` is non-empty (after trim), expand `then`; otherwise expand `else` (if provided).
+
+| `%eval(name, args…)`
+| Look up `name` at evaluation time and call the macro with `args`.  Used for dynamic dispatch.
+
+| `%here(name, args…)`
+| Expand the macro and splice the result into the current source file (one-shot source patching).
+
+| *String transforms*
+| 
+
+| `%capitalize(s)` / `%decapitalize(s)`
+| Upper- / lower-case the first character.
+
+| `%convert_case(s, style)` / `%to_snake_case(s)` / `%to_camel_case(s)` / `%to_pascal_case(s)` / `%to_screaming_case(s)`
+| Convert identifier case.  `convert_case` accepts any style string; the others are shortcuts.
+
+| *Persistent script stores*
+| 
+
+| `%pyset(key, val)` / `%pyget(key)`
+| Manage the persistent Python store.
+
+| *Environment*
+| 
+
+| `%env(NAME)`
+| Read an environment variable.  Requires `--allow-env`.
+|===
+
+## File structure
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/builtins.rs]>=
+// weaveback-macro/src/evaluator/builtins.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[builtins preamble]>
+// <[builtins type and registry]>
+// <[builtins def macro config]>
+// <[builtins single ident param]>
+// <[builtins define macro helper]>
+// <[builtins def pydef]>
+// <[builtins include import]>
+// <[builtins if]>
+// <[builtins set export eval here]>
+// <[builtins capitalize]>
+// <[builtins convert case builtins]>
+// <[builtins py store builtins]>
+// <[builtins env]>
+// <[builtins predicates]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/case_conversion.rs]>=
+// weaveback-macro/src/evaluator/case_conversion.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[case conversion preamble]>
+// <[case enum]>
+// <[word splitter]>
+// <[convert case functions]>
+// <[capitalize helper]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/source_utils.rs]>=
+// weaveback-macro/src/evaluator/source_utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[source utils]>
+
+// @
+```
+
+
+## Builtins preamble
+
+
+```rust
+// <[builtins preamble]>=
+// crates/weaveback-macro/src/evaluator/builtins.rs
+
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use super::case_conversion::convert_case_str;
+use super::core::Evaluator;
+use super::errors::{EvalError, EvalResult};
+use super::state::{MacroBindingKind, ScriptKind};
+use crate::types::{ASTNode, NodeKind};
+// @
+```
+
+
+## `BuiltinFn` type and default registry
+
+
+```rust
+// <[builtins type and registry]>=
+/// Type for a builtin macro function: (Evaluator, node) -> String
+pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
+
+/// Return the default builtins
+pub fn default_builtins() -> HashMap<String, BuiltinFn> {
+    let mut map = HashMap::new();
+    map.insert("def".to_string(), builtin_def as BuiltinFn);
+    map.insert("redef".to_string(), builtin_redef as BuiltinFn);
+    map.insert("pydef".to_string(), builtin_pydef as BuiltinFn);
+    map.insert("pyset".to_string(), builtin_pyset as BuiltinFn);
+    map.insert("pyget".to_string(), builtin_pyget as BuiltinFn);
+    map.insert("include".to_string(), builtin_include as BuiltinFn);
+    map.insert("import".to_string(), builtin_import as BuiltinFn);
+    map.insert("if".to_string(), builtin_if as BuiltinFn);
+    map.insert("set".to_string(), builtin_set as BuiltinFn);
+    map.insert("alias".to_string(), builtin_alias as BuiltinFn);
+    map.insert("export".to_string(), builtin_export as BuiltinFn);
+    map.insert("eval".to_string(), builtin_eval as BuiltinFn);
+    map.insert("here".to_string(), builtin_here as BuiltinFn);
+    map.insert("capitalize".to_string(), builtin_capitalize as BuiltinFn);
+    map.insert(
+        "decapitalize".to_string(),
+        builtin_decapitalize as BuiltinFn,
+    );
+    map.insert(
+        "convert_case".to_string(),
+        builtin_convert_case as BuiltinFn,
+    );
+    map.insert(
+        "to_snake_case".to_string(),
+        builtin_to_snake_case as BuiltinFn,
+    );
+    map.insert(
+        "to_camel_case".to_string(),
+        builtin_to_camel_case as BuiltinFn,
+    );
+    map.insert(
+        "to_pascal_case".to_string(),
+        builtin_to_pascal_case as BuiltinFn,
+    );
+    map.insert(
+        "to_screaming_case".to_string(),
+        builtin_to_screaming_case as BuiltinFn,
+    );
+    map.insert("env".to_string(), builtin_env as BuiltinFn);
+    map.insert("eq".to_string(), builtin_eq as BuiltinFn);
+    map.insert("neq".to_string(), builtin_neq as BuiltinFn);
+    map.insert("not".to_string(), builtin_not as BuiltinFn);
+    map
+}
+// @
+```
+
+
+## `DefMacroConfig` — shared configuration for `%def` / `%pydef`
+
+
+```rust
+// <[builtins def macro config]>=
+struct DefMacroConfig {
+    min_params_error: String,
+    name_param_context: String,
+    formal_param_context: String,
+    duplicate_param_error: String,
+    script_kind: ScriptKind,
+    binding_kind: MacroBindingKind,
+    redefine: bool,
+}
+// @
+```
+
+
+## `single_ident_param` — strict identifier validator
+
+Validates that a `Param` node contains exactly one `Ident` child (no spaces,
+no `=`, no leading digit).  Used for macro names, formal parameter names, and
+variable names in `%set` / `%export`.
+
+
+```rust
+// <[builtins single ident param]>=
+/// Helper: Checks that a Param node contains exactly one identifier child
+fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> EvalResult<String> {
+    if param_node.kind != NodeKind::Param {
+        return Err(EvalError::InvalidUsage(format!(
+            "{desc} must be a Param node"
+        )));
+    }
+
+    // If there's a name property, this was an equals-style param
+    if param_node.name.is_some() {
+        return Err(EvalError::InvalidUsage(format!(
+            "{desc} must be a single identifier (found an '=' style param?)"
+        )));
+    }
+
+    // Filter out comments and spaces
+    let nonspace: Vec<_> = param_node
+        .parts
+        .iter()
+        .filter(|child| {
+            !matches!(
+                child.kind,
+                NodeKind::Space | NodeKind::LineComment | NodeKind::BlockComment
+            )
+        })
+        .collect();
+
+    if nonspace.len() != 1 {
+        return Err(EvalError::InvalidUsage(format!(
+            "{desc} must be a single identifier"
+        )));
+    }
+
+    let ident_node = &nonspace[0];
+    if ident_node.kind != NodeKind::Ident {
+        return Err(EvalError::InvalidUsage(format!(
+            "{desc} must be a single identifier"
+        )));
+    }
+
+    let text = eval.node_text(ident_node).trim().to_string();
+    if text.is_empty() {
+        return Err(EvalError::InvalidUsage(format!("{desc} cannot be empty")));
+    }
+
+    // Check that identifier doesn't start with a number
+    if text.chars().next().unwrap().is_ascii_digit() {
+        return Err(EvalError::InvalidUsage(format!(
+            "{desc} cannot start with a number"
+        )));
+    }
+
+    Ok(text)
+}
+// @
+```
+
+
+## `define_macro` — shared helper for `%def` / `%redef` / `%pydef`
+
+Extracts `(name, [p1, p2, …,] body)` from the node's parts, validates each
+identifier, records the call site for tracing, and stores the
+`MacroDefinition` with either constant or rebindable binding semantics.
+
+
+```rust
+// <[builtins define macro helper]>=
+fn define_macro(
+    eval: &mut Evaluator,
+    node: &ASTNode,
+    config: DefMacroConfig,
+) -> EvalResult<String> {
+    if node.parts.len() < 2 {
+        return Err(EvalError::InvalidUsage(config.min_params_error));
+    }
+
+    let macro_name = single_ident_param(eval, &node.parts[0], &config.name_param_context)?;
+
+    if eval.is_builtin(&macro_name) {
+        return Err(EvalError::InvalidUsage(format!(
+            "cannot define macro '{}': name is reserved as a built-in",
+            macro_name
+        )));
+    }
+
+    let body_node = node.parts.last().unwrap().clone();
+
+    let mut seen = HashSet::new();
+    let param_list = node.parts[1..(node.parts.len() - 1)].iter().try_fold(
+        Vec::new(),
+        |mut acc, param_node| {
+            let param_name = single_ident_param(eval, param_node, &config.formal_param_context)?;
+            if !seen.insert(param_name.clone()) {
+                return Err(EvalError::InvalidUsage(format!(
+                    "{}: parameter '{}' already used",
+                    config.duplicate_param_error, param_name
+                )));
+            }
+            acc.push(param_name);
+            Ok(acc)
+        },
+    )?;
+
+    let mac = crate::evaluator::state::MacroDefinition {
+        name: macro_name.clone(),
+        params: param_list,
+        body: Arc::new(body_node),
+        script_kind: config.script_kind,
+        binding_kind: config.binding_kind,
+        frozen_args: HashMap::new(),
+    };
+    if config.redefine {
+        eval.redefine_macro(mac)?;
+    } else {
+        eval.define_macro(mac)?;
+    }
+    eval.record_macro_def(
+        macro_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
+    Ok("".into())
+}
+// @
+```
+
+
+## `%def`, `%redef`, `%pydef`
+
+
+```rust
+// <[builtins def pydef]>=
+pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "def requires at least (name, body)".into(),
+            name_param_context: "macro name".into(),
+            formal_param_context: "formal parameter".into(),
+            duplicate_param_error: "def".into(),
+            script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
+        },
+    )
+}
+
+pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "redef requires at least (name, body)".into(),
+            name_param_context: "macro name".into(),
+            formal_param_context: "formal parameter".into(),
+            duplicate_param_error: "redef".into(),
+            script_kind: ScriptKind::None,
+            binding_kind: MacroBindingKind::Rebindable,
+            redefine: true,
+        },
+    )
+}
+
+pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    define_macro(
+        eval,
+        node,
+        DefMacroConfig {
+            min_params_error: "pydef requires at least (name, body)".into(),
+            name_param_context: "pydef name".into(),
+            formal_param_context: "pydef parameter".into(),
+            duplicate_param_error: "pydef".into(),
+            script_kind: ScriptKind::Python,
+            binding_kind: MacroBindingKind::Constant,
+            redefine: false,
+        },
+    )
+}
+// @
+```
+
+
+## `%include` and `%import`
+
+`builtin_import` discards the text output (returns `""`) but the evaluation
+has already executed the file's side effects (macro and variable definitions).
+
+`%alias` itself creates a *rebindable* target name.  That is deliberate:
+alias targets are often used as a dispatch slot in spec-generation patterns
+(`emit_option`, etc.), so repeating `%alias(slot, ...)` in the same frame
+should replace the slot instead of tripping the `%def` constant-binding rule.
+
+
+```rust
+// <[builtins include import]>=
+fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+    let filename = eval.evaluate(&node.parts[0])?;
+    if filename.trim().is_empty() {
+        return Ok("".into());
+    }
+    eval.do_include(&filename)
+}
+
+pub fn builtin_include(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    process_include_file(eval, node)
+}
+
+pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let _ = process_include_file(eval, node)?;
+    Ok("".into())
+}
+
+// @
+```
+
+
+## `%if`
+
+`%if` treats any non-empty string as truthy.
+
+
+```rust
+// <[builtins if]>=
+pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.is_empty() {
+        eval.push_warning("%if() called with no arguments — always expands to \"\"".to_string());
+        return Ok("".into());
+    }
+    let cond = eval.evaluate(&parts[0])?;
+    if !cond.is_empty() {
+        if parts.len() > 1 {
+            eval.evaluate(&parts[1])
+        } else {
+            Ok("".into())
+        }
+    } else {
+        if parts.len() > 2 {
+            eval.evaluate(&parts[2])
+        } else {
+            Ok("".into())
+        }
+    }
+}
+// @
+```
+
+
+## `%set`, `%export`, `%eval`, `%here`
+
+`%eval` re-dispatches at evaluation time: it evaluates the first argument to get
+the macro name, then constructs a synthetic `Macro` AST node using the name
+argument's token as the origin (so error messages point to the right place).
+
+`%here` is the one builtin with file I/O.  It calls `builtin_eval` to expand
+the macro, then calls `modify_source` with two insertions: a sigil
+prefix before the `%here` call (neutralising it) and the expansion after it
+(skipping the rest of the original line).  Then it sets `early_exit`.
+
+
+```rust
+// <[builtins set export eval here]>=
+pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage("set: exactly 2 args".into()));
+    }
+    let var_name = single_ident_param(eval, &node.parts[0], "var name")?;
+    let value = eval.evaluate(&parts[1])?;
+    eval.set_variable(&var_name, &value);
+    eval.record_var_def(
+        var_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
+    Ok("".into())
+}
+
+/// `%alias(new_name, source_name[, key = val, …])` — define `new_name` as a
+/// snapshot copy of the macro currently bound to `source_name`.  The first two
+/// arguments must be positional plain identifiers.  Any additional arguments
+/// must be named (`key = val`); their values are evaluated at alias-definition
+/// time and merged into the copy's `frozen_args`, so they are in scope whenever
+/// the alias is called regardless of what the enclosing scope contains at call
+/// time.
+///
+/// This is partial application for free-variable bindings: if `source_name`
+/// references `%(chunk_name)` in its body but does not declare `chunk_name` as
+/// a parameter, `%alias(emit_option, source_name, chunk_name = tangle-rows)`
+/// pins that free variable for the lifetime of the alias.
+pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() < 2 {
+        return Err(EvalError::InvalidUsage(
+            "alias: at least 2 args required: alias(new_name, source_name[, key = val, …])".into(),
+        ));
+    }
+    if parts[0].name.is_some() || parts[1].name.is_some() {
+        return Err(EvalError::InvalidUsage(
+            "alias: new_name and source_name must be positional, not key=val".into(),
+        ));
+    }
+    let new_name = single_ident_param(eval, &parts[0], "alias target name")?;
+
+    if eval.is_builtin(&new_name) {
+        return Err(EvalError::InvalidUsage(format!(
+            "cannot alias to '{}': name is reserved as a built-in",
+            new_name
+        )));
+    }
+
+    let source_name = single_ident_param(eval, &parts[1], "alias source name")?;
+    let mut mac = eval
+        .get_macro(&source_name)
+        .ok_or_else(|| EvalError::InvalidUsage(
+            format!("alias: macro '{source_name}' is not defined"),
+        ))?;
+    mac.name = new_name.clone();
+    mac.binding_kind = MacroBindingKind::Rebindable;
+    for part in &parts[2..] {
+        let key = match part.name.as_ref() {
+            Some(tok) => eval.extract_name_value(tok),
+            None => return Err(EvalError::InvalidUsage(
+                "alias: override arguments must be named (key = val)".into(),
+            )),
+        };
+        let val = eval.evaluate(part)?;
+        mac.frozen_args.insert(key, val);
+    }
+    eval.redefine_macro(mac)?;
+    eval.record_macro_def(
+        new_name,
+        node.token.src,
+        node.token.pos as u32,
+        (node.end_pos.saturating_sub(node.token.pos)) as u32,
+    );
+    Ok("".into())
+}
+
+pub fn builtin_export(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 1 {
+        return Err(EvalError::InvalidUsage("export: exactly 1 arg".into()));
+    }
+    let name = single_ident_param(eval, &node.parts[0], "var name")?;
+    eval.export(&name);
+    Ok("".into())
+}
+
+pub fn builtin_eval(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.is_empty() {
+        return Err(EvalError::InvalidUsage("eval requires macroName".into()));
+    }
+    let macro_name = eval.evaluate(&parts[0])?;
+    let macro_name = macro_name.trim();
+    if macro_name.is_empty() {
+        return Ok("".into());
+    }
+    let rest = if parts.len() > 1 {
+        parts[1..].to_vec()
+    } else {
+        vec![]
+    };
+    // Use the name-argument's token so source locations in errors point to
+    // the macro name in the %eval() call, not to the %eval token itself.
+    let name_token = parts[0].token;
+    let call_node = ASTNode {
+        kind: NodeKind::Macro,
+        src: name_token.src,
+        token: name_token,
+        end_pos: parts[0].end_pos,
+        parts: rest,
+        name: None,
+    };
+    eval.evaluate_macro_call(&call_node, macro_name)
+}
+
+pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+
+    let expansion = builtin_eval(eval, node)?;
+    let path = eval.get_current_file_path();
+    let start_pos = node.token.pos;
+
+    let prepend_triplet = (start_pos, eval.get_sigil(), false);
+    let append_triplet = (node.end_pos, expansion.into_bytes(), true);
+
+    super::source_utils::modify_source(&path, &[prepend_triplet, append_triplet])?;
+
+    eval.set_early_exit();
+    Ok("".into())
+}
+// @
+```
+
+
+## Capitalisation builtins
+
+
+```rust
+// <[builtins capitalize]>=
+fn eval_first_char_case(eval: &mut Evaluator, node: &ASTNode, upper: bool) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+    let original = eval.evaluate(&node.parts[0])?;
+    if original.is_empty() {
+        return Ok("".into());
+    }
+    let mut chars = original.chars();
+    let first = if upper {
+        chars.next().unwrap().to_uppercase().to_string()
+    } else {
+        chars.next().unwrap().to_lowercase().to_string()
+    };
+    Ok(format!("{}{}", first, chars.collect::<String>()))
+}
+
+pub fn builtin_capitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    eval_first_char_case(eval, node, true)
+}
+
+pub fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    eval_first_char_case(eval, node, false)
+}
+// @
+```
+
+
+## Case-conversion builtins
+
+
+```rust
+// <[builtins convert case builtins]>=
+fn builtin_single_arg_case(eval: &mut Evaluator, node: &ASTNode, case: &str) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+    let original = eval.evaluate(&node.parts[0])?;
+    if original.is_empty() {
+        return Ok("".into());
+    }
+    Ok(convert_case_str(&original, case)?)
+}
+
+pub fn builtin_convert_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage(
+            "convert_case: exactly 2 args".into(),
+        ));
+    }
+    let original = eval.evaluate(&parts[0])?;
+    if original.is_empty() {
+        return Ok("".into());
+    }
+    let case = eval.evaluate(&parts[1])?;
+    Ok(convert_case_str(&original, &case)?)
+}
+
+pub fn builtin_to_snake_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    builtin_single_arg_case(eval, node, "snake")
+}
+
+pub fn builtin_to_camel_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    builtin_single_arg_case(eval, node, "camel")
+}
+
+pub fn builtin_to_pascal_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    builtin_single_arg_case(eval, node, "pascal")
+}
+
+pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    builtin_single_arg_case(eval, node, "screaming")
+}
+// @
+```
+
+
+## Python store builtins
+
+
+```rust
+// <[builtins py store builtins]>=
+pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage(
+            "pyset: exactly 2 args (key, value)".into(),
+        ));
+    }
+    let key = single_ident_param(eval, &node.parts[0], "store key")?;
+    let value = eval.evaluate(&parts[1])?;
+    eval.pystore_set(key, value);
+    Ok("".into())
+}
+
+pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if node.parts.is_empty() {
+        return Err(EvalError::InvalidUsage("pyget: requires a key".into()));
+    }
+    let key = single_ident_param(eval, &node.parts[0], "store key")?;
+    Ok(eval.pystore_get(&key))
+}
+// @
+```
+
+
+## `%env`
+
+
+```rust
+// <[builtins env]>=
+pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    if !eval.allow_env() {
+        return Err(EvalError::InvalidUsage(
+            "env: environment variable access is disabled; pass --allow-env to enable".into(),
+        ));
+    }
+    if node.parts.is_empty() {
+        return Ok("".into());
+    }
+    let name = eval.evaluate(&node.parts[0])?;
+    let lookup_name = if let Some(prefix) = eval.env_prefix() {
+        format!("{prefix}{}", name.trim())
+    } else {
+        name.trim().to_string()
+    };
+    Ok(std::env::var(lookup_name).unwrap_or_default())
+}
+// @
+```
+
+
+## Canonical predicate builtins: `%eq`, `%neq`, `%not`
+
+These builtins return the canonical boolean values `"1"` (true) or `""` (false),
+suitable for use as the condition argument to `%if`.
+
+`%not` accepts 0 or 1 arguments; 0 args is treated as an empty-string input,
+which is falsy, so `%not()` → `"1"`.
+
+
+```rust
+// <[builtins predicates]>=
+/// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
+/// Canonical boolean predicate; always returns `1` or `""`, never an operand.
+pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage("eq: exactly 2 args".into()));
+    }
+    let a = eval.evaluate(&parts[0])?;
+    let b = eval.evaluate(&parts[1])?;
+    if a == b { Ok("1".into()) } else { Ok("".into()) }
+}
+
+/// `%neq(a, b)` — returns `"1"` if `a != b` (byte-exact), else `""`.
+pub fn builtin_neq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() != 2 {
+        return Err(EvalError::InvalidUsage("neq: exactly 2 args".into()));
+    }
+    let a = eval.evaluate(&parts[0])?;
+    let b = eval.evaluate(&parts[1])?;
+    if a != b { Ok("1".into()) } else { Ok("".into()) }
+}
+
+/// `%not(x)` — returns `"1"` if `x` is the empty string, else `""`.
+/// Logical negation: empty string is falsy, any non-empty string is truthy.
+/// Accepts 0 or 1 args; 0 args is treated as empty string → returns `"1"`.
+pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+    let parts = &node.parts;
+    if parts.len() > 1 {
+        return Err(EvalError::InvalidUsage("not: at most 1 arg".into()));
+    }
+    let x = if parts.is_empty() {
+        String::new()
+    } else {
+        eval.evaluate(&parts[0])?
+    };
+    if x.is_empty() { Ok("1".into()) } else { Ok("".into()) }
+}
+// @
+```
+
+
+## Case conversion (`case_conversion.rs`)
+
+### Preamble
+
+
+```rust
+// <[case conversion preamble]>=
+// crates/weaveback-macro/src/evaluator/case_conversion.rs
+
+use std::str::FromStr;
+// @
+```
+
+
+### `Case` enum
+
+Nine target case styles are supported.  The `FromStr` impl accepts multiple
+aliases (e.g. `"snake"`, `"snake_case"`) and is case-insensitive.
+
+
+```rust
+// <[case enum]>=
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Case {
+    Lower,          // lowercase
+    Upper,          // UPPERCASE
+    Snake,          // snake_case
+    Screaming,      // SCREAMING_SNAKE_CASE
+    Kebab,          // kebab-case
+    ScreamingKebab, // SCREAMING-KEBAB-CASE
+    Camel,          // camelCase
+    Pascal,         // PascalCase
+    Ada,            // Ada_Case
+}
+
+impl FromStr for Case {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "lower" | "lowercase" => Ok(Case::Lower),
+            "upper" | "uppercase" => Ok(Case::Upper),
+            "snake" | "snake_case" => Ok(Case::Snake),
+            "screaming" | "screaming_snake" | "screaming_snake_case" => Ok(Case::Screaming),
+            "kebab" | "kebab-case" | "kebab_case" => Ok(Case::Kebab),
+            "screaming-kebab"
+            | "screaming-kebab-case"
+            | "screaming_kebab"
+            | "screaming_kebab_case" => Ok(Case::ScreamingKebab),
+            "camel" | "camelcase" | "camel_case" => Ok(Case::Camel),
+            "pascal" | "pascalcase" | "pascal_case" => Ok(Case::Pascal),
+            "ada" | "ada_case" => Ok(Case::Ada),
+            _ => Err(format!("Unknown case style: {}", s)),
+        }
+    }
+}
+// @
+```
+
+
+### `WordSplitter` iterator
+
+`WordSplitter` splits an identifier string into word slices without allocating.
+It recognises four boundary types:
+
+1. **Delimiter characters**: `_`, `-`, whitespace — consumed and not included
+   in any word.
+2. **camelCase transition**: lowercase→uppercase (e.g. `hello|World`).
+3. **Acronym end**: uppercase→uppercase→lowercase (`XML|Http`).
+4. **Digit transitions**: letter→digit and digit→letter.
+
+
+```rust
+// <[word splitter]>=
+#[derive(Debug)]
+struct WordSplitter<'a> {
+    input: &'a str,
+    pos: usize,
+}
+
+impl<'a> WordSplitter<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, pos: 0 }
+    }
+
+    fn is_boundary_char(c: char) -> bool {
+        c == '_' || c == '-' || c.is_whitespace()
+    }
+
+    fn is_word_boundary(prev: Option<char>, curr: char, next: Option<char>) -> bool {
+        if Self::is_boundary_char(curr) {
+            return true;
+        }
+
+        match (prev, curr, next) {
+            // Start of an acronym (XMLHttpRequest -> XML|Http|Request)
+            (Some(p), c, Some(n)) if p.is_uppercase() && c.is_uppercase() && n.is_lowercase() => {
+                true
+            }
+
+            // Transition from lowercase to uppercase (camelCase -> camel|Case)
+            (Some(p), c, _) if p.is_lowercase() && c.is_uppercase() => true,
+
+            // Transition between letter and number
+            (Some(p), c, _) if p.is_ascii_alphabetic() && c.is_ascii_digit() => true,
+            (Some(p), c, _) if p.is_ascii_digit() && c.is_ascii_alphabetic() => true,
+
+            _ => false,
+        }
+    }
+}
+
+impl<'a> Iterator for WordSplitter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.input.len() {
+            return None;
+        }
+
+        // Skip leading delimiters
+        while self.pos < self.input.len()
+            && Self::is_boundary_char(self.input[self.pos..].chars().next().unwrap())
+        {
+            self.pos += 1;
+        }
+
+        if self.pos >= self.input.len() {
+            return None;
+        }
+
+        let start = self.pos;
+        let mut chars = self.input[self.pos..].char_indices();
+        let mut last_pos = 0;
+        let mut prev_char = None;
+
+        while let Some((i, curr_char)) = chars.next() {
+            let next_char = chars.clone().next().map(|(_, c)| c);
+
+            if Self::is_word_boundary(prev_char, curr_char, next_char) && i > 0 {
+                self.pos += i;
+                return Some(&self.input[start..start + i]);
+            }
+
+            last_pos = i;
+            prev_char = Some(curr_char);
+        }
+
+        // Handle the last word
+        self.pos = self.input.len();
+        Some(&self.input[start..start + last_pos + 1])
+    }
+}
+// @
+```
+
+
+### `convert_case` and `convert_case_str`
+
+
+```rust
+// <[convert case functions]>=
+pub fn convert_case_str(input: &str, target_case: &str) -> Result<String, String> {
+    let case = target_case.parse::<Case>()?;
+    Ok(convert_case(input, case))
+}
+
+pub fn convert_case(input: &str, target_case: Case) -> String {
+    let words: Vec<&str> = WordSplitter::new(input).collect();
+
+    if words.is_empty() {
+        return String::new();
+    }
+
+    match target_case {
+        Case::Lower => words.join("").to_lowercase(),
+
+        Case::Upper => words.join("").to_uppercase(),
+
+        Case::Snake => words
+            .into_iter()
+            .map(|w| w.to_lowercase())
+            .collect::<Vec<_>>()
+            .join("_"),
+
+        Case::Screaming => words
+            .into_iter()
+            .map(|w| w.to_uppercase())
+            .collect::<Vec<_>>()
+            .join("_"),
+
+        Case::Kebab => words
+            .into_iter()
+            .map(|w| w.to_lowercase())
+            .collect::<Vec<_>>()
+            .join("-"),
+
+        Case::ScreamingKebab => words
+            .into_iter()
+            .map(|w| w.to_uppercase())
+            .collect::<Vec<_>>()
+            .join("-"),
+
+        Case::Camel => {
+            let mut result = String::new();
+            for (i, word) in words.into_iter().enumerate() {
+                if i == 0 {
+                    result.push_str(&word.to_lowercase());
+                } else {
+                    result.push_str(&capitalize(word));
+                }
+            }
+            result
+        }
+
+        Case::Pascal => words
+            .into_iter()
+            .map(capitalize)
+            .collect::<Vec<_>>()
+            .join(""),
+
+        Case::Ada => words
+            .into_iter()
+            .map(capitalize)
+            .collect::<Vec<_>>()
+            .join("_"),
+    }
+}
+// @
+```
+
+
+### `capitalize` helper
+
+
+```rust
+// <[capitalize helper]>=
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut result = first.to_uppercase().collect::<String>();
+            result.extend(chars.flat_map(|c| c.to_lowercase()));
+            result
+        }
+    }
+}
+// @
+```
+
+
+## Source patching (`source_utils.rs`)
+
+`modify_source` sorts the insertions by byte offset, copies unchanged ranges
+verbatim, injects the new bytes at each position, and optionally skips to the
+next newline (used by `%here` to overwrite the rest of the original call line).
+
+
+```rust
+// <[source utils]>=
+// weaveback/crates/weaveback-macro/src/evaluator/source_utils.rs
+
+use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
+
+/// Modify `source_file` by inserting text at byte offsets, optionally skipping to newline.
+pub fn modify_source(
+    source_file: &Path,
+    insertions: &[(usize, Vec<u8>, bool)],
+) -> io::Result<()> {
+    let content = fs::read(source_file)?;
+    let mut result = Vec::new();
+    let mut last_pos = 0usize;
+
+    let mut sorted = insertions.to_vec();
+    sorted.sort_by_key(|(pos, _, _)| *pos);
+
+    use std::cmp;
+    for (pos, text, skip_to_newline) in sorted {
+        if pos < content.len() {
+            result.extend_from_slice(&content[last_pos..pos]);
+        } else {
+            result.extend_from_slice(&content[last_pos..]);
+        }
+        result.extend_from_slice(&text);
+        if skip_to_newline {
+            let mut idx = pos;
+            while idx < content.len() && content[idx] != b'\n' {
+                idx += 1;
+            }
+            if idx < content.len() {
+                idx += 1; // skip actual newline
+            }
+            last_pos = idx;
+        } else {
+            last_pos = cmp::min(pos, content.len());
+        }
+    }
+    if last_pos < content.len() {
+        result.extend_from_slice(&content[last_pos..]);
+    }
+
+    let mut f = fs::File::create(source_file)?;
+    f.write_all(&result)?;
+    Ok(())
+}
+// @
+```
+

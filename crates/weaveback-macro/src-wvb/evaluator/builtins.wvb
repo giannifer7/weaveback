@@ -1,4 +1,4 @@
-= Built-in macros, case conversion, and source patching
+¤h1(¤[Built-in macros, case conversion, and source patching¤])
 :toc: left
 
 `builtins.rs` registers all built-in macros as function pointers in a
@@ -7,9 +7,9 @@ iterator, and the `convert_case` function used by the case-transformation
 builtins.  `source_utils.rs` provides `modify_source`, the low-level routine
 used by `%here`.
 
-== Design rationale
+¤h2(¤[Design rationale¤])
 
-=== Function-pointer dispatch table
+¤h3(¤[Function-pointer dispatch table¤])
 
 Built-ins are stored as `fn(&mut Evaluator, &ASTNode) -> EvalResult<String>`
 function pointers — not closures — because they receive the `Evaluator` by
@@ -19,7 +19,7 @@ is populated once at construction time by `default_builtins()`.
 Checking the builtin map *before* the user-macro scope ensures that built-in
 names (`def`, `set`, `if`, …) are reserved and cannot be shadowed.
 
-=== Shared `define_macro` helper
+¤h3(¤[Shared `define_macro` helper¤])
 
 `%def` and `%pydef` have identical argument-parsing logic (two or
 more params: name, optional formal params, body).  A `DefMacroConfig` struct
@@ -27,7 +27,7 @@ carries the variant-specific error messages and `ScriptKind`, and a shared
 `define_macro` function uses it.  This avoids duplicating 40 lines of
 parameter-extraction code.
 
-=== `single_ident_param`: strict identifier validation
+¤h3(¤[`single_ident_param`: strict identifier validation¤])
 
 Many built-ins require an argument to be a plain identifier (no spaces, no
 commas, no `=`, no leading digit).  `single_ident_param` enforces this.
@@ -57,7 +57,7 @@ with `[A-Za-z_]` and the lexer never emits an `Ident` token for `foo-bar`.
 (`TokenKind::Special` is emitted only for the doubled sigil — e.g. `%%`
 is the escape sequence for a literal `%` — not for arbitrary punctuation.)
 
-=== `%here`: the one side-effecting builtin
+¤h3(¤[`%here`: the one side-effecting builtin¤])
 
 `%here(macro_name, args...)` calls `builtin_eval` to get the expansion, then
 uses `modify_source` to patch the current source file in place — prepending the
@@ -82,7 +82,7 @@ further evaluation touches it.  The next tool run starts fresh with a new
 text (the escape sequence for a single `%`), so re-running on the already-patched
 file produces no macro call and no second patch.
 
-=== Case conversion: `WordSplitter` iterator
+¤h3(¤[Case conversion: `WordSplitter` iterator¤])
 
 A custom `WordSplitter` iterator handles all common word boundaries: delimiter
 characters (`_`, `-`, space), camelCase transitions (lowercase→uppercase),
@@ -90,7 +90,7 @@ acronyms (uppercase→uppercase→lowercase), and digit transitions
 (letter→digit, digit→letter).  All nine `Case` variants are implemented as
 simple transformations over the collected word slices.
 
-== Built-in macro table
+¤h2(¤[Built-in macro table¤])
 
 This table is the practical entry point for the builtin surface registered by
 `default_builtins()`.  The exact registry lives in the code below; this section
@@ -165,45 +165,38 @@ about chunk composition rather than macro evaluation.
 | Read an environment variable.  Requires `--allow-env`.
 |===
 
-== File structure
+¤h2(¤[File structure¤])
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/evaluator/builtins.rs>>=
-// <<builtins preamble>>
-// <<builtins type and registry>>
-// <<builtins def macro config>>
-// <<builtins single ident param>>
-// <<builtins define macro helper>>
-// <<builtins def pydef>>
-// <<builtins include import>>
-// <<builtins if>>
-// <<builtins set export eval here>>
-// <<builtins capitalize>>
-// <<builtins convert case builtins>>
-// <<builtins py store builtins>>
-// <<builtins env>>
-// <<builtins predicates>>
-// @
+¤rust_file(weaveback-macro/src/evaluator/builtins.rs, ¤[
+// <[builtins preamble]>
+// <[builtins type and registry]>
+// <[builtins def macro config]>
+// <[builtins single ident param]>
+// <[builtins define macro helper]>
+// <[builtins def pydef]>
+// <[builtins include import]>
+// <[builtins if]>
+// <[builtins set export eval here]>
+// <[builtins capitalize]>
+// <[builtins convert case builtins]>
+// <[builtins py store builtins]>
+// <[builtins env]>
+// <[builtins predicates]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/case_conversion.rs, ¤[
+// <[case conversion preamble]>
+// <[case enum]>
+// <[word splitter]>
+// <[convert case functions]>
+// <[capitalize helper]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/source_utils.rs, ¤[
+// <[source utils]>
+¤])
 
-// <<@file weaveback-macro/src/evaluator/case_conversion.rs>>=
-// <<case conversion preamble>>
-// <<case enum>>
-// <<word splitter>>
-// <<convert case functions>>
-// <<capitalize helper>>
-// @
+¤h2(¤[Builtins preamble¤])
 
-// <<@file weaveback-macro/src/evaluator/source_utils.rs>>=
-// <<source utils>>
-// @
-----
-
-== Builtins preamble
-
-[source,rust]
-----
-// <<builtins preamble>>=
+¤rust_chunk(builtins preamble, ¤[
 // crates/weaveback-macro/src/evaluator/builtins.rs
 
 use std::collections::HashMap;
@@ -215,14 +208,11 @@ use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
 use super::state::{MacroBindingKind, ScriptKind};
 use crate::types::{ASTNode, NodeKind};
-// @
-----
+¤])
 
-== `BuiltinFn` type and default registry
+¤h2(¤[`BuiltinFn` type and default registry¤])
 
-[source,rust]
-----
-// <<builtins type and registry>>=
+¤rust_chunk(builtins type and registry, ¤[
 /// Type for a builtin macro function: (Evaluator, node) -> String
 pub type BuiltinFn = fn(&mut Evaluator, &ASTNode) -> EvalResult<String>;
 
@@ -273,14 +263,11 @@ pub fn default_builtins() -> HashMap<String, BuiltinFn> {
     map.insert("not".to_string(), builtin_not as BuiltinFn);
     map
 }
-// @
-----
+¤])
 
-== `DefMacroConfig` — shared configuration for `%def` / `%pydef`
+¤h2(¤[`DefMacroConfig` — shared configuration for `%def` / `%pydef`¤])
 
-[source,rust]
-----
-// <<builtins def macro config>>=
+¤rust_chunk(builtins def macro config, ¤[
 struct DefMacroConfig {
     min_params_error: String,
     name_param_context: String,
@@ -290,18 +277,15 @@ struct DefMacroConfig {
     binding_kind: MacroBindingKind,
     redefine: bool,
 }
-// @
-----
+¤])
 
-== `single_ident_param` — strict identifier validator
+¤h2(¤[`single_ident_param` — strict identifier validator¤])
 
 Validates that a `Param` node contains exactly one `Ident` child (no spaces,
 no `=`, no leading digit).  Used for macro names, formal parameter names, and
 variable names in `%set` / `%export`.
 
-[source,rust]
-----
-// <<builtins single ident param>>=
+¤rust_chunk(builtins single ident param, ¤[
 /// Helper: Checks that a Param node contains exactly one identifier child
 fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> EvalResult<String> {
     if param_node.kind != NodeKind::Param {
@@ -356,18 +340,15 @@ fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> Eva
 
     Ok(text)
 }
-// @
-----
+¤])
 
-== `define_macro` — shared helper for `%def` / `%redef` / `%pydef`
+¤h2(¤[`define_macro` — shared helper for `%def` / `%redef` / `%pydef`¤])
 
 Extracts `(name, [p1, p2, …,] body)` from the node's parts, validates each
 identifier, records the call site for tracing, and stores the
 `MacroDefinition` with either constant or rebindable binding semantics.
 
-[source,rust]
-----
-// <<builtins define macro helper>>=
+¤rust_chunk(builtins define macro helper, ¤[
 fn define_macro(
     eval: &mut Evaluator,
     node: &ASTNode,
@@ -425,14 +406,11 @@ fn define_macro(
     );
     Ok("".into())
 }
-// @
-----
+¤])
 
-== `%def`, `%redef`, `%pydef`
+¤h2(¤[`%def`, `%redef`, `%pydef`¤])
 
-[source,rust]
-----
-// <<builtins def pydef>>=
+¤rust_chunk(builtins def pydef, ¤[
 pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
@@ -480,10 +458,9 @@ pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
         },
     )
 }
-// @
-----
+¤])
 
-== `%include` and `%import`
+¤h2(¤[`%include` and `%import`¤])
 
 `builtin_import` discards the text output (returns `""`) but the evaluation
 has already executed the file's side effects (macro and variable definitions).
@@ -493,9 +470,7 @@ alias targets are often used as a dispatch slot in spec-generation patterns
 (`emit_option`, etc.), so repeating `%alias(slot, ...)` in the same frame
 should replace the slot instead of tripping the `%def` constant-binding rule.
 
-[source,rust]
-----
-// <<builtins include import>>=
+¤rust_chunk(builtins include import, ¤[
 fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -516,16 +491,13 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
     Ok("".into())
 }
 
-// @
-----
+¤])
 
-== `%if`
+¤h2(¤[`%if`¤])
 
 `%if` treats any non-empty string as truthy.
 
-[source,rust]
-----
-// <<builtins if>>=
+¤rust_chunk(builtins if, ¤[
 pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
@@ -547,10 +519,9 @@ pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
         }
     }
 }
-// @
-----
+¤])
 
-== `%set`, `%export`, `%eval`, `%here`
+¤h2(¤[`%set`, `%export`, `%eval`, `%here`¤])
 
 `%eval` re-dispatches at evaluation time: it evaluates the first argument to get
 the macro name, then constructs a synthetic `Macro` AST node using the name
@@ -561,9 +532,7 @@ the macro, then calls `modify_source` with two insertions: a sigil
 prefix before the `%here` call (neutralising it) and the expansion after it
 (skipping the rest of the original line).  Then it sets `early_exit`.
 
-[source,rust]
-----
-// <<builtins set export eval here>>=
+¤rust_chunk(builtins set export eval here, ¤[
 pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -698,14 +667,11 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     eval.set_early_exit();
     Ok("".into())
 }
-// @
-----
+¤])
 
-== Capitalisation builtins
+¤h2(¤[Capitalisation builtins¤])
 
-[source,rust]
-----
-// <<builtins capitalize>>=
+¤rust_chunk(builtins capitalize, ¤[
 fn eval_first_char_case(eval: &mut Evaluator, node: &ASTNode, upper: bool) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -730,14 +696,11 @@ pub fn builtin_capitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<St
 pub fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     eval_first_char_case(eval, node, false)
 }
-// @
-----
+¤])
 
-== Case-conversion builtins
+¤h2(¤[Case-conversion builtins¤])
 
-[source,rust]
-----
-// <<builtins convert case builtins>>=
+¤rust_chunk(builtins convert case builtins, ¤[
 fn builtin_single_arg_case(eval: &mut Evaluator, node: &ASTNode, case: &str) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
@@ -779,14 +742,11 @@ pub fn builtin_to_pascal_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResul
 pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "screaming")
 }
-// @
-----
+¤])
 
-== Python store builtins
+¤h2(¤[Python store builtins¤])
 
-[source,rust]
-----
-// <<builtins py store builtins>>=
+¤rust_chunk(builtins py store builtins, ¤[
 pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
@@ -807,14 +767,11 @@ pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     let key = single_ident_param(eval, &node.parts[0], "store key")?;
     Ok(eval.pystore_get(&key))
 }
-// @
-----
+¤])
 
-== `%env`
+¤h2(¤[`%env`¤])
 
-[source,rust]
-----
-// <<builtins env>>=
+¤rust_chunk(builtins env, ¤[
 pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if !eval.allow_env() {
         return Err(EvalError::InvalidUsage(
@@ -832,10 +789,9 @@ pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     };
     Ok(std::env::var(lookup_name).unwrap_or_default())
 }
-// @
-----
+¤])
 
-== Canonical predicate builtins: `%eq`, `%neq`, `%not`
+¤h2(¤[Canonical predicate builtins: `%eq`, `%neq`, `%not`¤])
 
 These builtins return the canonical boolean values `"1"` (true) or `""` (false),
 suitable for use as the condition argument to `%if`.
@@ -843,9 +799,7 @@ suitable for use as the condition argument to `%if`.
 `%not` accepts 0 or 1 arguments; 0 args is treated as an empty-string input,
 which is falsy, so `%not()` → `"1"`.
 
-[source,rust]
-----
-// <<builtins predicates>>=
+¤rust_chunk(builtins predicates, ¤[
 /// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
 /// Canonical boolean predicate; always returns `1` or `""`, never an operand.
 pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
@@ -884,30 +838,24 @@ pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     };
     if x.is_empty() { Ok("1".into()) } else { Ok("".into()) }
 }
-// @
-----
+¤])
 
-== Case conversion (`case_conversion.rs`)
+¤h2(¤[Case conversion (`case_conversion.rs`)¤])
 
-=== Preamble
+¤h3(¤[Preamble¤])
 
-[source,rust]
-----
-// <<case conversion preamble>>=
+¤rust_chunk(case conversion preamble, ¤[
 // crates/weaveback-macro/src/evaluator/case_conversion.rs
 
 use std::str::FromStr;
-// @
-----
+¤])
 
-=== `Case` enum
+¤h3(¤[`Case` enum¤])
 
 Nine target case styles are supported.  The `FromStr` impl accepts multiple
 aliases (e.g. `"snake"`, `"snake_case"`) and is case-insensitive.
 
-[source,rust]
-----
-// <<case enum>>=
+¤rust_chunk(case enum, ¤[
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Case {
     Lower,          // lowercase
@@ -942,10 +890,9 @@ impl FromStr for Case {
         }
     }
 }
-// @
-----
+¤])
 
-=== `WordSplitter` iterator
+¤h3(¤[`WordSplitter` iterator¤])
 
 `WordSplitter` splits an identifier string into word slices without allocating.
 It recognises four boundary types:
@@ -956,9 +903,7 @@ It recognises four boundary types:
 3. **Acronym end**: uppercase→uppercase→lowercase (`XML|Http`).
 4. **Digit transitions**: letter→digit and digit→letter.
 
-[source,rust]
-----
-// <<word splitter>>=
+¤rust_chunk(word splitter, ¤[
 #[derive(Debug)]
 struct WordSplitter<'a> {
     input: &'a str,
@@ -1038,14 +983,11 @@ impl<'a> Iterator for WordSplitter<'a> {
         Some(&self.input[start..start + last_pos + 1])
     }
 }
-// @
-----
+¤])
 
-=== `convert_case` and `convert_case_str`
+¤h3(¤[`convert_case` and `convert_case_str`¤])
 
-[source,rust]
-----
-// <<convert case functions>>=
+¤rust_chunk(convert case functions, ¤[
 pub fn convert_case_str(input: &str, target_case: &str) -> Result<String, String> {
     let case = target_case.parse::<Case>()?;
     Ok(convert_case(input, case))
@@ -1112,14 +1054,11 @@ pub fn convert_case(input: &str, target_case: Case) -> String {
             .join("_"),
     }
 }
-// @
-----
+¤])
 
-=== `capitalize` helper
+¤h3(¤[`capitalize` helper¤])
 
-[source,rust]
-----
-// <<capitalize helper>>=
+¤rust_chunk(capitalize helper, ¤[
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -1131,19 +1070,15 @@ fn capitalize(s: &str) -> String {
         }
     }
 }
-// @
-----
+¤])
 
-== Source patching (`source_utils.rs`)
+¤h2(¤[Source patching (`source_utils.rs`)¤])
 
 `modify_source` sorts the insertions by byte offset, copies unchanged ranges
 verbatim, injects the new bytes at each position, and optionally skips to the
 next newline (used by `%here` to overwrite the rest of the original call line).
 
-[source,rust]
-----
-// <<source utils>>=
-// <[@file crates/weaveback-macro/src/evaluator/source_utils.rs]>=
+¤rust_chunk(source utils, ¤[
 // weaveback/crates/weaveback-macro/src/evaluator/source_utils.rs
 
 use std::fs;
@@ -1191,5 +1126,4 @@ pub fn modify_source(
     f.write_all(&result)?;
     Ok(())
 }
-// @
-----
+¤])

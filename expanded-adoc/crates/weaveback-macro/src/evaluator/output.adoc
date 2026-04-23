@@ -103,26 +103,33 @@ EvalOutput <|.. PreciseTracingOutput
 
 == File structure
 
+
 [source,rust]
 ----
-// <<@file weaveback-macro/src/evaluator/output.rs>>=
-// <<output span kind>>
-// <<output source span>>
-// <<output eval output trait>>
-// <<output plain output>>
-// <<output tracing output>>
-// <<output macro map entry>>
-// <<output tracing into macro map>>
-// <<output span range>>
-// <<output precise tracing output>>
+// <[@file weaveback-macro/src/evaluator/output.rs]>=
+// weaveback-macro/src/evaluator/output.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[output span kind]>
+// <[output source span]>
+// <[output eval output trait]>
+// <[output plain output]>
+// <[output tracing output]>
+// <[output macro map entry]>
+// <[output tracing into macro map]>
+// <[output span range]>
+// <[output precise tracing output]>
+
 // @
 ----
 
+
 == `SpanKind` — classification of how output was produced
+
 
 [source,rust]
 ----
-// <<output span kind>>=
+// <[output span kind]>=
 // crates/weaveback-macro/src/evaluator/output.rs
 
 /// Indicates how a piece of output relates to the original source.
@@ -150,6 +157,7 @@ pub enum SpanKind {
 // @
 ----
 
+
 == `SourceSpan` — byte-offset reference into a source file
 
 `SourceSpan` mirrors the fields of `Token` (`src`, `pos`, `length`) so that
@@ -157,9 +165,10 @@ no conversion is needed when creating a span from an AST node's token.
 Line and column numbers are derived on demand via `LineIndex` —
 they are not cached here to keep the struct small.
 
+
 [source,rust]
 ----
-// <<output source span>>=
+// <[output source span]>=
 /// Byte-offset span referencing the source token that produced a piece of output.
 ///
 /// Fields mirror `Token.src`, `Token.pos`, `Token.length` — no conversion needed.
@@ -178,6 +187,7 @@ pub struct SourceSpan {
 // @
 ----
 
+
 == `EvalOutput` trait
 
 `push_str` is the hot path — called for every literal text token and every
@@ -186,9 +196,10 @@ built-in results and script outputs.  `finish` consumes the accumulator and
 returns the assembled string.  `is_tracing` signals whether the caller should
 invest the extra effort of per-argument span threading.
 
+
 [source,rust]
 ----
-// <<output eval output trait>>=
+// <[output eval output trait]>=
 /// Generic output sink for the evaluator.
 ///
 /// The evaluator calls `push_str` for every piece of text it produces,
@@ -214,11 +225,13 @@ pub trait EvalOutput {
 // @
 ----
 
+
 == `PlainOutput` — zero-overhead fast path
+
 
 [source,rust]
 ----
-// <<output plain output>>=
+// <[output plain output]>=
 /// Fast-path output accumulator — ignores span info, just collects text.
 ///
 /// This is functionally identical to the existing `String`-based output in
@@ -260,6 +273,7 @@ impl EvalOutput for PlainOutput {
 // @
 ----
 
+
 == `TracingOutput` — per-line source attribution
 
 `TracingOutput` records one optional `SourceSpan` per completed output line.
@@ -268,9 +282,10 @@ moves the current span into `line_spans`.  If the text continues after the
 `\n` on the same call (a multi-line literal), the span is propagated to the
 next line so intermediate lines are not left unattributed.
 
+
 [source,rust]
 ----
-// <<output tracing output>>=
+// <[output tracing output]>=
 /// Output accumulator that records one source span per output line.
 ///
 /// For each completed output line the first tracked `push_str` span on that
@@ -353,6 +368,7 @@ impl EvalOutput for TracingOutput {
 }
 // @
 ----
+
 [NOTE]
 ====
 ## `TracingOutput` — what it does and why
@@ -385,9 +401,10 @@ When a single `push_str` call contains multiple `\n` bytes (a multi-line string 
 
 == `MacroMapEntry` — database record
 
+
 [source,rust]
 ----
-// <<output macro map entry>>=
+// <[output macro map entry]>=
 /// A serialized entry stored in the `macro_map` database table.
 /// It maps an output line (indirectly via the table key) to the original
 /// `.md` source file that generated it.
@@ -405,15 +422,17 @@ pub struct MacroMapEntry {
 // @
 ----
 
+
 == `TracingOutput::into_macro_map_entries`
 
 Converts the per-line span records into `MacroMapEntry` values.  The final
 open line (if the output does not end with `\n`) is included via a chained
 iterator.  Lines with no tracked span are silently skipped.
 
+
 [source,rust]
 ----
-// <<output tracing into macro map>>=
+// <[output tracing into macro map]>=
 use crate::evaluator::state::SourceManager;
 use crate::line_index::LineIndex;
 
@@ -473,15 +492,17 @@ impl TracingOutput {
 // @
 ----
 
+
 == `SpanRange` — a contiguous attributed byte range
 
 `SpanRange` is used by `PreciseTracingOutput` and by `TrackedValue.spans`.
 The `start`/`end` fields index into the output buffer (or variable value);
 `span` gives the source token that produced those bytes.
 
+
 [source,rust]
 ----
-// <<output span range>>=
+// <[output span range]>=
 /// A contiguous byte range in the output attributed to one source token.
 /// Gaps (script/builtin results) are absent from the list.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -493,6 +514,7 @@ pub struct SpanRange {
 // @
 ----
 
+
 == `PreciseTracingOutput` — exact per-byte attribution
 
 `PreciseTracingOutput` coalesces consecutive pushes from the same token into a
@@ -501,9 +523,10 @@ when the token changes or on `push_untracked`.  Gaps (untracked segments) are
 simply absent from the `ranges` list — callers use `span_at_byte` with a
 binary search to query the coverage.
 
+
 [source,rust]
 ----
-// <<output precise tracing output>>=
+// <[output precise tracing output]>=
 /// Output accumulator with exact per-byte source attribution.
 ///
 /// Records one `SpanRange` entry per source-token transition — far fewer
@@ -586,3 +609,4 @@ impl EvalOutput for PreciseTracingOutput {
 }
 // @
 ----
+

@@ -1,6 +1,133 @@
+# Output sinks and source tracing
+:toc: left
+
+`output.rs` defines the `EvalOutput` trait and its three implementations,
+the span types used to attribute output text back to source tokens, and the
+`MacroMapEntry` record stored in the `macro_map` database table.
+
+## Design rationale
+
+### The `EvalOutput` trait: pluggable output sinks
+
+The evaluator calls `push_str(text, span)` for every piece of tracked text and
+`push_untracked(text)` for computed/script results.  Decoupling the sink from
+the evaluator allows three strategies with no runtime overhead in the common
+case:
+
+`PlainOutput`::
+  Ignores span arguments entirely.  `push_str` is `#[inline]` and compiles to
+  a single `String::push_str`.  This is the default path and has zero overhead
+  compared to the old `String`-based accumulator.
+
+`TracingOutput`::
+  Records one `SourceSpan` per output line (the first tracked span on each
+  line wins).  Used when building the `macro_map` database table.  Allocations
+  are proportional to line count rather than token count — much cheaper than
+  per-push recording.
+
+`PreciseTracingOutput`::
+  Records one `SpanRange` per source-token transition.  Provides exact byte
+  attribution for every character in the output.  Used by the MCP
+  `weaveback_apply_fix` oracle to verify that a source edit produces the
+  expected output.
+
+### `SpanKind`: why was this text produced?
+
+Knowing *where* a piece of output came from is useful; knowing *how* it was
+produced is essential for the apply-back tool.  `SpanKind` distinguishes:
+
+* `Literal` — raw text from the document or a literal block.
+* `MacroBody` — text from expanding a macro body.
+* `MacroArg` — text substituted from a call-site argument.
+* `VarBinding` — text from a `%set` variable.
+* `Computed` — script/builtin result with no direct source token.
+
+### `TracingOutput` first-wins-per-line semantics
+
+For each output line, the first `push_str` call that carries a span sets the
+line's span.  Subsequent tracked pushes on the same line are ignored (span
+already set).  Untracked pushes advance line counters without setting a span.
+This models the most common query: "what source line corresponds to output line
+N?"  The first token on the line is the best answer.
+
+## Output sink types
+
+.`EvalOutput` trait hierarchy
+[plantuml,format=svg]
+----
+@startuml
+skinparam backgroundColor #1d2021
+skinparam defaultFontColor #ebdbb2
+skinparam defaultFontSize 12
+skinparam ArrowColor #83a598
+skinparam ClassBorderColor #83a598
+skinparam ClassBackgroundColor #282828
+skinparam ClassFontColor #ebdbb2
+skinparam ClassHeaderBackgroundColor #3c3836
+skinparam InterfaceBorderColor #b8bb26
+skinparam InterfaceBackgroundColor #282828
+skinparam InterfaceFontColor #ebdbb2
+
+interface EvalOutput {
+  +push_str(text, span)
+  +push_untracked(text)
+  +finish() -> String
+  +is_tracing() -> bool
+}
+
+class PlainOutput {
+  -buf: String
+}
+
+class TracingOutput {
+  -buf: String
+  -line_spans: Vec<Option<SourceSpan>>
+  -current_line_span: Option<SourceSpan>
+  +into_macro_map_entries(sources) -> Vec
+}
+
+class PreciseTracingOutput {
+  -buf: String
+  -ranges: Vec<SpanRange>
+  -current_span: Option<SourceSpan>
+  -current_start: usize
+  +into_parts() -> (String, Vec<SpanRange>)
+  +span_at_byte(ranges, offset) -> Option<SourceSpan>
+}
+
+EvalOutput <|.. PlainOutput
+EvalOutput <|.. TracingOutput
+EvalOutput <|.. PreciseTracingOutput
+@enduml
+----
+
+## File structure
+
+
+```rust
+// <[@file weaveback-macro/src/evaluator/output.rs]>=
 // weaveback-macro/src/evaluator/output.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+// <[output span kind]>
+// <[output source span]>
+// <[output eval output trait]>
+// <[output plain output]>
+// <[output tracing output]>
+// <[output macro map entry]>
+// <[output tracing into macro map]>
+// <[output span range]>
+// <[output precise tracing output]>
+
+// @
+```
+
+
+## `SpanKind` — classification of how output was produced
+
+
+```rust
+// <[output span kind]>=
 // crates/weaveback-macro/src/evaluator/output.rs
 
 /// Indicates how a piece of output relates to the original source.
@@ -25,6 +152,20 @@ pub enum SpanKind {
     /// that has no direct corresponding source token for its content.
     Computed,
 }
+// @
+```
+
+
+## `SourceSpan` — byte-offset reference into a source file
+
+`SourceSpan` mirrors the fields of `Token` (`src`, `pos`, `length`) so that
+no conversion is needed when creating a span from an AST node's token.
+Line and column numbers are derived on demand via `LineIndex` —
+they are not cached here to keep the struct small.
+
+
+```rust
+// <[output source span]>=
 /// Byte-offset span referencing the source token that produced a piece of output.
 ///
 /// Fields mirror `Token.src`, `Token.pos`, `Token.length` — no conversion needed.
@@ -40,6 +181,21 @@ pub struct SourceSpan {
     /// The kind of expansion that produced this text.
     pub kind: SpanKind,
 }
+// @
+```
+
+
+## `EvalOutput` trait
+
+`push_str` is the hot path — called for every literal text token and every
+macro argument that expands to non-empty text.  `push_untracked` is called for
+built-in results and script outputs.  `finish` consumes the accumulator and
+returns the assembled string.  `is_tracing` signals whether the caller should
+invest the extra effort of per-argument span threading.
+
+
+```rust
+// <[output eval output trait]>=
 /// Generic output sink for the evaluator.
 ///
 /// The evaluator calls `push_str` for every piece of text it produces,
@@ -62,6 +218,15 @@ pub trait EvalOutput {
         false
     }
 }
+// @
+```
+
+
+## `PlainOutput` — zero-overhead fast path
+
+
+```rust
+// <[output plain output]>=
 /// Fast-path output accumulator — ignores span info, just collects text.
 ///
 /// This is functionally identical to the existing `String`-based output in
@@ -100,6 +265,21 @@ impl EvalOutput for PlainOutput {
         self.buf
     }
 }
+// @
+```
+
+
+## `TracingOutput` — per-line source attribution
+
+`TracingOutput` records one optional `SourceSpan` per completed output line.
+When a `\n` byte is encountered inside a `push_str` call, `advance_line`
+moves the current span into `line_spans`.  If the text continues after the
+`\n` on the same call (a multi-line literal), the span is propagated to the
+next line so intermediate lines are not left unattributed.
+
+
+```rust
+// <[output tracing output]>=
 /// Output accumulator that records one source span per output line.
 ///
 /// For each completed output line the first tracked `push_str` span on that
@@ -180,6 +360,44 @@ impl EvalOutput for TracingOutput {
         self.buf
     }
 }
+// @
+```
+
+[NOTE]
+====
+## `TracingOutput` — what it does and why
+
+`TracingOutput` is an output sink for the macro evaluator that records **which source location produced each line of output**. It implements `EvalOutput` and accumulates text while building a parallel `line_spans: Vec<Option<SourceSpan>>` — one entry per completed (`\n`-terminated) output line.
+
+### Core design decisions
+
+**One span per line, not per token.**
+The comment says it directly: allocations are proportional to *line count*, not *token count*. A macro expansion can call `push_str` many times per output line (once per token, variable interpolation, etc.). Recording every push would be expensive and mostly redundant for the apply-back use case, which only needs to know *which source line* a given output line came from.
+
+**First-span-wins per line.**
+`push_str` only sets `current_line_span` when it's `None`. The first tracked push on a new output line claims the attribution for that line. Later pushes on the same line are ignored for span purposes. This is conservative but correct: the first token on a line is usually the one that "owns" it semantically.
+
+**Tracked vs. untracked pushes.**
+- `push_str` — carries a `SourceSpan`, used for macro-defined text (e.g. `%def` bodies, variable substitutions with known origin).
+- `push_untracked` — no span; used for script results and builtins whose output can't be attributed to a single source location. It still advances the line counter by scanning for `\n` bytes, keeping `line_spans` in sync with the actual output.
+
+**Multi-line literal propagation.**
+When a single `push_str` call contains multiple `\n` bytes (a multi-line string literal), the span is propagated to intermediate lines — but *not* to the line following the final `\n`. That trailing line starts fresh (`current_line_span = None`) so the next `push_str` call takes attribution normally. Without this, every line after a multi-line literal would be incorrectly attributed to wherever that literal came from.
+
+**`finish()` discards the span data.**
+`finish(self) -> String` returns just the buffer. The caller is expected to have already consumed `line_spans` (via `into_macro_map_entries` or equivalent) before calling `finish`. The span bookkeeping is a write-time concern; the final string is all downstream consumers need.
+
+### Why this matters in context
+
+`TracingOutput` feeds the `macro_map` redb table — the source-map layer above the noweb-level `noweb_map`. Together they let the apply-back tool trace a line in a generated file back through tangle (noweb expansion) and then through macro expansion to the original `.adoc` source, enabling bidirectional sync.
+====
+
+
+## `MacroMapEntry` — database record
+
+
+```rust
+// <[output macro map entry]>=
 /// A serialized entry stored in the `macro_map` database table.
 /// It maps an output line (indirectly via the table key) to the original
 /// `.md` source file that generated it.
@@ -194,6 +412,19 @@ pub struct MacroMapEntry {
     /// The kind of macro expansion that produced this text.
     pub kind: SpanKind,
 }
+// @
+```
+
+
+## `TracingOutput::into_macro_map_entries`
+
+Converts the per-line span records into `MacroMapEntry` values.  The final
+open line (if the output does not end with `\n`) is included via a chained
+iterator.  Lines with no tracked span are silently skipped.
+
+
+```rust
+// <[output tracing into macro map]>=
 use crate::evaluator::state::SourceManager;
 use crate::line_index::LineIndex;
 
@@ -250,6 +481,19 @@ impl TracingOutput {
         results
     }
 }
+// @
+```
+
+
+## `SpanRange` — a contiguous attributed byte range
+
+`SpanRange` is used by `PreciseTracingOutput` and by `TrackedValue.spans`.
+The `start`/`end` fields index into the output buffer (or variable value);
+`span` gives the source token that produced those bytes.
+
+
+```rust
+// <[output span range]>=
 /// A contiguous byte range in the output attributed to one source token.
 /// Gaps (script/builtin results) are absent from the list.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -258,6 +502,21 @@ pub struct SpanRange {
     pub end: usize,
     pub span: SourceSpan,
 }
+// @
+```
+
+
+## `PreciseTracingOutput` — exact per-byte attribution
+
+`PreciseTracingOutput` coalesces consecutive pushes from the same token into a
+single `SpanRange` (same `src`+`pos`+`length`).  `flush_current` is called
+when the token changes or on `push_untracked`.  Gaps (untracked segments) are
+simply absent from the `ranges` list — callers use `span_at_byte` with a
+binary search to query the coverage.
+
+
+```rust
+// <[output precise tracing output]>=
 /// Output accumulator with exact per-byte source attribution.
 ///
 /// Records one `SpanRange` entry per source-token transition — far fewer
@@ -338,4 +597,6 @@ impl EvalOutput for PreciseTracingOutput {
         self.into_parts().0
     }
 }
+// @
+```
 

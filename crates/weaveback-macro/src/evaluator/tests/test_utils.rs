@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_utils.rs
 
 use crate::evaluator::{EvalConfig, Evaluator};
@@ -17,3 +20,4 @@ pub fn config_in_temp_dir(temp_dir: &Path) -> EvalConfig {
 pub fn evaluator_in_temp_dir(temp_dir: &Path) -> Evaluator {
     Evaluator::new(config_in_temp_dir(temp_dir))
 }
+

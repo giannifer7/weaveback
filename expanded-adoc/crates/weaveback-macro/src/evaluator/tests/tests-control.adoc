@@ -8,9 +8,10 @@ and `%here`.
 
 == `%if` conditionals (`test_if.rs`)
 
+
 [source,rust]
 ----
-// <<test if>>=
+// <[test if]>=
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -119,11 +120,13 @@ fn test_if_with_macro_condition() {
 // @
 ----
 
+
 == `%include` (`test_include.rs`)
+
 
 [source,rust]
 ----
-// <<test include>>=
+// <[test include]>=
 // crates/weaveback-macro/src/evaluator/tests/test_include.rs
 use crate::evaluator::EvalError;
 use crate::evaluator::Evaluator;
@@ -324,11 +327,13 @@ fn test_include_scope() {
 // @
 ----
 
+
 == `%import` (`test_import.rs`)
+
 
 [source,rust]
 ----
-// <<test import>>=
+// <[test import]>=
 #[cfg(test)]
 mod tests {
     use crate::macro_api::process_string_defaults;
@@ -378,11 +383,13 @@ mod tests {
 // @
 ----
 
+
 == `%export` (`test_export.rs`)
+
 
 [source,rust]
 ----
-// <<test export>>=
+// <[test export]>=
 // crates/weaveback-macro/src/evaluator/tests/test_export.rs
 
 #[cfg(test)]
@@ -432,11 +439,13 @@ mod tests {
 // @
 ----
 
+
 == `%eval` (`test_eval.rs`)
+
 
 [source,rust]
 ----
-// <<test eval>>=
+// <[test eval]>=
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -563,11 +572,13 @@ fn test_eval_macro_call_with_dynamic_macro_name() {
 // @
 ----
 
+
 == `%here` (`test_here.rs`)
+
 
 [source,rust]
 ----
-// <<test here>>=
+// <[test here]>=
 // crates/weaveback-macro/src/evaluator/tests/test_here.rs
 
 use crate::evaluator::Evaluator;
@@ -660,3 +671,4 @@ fn test_here_multiple_live_calls_is_error_and_noop() {
 }
 // @
 ----
+

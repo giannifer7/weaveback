@@ -1,4 +1,4 @@
-= Evaluator tests — output infrastructure and API
+# Evaluator tests — output infrastructure and API
 :toc: left
 
 link:tests.adoc[← back to test index]
@@ -6,11 +6,11 @@ link:tests.adoc[← back to test index]
 Tests for `EvalOutput` / `PlainOutput` / `TracingOutput` sink infrastructure,
 the `eval_api` public functions, the `macro_api` layer, and SKILL.md examples.
 
-== Output sinks (`test_output.rs`)
+## Output sinks (`test_output.rs`)
 
-[source,rust]
-----
-// <<test output>>=
+
+```rust
+// <[test output]>=
 // crates/weaveback-macro/src/evaluator/tests/test_output.rs
 
 use crate::evaluator::output::{EvalOutput, PlainOutput, SourceSpan};
@@ -261,13 +261,14 @@ fn test_macro_map_entries() {
     assert_eq!(entry_2.src_line, 2);
 }
 // @
-----
+```
 
-== Eval API (`test_eval_api.rs`)
 
-[source,rust]
-----
-// <<test eval api>>=
+## Eval API (`test_eval_api.rs`)
+
+
+```rust
+// <[test eval api]>=
 // crates/weaveback-macro/src/evaluator/tests/test_eval_api.rs
 
 use std::io::Write;
@@ -418,13 +419,14 @@ fn eval_files_with_config_creates_output_dir() {
     assert!(out_dir.exists());
 }
 // @
-----
+```
 
-== Macro API (`test_macro_api.rs`)
 
-[source,rust]
-----
-// <<test macro api>>=
+## Macro API (`test_macro_api.rs`)
+
+
+```rust
+// <[test macro api]>=
 // crates/weaveback-macro/src/evaluator/tests/test_macro_api.rs
 
 use crate::evaluator::{EvalConfig, Evaluator};
@@ -543,13 +545,14 @@ fn test_process_files_with_shared_macros() {
     assert_eq!(output.trim(), "Shared content");
 }
 // @
-----
+```
 
-== SKILL.md examples (`test_skill_examples.rs`)
 
-[source,rust]
-----
-// <<test skill examples>>=
+## SKILL.md examples (`test_skill_examples.rs`)
+
+
+```rust
+// <[test skill examples]>=
 // crates/weaveback-macro/src/evaluator/tests/test_skill_examples.rs
 //
 // Tests that verify the exact examples shown in SKILL.md.
@@ -734,4 +737,5 @@ fn test_unknown_named_param_is_error() {
     );
 }
 // @
-----
+```
+

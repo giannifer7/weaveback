@@ -1,4 +1,4 @@
-= Evaluator tests -- core, state, source utilities
+# Evaluator tests -- core, state, source utilities
 :toc: left
 
 link:tests.adoc[← back to test index]
@@ -6,11 +6,11 @@ link:tests.adoc[← back to test index]
 Tests for the `Evaluator` core API (`core.rs`), `EvaluatorState` internals
 (`state.rs`), and the `modify_source` file-patching utility (`source_utils.rs`).
 
-== `test_core.rs` — Evaluator core API
+## `test_core.rs` — Evaluator core API
 
-[source,rust]
-----
-// <<test core>>=
+
+```rust
+// <[test core]>=
 // crates/weaveback-macro/src/evaluator/tests/test_core.rs
 use std::fs;
 use std::path::PathBuf;
@@ -124,13 +124,14 @@ fn test_core_do_include_accepts_absolute_existing_path() {
     assert_eq!(result, "absolute include");
 }
 // @
-----
+```
 
-== `test_state.rs` — EvaluatorState internals
 
-[source,rust]
-----
-// <<test state>>=
+## `test_state.rs` — EvaluatorState internals
+
+
+```rust
+// <[test state]>=
 // crates/weaveback-macro/src/evaluator/tests/test_state.rs
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -351,13 +352,14 @@ fn test_state_drain_defs_and_unicode_sigil() {
     assert!(st.drain_macro_defs().is_empty());
 }
 // @
-----
+```
 
-== `test_source_utils.rs` — `modify_source` file-patching
 
-[source,rust]
-----
-// <<test source utils>>=
+## `test_source_utils.rs` — `modify_source` file-patching
+
+
+```rust
+// <[test source utils]>=
 // crates/weaveback-macro/src/evaluator/tests/test_source_utils.rs
 use std::fs;
 
@@ -405,4 +407,5 @@ fn test_modify_source_insert_beyond_eof_appends() {
     assert_eq!(fs::read_to_string(&path).unwrap(), "abcXYZ");
 }
 // @
-----
+```
+

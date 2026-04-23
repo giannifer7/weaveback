@@ -1,4 +1,4 @@
-= Evaluator tests — macro definitions
+# Evaluator tests — macro definitions
 :toc: left
 
 link:tests.adoc[← back to test index]
@@ -6,11 +6,11 @@ link:tests.adoc[← back to test index]
 Test helpers and tests for `%def` (basic calls, error paths, parameter binding),
 `%set`, and variable substitution.
 
-== Test helpers (`test_utils.rs`)
+## Test helpers (`test_utils.rs`)
 
-[source,rust]
-----
-// <<test utils>>=
+
+```rust
+// <[test utils]>=
 // crates/weaveback-macro/src/evaluator/tests/test_utils.rs
 
 use crate::evaluator::{EvalConfig, Evaluator};
@@ -31,13 +31,14 @@ pub fn evaluator_in_temp_dir(temp_dir: &Path) -> Evaluator {
     Evaluator::new(config_in_temp_dir(temp_dir))
 }
 // @
-----
+```
 
-== Basic macro definition and call (`test_macros.rs`)
 
-[source,rust]
-----
-// <<test macros>>=
+## Basic macro definition and call (`test_macros.rs`)
+
+
+```rust
+// <[test macros]>=
 // crates/weaveback-macro/src/evaluator/tests/test_macros.rs
 
 use crate::macro_api::process_string_defaults;
@@ -128,13 +129,14 @@ fn test_scope_isolation() {
     assert_eq!(std::str::from_utf8(&result).unwrap().trim(), "other_value");
 }
 // @
-----
+```
 
-== `%def` error paths (`test_def.rs`)
 
-[source,rust]
-----
-// <<test def>>=
+## `%def` error paths (`test_def.rs`)
+
+
+```rust
+// <[test def]>=
 // crates/weaveback-macro/src/evaluator/tests/test_def.rs
 
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -349,13 +351,14 @@ fn test_arguments_evaluated_before_body() {
         "expected eager evaluation: hi! and there! expanded before join body runs");
 }
 // @
-----
+```
 
-== Variable substitution (`test_var.rs`)
 
-[source,rust]
-----
-// <<test var>>=
+## Variable substitution (`test_var.rs`)
+
+
+```rust
+// <[test var]>=
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -499,13 +502,14 @@ fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
     assert!(err.to_string().contains("Unbound parameter"));
 }
 // @
-----
+```
 
-== `%set` (`test_set.rs`)
 
-[source,rust]
-----
-// <<test set>>=
+## `%set` (`test_set.rs`)
+
+
+```rust
+// <[test set]>=
 #[cfg(test)]
 mod tests {
     use crate::macro_api::process_string_defaults;
@@ -587,13 +591,14 @@ mod tests {
     }
 }
 // @
-----
+```
 
-== `%env` macro (`test_env.rs`)
 
-[source,rust]
-----
-// <<test env>>=
+## `%env` macro (`test_env.rs`)
+
+
+```rust
+// <[test env]>=
 // crates/weaveback-macro/src/evaluator/tests/test_env.rs
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
 use crate::macro_api::process_string;
@@ -658,13 +663,14 @@ fn test_eval_with_whitespace_only_arg_is_still_missing_name() {
     assert!(err.to_string().contains("eval requires macroName"));
 }
 // @
-----
+```
 
-== Miscellaneous builtin edge cases (`test_builtins_misc.rs`)
 
-[source,rust]
-----
-// <<test builtins misc>>=
+## Miscellaneous builtin edge cases (`test_builtins_misc.rs`)
+
+
+```rust
+// <[test builtins misc]>=
 // crates/weaveback-macro/src/evaluator/tests/test_builtins_misc.rs
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
 use crate::macro_api::process_string;
@@ -730,4 +736,5 @@ fn test_discover_includes_in_file_records_import_target() {
     assert_eq!(result, vec![include_path]);
 }
 // @
-----
+```
+

@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_include.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_include.rs
 use crate::evaluator::EvalError;
 use crate::evaluator::Evaluator;
@@ -195,3 +198,4 @@ fn test_include_scope() {
         }
     }
 }
+

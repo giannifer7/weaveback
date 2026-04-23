@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_core.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_core.rs
 use std::fs;
 use std::path::PathBuf;
@@ -110,3 +113,4 @@ fn test_core_do_include_accepts_absolute_existing_path() {
     let result = eval.do_include(include_path.to_str().unwrap()).unwrap();
     assert_eq!(result, "absolute include");
 }
+

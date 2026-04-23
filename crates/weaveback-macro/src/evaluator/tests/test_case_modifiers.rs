@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_case_modifiers.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_case_modifiers.rs
 
 use crate::macro_api::process_string_defaults;
@@ -91,3 +94,4 @@ fn test_case_conversion_edge_cases() {
     let result = process_string_defaults(r#"%to_camel_case(XML_HTTP_REQUEST)"#).unwrap();
     assert_eq!(String::from_utf8(result).unwrap().trim(), "xmlHttpRequest");
 }
+

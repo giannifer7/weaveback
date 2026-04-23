@@ -1,0 +1,494 @@
+= Evaluator tests
+:toc: left
+
+The evaluator test suite covers every built-in macro, the Python
+scripting back-end, the output-sink tracing infrastructure, and the public
+eval API.  Tests live under `src/evaluator/tests/` and are gated by
+`#[cfg(test)]` in `mod.rs`.
+
+== Focused test pages
+
+* link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
+* link:tests-control.adoc[tests-control.adoc] — `%if`, `%include`, `%import`, `%export`, `%eval`, `%here`
+* link:tests-case.adoc[tests-case.adoc] — case conversion module + case-modifier builtins
+* link:tests-scripting.adoc[tests-scripting.adoc] — Python (`%pydef`, `%pyset`, …) scripting + engine unit tests
+* link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
+* link:tests-core.adoc[tests-core.adoc] — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
+
+== Test organisation
+
+[cols="2,4",options="header"]
+|===
+| Module | Coverage
+
+| `test_utils`
+| Shared helpers: `config_in_temp_dir`, `evaluator_in_temp_dir`
+
+| `test_macros`
+| `%def` basic call, parameters, nested, scope isolation
+
+| `test_def`
+| `%def` error paths: missing args, numeric names, duplicate params, `=`-style params
+
+| `test_var`
+| Variable substitution through `%def` parameter binding
+
+| `test_set`
+| `%set` builtin: sets a variable in the current scope
+
+| `test_if`
+| `%if` conditionals: truthy/falsy strings, nested, macro conditions
+
+| `test_include`
+| `%include`: basic, macros, missing file, circular detection, symlinks, scope,
+  `open_includes` cleanup on error (regression for bug #6)
+
+| `test_import`
+| `%import`: definitions-only include; text output discarded
+
+| `test_export`
+| `%export`: frozen arguments, wrong-arity error
+
+| `test_eval`
+| `%eval`: dynamic macro dispatch by name, nested macros, empty args
+
+| `test_here`
+| `%here`: source-file patching via `modify_source`
+
+| `test_case_conversion`
+| `Case` enum, `convert_case`, `convert_case_str`: all nine styles, delimiters,
+  numbers, acronyms, SCREAMING-KEBAB edge cases
+
+| `test_case_modifiers`
+| `%capitalize`, `%decapitalize`, `%convert_case`, `%to_snake_case`,
+  `%to_camel_case`, `%to_pascal_case`, `%to_screaming_case`
+
+| `test_pydef`
+| `%pydef` arithmetic, multi-param, greet, error propagation;
+  `%pyset`/`%pyget` store operations, param shadowing store key
+
+| `test_output`
+| `PlainOutput` parity with `evaluate()`; `SpyOutput` (test-only sink);
+  `TracingOutput` per-line spans; `into_macro_map_entries`
+
+| `test_eval_api`
+| `eval_string_with_defaults`, `eval_file_with_config`, `eval_files_with_config`:
+  basic, include, error, nested macros, sigil, shared macros
+
+| `test_macro_api`
+| `process_string`, `process_file`, `process_files_from_config`, `discover_includes_in_file` at the macro_api layer
+
+| `test_skill_examples`
+| Exact examples from `SKILL.md`: positional/named params, arity edge cases,
+  dynamic vs lexical scoping, `%export` freeze
+
+| `test_predicates`
+| `%eq`, `%neq`, `%not`: equality, inequality, logical negation, arity errors,
+  canonical boolean output, integration with `%if`
+
+| `test_raw_scripts`
+| Verbatim `%[ ... %]` blocks inside `%pydef`: literal script bodies,
+  param injection, and contrast with macro-aware `%{ ... %}` blocks
+
+| `test_warnings`
+| Warning infrastructure: `%export` at global scope, `%if()` with no args,
+  `take_warnings()` drains the list, `%export` inside macro does not warn
+|===
+
+== File structure
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/mod.rs]>=
+// weaveback-macro/src/evaluator/tests/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[tests mod]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_utils.rs]>=
+// weaveback-macro/src/evaluator/tests/test_utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test utils]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_macros.rs]>=
+// weaveback-macro/src/evaluator/tests/test_macros.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test macros]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_def.rs]>=
+// weaveback-macro/src/evaluator/tests/test_def.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test def]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_var.rs]>=
+// weaveback-macro/src/evaluator/tests/test_var.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test var]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_set.rs]>=
+// weaveback-macro/src/evaluator/tests/test_set.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test set]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_if.rs]>=
+// weaveback-macro/src/evaluator/tests/test_if.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test if]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_include.rs]>=
+// weaveback-macro/src/evaluator/tests/test_include.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test include]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_import.rs]>=
+// weaveback-macro/src/evaluator/tests/test_import.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test import]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_export.rs]>=
+// weaveback-macro/src/evaluator/tests/test_export.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test export]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_eval.rs]>=
+// weaveback-macro/src/evaluator/tests/test_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test eval]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_here.rs]>=
+// weaveback-macro/src/evaluator/tests/test_here.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test here]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_case_conversion.rs]>=
+// weaveback-macro/src/evaluator/tests/test_case_conversion.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test case conversion]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_case_modifiers.rs]>=
+// weaveback-macro/src/evaluator/tests/test_case_modifiers.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test case modifiers]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_pydef.rs]>=
+// weaveback-macro/src/evaluator/tests/test_pydef.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test pydef]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_output.rs]>=
+// weaveback-macro/src/evaluator/tests/test_output.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test output]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_eval_api.rs]>=
+// weaveback-macro/src/evaluator/tests/test_eval_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test eval api]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_macro_api.rs]>=
+// weaveback-macro/src/evaluator/tests/test_macro_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test macro api]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_skill_examples.rs]>=
+// weaveback-macro/src/evaluator/tests/test_skill_examples.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test skill examples]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_lexer_parser.rs]>=
+// weaveback-macro/src/evaluator/tests/test_lexer_parser.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test lexer parser]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_core.rs]>=
+// weaveback-macro/src/evaluator/tests/test_core.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test core]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_state.rs]>=
+// weaveback-macro/src/evaluator/tests/test_state.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test state]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_source_utils.rs]>=
+// weaveback-macro/src/evaluator/tests/test_source_utils.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test source utils]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_env.rs]>=
+// weaveback-macro/src/evaluator/tests/test_env.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test env]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_builtins_misc.rs]>=
+// weaveback-macro/src/evaluator/tests/test_builtins_misc.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test builtins misc]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/evaluator/tests/test_monty_eval.rs]>=
+// weaveback-macro/src/evaluator/tests/test_monty_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[test monty eval]>
+
+// @
+----
+
+
+== `tests/mod.rs` — module registry
+
+
+[source,rust]
+----
+// <[tests mod]>=
+// crates/weaveback-macro/src/evaluator/tests/mod.rs
+mod test_builtins_misc;
+mod test_case_conversion;
+mod test_case_modifiers;
+mod test_core;
+mod test_def;
+mod test_env;
+mod test_eval;
+mod test_export;
+mod test_here;
+mod test_if;
+mod test_import;
+mod test_include;
+mod test_macro_api;
+mod test_macros;
+mod test_monty_eval;
+mod test_pydef;
+mod test_set;
+mod test_skill_examples;
+mod test_source_utils;
+mod test_state;
+mod test_utils;
+mod test_var;
+mod test_output;
+mod test_lexer_parser;
+mod test_eval_api;
+mod test_predicates;
+mod test_raw_scripts;
+mod test_warnings;
+// @
+----
+
+
+== `tests/test_lexer_parser.rs` — lex/parse error paths
+
+
+[source,rust]
+----
+// <[test lexer parser]>=
+// crates/weaveback-macro/src/evaluator/tests/test_lexer_parser.rs
+use crate::evaluator::lexer_parser::lex_parse_content;
+
+#[test]
+fn lex_parse_content_plain_text_succeeds() {
+    let ast = lex_parse_content("hello world", '%', 0).unwrap();
+    let _ = ast;
+}
+
+#[test]
+fn lex_parse_content_empty_string_succeeds() {
+    let ast = lex_parse_content("", '%', 0).unwrap();
+    let _ = ast;
+}
+
+#[test]
+fn lex_parse_content_unclosed_var_is_lex_error() {
+    // %(foo without closing ) triggers a lex error
+    let err = lex_parse_content("%(foo", '%', 0).unwrap_err();
+    assert!(err.contains("Lexer errors"), "expected lex error, got: {err}");
+}
+
+#[test]
+fn lex_parse_content_unclosed_arg_list_is_lex_error() {
+    // %foo( without closing ) triggers "Unclosed macro argument list"
+    let err = lex_parse_content("%foo(bar", '%', 0).unwrap_err();
+    assert!(err.contains("Lexer errors"), "expected lex error, got: {err}");
+}
+
+#[test]
+fn lex_parse_content_macro_call_succeeds() {
+    let ast = lex_parse_content("%foo(bar, baz)", '%', 0).unwrap();
+    let _ = ast;
+}
+// @
+----
+

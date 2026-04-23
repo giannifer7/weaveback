@@ -9,9 +9,10 @@ Tests for the `case_conversion` module and the case-modifier builtins
 
 == Case conversion (`test_case_conversion.rs`)
 
+
 [source,rust]
 ----
-// <<test case conversion>>=
+// <[test case conversion]>=
 // crates/weaveback-macro/src/evaluator/tests/test_case_conversion.rs
 
 use crate::evaluator::case_conversion::{Case, convert_case, convert_case_str};
@@ -255,11 +256,13 @@ mod string_case_conversion {
 // @
 ----
 
+
 == Case modifier builtins (`test_case_modifiers.rs`)
+
 
 [source,rust]
 ----
-// <<test case modifiers>>=
+// <[test case modifiers]>=
 // crates/weaveback-macro/src/evaluator/tests/test_case_modifiers.rs
 
 use crate::macro_api::process_string_defaults;
@@ -355,3 +358,4 @@ fn test_case_conversion_edge_cases() {
 }
 // @
 ----
+

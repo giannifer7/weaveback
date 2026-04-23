@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_eval_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_eval_api.rs
 
 use std::io::Write;
@@ -147,3 +150,4 @@ fn eval_files_with_config_creates_output_dir() {
     .unwrap();
     assert!(out_dir.exists());
 }
+

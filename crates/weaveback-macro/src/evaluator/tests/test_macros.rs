@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_macros.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_macros.rs
 
 use crate::macro_api::process_string_defaults;
@@ -87,3 +90,4 @@ fn test_scope_isolation() {
     let result = process_string_defaults(source).unwrap();
     assert_eq!(std::str::from_utf8(&result).unwrap().trim(), "other_value");
 }
+

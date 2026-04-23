@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_def.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_def.rs
 
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
@@ -211,3 +214,4 @@ fn test_arguments_evaluated_before_body() {
     assert_eq!(output.trim(), "hi!there!",
         "expected eager evaluation: hi! and there! expanded before join body runs");
 }
+

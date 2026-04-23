@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_output.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_output.rs
 
 use crate::evaluator::output::{EvalOutput, PlainOutput, SourceSpan};
@@ -247,3 +250,4 @@ fn test_macro_map_entries() {
     assert_eq!(*out_line_2, 2);
     assert_eq!(entry_2.src_line, 2);
 }
+

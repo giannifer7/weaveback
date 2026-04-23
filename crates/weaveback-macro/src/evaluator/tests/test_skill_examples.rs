@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_skill_examples.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_skill_examples.rs
 //
 // Tests that verify the exact examples shown in SKILL.md.
@@ -181,3 +184,4 @@ fn test_unknown_named_param_is_error() {
         "expected InvalidUsage for unknown named arg, got: {result:?}"
     );
 }
+

@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_builtins_misc.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_builtins_misc.rs
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
 use crate::macro_api::process_string;
@@ -62,3 +65,4 @@ fn test_discover_includes_in_file_records_import_target() {
     let result = crate::macro_api::discover_includes_in_file(&main_path, &mut eval).unwrap();
     assert_eq!(result, vec![include_path]);
 }
+

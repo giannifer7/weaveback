@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_macro_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_macro_api.rs
 
 use crate::evaluator::{EvalConfig, Evaluator};
@@ -115,3 +118,4 @@ fn test_process_files_with_shared_macros() {
     let output = fs::read_to_string(&output_file).unwrap();
     assert_eq!(output.trim(), "Shared content");
 }
+

@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_if.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -103,3 +106,4 @@ fn test_if_with_macro_condition() {
         "condition is false."
     );
 }
+

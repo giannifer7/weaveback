@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -121,3 +124,4 @@ fn test_eval_macro_call_with_dynamic_macro_name() {
 
     assert_eq!(String::from_utf8(result).unwrap().trim(), "Hello, World!");
 }
+

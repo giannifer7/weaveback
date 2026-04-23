@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_lexer_parser.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_lexer_parser.rs
 use crate::evaluator::lexer_parser::lex_parse_content;
 
@@ -32,3 +35,4 @@ fn lex_parse_content_macro_call_succeeds() {
     let ast = lex_parse_content("%foo(bar, baz)", '%', 0).unwrap();
     let _ = ast;
 }
+

@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/mod.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/mod.rs
 mod test_builtins_misc;
 mod test_case_conversion;
@@ -27,3 +30,4 @@ mod test_eval_api;
 mod test_predicates;
 mod test_raw_scripts;
 mod test_warnings;
+

@@ -1,4 +1,4 @@
-= Evaluator tests
+¤h1(¤[Evaluator tests¤])
 :toc: left
 
 The evaluator test suite covers every built-in macro, the Python
@@ -6,7 +6,7 @@ scripting back-end, the output-sink tracing infrastructure, and the public
 eval API.  Tests live under `src/evaluator/tests/` and are gated by
 `#[cfg(test)]` in `mod.rs`.
 
-== Focused test pages
+¤h2(¤[Focused test pages¤])
 
 * link:tests-macros.adoc[tests-macros.adoc] — `%def`, `%set`, `%env`, variable substitution, test helpers, builtin edge cases
 * link:tests-control.adoc[tests-control.adoc] — `%if`, `%include`, `%import`, `%export`, `%eval`, `%here`
@@ -15,7 +15,7 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
 * link:tests-output.adoc[tests-output.adoc] — output sinks, eval API, macro API, SKILL.md examples
 * link:tests-core.adoc[tests-core.adoc] — `Evaluator` core API, `EvaluatorState`, `SourceManager`, `modify_source`
 
-== Test organisation
+¤h2(¤[Test organisation¤])
 
 [cols="2,4",options="header"]
 |===
@@ -95,121 +95,90 @@ eval API.  Tests live under `src/evaluator/tests/` and are gated by
   `take_warnings()` drains the list, `%export` inside macro does not warn
 |===
 
-== File structure
+¤h2(¤[File structure¤])
 
-[source,rust]
-----
-// <<@file weaveback-macro/src/evaluator/tests/mod.rs>>=
-// <<tests mod>>
-// @
+¤rust_file(weaveback-macro/src/evaluator/tests/mod.rs, ¤[
+// <[tests mod]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_utils.rs, ¤[
+// <[test utils]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_macros.rs, ¤[
+// <[test macros]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_def.rs, ¤[
+// <[test def]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_var.rs, ¤[
+// <[test var]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_set.rs, ¤[
+// <[test set]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_if.rs, ¤[
+// <[test if]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_include.rs, ¤[
+// <[test include]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_import.rs, ¤[
+// <[test import]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_export.rs, ¤[
+// <[test export]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_eval.rs, ¤[
+// <[test eval]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_here.rs, ¤[
+// <[test here]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_case_conversion.rs, ¤[
+// <[test case conversion]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_case_modifiers.rs, ¤[
+// <[test case modifiers]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_pydef.rs, ¤[
+// <[test pydef]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_output.rs, ¤[
+// <[test output]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_eval_api.rs, ¤[
+// <[test eval api]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_macro_api.rs, ¤[
+// <[test macro api]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_skill_examples.rs, ¤[
+// <[test skill examples]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_lexer_parser.rs, ¤[
+// <[test lexer parser]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_core.rs, ¤[
+// <[test core]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_state.rs, ¤[
+// <[test state]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_source_utils.rs, ¤[
+// <[test source utils]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_env.rs, ¤[
+// <[test env]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_builtins_misc.rs, ¤[
+// <[test builtins misc]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/tests/test_monty_eval.rs, ¤[
+// <[test monty eval]>
+¤])
 
-// <<@file weaveback-macro/src/evaluator/tests/test_utils.rs>>=
-// <<test utils>>
-// @
+¤h2(¤[`tests/mod.rs` — module registry¤])
 
-// <<@file weaveback-macro/src/evaluator/tests/test_macros.rs>>=
-// <<test macros>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_def.rs>>=
-// <<test def>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_var.rs>>=
-// <<test var>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_set.rs>>=
-// <<test set>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_if.rs>>=
-// <<test if>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_include.rs>>=
-// <<test include>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_import.rs>>=
-// <<test import>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_export.rs>>=
-// <<test export>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_eval.rs>>=
-// <<test eval>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_here.rs>>=
-// <<test here>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_case_conversion.rs>>=
-// <<test case conversion>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_case_modifiers.rs>>=
-// <<test case modifiers>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_pydef.rs>>=
-// <<test pydef>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_output.rs>>=
-// <<test output>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_eval_api.rs>>=
-// <<test eval api>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_macro_api.rs>>=
-// <<test macro api>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_skill_examples.rs>>=
-// <<test skill examples>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_lexer_parser.rs>>=
-// <<test lexer parser>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_core.rs>>=
-// <<test core>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_state.rs>>=
-// <<test state>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_source_utils.rs>>=
-// <<test source utils>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_env.rs>>=
-// <<test env>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_builtins_misc.rs>>=
-// <<test builtins misc>>
-// @
-
-// <<@file weaveback-macro/src/evaluator/tests/test_monty_eval.rs>>=
-// <<test monty eval>>
-// @
-
-----
-
-== `tests/mod.rs` — module registry
-
-[source,rust]
-----
-// <<tests mod>>=
+¤rust_chunk(tests mod, ¤[
 // crates/weaveback-macro/src/evaluator/tests/mod.rs
 mod test_builtins_misc;
 mod test_case_conversion;
@@ -239,14 +208,11 @@ mod test_eval_api;
 mod test_predicates;
 mod test_raw_scripts;
 mod test_warnings;
-// @
-----
+¤])
 
-== `tests/test_lexer_parser.rs` — lex/parse error paths
+¤h2(¤[`tests/test_lexer_parser.rs` — lex/parse error paths¤])
 
-[source,rust]
-----
-// <<test lexer parser>>=
+¤rust_chunk(test lexer parser, ¤[
 // crates/weaveback-macro/src/evaluator/tests/test_lexer_parser.rs
 use crate::evaluator::lexer_parser::lex_parse_content;
 
@@ -281,5 +247,4 @@ fn lex_parse_content_macro_call_succeeds() {
     let ast = lex_parse_content("%foo(bar, baz)", '%', 0).unwrap();
     let _ = ast;
 }
-// @
-----
+¤])

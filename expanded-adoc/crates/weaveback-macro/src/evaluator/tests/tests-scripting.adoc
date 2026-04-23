@@ -8,9 +8,10 @@ Tests for the monty-backed Python scripting path (`%pydef`, `%pyset`,
 
 == Python scripting (`test_pydef.rs`)
 
+
 [source,rust]
 ----
-// <<test pydef>>=
+// <[test pydef]>=
 // crates/weaveback-macro/src/evaluator/tests/test_pydef.rs
 
 mod pydef_tests {
@@ -129,11 +130,13 @@ str(int(base) + int(size))
 // @
 ----
 
+
 == MontyEvaluator unit tests (`test_monty_eval.rs`)
+
 
 [source,rust]
 ----
-// <<test monty eval>>=
+// <[test monty eval]>=
 // crates/weaveback-macro/src/evaluator/tests/test_monty_eval.rs
 use std::collections::HashMap;
 
@@ -221,3 +224,4 @@ fn test_monty_evaluate_compile_error_contains_macro_name() {
 }
 // @
 ----
+

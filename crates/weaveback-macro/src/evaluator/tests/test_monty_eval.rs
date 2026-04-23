@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_monty_eval.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_monty_eval.rs
 use std::collections::HashMap;
 
@@ -83,3 +86,4 @@ fn test_monty_evaluate_compile_error_contains_macro_name() {
         .unwrap_err();
     assert!(err.contains("pydef 'broken': compile error"));
 }
+

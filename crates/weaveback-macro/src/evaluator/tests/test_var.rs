@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_var.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use crate::macro_api::process_string_defaults;
 
 #[test]
@@ -140,3 +143,4 @@ fn test_variable_substitution_with_conditional_logic_missing_param_is_error() {
 
     assert!(err.to_string().contains("Unbound parameter"));
 }
+

@@ -1,3 +1,6 @@
+// weaveback-macro/src/evaluator/tests/test_env.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 // crates/weaveback-macro/src/evaluator/tests/test_env.rs
 use crate::evaluator::{EvalConfig, EvalError, Evaluator};
 use crate::macro_api::process_string;
@@ -61,3 +64,4 @@ fn test_eval_with_whitespace_only_arg_is_still_missing_name() {
     assert!(matches!(err, EvalError::InvalidUsage(_)));
     assert!(err.to_string().contains("eval requires macroName"));
 }
+

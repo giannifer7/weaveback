@@ -142,17 +142,70 @@ comment_markers = "//"
 }
 
 #[test]
-fn collect_adoc_files_skips_generated_dirs() {
+fn collect_literate_files_skips_generated_dirs_and_includes_wvb() {
     let temp = TempDir::new().unwrap();
     fs::create_dir_all(temp.path().join("docs/html")).unwrap();
+    fs::create_dir_all(temp.path().join("expanded-adoc")).unwrap();
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(temp.path().join("src").join("ok.adoc"), "= Ok\n").unwrap();
+    fs::write(temp.path().join("src").join("ok.wvb"), "¤h1(Ok)\n").unwrap();
     fs::write(temp.path().join("docs/html").join("skip.adoc"), "= Skip\n").unwrap();
+    fs::write(temp.path().join("expanded-adoc").join("skip.wvb"), "= Skip\n").unwrap();
 
     let mut files = Vec::new();
-    collect_adoc_files(temp.path(), &mut files).unwrap();
-    assert_eq!(files.len(), 1);
-    assert!(files[0].ends_with("ok.adoc"));
+    collect_literate_files(temp.path(), &mut files).unwrap();
+    files.sort();
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().any(|path| path.ends_with("ok.adoc")));
+    assert!(files.iter().any(|path| path.ends_with("ok.wvb")));
+}
+
+#[test]
+fn lint_raw_wvb_links_detects_adoc_links() {
+    let text = "See link:target.adoc[target] and xref:other.adoc[other].\n";
+    let violations = lint_raw_wvb_links(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].rule, LintRule::RawWvbLink);
+}
+
+#[test]
+fn lint_raw_wvb_links_ignores_neutral_links() {
+    let text = "See \u{00a4}link(target.adoc, target) and \u{00a4}xref(other.adoc, other).\n";
+    assert!(lint_raw_wvb_links(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_source_blocks_detects_direct_source_block() {
+    let text = "Prose\n\n[source,rust]\n----\nfn main() {}\n----\n";
+    let violations = lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].rule, LintRule::RawWvbSourceBlock);
+}
+
+#[test]
+fn lint_raw_wvb_source_blocks_ignores_rust_string_literals() {
+    let text = "let src = \"[source,rust]\\n----\\nfn main() {}\\n----\\n\";\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_tables_detects_unwrapped_table_fence() {
+    let text = "[cols=\"1,1\"]\n|===\n| A | B\n|===\n";
+    let violations = lint_raw_wvb_tables(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 2);
+    assert_eq!(violations[0].rule, LintRule::RawWvbTable);
+}
+
+#[test]
+fn lint_raw_wvb_tables_accepts_explicit_table_macro() {
+    let text = "\u{00a4}table(adoc, \u{00a4}[\n[cols=\"1,1\"]\n|===\n| A | B\n|===\n\u{00a4}])\n";
+    assert!(lint_raw_wvb_tables(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_markup_ignores_prelude_implementation() {
+    let text = "\u{00a4}redef(code_block, language, body, \u{00a4}{[source,\u{00a4}(language)]\n----\u{00a4}(body)----\n\u{00a4}})\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("prelude/asciidoc.wvb"), text).is_empty());
 }
 
 #[test]

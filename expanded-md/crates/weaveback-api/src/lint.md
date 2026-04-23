@@ -4,7 +4,7 @@
 The point is not generic style enforcement.  The point is to make project
 invariants explicit and cheap to check.
 
-Two rules are implemented:
+Five rules are implemented:
 
 `chunk-body-outside-fence`::
   A chunk definition that appears outside an AsciiDoc listing block is likely
@@ -13,6 +13,18 @@ Two rules are implemented:
 `unterminated-chunk-definition`::
   A chunk whose opening `<[name]>=` marker is never followed by the configured
   chunk-end marker (e.g. `// @`) will silently swallow content.
+
+`raw-wvb-link`::
+  A `.wvb` source contains direct AsciiDoc `link:` or `xref:` syntax instead of
+  markup-neutral link/xref prelude macros.
+
+`raw-wvb-source-block`::
+  A `.wvb` source contains a direct AsciiDoc source or diagram block marker
+  instead of code-block or graph prelude macros.
+
+`raw-wvb-table`::
+  A `.wvb` source contains a raw AsciiDoc table fence outside the table
+  prelude macro.
 
 ## Core Types
 
@@ -26,6 +38,9 @@ use weaveback_tangle::NowebSyntax;
 pub enum LintRule {
     ChunkBodyOutsideFence,
     UnterminatedChunkDefinition,
+    RawWvbLink,
+    RawWvbSourceBlock,
+    RawWvbTable,
 }
 
 impl LintRule {
@@ -33,6 +48,9 @@ impl LintRule {
         match self {
             Self::ChunkBodyOutsideFence => "chunk-body-outside-fence",
             Self::UnterminatedChunkDefinition => "unterminated-chunk-definition",
+            Self::RawWvbLink => "raw-wvb-link",
+            Self::RawWvbSourceBlock => "raw-wvb-source-block",
+            Self::RawWvbTable => "raw-wvb-table",
         }
     }
 }
@@ -44,8 +62,11 @@ impl std::str::FromStr for LintRule {
         match s {
             "chunk-body-outside-fence" => Ok(Self::ChunkBodyOutsideFence),
             "unterminated-chunk-definition" => Ok(Self::UnterminatedChunkDefinition),
+            "raw-wvb-link" => Ok(Self::RawWvbLink),
+            "raw-wvb-source-block" => Ok(Self::RawWvbSourceBlock),
+            "raw-wvb-table" => Ok(Self::RawWvbTable),
             _ => Err(format!(
-                "unknown lint rule '{s}' (supported: chunk-body-outside-fence, unterminated-chunk-definition)"
+                "unknown lint rule '{s}' (supported: chunk-body-outside-fence, unterminated-chunk-definition, raw-wvb-link, raw-wvb-source-block, raw-wvb-table)"
             )),
         }
     }
@@ -65,7 +86,8 @@ pub struct LintViolation {
 
 ## Filesystem Scanning
 
-`collect_adoc_files` recursively walks a directory collecting `.adoc` files.
+`collect_literate_files` recursively walks a directory collecting `.adoc` and
+`.wvb` files.
 `should_skip_dir` prunes well-known generated or dependency directories that
 should never be linted.
 
@@ -77,13 +99,34 @@ fn should_skip_dir(path: &Path) -> bool {
     };
     matches!(
         name,
-        ".git" | "target" | "node_modules" | ".venv" | ".plantuml-cache" | "__pycache__"
+        ".git"
+            | "target"
+            | "node_modules"
+            | ".venv"
+            | ".plantuml-cache"
+            | "__pycache__"
+            | "expanded-adoc"
+            | "expanded-md"
     ) || path.ends_with("docs/html")
 }
 
-fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+fn is_lint_source_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| matches!(ext, "adoc" | "wvb"))
+}
+
+fn is_wvb_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()) == Some("wvb")
+}
+
+fn is_prelude_file(path: &Path) -> bool {
+    path.components().any(|component| component.as_os_str() == "prelude")
+}
+
+fn collect_literate_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if path.is_file() {
-        if path.extension().is_some_and(|e| e == "adoc") {
+        if is_lint_source_file(path) {
             out.push(path.to_path_buf());
         }
         return Ok(());
@@ -98,8 +141,8 @@ fn collect_adoc_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()
             if should_skip_dir(&child) {
                 continue;
             }
-            collect_adoc_files(&child, out)?;
-        } else if child.extension().is_some_and(|e| e == "adoc") {
+            collect_literate_files(&child, out)?;
+        } else if is_lint_source_file(&child) {
             out.push(child);
         }
     }
@@ -313,24 +356,140 @@ fn lint_unterminated_chunk_definition(
     violations
 }
 
+fn lint_raw_wvb_links(file: &Path, text: &str) -> Vec<LintViolation> {
+    if !is_wvb_file(file) || is_prelude_file(file) {
+        return Vec::new();
+    }
+
+    let mut violations = Vec::new();
+    let mut in_generated_code_macro = false;
+    for (idx, line) in text.lines().enumerate() {
+        if line_opens_generated_code_macro(line) {
+            in_generated_code_macro = true;
+        }
+
+        if !in_generated_code_macro
+            && (line.contains("link:") || line.contains("xref:"))
+            && line.contains('[')
+            && line.contains(']')
+        {
+            violations.push(LintViolation {
+                file: file.to_path_buf(),
+                line: idx + 1,
+                rule: LintRule::RawWvbLink,
+                message: "raw AsciiDoc link syntax in `.wvb` source".to_string(),
+                hint: Some("use `\u{00a4}link(target, label)` or `\u{00a4}xref(target, label)`".to_string()),
+            });
+        }
+
+        if in_generated_code_macro && line_closes_prelude_block(line) {
+            in_generated_code_macro = false;
+        }
+    }
+    violations
+}
+
+fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
+    if !is_wvb_file(file) || is_prelude_file(file) {
+        return Vec::new();
+    }
+
+    let mut violations = Vec::new();
+    let mut in_generated_code_macro = false;
+    let mut previous_line = "";
+    for (idx, line) in text.lines().enumerate() {
+        if line_opens_generated_code_macro(line) {
+            in_generated_code_macro = true;
+        }
+
+        let is_raw_source =
+            line.starts_with("[source") || line.starts_with("[plantuml") || line.starts_with("[d2");
+        let is_prelude_definition_body = previous_line.contains("\u{00a4}redef(");
+        if is_raw_source && !in_generated_code_macro && !is_prelude_definition_body {
+            violations.push(LintViolation {
+                file: file.to_path_buf(),
+                line: idx + 1,
+                rule: LintRule::RawWvbSourceBlock,
+                message: "raw AsciiDoc source or diagram block marker in `.wvb` source".to_string(),
+                hint: Some("use `\u{00a4}code_block(language, body)` or `\u{00a4}graph(format, name, body)`".to_string()),
+            });
+        }
+
+        if in_generated_code_macro && line_closes_prelude_block(line) {
+            in_generated_code_macro = false;
+        }
+        previous_line = line;
+    }
+    violations
+}
+
+fn line_opens_generated_code_macro(line: &str) -> bool {
+    line.contains("\u{00a4}rust_chunk(") || line.contains("\u{00a4}rust_file(")
+}
+
+fn line_opens_table_macro(line: &str) -> bool {
+    line.contains("\u{00a4}table(")
+}
+
+fn line_closes_prelude_block(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "\u{00a4}])" || trimmed == "\u{00a4}})"
+}
+
+fn lint_raw_wvb_tables(file: &Path, text: &str) -> Vec<LintViolation> {
+    if !is_wvb_file(file) || is_prelude_file(file) {
+        return Vec::new();
+    }
+
+    let mut violations = Vec::new();
+    let mut in_table_macro = false;
+    let mut in_generated_code_macro = false;
+    for (idx, line) in text.lines().enumerate() {
+        if line_opens_generated_code_macro(line) {
+            in_generated_code_macro = true;
+        }
+        if line_opens_table_macro(line) {
+            in_table_macro = true;
+        }
+
+        if line == "|===" && !in_table_macro && !in_generated_code_macro {
+            violations.push(LintViolation {
+                file: file.to_path_buf(),
+                line: idx + 1,
+                rule: LintRule::RawWvbTable,
+                message: "raw AsciiDoc table fence outside `\u{00a4}table(...)` in `.wvb` source".to_string(),
+                hint: Some("wrap table source in `\u{00a4}table(adoc, \u{00a4}[ ... \u{00a4}])` or `\u{00a4}table(adoc, \u{00a4}{ ... \u{00a4}})`".to_string()),
+            });
+        }
+
+        if in_table_macro && line_closes_prelude_block(line) {
+            in_table_macro = false;
+        }
+        if in_generated_code_macro && line_closes_prelude_block(line) {
+            in_generated_code_macro = false;
+        }
+    }
+    violations
+}
+
 pub fn lint_paths(
     paths: &[PathBuf],
     rule_filter: Option<LintRule>,
 ) -> Result<Vec<LintViolation>, String> {
-    let mut adoc_files = Vec::new();
+    let mut source_files = Vec::new();
     let syntaxes = load_lint_syntaxes();
     if paths.is_empty() {
-        collect_adoc_files(Path::new("."), &mut adoc_files).map_err(|e| e.to_string())?;
+        collect_literate_files(Path::new("."), &mut source_files).map_err(|e| e.to_string())?;
     } else {
         for path in paths {
-            collect_adoc_files(path, &mut adoc_files).map_err(|e| e.to_string())?;
+            collect_literate_files(path, &mut source_files).map_err(|e| e.to_string())?;
         }
     }
-    adoc_files.sort();
-    adoc_files.dedup();
+    source_files.sort();
+    source_files.dedup();
 
     let mut violations = Vec::new();
-    for file in adoc_files {
+    for file in source_files {
         let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let file_syntaxes = lint_syntaxes_for_file(&file, &syntaxes);
         if rule_filter.is_none() || rule_filter == Some(LintRule::ChunkBodyOutsideFence) {
@@ -338,6 +497,15 @@ pub fn lint_paths(
         }
         if rule_filter.is_none() || rule_filter == Some(LintRule::UnterminatedChunkDefinition) {
             violations.extend(lint_unterminated_chunk_definition(&file, &text, &file_syntaxes));
+        }
+        if rule_filter.is_none() || rule_filter == Some(LintRule::RawWvbLink) {
+            violations.extend(lint_raw_wvb_links(&file, &text));
+        }
+        if rule_filter.is_none() || rule_filter == Some(LintRule::RawWvbSourceBlock) {
+            violations.extend(lint_raw_wvb_source_blocks(&file, &text));
+        }
+        if rule_filter.is_none() || rule_filter == Some(LintRule::RawWvbTable) {
+            violations.extend(lint_raw_wvb_tables(&file, &text));
         }
     }
     Ok(violations)
@@ -550,17 +718,70 @@ comment_markers = "//"
 }
 
 #[test]
-fn collect_adoc_files_skips_generated_dirs() {
+fn collect_literate_files_skips_generated_dirs_and_includes_wvb() {
     let temp = TempDir::new().unwrap();
     fs::create_dir_all(temp.path().join("docs/html")).unwrap();
+    fs::create_dir_all(temp.path().join("expanded-adoc")).unwrap();
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(temp.path().join("src").join("ok.adoc"), "= Ok\n").unwrap();
+    fs::write(temp.path().join("src").join("ok.wvb"), "¤h1(Ok)\n").unwrap();
     fs::write(temp.path().join("docs/html").join("skip.adoc"), "= Skip\n").unwrap();
+    fs::write(temp.path().join("expanded-adoc").join("skip.wvb"), "= Skip\n").unwrap();
 
     let mut files = Vec::new();
-    collect_adoc_files(temp.path(), &mut files).unwrap();
-    assert_eq!(files.len(), 1);
-    assert!(files[0].ends_with("ok.adoc"));
+    collect_literate_files(temp.path(), &mut files).unwrap();
+    files.sort();
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().any(|path| path.ends_with("ok.adoc")));
+    assert!(files.iter().any(|path| path.ends_with("ok.wvb")));
+}
+
+#[test]
+fn lint_raw_wvb_links_detects_adoc_links() {
+    let text = "See link:target.adoc[target] and xref:other.adoc[other].\n";
+    let violations = lint_raw_wvb_links(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].rule, LintRule::RawWvbLink);
+}
+
+#[test]
+fn lint_raw_wvb_links_ignores_neutral_links() {
+    let text = "See \u{00a4}link(target.adoc, target) and \u{00a4}xref(other.adoc, other).\n";
+    assert!(lint_raw_wvb_links(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_source_blocks_detects_direct_source_block() {
+    let text = "Prose\n\n[source,rust]\n----\nfn main() {}\n----\n";
+    let violations = lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].rule, LintRule::RawWvbSourceBlock);
+}
+
+#[test]
+fn lint_raw_wvb_source_blocks_ignores_rust_string_literals() {
+    let text = "let src = \"[source,rust]\\n----\\nfn main() {}\\n----\\n\";\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_tables_detects_unwrapped_table_fence() {
+    let text = "[cols=\"1,1\"]\n|===\n| A | B\n|===\n";
+    let violations = lint_raw_wvb_tables(Path::new("sample.wvb"), text);
+    assert_eq!(violations.len(), 2);
+    assert_eq!(violations[0].rule, LintRule::RawWvbTable);
+}
+
+#[test]
+fn lint_raw_wvb_tables_accepts_explicit_table_macro() {
+    let text = "\u{00a4}table(adoc, \u{00a4}[\n[cols=\"1,1\"]\n|===\n| A | B\n|===\n\u{00a4}])\n";
+    assert!(lint_raw_wvb_tables(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_markup_ignores_prelude_implementation() {
+    let text = "\u{00a4}redef(code_block, language, body, \u{00a4}{[source,\u{00a4}(language)]\n----\u{00a4}(body)----\n\u{00a4}})\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("prelude/asciidoc.wvb"), text).is_empty());
 }
 
 #[test]

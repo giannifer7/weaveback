@@ -6,9 +6,7 @@ variable reference, and conditional, emitting the expanded text.
 
 ¤h2(¤[Architecture overview¤])
 
-.Component relationships inside the evaluator package
-[plantuml,format=svg]
-----
+¤graph(plantuml, evaluator-components, ¤[
 @startuml
 skinparam componentStyle rectangle
 skinparam backgroundColor #1d2021
@@ -43,7 +41,7 @@ builtins --> case : case conversion
 builtins --> su : %here writes source
 core --> lp : parse_string
 @enduml
-----
+¤])
 
 ¤h2(¤[Design rationale¤])
 

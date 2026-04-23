@@ -13,8 +13,10 @@ into a tree of `ParseNode` values.  It is a hand-written deterministic pushdown
 automaton (DPDA): each state owns its set of termination tokens and delegates
 everything else to a shared opener/leaf fallthrough handler.
 
-[plantuml,parser-states,svg]
-....
+
+<!-- graph: parser-states -->
+```plantuml
+
 @startuml
 hide empty description
 skinparam DefaultFontName Monospaced
@@ -67,7 +69,9 @@ note as N
   CommentClose pops Comment — each resumes the frame below.
 end note
 @enduml
-....
+
+```
+
 
 ## State Termination Table
 

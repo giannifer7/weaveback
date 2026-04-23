@@ -56,9 +56,10 @@ bug #6).
 
 ## Evaluation dispatch overview
 
-.`evaluate()` dispatch by NodeKind
-[plantuml,format=svg]
-----
+
+<!-- graph: evaluate-dispatch -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -103,7 +104,9 @@ case (LineComment / BlockComment)
 endswitch
 stop
 @enduml
-----
+
+```
+
 
 ## File structure
 

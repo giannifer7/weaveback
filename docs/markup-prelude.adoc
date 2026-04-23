@@ -60,6 +60,7 @@ Both prelude implementations define the same names:
 * `¤h3(title)`
 * `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
+* `¤table(format, body)`
 * `¤xref(target, label)`
 * `¤note(body)`
 * `¤code_doc(path, title, language, body)`
@@ -68,6 +69,16 @@ Both prelude implementations define the same names:
 
 `¤rust_file(path, body)` emits one Rust `@file` chunk and prepends the standard
 generated-file path and safety warning comments.
+
+`¤table(format, body)` makes table source format explicit.  Supported formats
+are `adoc`, `md`, and `html`.  Markdown output converts simple AsciiDoc tables
+to pipe tables and falls back to HTML for tables that Markdown cannot represent
+faithfully.  AsciiDoc output keeps `adoc` tables as-is, converts simple `md`
+pipe tables, and wraps `html` tables in an AsciiDoc passthrough block.
+
+`¤graph(format, name, body)` makes diagram format explicit.  The AsciiDoc
+prelude emits renderable diagram source blocks, while the Markdown prelude emits
+ordinary fenced code blocks annotated with the graph name.
 
 == Example
 
@@ -91,4 +102,5 @@ listing block containing noweb chunks.  The tangle phase then extracts
   use.
 * Prefer verbatim blocks for bodies: `¤rust_chunk(name, ¤[ ... ¤])`.
 * Do not abstract prose.  Abstract only markup that affects portability:
-  code blocks, diagrams, links, admonitions, and document/code references.
+  code blocks, tables, diagrams, links, admonitions, and document/code
+  references.

@@ -4,8 +4,7 @@ This document provides a high-level "zoom out" of how `weaveback-tangle` process
 
 ¤h2(¤[The Tangle Pipeline¤])
 
-[d2]
-----
+¤graph(d2, tangle-pipeline, ¤[
 direction: right
 
 input: {
@@ -50,7 +49,7 @@ expander -> expander: "Detect cycles" {
     stroke-dash: 3
   }
 }
-----
+¤])
 
 ¤h2(¤[Why this architecture?¤])
 

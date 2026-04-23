@@ -136,6 +136,7 @@ Both prelude implementations currently define:
 * `¤h3(title)`
 * `¤rust_chunk(name, body)`
 * `¤graph(format, name, body)`
+* `¤table(format, body)`
 * `¤xref(target, label)`
 * `¤note(body)`
 * `¤code_doc(path, title, language, body)`

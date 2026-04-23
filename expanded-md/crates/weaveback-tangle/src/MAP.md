@@ -4,8 +4,10 @@ This document provides a high-level "zoom out" of how `weaveback-tangle` process
 
 ## The Tangle Pipeline
 
-[d2]
-----
+
+<!-- graph: tangle-pipeline -->
+```d2
+
 direction: right
 
 input: {
@@ -50,7 +52,9 @@ expander -> expander: "Detect cycles" {
     stroke-dash: 3
   }
 }
-----
+
+```
+
 
 ## Why this architecture?
 

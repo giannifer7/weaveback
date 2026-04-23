@@ -15,9 +15,10 @@ sub-module documented as a literate AsciiDoc source.
 
 ## Architecture
 
-.Module structure
-[plantuml,format=svg]
-----
+
+<!-- graph: module-structure -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -83,7 +84,9 @@ mapi_rs --> output_rs
 cli_rs --> mapi_rs
 cli_rs --> eval_rs
 @enduml
-----
+
+```
+
 
 ## Modules
 

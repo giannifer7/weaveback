@@ -56,9 +56,10 @@ N?"  The first token on the line is the best answer.
 
 ## Output sink types
 
-.`EvalOutput` trait hierarchy
-[plantuml,format=svg]
-----
+
+<!-- graph: eval-output-hierarchy -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -103,7 +104,9 @@ EvalOutput <|.. PlainOutput
 EvalOutput <|.. TracingOutput
 EvalOutput <|.. PreciseTracingOutput
 @enduml
-----
+
+```
+
 
 ## File structure
 

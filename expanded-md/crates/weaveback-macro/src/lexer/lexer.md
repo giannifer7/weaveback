@@ -86,8 +86,10 @@ Three mutually-recursive states share the same stack.  The driver loop
 dispatches to the correct handler and pops the stack when the handler
 returns `false`.
 
-[plantuml,lexer-states,svg]
-....
+
+<!-- graph: lexer-states -->
+```plantuml
+
 @startuml
 hide empty description
 skinparam DefaultFontName Monospaced
@@ -151,7 +153,9 @@ note as N
   Block and Macro share handle_after_sigil
 end note
 @enduml
-....
+
+```
+
 
 ## File Structure
 

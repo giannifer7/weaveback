@@ -54,9 +54,10 @@ so that the MCP tracing tools can answer "where was this variable set?" or
 
 ## State type overview
 
-.Main state types and their relationships
-[plantuml,format=svg]
-----
+
+<!-- graph: state-type-overview -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -121,7 +122,9 @@ EvaluatorState *-- SourceManager
 ScopeFrame o-- TrackedValue
 ScopeFrame o-- MacroDefinition
 @enduml
-----
+
+```
+
 
 ## File structure
 

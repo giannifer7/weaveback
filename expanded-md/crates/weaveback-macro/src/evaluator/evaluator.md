@@ -11,9 +11,10 @@ variable reference, and conditional, emitting the expanded text.
 
 ## Architecture overview
 
-.Component relationships inside the evaluator package
-[plantuml,format=svg]
-----
+
+<!-- graph: evaluator-components -->
+```plantuml
+
 @startuml
 skinparam componentStyle rectangle
 skinparam backgroundColor #1d2021
@@ -48,7 +49,9 @@ builtins --> case : case conversion
 builtins --> su : %here writes source
 core --> lp : parse_string
 @enduml
-----
+
+```
+
 
 ## Design rationale
 

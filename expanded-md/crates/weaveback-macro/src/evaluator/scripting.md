@@ -44,9 +44,10 @@ automatically after the script runs. Use `%pyset` to persist values explicitly.
 
 ## Monty evaluator (Python)
 
-.Monty evaluation flow
-[plantuml,format=svg]
-----
+
+<!-- graph: monty-evaluation-flow -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -79,7 +80,9 @@ else (no)
 endif
 stop
 @enduml
-----
+
+```
+
 
 ## Preamble
 

@@ -432,8 +432,10 @@ impl ChunkStore {
 `read` scans a source text line-by-line, maintaining a simple three-state
 machine:
 
-[plantuml,format=svg]
-----
+
+<!-- graph: noweb-read-loop -->
+```plantuml
+
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -453,7 +455,9 @@ out --> ins : open_re matches\n(register def, set current_chunk)
 ins --> ins : slot or plain line\n(append to current def)
 ins --> out : close_re matches\n(current_chunk = None)
 @enduml
-----
+
+```
+
 
 `@file` chunks are registered in `file_chunks` on first appearance.  Duplicate
 `@file` definitions without `@replace` are pushed to `parse_errors` in strict

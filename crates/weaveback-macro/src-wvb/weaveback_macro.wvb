@@ -10,9 +10,7 @@ sub-module documented as a literate AsciiDoc source.
 
 ¤h2(¤[Architecture¤])
 
-.Module structure
-[plantuml,format=svg]
-----
+¤graph(plantuml, module-structure, ¤[
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -78,7 +76,7 @@ mapi_rs --> output_rs
 cli_rs --> mapi_rs
 cli_rs --> eval_rs
 @enduml
-----
+¤])
 
 ¤h2(¤[Modules¤])
 

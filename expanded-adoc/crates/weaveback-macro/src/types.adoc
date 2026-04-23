@@ -1,10 +1,91 @@
+= Shared types
+:toc: left
+
+`types.rs` defines the primitive vocabulary shared by every layer of the
+pipeline: the token and node enumerations produced by the lexer, the concrete
+`Token` / `ParseNode` / `ASTNode` structs consumed by the parser and evaluator,
+and `TryFrom<i32>` impls that allow Python and serialised representations to
+round-trip through integer discriminants.
+
+== Design rationale
+
+=== `repr(u8)` on `TokenKind`
+
+`TokenKind` carries `#[repr(u8)]` so its discriminants are stable integers in
+serde round-trips.  The variants fit in a single byte; the `TryFrom<i32>`
+impl validates the range on deserialisation.
+
+=== `NodeKind::NotUsed = 0`
+
+Discriminant 0 is intentionally left empty.  Python `IntEnum` defaults start
+at 1, so keeping 0 unused means `NodeKind::Text = 1` aligns with Python's
+`NodeKind.Text = 1` without any manual offset arithmetic.
+
+=== `Token` is `Copy`
+
+Tokens carry only an index (`src: u32`), byte offset (`pos: usize`), and
+length — no heap allocation.  `Copy` lets the parser stash tokens freely in
+`ParseNode` and `ASTNode` without clone overhead.
+
+=== `ParseNode` vs `ASTNode`
+
+`ParseNode.parts` stores indices into a flat arena (the parser's `Vec<ParseNode>`).
+`ASTNode.parts` stores owned child nodes — the AST is a proper tree.  The
+conversion pass in `ast/mod.rs` materialises the arena into the tree.
+
+=== `Token::synthetic`
+
+Some structural nodes (the root block, implicit first parameters) have no
+corresponding source token.  `Token::synthetic(src, pos)` creates a
+zero-length placeholder so that `end_pos` computation remains correct.
+
+== File structure
+
+
+[source,rust]
+----
+// <[@file weaveback-macro/src/types.rs]>=
 // weaveback-macro/src/types.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+// <[types preamble]>
+// <[token kind]>
+// <[node kind]>
+// <[token struct]>
+// <[lexer error]>
+// <[parse node]>
+// <[ast node]>
+// <[try from token kind]>
+// <[try from node kind]>
+// <[types tests]>
+
+// @
+----
+
+
+== Preamble
+
+
+[source,rust]
+----
+// <[types preamble]>=
 // crates/weaveback-macro/src/types.rs
 
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+// @
+----
+
+
+== `TokenKind`
+
+Token kinds produced by the lexer.  See
+xref:../lexer/lexer.adoc[lexer] for the state machine that emits them.
+
+
+[source,rust]
+----
+// <[token kind]>=
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum TokenKind {
@@ -26,6 +107,20 @@ pub enum TokenKind {
     VerbatimClose = 15,
     EOF = 16,
 }
+// @
+----
+
+
+== `NodeKind`
+
+Node kinds used in `ParseNode` and `ASTNode`.  Discriminant 0 (`NotUsed`) is
+reserved so that Python `IntEnum` discriminants (which start at 1 by default)
+align without an offset.
+
+
+[source,rust]
+----
+// <[node kind]>=
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum NodeKind {
     /// Discriminant 0 is intentionally reserved so Rust and Python discriminants align:
@@ -42,6 +137,20 @@ pub enum NodeKind {
     Macro = 9,
     Block = 10,
 }
+// @
+----
+
+
+== `Token`
+
+A lightweight (all `Copy`) source reference.  `src` is an index into the
+evaluator's `SourceManager`; `pos` and `length` are byte offsets into that
+source string.
+
+
+[source,rust]
+----
+// <[token struct]>=
 #[derive(Debug, Clone, Copy)]
 pub struct Token {
     pub kind: TokenKind,
@@ -68,11 +177,34 @@ impl Token {
         }
     }
 }
+// @
+----
+
+
+== `LexerError`
+
+
+[source,rust]
+----
+// <[lexer error]>=
 #[derive(Debug)]
 pub struct LexerError {
     pub pos: usize,
     pub message: String,
 }
+// @
+----
+
+
+== `ParseNode`
+
+Produced by the parser; children are stored as indices into the parser's flat
+arena.  Converted to `ASTNode` by the post-pass in `ast/mod.rs`.
+
+
+[source,rust]
+----
+// <[parse node]>=
 #[derive(Debug, Clone)]
 pub struct ParseNode {
     pub kind: NodeKind,
@@ -81,6 +213,19 @@ pub struct ParseNode {
     pub end_pos: usize,
     pub parts: Vec<usize>,
 }
+// @
+----
+
+
+== `ASTNode`
+
+The materialised tree form.  `parts` contains owned child nodes;
+`name` carries the identifier token for `Macro` and `Var` nodes.
+
+
+[source,rust]
+----
+// <[ast node]>=
 #[derive(Debug, Clone)]
 pub struct ASTNode {
     pub kind: NodeKind,
@@ -90,6 +235,16 @@ pub struct ASTNode {
     pub parts: Vec<ASTNode>,
     pub name: Option<Token>,
 }
+// @
+----
+
+
+== `TryFrom<i32>` for `TokenKind`
+
+
+[source,rust]
+----
+// <[try from token kind]>=
 impl TryFrom<i32> for TokenKind {
     type Error = String;
     fn try_from(value: i32) -> Result<Self, Self::Error> {
@@ -115,6 +270,16 @@ impl TryFrom<i32> for TokenKind {
         }
     }
 }
+// @
+----
+
+
+== `TryFrom<i32>` for `NodeKind`
+
+
+[source,rust]
+----
+// <[try from node kind]>=
 impl TryFrom<i32> for NodeKind {
     type Error = String;
 
@@ -135,6 +300,16 @@ impl TryFrom<i32> for NodeKind {
         }
     }
 }
+// @
+----
+
+
+== Tests
+
+
+[source,rust]
+----
+// <[types tests]>=
 #[cfg(test)]
 mod tests {
     use super::{NodeKind, Token, TokenKind};
@@ -218,4 +393,6 @@ mod tests {
         assert!(NodeKind::try_from(99).is_err());
     }
 }
+// @
+----
 

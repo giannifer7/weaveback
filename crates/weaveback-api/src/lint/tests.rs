@@ -34,6 +34,19 @@ fn lint_accepts_chunk_inside_fence() {
 }
 
 #[test]
+fn lint_accepts_chunk_inside_literal_block() {
+    let text = "= Title\n\n....\n// <<alpha>>=\nbody\n// @\n....\n";
+    let syntax = NowebSyntax::new(
+        "<<",
+        ">>",
+        "@",
+        &["#".to_string(), "//".to_string()],
+    );
+    let syntaxes = vec![&syntax];
+    assert!(lint_chunk_body_outside_fence(Path::new("sample.adoc"), text, &syntaxes).is_empty());
+}
+
+#[test]
 fn lint_detects_unterminated_chunk_at_end_of_file() {
     let text = "= Title\n\n----\n// <<alpha>>=\nbody\n----\n";
     let syntax = NowebSyntax::new(
@@ -139,6 +152,34 @@ comment_markers = "//"
     let file_syntaxes = lint_syntaxes_for_file(Path::new("./README.adoc"), &syntaxes);
 
     assert!(parse_chunk_definition_name("// <[alpha]>=", &file_syntaxes).is_none());
+}
+
+#[test]
+fn lint_syntaxes_match_pass_extension() {
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("weaveback.toml"),
+        r#"
+[[pass]]
+dir = "docs/"
+ext = "wvb"
+open_delim = "<["
+close_delim = "]>"
+chunk_end = "@@"
+comment_markers = "//"
+"#,
+    )
+    .unwrap();
+
+    let syntaxes = load_lint_syntaxes_from(temp.path());
+    let adoc_syntaxes = lint_syntaxes_for_file(Path::new("./docs/page.adoc"), &syntaxes);
+    let wvb_syntaxes = lint_syntaxes_for_file(Path::new("./docs/page.wvb"), &syntaxes);
+
+    assert!(parse_chunk_definition_name("// <[alpha]>=", &adoc_syntaxes).is_none());
+    assert_eq!(
+        parse_chunk_definition_name("// <[alpha]>=", &wvb_syntaxes).as_deref(),
+        Some("alpha")
+    );
 }
 
 #[test]

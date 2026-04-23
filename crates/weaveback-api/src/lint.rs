@@ -109,6 +109,7 @@ fn collect_literate_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Resul
 #[derive(serde::Deserialize)]
 struct LintPassCfg {
     dir:             Option<String>,
+    ext:             Option<String>,
     open_delim:      Option<String>,
     close_delim:     Option<String>,
     chunk_end:       Option<String>,
@@ -124,12 +125,14 @@ struct LintCfg {
 #[derive(Clone)]
 struct LintSyntaxEntry {
     dir:    Option<PathBuf>,
+    ext:    Option<String>,
     syntax: NowebSyntax,
 }
 
 fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     let mut syntaxes = vec![LintSyntaxEntry {
         dir: None,
+        ext: None,
         syntax: NowebSyntax::new(
             "<<",
             ">>",
@@ -149,6 +152,7 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
         let open_delim      = pass.open_delim .unwrap_or_else(|| "<<".to_string());
         let close_delim     = pass.close_delim.unwrap_or_else(|| ">>".to_string());
         let chunk_end       = pass.chunk_end  .unwrap_or_else(|| "@".to_string());
+        let ext             = pass.ext;
         let comment_markers = pass
             .comment_markers
             .as_deref()
@@ -159,6 +163,7 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
             .collect::<Vec<_>>();
         syntaxes.push(LintSyntaxEntry {
             dir: pass.dir.map(PathBuf::from),
+            ext,
             syntax: NowebSyntax::new(&open_delim, &close_delim, &chunk_end, &comment_markers),
         });
     }
@@ -172,9 +177,13 @@ fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
 
 fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> Vec<&'a NowebSyntax> {
     let rel = file.strip_prefix(".").unwrap_or(file);
+    let file_ext = file.extension().and_then(|e| e.to_str());
     let mut matched = syntaxes
         .iter()
-        .filter(|entry| entry.dir.as_ref().is_some_and(|dir| rel.starts_with(dir)))
+        .filter(|entry| {
+            entry.dir.as_ref().is_some_and(|dir| rel.starts_with(dir))
+                && entry.ext.as_deref().is_none_or(|ext| Some(ext) == file_ext)
+        })
         .map(|entry| &entry.syntax)
         .collect::<Vec<_>>();
 
@@ -207,6 +216,10 @@ fn parse_chunk_definition(line: &str, syntaxes: &[&NowebSyntax]) -> Option<(Stri
     None
 }
 
+fn is_adoc_fence_delimiter(line: &str) -> bool {
+    matches!(line.trim(), "----" | "....")
+}
+
 fn lint_chunk_body_outside_fence(
     file: &Path,
     text: &str,
@@ -216,7 +229,7 @@ fn lint_chunk_body_outside_fence(
     let mut violations = Vec::new();
     for (idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
-        if trimmed == "----" {
+        if is_adoc_fence_delimiter(trimmed) {
             in_fence = !in_fence;
             continue;
         }

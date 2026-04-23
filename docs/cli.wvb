@@ -1,11 +1,11 @@
-= CLI reference
-
+¤doc(CLI reference, ¤{¤}, ¤{¤}, ¤{¤})
 
 The old combined `weaveback` binary is gone. The public CLI is now split into
 four focused tools.
 
-== Command map
+¤h2(¤[Command map¤])
 
+¤table(adoc, ¤{
 [cols="1,3",options="header"]
 |===
 | Tool | Responsibility
@@ -25,9 +25,11 @@ four focused tools.
 | `wb-mcp`
 | MCP server for editor and agent integrations.
 |===
+¤})
 
-== Migration from the old combined CLI
+¤h2(¤[Migration from the old combined CLI¤])
 
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Old command | New command
@@ -86,62 +88,53 @@ four focused tools.
 | `weaveback mcp`
 | `wb-mcp`
 |===
+¤})
 
-== Common workflows
+¤h2(¤[Common workflows¤])
 
-=== Build and regenerate outputs
+¤h3(Build and regenerate outputs)
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-tangle --dir src --ext adoc --include . --gen src
 wb-tangle
-----
+¤])
 
+¤h3(Reconcile edits made in `gen/`)
 
-=== Reconcile edits made in `gen/`
-
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-tangle apply-back
 wb-tangle --gen path/to/gen apply-back --dry-run
-----
+¤])
 
+¤h3(Trace generated code back to literate source)
 
-=== Trace generated code back to literate source
-
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-query where gen/out.rs 120
 wb-query trace gen/out.rs 120 8 --include .
 wb-query attribute gen/out.rs:120:8 --include .
-----
+¤])
 
+¤h3(Coverage and diagnostics)
 
-=== Coverage and diagnostics
-
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-query cargo clippy --all-targets -- -D warnings
 wb-query coverage --summary lcov.info
-----
+¤])
 
+¤h3(Docs server and MCP)
 
-=== Docs server and MCP
-
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-serve --watch
 wb-mcp
-----
+¤])
 
-
-== Detailed references
+¤h2(¤[Detailed references¤])
 
 For full flag-by-flag details, read the tool-specific pages:
 
-* link:../crates/wb-tangle/src/main.adoc[`wb-tangle`]
-* link:../crates/wb-query/src/main.adoc[`wb-query`]
-* link:../crates/wb-serve/src/main.adoc[`wb-serve`]
-* link:../crates/wb-mcp/src/main.adoc[`wb-mcp`]
-* link:../cli-spec/macros.adoc[`cli-spec/macros.adoc`] for the shared option
+* ¤link(../crates/wb-tangle/src/main.adoc, `wb-tangle`)
+* ¤link(../crates/wb-query/src/main.adoc, `wb-query`)
+* ¤link(../crates/wb-serve/src/main.adoc, `wb-serve`)
+* ¤link(../crates/wb-mcp/src/main.adoc, `wb-mcp`)
+* ¤link(../cli-spec/macros.adoc, `cli-spec/macros.adoc`) for the shared option
   families used by the generated CLI code

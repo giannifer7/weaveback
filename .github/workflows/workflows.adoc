@@ -149,6 +149,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --exclude weaveback-py
       - run: cargo clippy --workspace --exclude weaveback-py -- -D warnings
+      - run: cargo run --package wb-query -- lint --strict
 
   test-python-agent:
     name: Tests (python agent)

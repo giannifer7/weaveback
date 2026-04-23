@@ -91,9 +91,10 @@ coverage-html:
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
-# Clippy (warnings as errors)
+# Clippy and structural literate-source lint
 lint:
     cargo clippy -- -D warnings
+    cargo run --package wb-query -- lint --strict
 
 # Python lint/type-check suite
 lint-python:

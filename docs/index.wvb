@@ -1,5 +1,4 @@
-= Weaveback — project index
-:toc: left
+¤doc(Weaveback — project index, ¤{¤}, left, ¤{¤})
 
 Weaveback is a literate-programming toolchain written in Rust. Source files
 are authored as annotated documents (AsciiDoc or Markdown); weaveback expands
@@ -11,12 +10,9 @@ also carry per-page module cross-reference data (imports, imported-by, public
 symbols) rendered in the *Module cross-references* panel at the bottom of each
 page.
 
-== Overview
+¤h2(¤[Overview¤])
 
-.Toolchain pipeline
-[source,plantuml]
-----
-
+¤graph(plantuml, Toolchain pipeline, ¤[
 @startuml
 skinparam backgroundColor #1d2021
 skinparam defaultFontColor #ebdbb2
@@ -58,383 +54,405 @@ tangle --> db
 
 note right of db : macro_map + noweb_map\nsrc_snapshots
 @enduml
-
-----
-
+¤])
 
 The two core passes can run independently, or via the split front-end tools:
 
-[source,shell]
-----
+¤code_block(shell, ¤[
 # Build/tangle directly
 wb-tangle source.adoc --gen src/
 
 # Separate passes
 weaveback-macro source.adoc --output expanded.adoc
 weaveback-tangle expanded.adoc --gen src/
-----
+¤])
 
+¤h2(¤[Crate overview¤])
 
-== Crate overview
-
+¤table(adoc, ¤{
 .Workspace crates
 [cols="2,3",options="header"]
 |===
 | Crate | Purpose
 
-| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro]
+| ¤link(../crates/weaveback-macro/src/weaveback_macro.adoc, weaveback-macro)
 | Macro expansion engine — lexer, parser, AST, evaluator, scripting back-ends
 
-| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle]
+| ¤link(../crates/weaveback-tangle/src/weaveback_tangle.adoc, weaveback-tangle)
 | Noweb chunk extractor, safe file writer, SQLite source-map database
 
-| link:../docs/cli.adoc[split CLI overview]
+| ¤link(../docs/cli.adoc, split CLI overview)
 | Public command surface: `wb-tangle`, `wb-query`, `wb-serve`, and `wb-mcp`
 
-| link:../docs/markup-prelude.adoc[markup prelude]
+| ¤link(../docs/markup-prelude.adoc, markup prelude)
 | Currency-sign document macros for markup-portable code blocks, diagrams, links
 
-| link:../docs/two-pass-markup-migration.adoc[two-pass markup migration]
+| ¤link(../docs/two-pass-markup-migration.adoc, two-pass markup migration)
 | Migration plan from direct `.adoc` sources to `.wvb` sources with AsciiDoc and Markdown projections
 
-| link:../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb[weaveback-docgen]
+| ¤link(../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb, weaveback-docgen)
 | Renders all `.adoc` to HTML with dark theme, PlantUML, Rust xref graph
 
-| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core]
+| ¤link(../crates/weaveback-core/src-wvb/weaveback_core.wvb, weaveback-core)
 | Shared constants, configuration, and path resolution logic
 
-| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp]
+| ¤link(../crates/weaveback-lsp/src/weaveback_lsp.adoc, weaveback-lsp)
 | Language Server Protocol (LSP) client for Rust, Nim, and Python
 
-| link:../project/agent-python.adoc[weaveback Python agent bridge]
+| ¤link(../project/agent-python.adoc, weaveback Python agent bridge)
 | Literate design and scaffold for the PyO3 + Pydantic agent stack
 |===
+¤})
 
-== Project-level literate sources
+¤h2(¤[Project-level literate sources¤])
 
 These documents generate workspace files and cross-cutting scaffolding outside
 the main Rust crates.
 
+¤table(adoc, ¤{
 .project adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../project/project.adoc[root project files]
+| ¤link(../project/project.adoc, root project files)
 | `Cargo.toml`, `justfile`, `.gitignore`, `weaveback.toml`, and other root files
 
-| link:../project/agent-python.adoc[Python agent bridge]
+| ¤link(../project/agent-python.adoc, Python agent bridge)
 | `crates/weaveback-agent-core/`, `crates/weaveback-py/`, and `python/`
 
-| link:../project/option-spec.adoc[CLI option-spec experiment]
+| ¤link(../project/option-spec.adoc, CLI option-spec experiment)
 | `scripts/option_spec/` prototype for multi-projection CLI metadata
 
-| link:../docs/complexity-reduction-plan.adoc[complexity reduction plan]
+| ¤link(../docs/complexity-reduction-plan.adoc, complexity reduction plan)
 | Cleanup plan for reducing source/generated drift and oversized modules
 
-| link:../cli-spec/cli-spec.adoc[split CLI specification]
+| ¤link(../cli-spec/cli-spec.adoc, split CLI specification)
 | `docs/cli.adoc` (generated cross-binary CLI reference)
 |===
+¤})
 
-== Split CLI literate sources
+¤h2(¤[Split CLI literate sources¤])
 
 The public CLI now lives in four focused binaries.
 
+¤table(adoc, ¤{
 .split CLI adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/wb-tangle/src/main.adoc[wb-tangle]
+| ¤link(../crates/wb-tangle/src/main.adoc, wb-tangle)
 | `crates/wb-tangle/src/main.rs`
 
-| link:../crates/wb-query/src/main.adoc[wb-query]
+| ¤link(../crates/wb-query/src/main.adoc, wb-query)
 | `crates/wb-query/src/main.rs`
 
-| link:../crates/wb-serve/src/main.adoc[wb-serve]
+| ¤link(../crates/wb-serve/src/main.adoc, wb-serve)
 | `crates/wb-serve/src/main.rs`
 
-| link:../crates/wb-mcp/src/main.adoc[wb-mcp]
+| ¤link(../crates/wb-mcp/src/main.adoc, wb-mcp)
 | `crates/wb-mcp/src/main.rs`
 |===
+¤})
 
-== Planning notes
+¤h2(¤[Planning notes¤])
 
 Some project constraints and future directions are still exploratory. These
 notes are meant to preserve them without pretending they are settled.
 
-* link:agent-smoothness.adoc[agent smoothness]
-* link:stability-first.adoc[stability first]
-* link:roadmap.adoc[near-term engineering plan]
-* link:complexity-reduction-plan.adoc[complexity reduction plan]
-* link:two-pass-markup-migration.adoc[two-pass markup migration plan]
-* link:macro-language-critique-prep.adoc[macro language critique prep]
-* link:macro-language-tightening-plan.adoc[macro language tightening plan]
-* link:linter-plan.adoc[linter planning notes]
-* link:fact-rules-plan.adoc[facts and rules for option specs]
+* ¤link(agent-smoothness.adoc, agent smoothness)
+* ¤link(stability-first.adoc, stability first)
+* ¤link(roadmap.adoc, near-term engineering plan)
+* ¤link(complexity-reduction-plan.adoc, complexity reduction plan)
+* ¤link(two-pass-markup-migration.adoc, two-pass markup migration plan)
+* ¤link(macro-language-critique-prep.adoc, macro language critique prep)
+* ¤link(macro-language-tightening-plan.adoc, macro language tightening plan)
+* ¤link(linter-plan.adoc, linter planning notes)
+* ¤link(fact-rules-plan.adoc, facts and rules for option specs)
 
-== weaveback-tangle literate sources
+¤h2(¤[weaveback-tangle literate sources¤])
 
-Start with link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback_tangle.adoc]
+Start with ¤link(../crates/weaveback-tangle/src/weaveback_tangle.adoc, weaveback_tangle.adoc)
 for the module map and error hierarchy, then follow the dependency order:
 `noweb` → `safe_writer` → `db`. The CLI `main.rs` is the thin shell around `Clip`.
 
+¤table(adoc, ¤{
 .weaveback-tangle adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle crate index]
+| ¤link(../crates/weaveback-tangle/src/weaveback_tangle.adoc, weaveback-tangle crate index)
 | `crates/weaveback-tangle/src/lib.rs`
 
-| link:../crates/weaveback-tangle/src/noweb.adoc[chunk parser and expander]
+| ¤link(../crates/weaveback-tangle/src/noweb.adoc, chunk parser and expander)
 | `crates/weaveback-tangle/src/noweb.rs`
 
-| link:../crates/weaveback-tangle/src/safe_writer.adoc[safe file writer]
+| ¤link(../crates/weaveback-tangle/src/safe_writer.adoc, safe file writer)
 | `crates/weaveback-tangle/src/safe_writer.rs`
 
-| link:../crates/weaveback-tangle/src/db.adoc[persistent database]
+| ¤link(../crates/weaveback-tangle/src/db.adoc, persistent database)
 | `crates/weaveback-tangle/src/db.rs`
 
-| link:../crates/weaveback-tangle/src/cli.adoc[CLI binary]
+| ¤link(../crates/weaveback-tangle/src/cli.adoc, CLI binary)
 | `crates/weaveback-tangle/src/main.rs`
 
-| link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
+| ¤link(../crates/weaveback-tangle/src/tests/tests.adoc, tests)
 | `crates/weaveback-tangle/src/tests/` (4 files)
 
-| link:../crates/weaveback-tangle/manifest.adoc[Cargo manifest]
+| ¤link(../crates/weaveback-tangle/manifest.adoc, Cargo manifest)
 | `crates/weaveback-tangle/Cargo.toml`
 |===
+¤})
 
-== weaveback-macro literate sources
+¤h2(¤[weaveback-macro literate sources¤])
 
+¤table(adoc, ¤{
 .weaveback-macro adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro crate index]
+| ¤link(../crates/weaveback-macro/src/weaveback_macro.adoc, weaveback-macro crate index)
 | `crates/weaveback-macro/src/lib.rs`
 
-| link:../crates/weaveback-macro/src/types.adoc[shared types]
+| ¤link(../crates/weaveback-macro/src/types.adoc, shared types)
 | `crates/weaveback-macro/src/types.rs`
 
-| link:../crates/weaveback-macro/src-wvb/line_index.wvb[line index]
+| ¤link(../crates/weaveback-macro/src-wvb/line_index.wvb, line index)
 | `crates/weaveback-macro/src/line_index.rs`
 
-| link:../crates/weaveback-macro/src/lexer/lexer.adoc[lexer]
+| ¤link(../crates/weaveback-macro/src/lexer/lexer.adoc, lexer)
 | `crates/weaveback-macro/src/lexer/mod.rs` +
   `crates/weaveback-macro/src/lexer/tests.rs`
 
-| link:../crates/weaveback-macro/src/parser/parser.adoc[parser]
+| ¤link(../crates/weaveback-macro/src/parser/parser.adoc, parser)
 | `crates/weaveback-macro/src/parser/mod.rs`
 
-| link:../crates/weaveback-macro/src/ast/ast.adoc[AST]
+| ¤link(../crates/weaveback-macro/src/ast/ast.adoc, AST)
 | `crates/weaveback-macro/src/ast/mod.rs` +
   `crates/weaveback-macro/src/ast/serialization.rs` +
   `crates/weaveback-macro/src/ast/tests.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/evaluator.adoc[evaluator index]
+| ¤link(../crates/weaveback-macro/src/evaluator/evaluator.adoc, evaluator index)
 | `crates/weaveback-macro/src/evaluator/mod.rs` +
   `crates/weaveback-macro/src/evaluator/errors.rs` +
   `crates/weaveback-macro/src/evaluator/lexer_parser.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/state.adoc[evaluator state]
+| ¤link(../crates/weaveback-macro/src/evaluator/state.adoc, evaluator state)
 | `crates/weaveback-macro/src/evaluator/state.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/output.adoc[evaluator output sinks]
+| ¤link(../crates/weaveback-macro/src/evaluator/output.adoc, evaluator output sinks)
 | `crates/weaveback-macro/src/evaluator/output.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/core.adoc[evaluator core]
+| ¤link(../crates/weaveback-macro/src/evaluator/core.adoc, evaluator core)
 | `crates/weaveback-macro/src/evaluator/core.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/builtins.adoc[evaluator builtins]
+| ¤link(../crates/weaveback-macro/src/evaluator/builtins.adoc, evaluator builtins)
 | `crates/weaveback-macro/src/evaluator/builtins.rs` +
   `crates/weaveback-macro/src/evaluator/case_conversion.rs` +
   `crates/weaveback-macro/src/evaluator/source_utils.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/scripting.adoc[script back-ends]
+| ¤link(../crates/weaveback-macro/src/evaluator/scripting.adoc, script back-ends)
 | `crates/weaveback-macro/src/evaluator/monty_eval.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[public eval API]
+| ¤link(../crates/weaveback-macro/src/evaluator/eval_api.adoc, public eval API)
 | `crates/weaveback-macro/src/evaluator/eval_api.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests index] +
-  link:../crates/weaveback-macro/src/evaluator/tests-macros.adoc[tests-macros] +
-  link:../crates/weaveback-macro/src/evaluator/tests-control.adoc[tests-control] +
-  link:../crates/weaveback-macro/src/evaluator/tests-case.adoc[tests-case] +
-  link:../crates/weaveback-macro/src/evaluator/tests-scripting.adoc[tests-scripting] +
-  link:../crates/weaveback-macro/src/evaluator/tests-output.adoc[tests-output]
+| ¤link(../crates/weaveback-macro/src/evaluator/tests.adoc, evaluator tests index) +
+  ¤link(../crates/weaveback-macro/src/evaluator/tests-macros.adoc, tests-macros) +
+  ¤link(../crates/weaveback-macro/src/evaluator/tests-control.adoc, tests-control) +
+  ¤link(../crates/weaveback-macro/src/evaluator/tests-case.adoc, tests-case) +
+  ¤link(../crates/weaveback-macro/src/evaluator/tests-scripting.adoc, tests-scripting) +
+  ¤link(../crates/weaveback-macro/src/evaluator/tests-output.adoc, tests-output)
 | `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 
-| link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]
+| ¤link(../crates/weaveback-macro/src/macro_api.adoc, macro_api)
 | `crates/weaveback-macro/src/macro_api.rs`
 
-| link:../crates/weaveback-macro/src/bin/cli.adoc[CLI binary]
+| ¤link(../crates/weaveback-macro/src/bin/cli.adoc, CLI binary)
 | `crates/weaveback-macro/src/bin/weaveback-macro.rs`
 
-| link:../crates/weaveback-macro/manifest.adoc[Cargo manifest]
+| ¤link(../crates/weaveback-macro/manifest.adoc, Cargo manifest)
 | `crates/weaveback-macro/Cargo.toml`
 |===
+¤})
 
-== weaveback-core literate sources
+¤h2(¤[weaveback-core literate sources¤])
 
+¤table(adoc, ¤{
 .weaveback-core adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core index]
+| ¤link(../crates/weaveback-core/src-wvb/weaveback_core.wvb, weaveback-core index)
 | `crates/weaveback-core/src/lib.rs`
 
-| link:../crates/weaveback-core/manifest.adoc[Cargo manifest]
+| ¤link(../crates/weaveback-core/manifest.adoc, Cargo manifest)
 | `crates/weaveback-core/Cargo.toml`
 |===
+¤})
 
-== weaveback-lsp literate sources
+¤h2(¤[weaveback-lsp literate sources¤])
 
+¤table(adoc, ¤{
 .weaveback-lsp adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp index]
+| ¤link(../crates/weaveback-lsp/src/weaveback_lsp.adoc, weaveback-lsp index)
 | `crates/weaveback-lsp/src/lib.rs`
 
-| link:../crates/weaveback-lsp/manifest.adoc[Cargo manifest]
+| ¤link(../crates/weaveback-lsp/manifest.adoc, Cargo manifest)
 | `crates/weaveback-lsp/Cargo.toml`
 |===
+¤})
 
-== weaveback-docgen literate sources
+¤h2(¤[weaveback-docgen literate sources¤])
 
 Renders `.adoc` files to dark-themed HTML with PlantUML diagrams, literate chunk IDs,
 and cross-reference panels.
 
+¤table(adoc, ¤{
 .weaveback-docgen adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb[weaveback-docgen index]
+| ¤link(../crates/weaveback-docgen/src-wvb/weaveback_docgen.wvb, weaveback-docgen index)
 | `crates/weaveback-docgen/src/main.rs` + `lib.rs`
 
-| link:../crates/weaveback-docgen/src-wvb/render.wvb[acdc renderer]
+| ¤link(../crates/weaveback-docgen/src-wvb/render.wvb, acdc renderer)
 | `crates/weaveback-docgen/src/render.rs`
 
-| link:../crates/weaveback-docgen/src-wvb/inject.wvb[HTML post-processor]
+| ¤link(../crates/weaveback-docgen/src-wvb/inject.wvb, HTML post-processor)
 | `crates/weaveback-docgen/src/inject.rs`
 
-| link:../crates/weaveback-docgen/src-wvb/xref.wvb[cross-reference engine]
+| ¤link(../crates/weaveback-docgen/src-wvb/xref.wvb, cross-reference engine)
 | `crates/weaveback-docgen/src/xref.rs`
 
-| link:../crates/weaveback-docgen/src-wvb/literate_index.wvb[literate index builder]
+| ¤link(../crates/weaveback-docgen/src-wvb/literate_index.wvb, literate index builder)
 | `crates/weaveback-docgen/src/literate_index.rs`
 
-| link:../crates/weaveback-docgen/src-wvb/plantuml.wvb[PlantUML integration]
+| ¤link(../crates/weaveback-docgen/src-wvb/plantuml.wvb, PlantUML integration)
 | `crates/weaveback-docgen/src/plantuml.rs`
 
-| link:../crates/weaveback-docgen/manifest.adoc[Cargo manifest]
+| ¤link(../crates/weaveback-docgen/manifest.adoc, Cargo manifest)
 | `crates/weaveback-docgen/Cargo.toml`
 |===
+¤})
 
-== Project configuration
+¤h2(¤[Project configuration¤])
 
 Root-level project files — workspace manifest, justfile, tangle config, toolchain pin,
 and editor/IDE settings — all generated from a single literate source.
 
+¤table(adoc, ¤{
 .Project configuration adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../project/project.adoc[project.adoc]
+| ¤link(../project/project.adoc, project.adoc)
 | `Cargo.toml`, `justfile`, `weaveback.toml`, `.gitignore`, `rust-toolchain.toml`,
   `.mcp.json`, `.vscode/settings.json`, `Containerfile`, `flake.nix` (snapshot)
 
-| link:../.github/workflows/workflows.adoc[workflows.adoc]
+| ¤link(../.github/workflows/workflows.adoc, workflows.adoc)
 | `.github/workflows/ci.yml`, `pages.yml`, `release.yml`
 |===
+¤})
 
-== Packaging and distribution
+¤h2(¤[Packaging and distribution¤])
 
+¤table(adoc, ¤{
 .Packaging adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../packaging/packaging.adoc[packaging.adoc]
+| ¤link(../packaging/packaging.adoc, packaging.adoc)
 | `packaging/update_release.py` — downloads release assets, writes AUR PKGBUILD and `flake.nix`
 |===
+¤})
 
-== Scripts and UI
+¤h2(¤[Scripts and UI¤])
 
+¤table(adoc, ¤{
 .Scripts adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../scripts/scripts.adoc[scripts.adoc]
+| ¤link(../scripts/scripts.adoc, scripts.adoc)
 | `scripts/install.py`, `scripts/gliner_experiment.py`,
   `scripts/weaveback-graph/` Python package
 
-| link:../scripts/serve-ui/serve-ui.adoc[serve-ui.adoc]
+| ¤link(../scripts/serve-ui/serve-ui.adoc, serve-ui.adoc)
 | TypeScript/CSS browser UI for the `wb-serve` documentation server
   (`src/`, `package.json`, `tsconfig.json`)
 |===
+¤})
 
-== Examples
+¤h2(¤[Examples¤])
 
 Each example sub-project has a `config.adoc` capturing its build and tooling files.
 
+¤table(adoc, ¤{
 .Example adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../examples/events/config.adoc[events/config.adoc]
+| ¤link(../examples/events/config.adoc, events/config.adoc)
 | `examples/events/justfile`, `meson.build`, `.gitignore`
 
-| link:../examples/hello-world/config.adoc[hello-world/config.adoc]
+| ¤link(../examples/hello-world/config.adoc, hello-world/config.adoc)
 | `examples/hello-world/justfile`, `.gitignore`
 
-| link:../examples/c_enum/config.adoc[c_enum/config.adoc]
+| ¤link(../examples/c_enum/config.adoc, c_enum/config.adoc)
 | `examples/c_enum/.gitignore`
 
-| link:../examples/nim-adoc/config.adoc[nim-adoc/config.adoc]
+| ¤link(../examples/nim-adoc/config.adoc, nim-adoc/config.adoc)
 | `examples/nim-adoc/meson.build`, `.gitignore`
 
-| link:../examples/nim-adoc/scripts/gen_docs.adoc[nim-adoc/scripts/gen_docs.adoc]
+| ¤link(../examples/nim-adoc/scripts/gen_docs.adoc, nim-adoc/scripts/gen_docs.adoc)
 | `examples/nim-adoc/scripts/gen_docs.py`
 
-| link:../examples/graph-prototype/config.adoc[graph-prototype/config.adoc]
+| ¤link(../examples/graph-prototype/config.adoc, graph-prototype/config.adoc)
 | `examples/graph-prototype/Cargo.toml`
 |===
+¤})
 
-== Platform tooling and test fixtures
+¤h2(¤[Platform tooling and test fixtures¤])
 
+¤table(adoc, ¤{
 .Platform tooling adoc files
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../windows/windows.adoc[windows.adoc]
+| ¤link(../windows/windows.adoc, windows.adoc)
 | `windows/verify.ps1`, `windows/verification.wsb` — Windows sandbox verification scripts
 
-| link:../test-data/test-data.adoc[test-data.adoc]
+| ¤link(../test-data/test-data.adoc, test-data.adoc)
 | `test-data/test-c-project/Taskfile` — test fixture for the C project integration tests
 |===
+¤})
 
-== Architecture and design
+¤h2(¤[Architecture and design¤])
 
-*New here?* Start with link:why.adoc[why.adoc] — the intent, tradeoffs, and
+*New here?* Start with ¤link(why.adoc, why.adoc) — the intent, tradeoffs, and
 design rationale behind every major decision. Then read
-link:architecture.adoc[architecture.adoc] for the structural detail.
+¤link(architecture.adoc, architecture.adoc) for the structural detail.
 
-See link:architecture.adoc[architecture.adoc] for a detailed discussion of:
+See ¤link(architecture.adoc, architecture.adoc) for a detailed discussion of:
 
 * The literate-programming model and toolchain pipeline
-* xref:architecture.adoc#_propagating_gen_edits_back_to_the_source_apply_back[Backpropagation (`apply-back`] tool design)
-* xref:architecture.adoc#_mcp_server_wb_mcp[MCP server interface and agent tools]
-* xref:architecture.adoc#_semantic_language_server_integration_wb_query_lsp[Semantic LSP bridge]
-* xref:architecture.adoc#_source_tracing_wb_query_trace[Macro tracing and the source-map schema]
+* ¤xref(architecture.adoc#_propagating_gen_edits_back_to_the_source_apply_back, Backpropagation (`apply-back`) tool design)
+* ¤xref(architecture.adoc#_mcp_server_wb_mcp, MCP server interface and agent tools)
+* ¤xref(architecture.adoc#_semantic_language_server_integration_wb_query_lsp, Semantic LSP bridge)
+* ¤xref(architecture.adoc#_source_tracing_wb_query_trace, Macro tracing and the source-map schema)
 * Build-system integration (`--depfile`, `--stamp`)

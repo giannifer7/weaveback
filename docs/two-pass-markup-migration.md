@@ -1,5 +1,9 @@
-= Two-Pass Markup Migration Plan
-:toc: left
+---
+title: |-
+  Two-Pass Markup Migration Plan
+toc: left
+---
+# Two-Pass Markup Migration Plan
 
 This document defines the migration from direct one-pass `.adoc` literate
 sources to a two-pass, markup-neutral authoring model.
@@ -10,18 +14,17 @@ ordinary AsciiDoc and Markdown documents that can both be inspected, rendered,
 and tangled.
 
 This migration is also the execution path for
-link:complexity-reduction-plan.adoc[complexity reduction]. A `.wvb` conversion
+[complexity reduction](complexity-reduction-plan.adoc). A `.wvb` conversion
 is not considered complete if it preserves a known bad structure unchanged.
 During conversion, review source ownership, generated-file size, test placement,
 and whether the document should remain canonical at all.
 
-== Current model
+## Current model
 
 Most sources are currently authored directly as `.adoc` files:
 
-.current model
-[source,plantuml]
-----
+<!-- graph: current model -->
+```plantuml
 
 @startuml
 skinparam backgroundColor #1d2021
@@ -54,21 +57,20 @@ tangle --> gen
 tangle --> db
 @enduml
 
-----
+```
 
 
 This is simple and bootstraps well, but it couples authoring to AsciiDoc syntax.
 It also makes Markdown output a conversion problem instead of a first-class
 projection.
 
-== Target model
+## Target model
 
 The target source format is `.wvb`: a markup-neutral weaveback document that
 uses currency-sign macros for portable structural constructs.
 
-.target model
-[source,plantuml]
-----
+<!-- graph: target model -->
+```plantuml
 
 @startuml
 skinparam backgroundColor #1d2021
@@ -110,14 +112,14 @@ tangle --> gen
 tangle --> db
 @enduml
 
-----
+```
 
 
 The `.wvb` source is the canonical authoring file. The expanded `.adoc` and
 `.md` files are generated artifacts, but they are intentionally visible and may
 be committed when useful for browsing the repository.
 
-== Invariants
+## Invariants
 
 The migration is safe only if these invariants hold:
 
@@ -134,12 +136,11 @@ The migration is safe only if these invariants hold:
 * Existing `.adoc` sources remain valid during migration. Bootstrapping must
   not require the unfinished two-pass layer.
 
-== Prelude contract
+## Prelude contract
 
 Both prelude implementations currently define:
 
-[source,text]
-----
+```text
 ¤doc(title, description, toc, toclevels)
 ¤code_block(language, body)
 ¤h1(title)
@@ -156,20 +157,19 @@ Both prelude implementations currently define:
 ¤code_doc(path, title, language, body)
 ¤pastafarian_warning()
 ¤rust_file(path, body)
-----
+```
 
 
 The `rust_file` helper emits one Rust `@file` chunk and prepends the standard
 generated-file path and safety warning comments:
 
-[source,text]
-----
+```text
 ¤rust_file(crates/demo/src/lib.rs, ¤[ 
 pub fn answer() -> u8 {
     42
 }
 ¤])
-----
+```
 
 
 The AsciiDoc projection emits a source block. The Markdown projection emits a
@@ -185,12 +185,11 @@ the `table` helper must receive a macro-active body block. Verbatim table bodies
 remain valid for fully literal
 table source, but they intentionally prevent nested link or xref expansion.
 
-== Pass configuration
+## Pass configuration
 
 AsciiDoc projection:
 
-[source,toml]
-----
+```toml
 [[pass]]
 dir = "src-wvb/"
 ext = "wvb"
@@ -202,13 +201,12 @@ open_delim = "<["
 close_delim = "]>"
 comment_markers = "//"
 chunk_end = "@"
-----
+```
 
 
 Markdown projection:
 
-[source,toml]
-----
+```toml
 [[pass]]
 dir = "src-wvb/"
 ext = "wvb"
@@ -220,29 +218,29 @@ open_delim = "<["
 close_delim = "]>"
 comment_markers = "//"
 chunk_end = "@"
-----
+```
 
 
 During normal tangle mode, `wb-tangle` writes the expanded document and then
 tangles the expanded text in the same logical pass. With `macro_only = true`,
 it writes the expanded document and stops before tangling.
 
-== Migration strategy
+## Migration strategy
 
-=== Phase 0: Stabilize the Two-Pass Mechanism
+### Phase 0: Stabilize the Two-Pass Mechanism
 
 Status: in progress.
 
 Required before converting real modules:
 
 * Keep `prelude/asciidoc.wvb` and `prelude/markdown.wvb` small and parallel.
-* Keep link:markup-prelude.adoc[`docs/markup-prelude`] as the reference for the macro surface.
+* Keep [`docs/markup-prelude`](markup-prelude.adoc) as the reference for the macro surface.
 * Keep a regression test proving that AsciiDoc and Markdown projections from
   the same `.wvb` source tangle to identical generated Rust.
 * Ensure imported prelude changes invalidate incremental tangle output.
 * Keep current one-pass `.adoc` sources working.
 
-=== Phase 1: Convert One Small Leaf Document
+### Phase 1: Convert One Small Leaf Document
 
 Status: pilot complete.
 
@@ -269,7 +267,7 @@ Conversion steps:
 Do not start with `process.adoc`, `block_parser.adoc`, `cli-spec`, or any other
 large control-plane file.
 
-=== Phase 2: Add Component Macros Only Where They Reduce Noise
+### Phase 2: Add Component Macros Only Where They Reduce Noise
 
 Component macros should encode recurring file structure, not hide logic.
 
@@ -287,7 +285,7 @@ Bad candidates:
 * Control flow that makes the source harder to grep.
 * Macros whose only purpose is saving one or two lines.
 
-=== Phase 3: Convert Medium Modules
+### Phase 3: Convert Medium Modules
 
 After one leaf document survives normal development, convert modules with clear
 file boundaries:
@@ -302,7 +300,7 @@ file boundaries:
 Each converted module must include a parity check, either by a unit test or by
 a repeatable local command documented next to the pass.
 
-=== Phase 4: Convert Documentation-Heavy Sources
+### Phase 4: Convert Documentation-Heavy Sources
 
 Only after code-producing sources are stable should we convert docs that are
 mostly prose.
@@ -311,7 +309,7 @@ This phase decides whether Markdown becomes a committed public browsing format
 for the repository. If yes, `expanded-md/` should be treated like generated
 documentation: reproducible, reviewable, and periodically regenerated.
 
-=== Phase 5: Retire Direct `.adoc` Authoring Where It No Longer Helps
+### Phase 5: Retire Direct `.adoc` Authoring Where It No Longer Helps
 
 Direct `.adoc` should remain available for files where AsciiDoc-specific
 features are the point. The migration is not successful if it merely replaces
@@ -325,24 +323,23 @@ Retire direct `.adoc` only when:
 * the expanded output is deterministic;
 * bootstrap from a clean checkout is documented and tested.
 
-== Parity checks
+## Parity checks
 
 For every converted code-producing `.wvb` source, the required check is:
 
-[source,text]
-----
+```text
 source.wvb + prelude/asciidoc.wvb  -> expanded-adoc/source.adoc -> generated file
 source.wvb + prelude/markdown.wvb  -> expanded-md/source.md    -> generated file
 
 generated file from AsciiDoc == generated file from Markdown
-----
+```
 
 
 The current API regression test exercises this shape for a small Rust file.
 Larger converted modules should either reuse that helper pattern or gain a
 CLI-level smoke test.
 
-== Open decisions
+## Open decisions
 
 These should be decided by using the first migrated modules, not by guessing:
 
@@ -355,7 +352,7 @@ These should be decided by using the first migrated modules, not by guessing:
 * Whether the doc renderer should render canonical `.wvb`, expanded `.adoc`,
   expanded `.md`, or all three.
 
-== First candidate
+## First candidate
 
 The first pilot migration is complete:
 
@@ -379,7 +376,7 @@ Candidate criteria:
 The purpose of the next migration is to validate that `.wvb` conversion can
 also reduce structural complexity, not merely reproduce existing files.
 
-== Complexity review checklist
+## Complexity review checklist
 
 Apply this checklist to every `.adoc -> .wvb` conversion:
 

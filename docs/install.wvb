@@ -1,5 +1,4 @@
-= Installing weaveback
-:toc: left
+¤doc(Installing weaveback, ¤{¤}, left, ¤{¤})
 
 weaveback is distributed as a set of focused binaries:
 
@@ -23,45 +22,37 @@ Diagram support requires:
 The installer script installs the split binaries and, optionally, the diagram
 toolchain.
 
-== Installer script (recommended)
+¤h2(¤[Installer script (recommended)¤])
 
 Python 3 is required. It is available on every supported platform.
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 # Clone or download the repo, then:
 python3 scripts/install.py
-----
-
+¤])
 
 With diagram support:
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 python3 scripts/install.py --diagrams
-----
-
+¤])
 
 Build from source instead of downloading release binaries:
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 python3 scripts/install.py --source
-----
-
+¤])
 
 Full options:
 
-[source,text]
-----
+¤code_block(text, ¤[
 --diagrams          Install D2 and a JDK (for PlantUML via --plantuml-jar)
 --source            Build from source (requires cargo / Rust toolchain)
 --prefix DIR        Install binary to DIR
                       default: ~/.local/bin          (Linux/macOS)
                                %LOCALAPPDATA%\Programs\weaveback  (Windows)
 --version VER       Pin to a specific release, e.g. v0.4.1
-----
-
+¤])
 
 The script detects your package manager (paru/yay, apt, dnf, brew, winget,
 choco, scoop), downloads the right release assets from GitHub, and
@@ -70,87 +61,74 @@ choco, scoop), downloads the right release assets from GitHub, and
 On Arch Linux it installs the package via `paru -S weaveback-bin` instead of
 downloading release assets.
 
-== Manual installation
+¤h2(¤[Manual installation¤])
 
-=== Arch Linux
+¤h3(Arch Linux)
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 paru -S weaveback-bin       # or: yay -S weaveback-bin
 # with diagrams:
 sudo pacman -S d2 jdk-openjdk
-----
+¤])
 
+¤h3(Debian / Ubuntu)
 
-=== Debian / Ubuntu
-
-[source,sh]
-----
+¤code_block(sh, ¤[
 python3 scripts/install.py
 # with diagrams:
 sudo apt install default-jdk-headless
 curl -fsSL https://d2lang.com/install.sh | sh
-----
+¤])
 
+¤h3(Fedora / RHEL)
 
-=== Fedora / RHEL
-
-[source,sh]
-----
+¤code_block(sh, ¤[
 python3 scripts/install.py
 # with diagrams:
 sudo dnf install java-latest-openjdk-headless
 curl -fsSL https://d2lang.com/install.sh | sh
-----
+¤])
 
-
-=== macOS
+¤h3(macOS)
 
 No pre-built macOS binary is provided yet. Build from source:
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 cargo build --release --workspace
 # with diagrams:
 brew install openjdk d2
-----
+¤])
 
-
-=== Windows
+¤h3(Windows)
 
 Use the installer script, which downloads the current Windows `.exe` set and
 updates the user `%PATH%`:
 
-[source,powershell]
-----
+¤code_block(powershell, ¤[
 python scripts/install.py
-----
+¤])
 
-
-[source,cmd]
-----
+¤code_block(cmd, ¤[
 rem with diagrams:
 winget install Microsoft.OpenJDK.21
 winget install Terrastruct.D2
-----
+¤])
 
-
-=== Any Linux (musl, no package manager)
+¤h3(¤[Any Linux (musl, no package manager)¤])
 
 Quick one-liner for the public split binaries:
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 base=https://github.com/giannifer7/weaveback/releases/latest/download
 for bin in wb-tangle wb-query wb-serve wb-mcp; do
   curl -sL "$base/$bin-musl" -o "$HOME/.local/bin/$bin"
   chmod +x "$HOME/.local/bin/$bin"
 done
-----
+¤])
 
+¤h2(¤[Pre-built binary reference¤])
 
-== Pre-built binary reference
-
+¤table(adoc, ¤{
 [cols="2,2,3",options="header"]
 |===
 | File | Platform | Notes
@@ -175,34 +153,29 @@ done
 | Windows x86_64
 | lower-level Windows tools
 |===
+¤})
 
 The musl builds are fully statically linked — use them on old distros,
 Alpine, or containers where glibc version is uncertain.
 
-== Build from source
+¤h2(¤[Build from source¤])
 
-[source,sh]
-----
+¤code_block(sh, ¤[
 git clone https://github.com/giannifer7/weaveback
 cd weaveback
 cargo build --release --workspace
 # binaries: target/release/wb-tangle, wb-query, wb-serve, wb-mcp, ...
-----
+¤])
 
+¤h2(¤[Nix¤])
 
-== Nix
-
-[source,sh]
-----
+¤code_block(sh, ¤[
 nix profile install github:giannifer7/weaveback
-----
-
+¤])
 
 Or in a flake:
 
-[source,nix]
-----
+¤code_block(nix, ¤[
 inputs.weaveback.url = "github:giannifer7/weaveback";
 environment.systemPackages = [ inputs.weaveback.packages.x86_64-linux.default ];
-----
-
+¤])

@@ -1,39 +1,33 @@
-= Source tracing
-
+¤doc(Source tracing, ¤{¤}, ¤{¤}, ¤{¤})
 
 `wb-tangle` records a source map on every run and stores it in `weaveback.db`.
 Use it to answer _"where did this line in a generated file come from?"_
 
 Tracing is always on — no flag needed.
 
-== Commands
+¤h2(¤[Commands¤])
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 # Trace a line to its literate source
 wb-query trace <out_file> <line>
 
 # Pinpoint a specific token by column (1-indexed character position)
 wb-query trace <out_file> <line> --col <col>
-----
-
+¤])
 
 Prints JSON to stdout. All line and column numbers are 1-indexed character
 positions. `<out_file>` is the path of the generated file as seen on disk.
 Reads `weaveback.db` from the current working directory.
 
-== Example
+¤h2(¤[Example¤])
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 cd examples/c_enum
 wb-tangle status.md --gen .
 wb-query trace src/status.c 6
-----
+¤])
 
-
-[source,json]
-----
+¤code_block(json, ¤[
 {
   "chunk": "string_cases",
   "kind": "MacroBody",
@@ -43,20 +37,16 @@ wb-query trace src/status.c 6
   "out_file": "src/status.c",
   "out_line": 6
 }
-----
-
+¤])
 
 When a line contains tokens from different sources, pass `--col` to target
 the specific token you want to change:
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-query trace src/config.nim 178 --col 10
-----
+¤])
 
-
-[source,json]
-----
+¤code_block(json, ¤[
 {
   "kind": "MacroArg",
   "macro_name": "cfg_int",
@@ -64,11 +54,11 @@ wb-query trace src/config.nim 178 --col 10
   "src_file": "/path/to/config.nim.adoc",
   "src_line": 22
 }
-----
+¤])
 
+¤h2(¤[Output fields¤])
 
-== Output fields
-
+¤table(adoc, ¤{
 [cols="2,4",options="header"]
 |===
 | Field | Meaning
@@ -84,8 +74,9 @@ wb-query trace src/config.nim 178 --col 10
 | `set_locations` | `{file, line}` for every `%set` that set this variable (when `kind` is `VarBinding`)
 | `chunk` | Noweb chunk containing this line
 |===
+¤})
 
-== Reading the result
+¤h2(¤[Reading the result¤])
 
 * *`Literal`*: edit `src_file` at `src_line` directly.
 * *`MacroBody`*: the text is a literal fragment of a macro body.
@@ -99,26 +90,24 @@ Span attribution follows arguments through nested macro calls —
 `src_file:src_line` always points to the original literal text, not to
 an intermediate call site.
 
-'''
+¤rule()
 
+¤h2(¤[MCP server (`wb-mcp`)¤])
 
-== MCP server (`wb-mcp`)
-
-`wb-mcp` starts a link:https://modelcontextprotocol.io/[Model Context Protocol]
+`wb-mcp` starts a ¤link(https://modelcontextprotocol.io/, Model Context Protocol)
 server over stdin/stdout, exposing tracing, editing, and context tools so IDE
 extensions and AI agents can work with the literate source without shelling out.
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-mcp
-----
-
+¤])
 
 The server implements the MCP 2024-11-05 protocol over JSON-RPC 2.0 (one
 message per line on stdin/stdout).
 
-=== Tools
+¤h3(Tools)
 
+¤table(adoc, ¤{
 [cols="2,4",options="header"]
 |===
 | Tool | Description
@@ -153,8 +142,9 @@ message per line on stdin/stdout).
 | `weaveback_lsp_diagnostics`
 | Get current compiler errors/warnings for a generated file, mapped back to original literate source lines.
 |===
+¤})
 
-=== Recommended agent workflow
+¤h3(Recommended agent workflow)
 
 1. *Understand*: call `weaveback_chunk_context` with the chunk name and source
    file to get the body, design prose, dep bodies, and git history in one call.
@@ -178,7 +168,7 @@ message per line on stdin/stdout).
 `weaveback_apply_fix` works for single-line replacements (`src_line` only) and
 multi-line ranges (`src_line` + `src_line_end` + `new_src_lines` array).
 
-=== Why this is faster than editing the literate source directly
+¤h3(Why this is faster than editing the literate source directly)
 
 * *No grep hunting* — trace gives the exact file and line instantly.
 * *Fast feedback* — the oracle rejects wrong edits before the build.
@@ -186,7 +176,7 @@ multi-line ranges (`src_line` + `src_line_end` + `new_src_lines` array).
 * *Atomic* — fix and baseline update happen together; `apply_back` is never
   needed in the normal flow.
 
-=== `weaveback_apply_back` — escape hatch, not the normal path
+¤h3(¤[`weaveback_apply_back` — escape hatch, not the normal path¤])
 
 `weaveback_apply_back` is for one specific situation: a generated file was
 already edited directly (by hand, by a language tool, or by an IDE).
@@ -197,7 +187,7 @@ changed hunks to the continuous source regions that produced them. If a hunk
 is too complex or spans multiple chunks, the tool will skip it and report
 where manual editing is required.
 
-=== Context tools — understanding before editing
+¤h3(Context tools — understanding before editing)
 
 `weaveback_chunk_context` returns everything an agent needs to understand a
 chunk before touching it:
@@ -221,7 +211,7 @@ intent, then use `weaveback_apply_fix` to make the change.
 `weaveback_find_chunk` (by name) are useful for orientation when starting work
 on an unfamiliar part of the codebase.
 
-=== Gotchas
+¤h3(Gotchas)
 
 *Line number drift:* `weaveback_apply_fix` uses source line numbers from
 the current state of the literate file. If the file was edited directly
@@ -234,12 +224,11 @@ the baseline stored in `weaveback.db` is the _formatted_ output. The oracle
 also produces formatted output. Pass the formatted line as `expected_output`,
 not the raw macro expansion.
 
-=== Claude Code / Claude Desktop configuration
+¤h3(Claude Code / Claude Desktop configuration)
 
 Add a `.mcp.json` in your project root:
 
-[source,json]
-----
+¤code_block(json, ¤[
 {
   "mcpServers": {
     "weaveback": {
@@ -248,7 +237,6 @@ Add a `.mcp.json` in your project root:
     }
   }
 }
-----
-
+¤])
 
 Adjust `--gen` to match your project's generated-file directory.

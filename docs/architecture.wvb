@@ -1,15 +1,13 @@
-= Weaveback architecture
-:toc: left
+¤doc(Weaveback architecture, ¤{¤}, left, ¤{¤})
 
 Weaveback is a literate programming toolchain. Source files are written as
 annotated documents (Markdown, AsciiDoc, etc.) that contain both prose and
 named code chunks. The split CLI tools process them and write the final source
 files.
 
-== Transformation pipeline
+¤h2(¤[Transformation pipeline¤])
 
-[source,text]
-----
+¤code_block(text, ¤[
 Literate source (.md / .adoc / …)
         │
         ▼
@@ -26,10 +24,9 @@ Literate source (.md / .adoc / …)
         │               interfaces with rust-analyzer, nimlsp, pyright
         ▼
   Semantic Insights        mapped back to literate sources (Hover, Definition)
-----
+¤])
 
-
-See link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[tangle module map] for the
+See ¤link(../crates/weaveback-tangle/src/weaveback_tangle.adoc, tangle module map) for the
 weaveback-tangle internals.
 
 Normal work now uses the split front ends:
@@ -39,17 +36,16 @@ Normal work now uses the split front ends:
 * `wb-serve` for the docs server
 * `wb-mcp` for MCP integration
 
-== Source of truth
+¤h2(¤[Source of truth¤])
 
 The literate document is the *only* source of truth. Files under `gen/`
 are derived artefacts — editing them directly is always wrong because the
 next `wb-tangle` run will overwrite them (or refuse to, and tell you why; see
 below).
 
-== Directory layout
+¤h2(¤[Directory layout¤])
 
-[source,text]
-----
+¤code_block(text, ¤[
 project/
 ├── src/                   literate source files
 ├── gen/                   generated output files  ← do not edit
@@ -64,14 +60,13 @@ project/
 │   ├── weaveback-core/    shared constants and path resolution
 │   └── weaveback-lsp/     language server protocol client
 └── weaveback.db           source-map and modification-baseline database
-----
-
+¤])
 
 `weaveback.db` is a SQLite database (WAL mode) written by the tool after each
 run. It stores the modification baseline for every generated file (for
 external-edit detection), source maps for tracing, and snapshots of the
 literate sources. The schema and API are documented in
-link:../crates/weaveback-tangle/src/db.adoc[db.adoc].
+¤link(../crates/weaveback-tangle/src/db.adoc, db.adoc).
 
 Because the database uses WAL mode, concurrent builds (`ninja -j4`) and a
 running MCP server never contend: readers never block writers and writers
@@ -81,19 +76,17 @@ transaction at the end of the run.
 
 The file is a standard SQLite database and can be inspected directly:
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 sqlite3 weaveback.db .tables
 sqlite3 weaveback.db "SELECT out_file, out_line, src_file, src_line FROM noweb_map LIMIT 10"
-----
-
+¤])
 
 Commit `gen/` to version control; add `weaveback.db` to `.gitignore`.
 
-== Path normalization (`PathResolver`)
+¤h2(¤[Path normalization (`PathResolver`)¤])
 
 Weaveback uses a centralized `PathResolver` (implemented in
-link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[`weaveback-core`]) to
+¤link(../crates/weaveback-core/src-wvb/weaveback_core.wvb, `weaveback-core`)) to
 ensure consistency between how humans, agents, and language servers see the
 project directory.
 
@@ -108,19 +101,19 @@ This robust resolution is critical for the **Semantic Bridge**, as language
 servers often return absolute URIs while Weaveback's database stores paths
 relative to the generation directory (`--gen`).
 
-== Content-based writes
+¤h2(¤[Content-based writes¤])
 
-link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter`] compares
+¤link(../crates/weaveback-tangle/src/safe_writer.adoc, `SafeFileWriter`) compares
 the freshly generated content against what is already in `gen/` before writing.
 If they are identical the file is left untouched, keeping build-system
 timestamps stable and avoiding unnecessary recompilation.
 
-== What happens when you edit a generated file
+¤h2(¤[What happens when you edit a generated file¤])
 
-link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter`] protects
+¤link(../crates/weaveback-tangle/src/safe_writer.adoc, `SafeFileWriter`) protects
 generated files from accidental overwriting. After each successful run it stores
 the bytes of every file it wrote as a baseline in `weaveback.db` (the
-link:../crates/weaveback-tangle/src/db.adoc#_gen_baselines[`gen_baselines`]
+¤link(../crates/weaveback-tangle/src/db.adoc#_gen_baselines, `gen_baselines`)
 table). On the next run, before writing, it compares the current `gen/` file
 against that baseline:
 
@@ -137,7 +130,7 @@ against that baseline:
 In CI, start from a clean checkout (no `weaveback.db`) so no baseline exists and
 no conflict can arise.
 
-== Propagating gen/ edits back to the source (`apply-back`)
+¤h2(¤[Propagating gen/ edits back to the source (`apply-back`)¤])
 
 `wb-tangle apply-back` is the batch inverse of `wb-tangle`: it reads the diff
 between modified `gen/` files and their stored baselines, traces each changed
@@ -145,13 +138,11 @@ output line back through `noweb_map` and macro tracing, and then tries to
 reconstruct the best literate-source edit that would reproduce the desired
 generated result.
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-tangle apply-back                # process all modified gen/ files
 wb-tangle apply-back src/foo.c      # process one file
 wb-tangle apply-back --dry-run      # show what would change without writing
-----
-
+¤])
 
 *What it can and cannot handle:*
 
@@ -175,17 +166,15 @@ After applying, `apply-back` updates the baselines in `weaveback.db` so the next
 already been edited by hand. For AI-assisted or interactive edits, prefer the
 MCP `weaveback_apply_fix` tool instead.
 
-== Source tracing (`wb-query trace`)
+¤h2(¤[Source tracing (`wb-query trace`)¤])
 
 Weaveback records a full source map on every run. Use it to answer
 _"where in the literate source did this output line come from?"_
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-query trace <out_file> <line>
 wb-query trace <out_file> <line> --col <col>   # 1-indexed character position
-----
-
+¤])
 
 Both line and column numbers are *1-indexed character positions*
 (multi-byte UTF-8 characters count as one position). The trace result
@@ -193,9 +182,9 @@ includes `kind`, `src_file`, `src_line`, and — when `--col` narrows to a
 single token — the exact macro name, parameter name, or variable name that
 produced that token.
 
-See link:tracing.adoc[docs/tracing.adoc] for the full output schema and examples.
+See ¤link(tracing.adoc, docs/tracing.adoc) for the full output schema and examples.
 
-== Semantic language-server integration (`wb-query lsp`)
+¤h2(¤[Semantic language-server integration (`wb-query lsp`)¤])
 
 `wb-query lsp` provides semantic navigation by bridging language-specific
 LSPs with Weaveback's literate source maps. This allows
@@ -207,8 +196,7 @@ Supported languages (auto-detected):
 * **Nim** (`nimlsp`)
 * **Python** (`pyright-langserver`)
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 # Go to definition of symbol at line 100, col 8
 wb-query lsp definition gen/src/main.rs 100 8
 
@@ -217,10 +205,9 @@ wb-query lsp references gen/src/main.rs 50 12
 
 # Manual override for a custom server
 wb-query lsp --lsp-cmd "pylsp" definition gen/main.py 10 5
-----
+¤])
 
-
-=== How it works
+¤h3(How it works)
 
 1. **LSP Query**: Weaveback spawns or reuses a background language server
    and sends a standard LSP request (e.g. `textDocument/definition`) for the
@@ -231,7 +218,7 @@ wb-query lsp --lsp-cmd "pylsp" definition gen/main.py 10 5
    position and calls `perform_trace` to map it back to the original literate
    source line and character column.
 
-=== Enriched documentation (`docs-ai`)
+¤h3(Enriched documentation (`docs-ai`))
 
 The `docs-ai` recipe in the `justfile` uses the LSP integration during
 documentation generation to build a precise symbol graph. This captures
@@ -239,21 +226,20 @@ relationships like call sites and trait implementations that a simple structural
 parser (like `syn`) cannot resolve, and injects them as semantic links in the
 generated HTML.
 
-== MCP server (`wb-mcp`)
+¤h2(¤[MCP server (`wb-mcp`)¤])
 
 `wb-mcp` exposes tracing and surgical source-editing over the
 https://modelcontextprotocol.io/[Model Context Protocol], so IDE
 extensions and AI agents can work with literate sources without shelling out
 or doing a full rebuild.
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 wb-mcp --db weaveback.db --gen src
-----
+¤])
 
+¤h3(Tools)
 
-=== Tools
-
+¤table(adoc, ¤{
 [cols="2,4",options="header"]
 |===
 | Tool | Description
@@ -280,8 +266,9 @@ edited by hand.
 | `weaveback_lsp_symbols`
 | List semantic symbols (functions, structs) in a file with source locations.
 |===
+¤})
 
-=== How `weaveback_apply_fix` works
+¤h3(How `weaveback_apply_fix` works)
 
 1. The agent calls `weaveback_trace` to find `src_file:src_line`.
 2. The agent reads the source context and constructs the replacement.
@@ -296,12 +283,11 @@ edited by hand.
 
 This oracle loop gives strong correctness guarantees without a full rebuild.
 
-=== Claude Code / Claude Desktop configuration
+¤h3(Claude Code / Claude Desktop configuration)
 
 Add a `.mcp.json` in your project root:
 
-[source,json]
-----
+¤code_block(json, ¤[
 {
   "mcpServers": {
     "weaveback": {
@@ -310,22 +296,20 @@ Add a `.mcp.json` in your project root:
     }
   }
 }
-----
-
+¤])
 
 Adjust `--gen` to match your project's generated-file directory.
 
-== Live documentation server (`wb-serve`)
+¤h2(¤[Live documentation server (`wb-serve`)¤])
 
 `wb-serve` starts a local HTTP server that serves the rendered HTML
 documentation from `docs/html/`, pushes live-reload events to connected
 browsers via Server-Sent Events, and — when you are editing the project's own
 literate sources — lets you edit named code chunks directly in the browser.
 
-=== Intended workflow
+¤h3(Intended workflow)
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 # Terminal 1 — start the server once
 wb-serve
 
@@ -333,8 +317,7 @@ wb-serve
 $EDITOR crates/foo/src/bar.adoc
 just tangle && just docs       # wb-serve detects the HTML changes and
                                # reloads the browser tab automatically
-----
-
+¤])
 
 The server is intentionally *orthogonal* to the normal tangle and docgen
 passes. In its default mode it serves existing HTML and watches for changes so
@@ -347,8 +330,9 @@ authority that regenerates code and docs.
 page. Clicking it opens the corresponding `.adoc` file at line 1 in
 `$VISUAL` / `$EDITOR`.
 
-=== HTTP endpoints
+¤h3(HTTP endpoints)
 
+¤table(adoc, ¤{
 [cols="2,1,5",options="header"]
 |===
 | Path | Method | Description
@@ -378,10 +362,11 @@ page. Clicking it opens the corresponding `.adoc` file at line 1 in
   Verifies `old_body` matches the file on disk, runs an in-memory tangle
   oracle, writes the file on success, returns `{ "ok": true }` or an error.
 |===
+¤})
 
 All `/__*` endpoints include `Access-Control-Allow-Origin: *`.
 
-=== AI assistant (`/__ai`)
+¤h3(AI assistant (`/__ai`))
 
 `wb-serve` includes an AI assistant panel that provides context-aware
 help. When a question is asked about a chunk, the server builds a
@@ -397,7 +382,7 @@ include:
 * **Ollama** (local models like `llama3`)
 * **OpenAI** (and OpenAI-compatible APIs)
 
-=== Chunk ID annotation
+¤h3(Chunk ID annotation)
 
 `weaveback-docgen` injects `data-chunk-id="file|name|nth"` attributes on
 every `<div class="listingblock">` element whose `<code>` block opens with a
@@ -408,7 +393,7 @@ The browser JS reads these attributes on load, attaches a "✎ Edit" button to
 each annotated block (visible on hover), and shows the inline editor panel
 when clicked.
 
-=== Inline editor
+¤h3(Inline editor)
 
 The editor panel appears at the bottom-right of the browser window:
 
@@ -423,7 +408,7 @@ The editor panel appears at the bottom-right of the browser window:
 * On success the panel shows "Saved — waiting for rebuild…"; `just tangle &&
   just docs` regenerates the HTML and the SSE live-reload fires automatically.
 
-=== The `/__apply` oracle
+¤h3(The `/__apply` oracle)
 
 Before writing the modified `.adoc` file, the server runs an in-memory tangle
 check on the *entire directory* of `.adoc` files (not just the one being
@@ -434,18 +419,16 @@ error.
 
 The oracle uses the chunk-syntax configuration passed to `wb-serve`:
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 # Defaults match the weaveback project's own conventions
 wb-serve
 
 # Override for projects using different delimiters
 wb-serve --open-delim "<<" --close-delim ">>" --chunk-end "@" \
                 --comment-markers "//"
-----
+¤])
 
-
-=== What the inline editor can and cannot do
+¤h3(What the inline editor can and cannot do)
 
 *Can edit:* named chunk bodies — the lines between the chunk-open header and
 the chunk-close marker. These are the authoritative definitions that tangle
@@ -460,117 +443,125 @@ After saving, you still need to run `just tangle && just docs` to regenerate
 the code and HTML. The browser reloads automatically once `just docs`
 finishes.
 
-== Weaveback's own implementation
+¤h2(¤[Weaveback's own implementation¤])
 
 Both crates are written as literate AsciiDoc sources.
 The generated `.rs` files live next to their `.adoc` counterparts; `just tangle`
 regenerates them, and `just docs` renders all `.adoc` files to `docs/html/`.
 
 .weaveback-tangle literate sources
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle crate index]
+| ¤link(../crates/weaveback-tangle/src/weaveback_tangle.adoc, weaveback-tangle crate index)
 | `crates/weaveback-tangle/src/lib.rs`
 
-| link:../crates/weaveback-tangle/src/noweb.adoc[chunk parser and expander]
+| ¤link(../crates/weaveback-tangle/src/noweb.adoc, chunk parser and expander)
 | `crates/weaveback-tangle/src/noweb.rs`
 
-| link:../crates/weaveback-tangle/src/safe_writer.adoc[safe file writer]
+| ¤link(../crates/weaveback-tangle/src/safe_writer.adoc, safe file writer)
 | `crates/weaveback-tangle/src/safe_writer.rs`
 
-| link:../crates/weaveback-tangle/src/db.adoc[persistent database]
+| ¤link(../crates/weaveback-tangle/src/db.adoc, persistent database)
 | `crates/weaveback-tangle/src/db.rs`
 
-| link:../crates/weaveback-tangle/src/cli.adoc[CLI binary]
+| ¤link(../crates/weaveback-tangle/src/cli.adoc, CLI binary)
 | `crates/weaveback-tangle/src/main.rs`
 
-| link:../crates/weaveback-tangle/src/tests/tests.adoc[tests]
+| ¤link(../crates/weaveback-tangle/src/tests/tests.adoc, tests)
 | `crates/weaveback-tangle/src/tests/` (4 files)
 |===
+¤})
 
 .weaveback-lsp literate sources
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-lsp/src/weaveback_lsp.adoc[weaveback-lsp crate index]
+| ¤link(../crates/weaveback-lsp/src/weaveback_lsp.adoc, weaveback-lsp crate index)
 | `crates/weaveback-lsp/src/lib.rs`
 |===
+¤})
 
 .weaveback-core literate sources
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-core/src-wvb/weaveback_core.wvb[weaveback-core crate index]
+| ¤link(../crates/weaveback-core/src-wvb/weaveback_core.wvb, weaveback-core crate index)
 | `crates/weaveback-core/src/lib.rs`
 |===
+¤})
 
 .weaveback-macro literate sources
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro crate index]
+| ¤link(../crates/weaveback-macro/src/weaveback_macro.adoc, weaveback-macro crate index)
 | `crates/weaveback-macro/src/lib.rs`
 
-| link:../crates/weaveback-macro/src/types.adoc[shared types]
+| ¤link(../crates/weaveback-macro/src/types.adoc, shared types)
 | `crates/weaveback-macro/src/types.rs`
 
-| link:../crates/weaveback-macro/src-wvb/line_index.wvb[line index]
+| ¤link(../crates/weaveback-macro/src-wvb/line_index.wvb, line index)
 | `crates/weaveback-macro/src/line_index.rs`
 
-| link:../crates/weaveback-macro/src/macro_api.adoc[macro_api]
+| ¤link(../crates/weaveback-macro/src/macro_api.adoc, macro_api)
 | `crates/weaveback-macro/src/macro_api.rs`
 
-| link:../crates/weaveback-macro/src/bin/cli.adoc[CLI binary]
+| ¤link(../crates/weaveback-macro/src/bin/cli.adoc, CLI binary)
 | `crates/weaveback-macro/src/bin/weaveback-macro.rs`
 
-| link:../crates/weaveback-macro/src/parser/parser.adoc[weaveback-macro parser]
+| ¤link(../crates/weaveback-macro/src/parser/parser.adoc, weaveback-macro parser)
 | `crates/weaveback-macro/src/parser/mod.rs`
 
-| link:../crates/weaveback-macro/src/lexer/lexer.adoc[weaveback-macro lexer]
+| ¤link(../crates/weaveback-macro/src/lexer/lexer.adoc, weaveback-macro lexer)
 | `crates/weaveback-macro/src/lexer/mod.rs` +
   `crates/weaveback-macro/src/lexer/tests.rs`
 
-| link:../crates/weaveback-macro/src/ast/ast.adoc[weaveback-macro AST]
+| ¤link(../crates/weaveback-macro/src/ast/ast.adoc, weaveback-macro AST)
 | `crates/weaveback-macro/src/ast/mod.rs` +
   `crates/weaveback-macro/src/ast/serialization.rs` +
   `crates/weaveback-macro/src/ast/tests.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/evaluator.adoc[weaveback-macro evaluator (index])
+| ¤link(../crates/weaveback-macro/src/evaluator/evaluator.adoc, weaveback-macro evaluator (index))
 | `crates/weaveback-macro/src/evaluator/mod.rs` +
   `crates/weaveback-macro/src/evaluator/errors.rs` +
   `crates/weaveback-macro/src/evaluator/lexer_parser.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/state.adoc[evaluator state]
+| ¤link(../crates/weaveback-macro/src/evaluator/state.adoc, evaluator state)
 | `crates/weaveback-macro/src/evaluator/state.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/output.adoc[evaluator output sinks]
+| ¤link(../crates/weaveback-macro/src/evaluator/output.adoc, evaluator output sinks)
 | `crates/weaveback-macro/src/evaluator/output.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/core.adoc[evaluator core]
+| ¤link(../crates/weaveback-macro/src/evaluator/core.adoc, evaluator core)
 | `crates/weaveback-macro/src/evaluator/core.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/builtins.adoc[evaluator builtins]
+| ¤link(../crates/weaveback-macro/src/evaluator/builtins.adoc, evaluator builtins)
 | `crates/weaveback-macro/src/evaluator/builtins.rs` +
   `crates/weaveback-macro/src/evaluator/case_conversion.rs` +
   `crates/weaveback-macro/src/evaluator/source_utils.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/scripting.adoc[evaluator script back-ends]
+| ¤link(../crates/weaveback-macro/src/evaluator/scripting.adoc, evaluator script back-ends)
 | `crates/weaveback-macro/src/evaluator/monty_eval.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/eval_api.adoc[evaluator public API]
+| ¤link(../crates/weaveback-macro/src/evaluator/eval_api.adoc, evaluator public API)
 | `crates/weaveback-macro/src/evaluator/eval_api.rs`
 
-| link:../crates/weaveback-macro/src/evaluator/tests.adoc[evaluator tests]
+| ¤link(../crates/weaveback-macro/src/evaluator/tests.adoc, evaluator tests)
 | `crates/weaveback-macro/src/evaluator/test_utils.rs` +
   `crates/weaveback-macro/src/evaluator/tests/` (21 files)
 |===
+¤})
 
-== For Coding Agents
+¤h2(¤[For Coding Agents¤])
 
 Weaveback's architecture is specifically designed to support autonomous coding
 agents. Traditional repositories are difficult for agents because the "source
@@ -592,7 +583,7 @@ By using Weaveback, agents gain several advantages:
    renames) and automatically propagate those results back to the literate
    sources.
 
-== Tree-sitter grammar
+¤h2(¤[Tree-sitter grammar¤])
 
 `tree-sitter-weaveback/` contains a
 https://tree-sitter.github.io/tree-sitter/[tree-sitter] grammar for the
@@ -605,40 +596,41 @@ The grammar and all editor-integration files are literate AsciiDoc sources
 tangled by `just tangle`.
 
 .tree-sitter-weaveback literate sources
+¤table(adoc, ¤{
 [cols="2,3",options="header"]
 |===
 | Document | Generates
 
-| link:../tree-sitter-weaveback/tree_sitter_weaveback.adoc[tree-sitter-weaveback index]
+| ¤link(../tree-sitter-weaveback/tree_sitter_weaveback.adoc, tree-sitter-weaveback index)
 | (overview and module map only)
 
-| link:../tree-sitter-weaveback/grammar.adoc[grammar.adoc]
+| ¤link(../tree-sitter-weaveback/grammar.adoc, grammar.adoc)
 | `tree-sitter-weaveback/grammar.js`
 
-| link:../tree-sitter-weaveback/queries.adoc[queries.adoc]
+| ¤link(../tree-sitter-weaveback/queries.adoc, queries.adoc)
 | `tree-sitter-weaveback/queries/highlights.scm` +
   `tree-sitter-weaveback/queries/injections.scm` +
   `tree-sitter-weaveback/editors/helix/asciidoc-injections.scm`
 
-| link:../tree-sitter-weaveback/editors.adoc[editors.adoc]
+| ¤link(../tree-sitter-weaveback/editors.adoc, editors.adoc)
 | `tree-sitter-weaveback/editors/helix/languages.toml` +
   `tree-sitter-weaveback/editors/helix/install.py` +
   `tree-sitter-weaveback/editors/neovim/weaveback.lua` +
   `tree-sitter-weaveback/editors/neovim/asciidoc.lua` +
   `tree-sitter-weaveback/editors/neovim/install.py`
 
-| link:../tree-sitter-weaveback/manifest.adoc[manifest.adoc]
+| ¤link(../tree-sitter-weaveback/manifest.adoc, manifest.adoc)
 | `tree-sitter-weaveback/package.json`, `tree-sitter.json`
 |===
+¤})
 
-== Build-system integration
+¤h2(¤[Build-system integration¤])
 
 `--depfile` writes a Makefile-format depfile after each run; `--stamp`
 touches a file on success. Together they let a single build rule cover an
 entire directory tree:
 
-[source,meson]
-----
+¤code_block(meson, ¤[
 custom_target('gen',
   output  : ['gen.stamp'],
   depfile : 'gen.d',
@@ -650,26 +642,22 @@ custom_target('gen',
              '--stamp',  '@OUTPUT0@',
              '--depfile', '@DEPFILE@'],
 )
-----
+¤])
 
-
-NOTE: List only the stamp in `output`, never the `.d` file — Ninja consumes
+¤note(¤{List only the stamp in `output`, never the `.d` file — Ninja consumes
 depfiles into its internal database and will rerun forever if the `.d`
-file is also declared as an output.
+file is also declared as an output.¤})
 
-
-== Formatter hooks
+¤h2(¤[Formatter hooks¤])
 
 `--formatter EXT=COMMAND` runs a formatter on each generated file with the
 matching extension before it is compared and written
-(implemented in link:../crates/weaveback-tangle/src/safe_writer.adoc[`SafeFileWriter::run_formatter`]).
+(implemented in ¤link(../crates/weaveback-tangle/src/safe_writer.adoc, `SafeFileWriter::run_formatter`)).
 Example:
 
-[source,bash]
-----
+¤code_block(bash, ¤[
 weaveback --formatter rs=rustfmt src/main.adoc --gen gen
-----
-
+¤])
 
 The formatter receives a temporary copy (via `NamedTempFile`); the formatted
 result is then used for content comparison and written to `gen/`.

@@ -12,6 +12,8 @@
 ¤redef(rule, ¤{'''
 ¤})
 
+¤redef(sigil, ¤[¤¤])
+
 ¤redef(code_block, language, body, ¤{[source,¤(language)]
 ----¤(body)----
 ¤})

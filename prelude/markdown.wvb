@@ -17,6 +17,8 @@ title: |-
 ¤redef(rule, ¤{---
 ¤})
 
+¤redef(sigil, ¤[¤¤])
+
 ¤redef(code_block, language, body, ¤{```¤(language)¤(body)```
 ¤})
 

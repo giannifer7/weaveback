@@ -1,5 +1,9 @@
-= Markup Prelude
-:toc: left
+---
+title: |-
+  Markup Prelude
+toc: left
+---
+# Markup Prelude
 
 The markup prelude is a macro-only authoring layer. It uses the currency sign
 (`U+00A4`) as its sigil so it does not collide with ordinary `%` project macros or the `^`
@@ -7,22 +11,21 @@ sigil used by `weaveback-macro` sources.
 
 The implementation is intentionally split by output markup:
 
-* link:../prelude/asciidoc.wvb[`prelude/asciidoc.wvb`] emits AsciiDoc.
-* link:../prelude/markdown.wvb[`prelude/markdown.wvb`] emits Markdown.
+* [`prelude/asciidoc.wvb`](../prelude/asciidoc.wvb) emits AsciiDoc.
+* [`prelude/markdown.wvb`](../prelude/markdown.wvb) emits Markdown.
 
 The `.wvb` files contain only macro definitions. They are meant to be injected
 before document sources by `weaveback.toml`, then the markup-prelude expansion produces
 ordinary `.adoc` or `.md` text that the same logical tangle pass consumes.
 
-See link:two-pass-markup-migration.adoc[two-pass markup migration] for the
+See [two-pass markup migration](two-pass-markup-migration.adoc) for the
 project migration plan, parity requirements, and staged conversion policy.
 
-== Config shape
+## Config shape
 
 The intended pass shape is:
 
-[source,toml]
-----
+```toml
 [[pass]]
 dir = "docs-src/"
 ext = "wvb"
@@ -34,17 +37,16 @@ open_delim = "<["
 close_delim = "]>"
 comment_markers = "//"
 chunk_end = "@"
-----
+```
 
 
 For Markdown output, use:
 
-[source,toml]
-----
+```toml
 macro_prelude = ["prelude/markdown.wvb"]
 expanded_ext = "md"
 expanded_md_dir = "expanded-md"
-----
+```
 
 
 The expanded directories are intentionally visible, not hidden. Normal tangle
@@ -52,12 +54,11 @@ mode writes expanded `.adoc` or `.md` files there and then tangles the same
 expanded text. `macro_only = true` writes the expanded documents and stops
 before tangling.
 
-== Macro surface
+## Macro surface
 
 Both prelude implementations define the same names:
 
-[source,text]
-----
+```text
 ¤doc(title, description, toc, toclevels)
 ¤code_block(language, body)
 ¤h1(title)
@@ -74,7 +75,7 @@ Both prelude implementations define the same names:
 ¤code_doc(path, title, language, body)
 ¤pastafarian_warning()
 ¤rust_file(path, body)
-----
+```
 
 
 The `rust_file` helper emits one Rust `@file` chunk and prepends the standard
@@ -105,23 +106,22 @@ AsciiDoc `'''` or Markdown `---` into `.wvb` sources.
 The `sigil` helper emits the literal prelude sigil. It is mainly useful in
 examples and generated snippets that need to show exact prelude syntax.
 
-== Example
+## Example
 
-[source,text]
-----
+```text
 ¤rust_file(crates/demo/src/lib.rs, ¤[ 
 pub fn answer() -> u8 {
     42
 }
 ¤])
-----
+```
 
 
 With the AsciiDoc prelude, the macro-only expansion produces a normal AsciiDoc
 listing block containing noweb chunks. The tangle phase then extracts
 `crates/demo/src/lib.rs`.
 
-== Authoring rules
+## Authoring rules
 
 * Use the currency-sign sigil only for the markup-prelude layer.
 * Keep ordinary project macros on `%` or the crate-specific sigil they already

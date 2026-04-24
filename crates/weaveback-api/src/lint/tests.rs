@@ -47,6 +47,20 @@ fn lint_accepts_chunk_inside_literal_block() {
 }
 
 #[test]
+fn lint_accepts_chunk_inside_wvb_code_block_macro() {
+    let text =
+        "\u{00a4}code_block(rust, \u{00a4}[\n// <[@file src/main.rs]>=\nfn main() {}\n// @\n\u{00a4}])\n";
+    let syntax = NowebSyntax::new(
+        "<[",
+        "]>",
+        "@",
+        &["#".to_string(), "//".to_string()],
+    );
+    let syntaxes = vec![&syntax];
+    assert!(lint_chunk_body_outside_fence(Path::new("sample.wvb"), text, &syntaxes).is_empty());
+}
+
+#[test]
 fn lint_detects_unterminated_chunk_at_end_of_file() {
     let text = "= Title\n\n----\n// <<alpha>>=\nbody\n----\n";
     let syntax = NowebSyntax::new(
@@ -268,4 +282,3 @@ fn run_lint_can_emit_json() {
 
     assert!(run_lint(vec![path], false, None, true).is_ok());
 }
-

@@ -220,21 +220,48 @@ fn is_adoc_fence_delimiter(line: &str) -> bool {
     matches!(line.trim(), "----" | "....")
 }
 
+fn starts_wvb_code_block(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('\u{00a4}') && trimmed.contains("code_block(")
+}
+
+fn opens_wvb_block_arg(line: &str) -> bool {
+    line.contains("\u{00a4}[") || line.contains("\u{00a4}{")
+}
+
+fn closes_wvb_block_arg(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "\u{00a4}])"
+        || trimmed == "\u{00a4}})"
+        || trimmed == "\u{00a4}])\u{00a4})"
+        || trimmed == "\u{00a4}})\u{00a4})"
+}
+
 fn lint_chunk_body_outside_fence(
     file: &Path,
     text: &str,
     syntaxes: &[&NowebSyntax],
 ) -> Vec<LintViolation> {
     let mut in_fence = false;
+    let is_wvb = file.extension().and_then(|ext| ext.to_str()) == Some("wvb");
+    let mut in_wvb_code_block = false;
     let mut violations = Vec::new();
     for (idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
+        if is_wvb {
+            if !in_wvb_code_block && starts_wvb_code_block(trimmed) && opens_wvb_block_arg(trimmed) {
+                in_wvb_code_block = true;
+            } else if in_wvb_code_block && closes_wvb_block_arg(trimmed) {
+                in_wvb_code_block = false;
+                continue;
+            }
+        }
         if is_adoc_fence_delimiter(trimmed) {
             in_fence = !in_fence;
             continue;
         }
         if let Some(chunk_name) =
-            parse_chunk_definition_name(trimmed, syntaxes).filter(|_| !in_fence)
+            parse_chunk_definition_name(trimmed, syntaxes).filter(|_| !in_fence && !in_wvb_code_block)
         {
             violations.push(LintViolation {
                 file: file.to_path_buf(),
@@ -510,4 +537,3 @@ pub fn run_lint(
 }
 #[cfg(test)]
 mod tests;
-

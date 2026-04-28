@@ -86,6 +86,30 @@ fn normalize_adoc_table_to_markdown_pipe_table() {
 }
 
 #[test]
+fn normalize_adoc_table_with_header_attrs_to_markdown_pipe_table() {
+    let input = concat!(
+        "[%header,cols=\"1,2\"]\n",
+        "|===\n",
+        "| Name | Meaning\n",
+        "\n",
+        "| `%def` | Constant binding\n",
+        "| `%redef` | Rebindable binding\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert_eq!(
+        out,
+        concat!(
+            "| Name | Meaning |\n",
+            "| --- | --- |\n",
+            "| `%def` | Constant binding |\n",
+            "| `%redef` | Rebindable binding |\n",
+        )
+    );
+}
+
+#[test]
 fn normalize_adoc_table_handles_split_rows() {
     let input = concat!(
         "[cols=\"2,1,4\",options=\"header\"]\n",
@@ -818,4 +842,3 @@ fn run_single_pass_bench_no_fts() {
     };
     run_single_pass(args).unwrap();
 }
-

@@ -1,9 +1,13 @@
-= Weaveback Macro Language Reference
-:toc: left
+---
+title: |-
+  Weaveback Macro Language Reference
+toc: left
+---
+# Weaveback Macro Language Reference
 
 This document is the normative specification of the weaveback macro language.
 
-== Overview
+## Overview
 
 The macro language is a **strict, eager, string-valued expansion system**.
 Every macro call reduces to a string. There are no first-class booleans,
@@ -15,7 +19,7 @@ dispatched and their results are spliced in. `%set(name, value)` creates normal
 string variables; `%env(NAME)` is a builtin that reads the process environment
 only when explicitly enabled.
 
-=== Sigil
+### Sigil
 
 The default sigil is `%`. Every syntactic construct in the language begins
 with the sigil. The sigil itself can be changed per-run with `--sigil`, and
@@ -23,48 +27,43 @@ it may be any single UTF-8 scalar value accepted by Rust `char`.
 A doubled sigil (`%%`) is a literal single sigil character; the macro
 expander never processes it as a call.
 
-[source,text]
-----
+```text
 %foo(x)          → macro call
 %%foo(x)         → literal text: %foo(x)
-----
+```
 
 
 The `--sigil ^` convention is the intended workaround for documents that
 contain many literal percent signs (e.g., CSS, shell scripts).
 
-'''
+---
 
 
-== Syntax
+## Syntax
 
-=== Token types
+### Token types
 
-[%header,cols="1,3"]
-|===
-| Token | Description
-
-| `%name(…)` | Macro call. `name` is an identifier `[A-Za-z_][A-Za-z0-9_]*`.
-| `%(name)` | Variable reference.
-| `%{ … %}` / `%tag{ … %tag}` | Quoted argument block (single argument, still macro-active, nestable).
-| `%[ … %]` / `%tag[ … %tag]` | Opaque verbatim block (disables macro parsing inside, nestable).
-| `%%` | Escaped sigil — expands to a single literal sigil character.
-| `%// …` | Line comment — discarded.
-| `%/* … %*/` | Block comment — discarded, nestable.
-|===
+| Token | Description |
+| --- | --- |
+| `%name(…)` | Macro call. `name` is an identifier `[A-Za-z_][A-Za-z0-9_]*`. |
+| `%(name)` | Variable reference. |
+| `%{ … %}` / `%tag{ … %tag}` | Quoted argument block (single argument, still macro-active, nestable). |
+| `%[ … %]` / `%tag[ … %tag]` | Opaque verbatim block (disables macro parsing inside, nestable). |
+| `%%` | Escaped sigil — expands to a single literal sigil character. |
+| `%// …` | Line comment — discarded. |
+| `%/* … %*/` | Block comment — discarded, nestable. |
 
 Everything else is literal text.
 
-=== Quoted argument blocks `%{ … %}` and `%tag{ … %tag}`
+### Quoted argument blocks `%{ … %}` and `%tag{ … %tag}`
 
 A quoted argument block is syntactically a single macro argument. Its primary use is to
 include commas or closing parentheses literally inside an argument that would
 otherwise be split:
 
-[source,text]
-----
+```text
 %def(greet, name, %{Hello, %(name)!%})
-----
+```
 
 
 Without the block, the comma after `Hello` would split the argument list into
@@ -81,7 +80,7 @@ review, and preserve through edits.
 Tagged quoted blocks `%tag{ … %tag}` behave the same way, but use an explicit tag
 for readability and nesting discipline.
 
-=== Verbatim blocks `%[ … %]` and `%tag[ … %tag]`
+### Verbatim blocks `%[ … %]` and `%tag[ … %tag]`
 
 Verbatim blocks are opaque to macro parsing:
 
@@ -96,21 +95,19 @@ Like quoted argument blocks, they preserve leading whitespace exactly.
 
 Direct contrast:
 
-[source,text]
-----
+```text
 %def(show, x, %(x))
 %show(%{Hello, %(name)!%})   ← `%(name)` still expands
 %show(%[Hello, %(name)!%])   ← literal text, no expansion
-----
+```
 
 
-[source,text]
-----
+```text
 %pydef(greet, name, %[ "hello " + name %])
-----
+```
 
 
-=== Identifiers
+### Identifiers
 
 An identifier is currently `[A-Za-z_][A-Za-z0-9_]*`.
 
@@ -118,23 +115,22 @@ Hyphens are **not** identifier characters. Macro and variable names therefore
 use underscore-style spellings such as `emit_row` or `chunk_name`, not
 `emit-row` or `chunk-name`.
 
-'''
+---
 
 
-== Evaluation model
+## Evaluation model
 
-=== Strict, eager expansion
+### Strict, eager expansion
 
 All arguments to a macro call are **fully expanded in the caller's current
 scope before the macro body runs**. There is no lazy evaluation for
 user-defined macros. Consider:
 
-[source,text]
-----
+```text
 %set(counter, caller)
 %def(id, x, before=%(counter) arg=%(x) after=%(counter))
 %id(%(counter))
-----
+```
 
 
 Output: `before=caller arg=caller after=caller`. The argument is fully
@@ -144,7 +140,7 @@ string is bound to `x` in the callee frame.
 The one exception is `%if`, which evaluates its condition first and then
 evaluates only the selected branch.
 
-=== Scope stack
+### Scope stack
 
 The evaluator maintains a `Vec<ScopeFrame>`. Each frame holds:
 
@@ -161,7 +157,7 @@ match. A binding in an inner scope shadows the same name in an outer scope.
 frame**. There is no way to assign to an outer scope directly; use `%export`
 for that.
 
-=== Call dispatch
+### Call dispatch
 
 When `%foo(…)` is encountered:
 
@@ -174,7 +170,7 @@ Attempting to define a user macro with a builtin name (`%def(set, …)`) is
 immediately rejected with `EvalError::InvalidUsage`. This applies to `%def`,
 `%redef`, `%alias` and `%pydef`.
 
-=== Argument binding
+### Argument binding
 
 Arguments are evaluated in the **caller's scope** before the callee frame is
 pushed.
@@ -194,59 +190,53 @@ Given a call `%foo(a, b, key = c)` and a definition `%def(foo, p, q, r, body)`:
    `EvalError::InvalidUsage`. Arguments are values, not assignment sites.
 7. *Missing params*: Unbound params are `UnboundParameter`.
 
-'''
+---
 
 
-== Variables
+## Variables
 
-=== `%(name)` — reference
+### `%(name)` — reference
 
 Looks up `name` in the scope stack (top-to-bottom).
 
 * A missing variable is `UndefinedVariable(name)`.
 
-=== `%set(name, value)` — assignment
+### `%set(name, value)` — assignment
 
 Evaluates `value` and stores it as `name` in the current top frame.
 
 * `name` must be a single identifier.
 * Records the definition location in the source-map database.
 
-'''
+---
 
 
-== Macro definitions
+## Macro definitions
 
-=== `%def(name, [params…,] body)`
+### `%def(name, [params…,] body)`
 
 Defines a **constant** text-substitution macro in the current frame.
 
-[%header,cols="1,3"]
-|===
-| Field | Rule
-
-| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as either constant or rebindable.
-| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored.
-| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies.
-|===
+| Field | Rule |
+| --- | --- |
+| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as either constant or rebindable. |
+| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored. |
+| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies. |
 
 The macro body is stored as an `Arc<ASTNode>` — cloning a macro definition is
 `O(1)` (no deep copy of the body).
 
-=== `%redef(name, [params…,] body)`
+### `%redef(name, [params…,] body)`
 
 Defines or replaces a **rebindable** macro in the current frame.
 
-[%header,cols="1,3"]
-|===
-| Field | Rule
+| Field | Rule |
+| --- | --- |
+| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as a constant binding. If the name already exists as rebindable in the current frame, it is replaced. |
+| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored. |
+| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies. |
 
-| `name` | Single identifier. Must not be a builtin name. Errors if the name already exists in the current frame as a constant binding. If the name already exists as rebindable in the current frame, it is replaced.
-| `params` | Zero or more identifiers, comma-separated. Duplicates are an error. The body is the last non-empty argument; a trailing empty argument at the end of the call is ignored.
-| `body` | Last argument. Usually `%{ … %}` for macro-active bodies or `%[ … %]` for literal script/text bodies.
-|===
-
-=== Constant vs. rebindable names
+### Constant vs. rebindable names
 
 The definition model is intentionally explicit:
 
@@ -260,7 +250,7 @@ That gives one simple invariant:
 
 Use `%redef` for deliberate X-macro or multi-pass rebinding patterns.
 
-=== Rebinding patterns
+### Rebinding patterns
 
 X-macro pattern::
 A schema is defined once; successive passes rebind the `X` visitor to map
@@ -270,8 +260,7 @@ Context-dependent meaning::
 Macro identifiers have no fixed meaning. Their expansion is determined by the
 current pass, allowing the same source to be interpreted multiple ways.
 
-[source,text]
-----
+```text
 %def(FIELDS, %{
   %X(name, string)
   %X(age, int)
@@ -282,10 +271,10 @@ current pass, allowing the same source to be interpreted multiple ways.
 
 %redef(X, name, type, new_%(name): impl Into<%(type)>)  <- pass 2: ctor params
 %FIELDS()
-----
+```
 
 
-=== `%pydef(name, [params…,] body)`
+### `%pydef(name, [params…,] body)`
 
 Same argument structure as `%def`. At call time, the body is **first
 macro-expanded**, then executed as Python (monty) source code. The return
@@ -302,25 +291,23 @@ The natural forms are:
 * `%pydef(name, ..., %{ ... %})` only when macro preprocessing of the script
   source is intentional
 
-[source,text]
-----
+```text
 %pydef(add_prefix, name, %[ "wb_" + name %])
 %add_prefix(agent)        ← wb_agent
-----
+```
 
 
-[source,text]
-----
+```text
 %set(prefix, wb_)
 %pydef(add_prefix, name, %{ "%(prefix)" + name %})
 %add_prefix(agent)        ← wb_agent
-----
+```
 
 
 In the first form, the Python body is taken literally. In the second form, the
 body text is macro-expanded first, then executed as Python.
 
-=== `%alias(new_name, source_name [, key = val, …])` — Macro aliasing
+### `%alias(new_name, source_name [, key = val, …])` — Macro aliasing
 
 Creates a new macro definition that is a copy of `source_name` at the moment
 `%alias` is called. The copy shares the body `Arc` (`O(1)` clone).
@@ -333,14 +320,13 @@ evaluated at alias time and stored as a frozen binding. Whenever the alias is
 called, those bindings are installed in the callee's scope before parameter
 binding. This is the **only** capture mechanism in the language:
 
-[source,text]
-----
+```text
 %def(render_row, msg, chunk_name, %{| %(msg) |
 %})
 
 %alias(emit_tangle_row, render_row, chunk_name = cli-doc-tangle-rows)
 %emit_tangle_row(my option description)
-----
+```
 
 
 The `chunk_name` free variable is pinned to `cli-doc-tangle-rows` for all
@@ -353,7 +339,7 @@ value (parameter wins over frozen default).
 sites simple. It is also the only supported capture mechanism; `%export` does
 not freeze free variables for you.
 
-=== `%export(name)` — Propagate to parent scope
+### `%export(name)` — Propagate to parent scope
 
 Copies the binding for `name` one level up the scope stack (to the parent
 frame).
@@ -366,21 +352,20 @@ frame).
 To create a macro that carries frozen bindings into the parent scope, use
 `%alias` to create the frozen copy first, then `%export` it.
 
-[source,text]
-----
+```text
 %def(make_row, text, %{| %(text) | %(chunk_name) |%})
 %alias(make_cli_row, make_row, chunk_name = cli-doc)
 %export(make_cli_row)
-----
+```
 
 
 After export, the parent scope sees `%make_cli_row(...)` with `chunk_name`
 already pinned to `cli-doc`.
 
-'''
+---
 
 
-== Boolean model
+## Boolean model
 
 The macro language has no boolean type. The convention used by all builtins:
 
@@ -396,12 +381,12 @@ Note:
 * content inside `%{ … %}` blocks is preserved verbatim, so `%foo(%{   %})`
   receives three spaces, which is non-empty and therefore truthy
 
-'''
+---
 
 
-== Control flow
+## Control flow
 
-=== `%if(cond, then [, else])` — Conditional
+### `%if(cond, then [, else])` — Conditional
 
 Evaluates `cond`. If the result is non-empty, evaluates and returns `then`;
 otherwise evaluates and returns `else` (or empty if `else` is omitted).
@@ -412,35 +397,32 @@ is genuinely lazy in its branch arguments.
 `%if()` with no arguments is a non-fatal warning (the call always returns
 empty and is almost certainly a mistake).
 
-[source,text]
-----
+```text
 %if(%eq(%(target), linux), use-linux, use-other)
-----
+```
 
 
-=== `%eq(a, b)` — Equality predicate
+### `%eq(a, b)` — Equality predicate
 
 Evaluates both arguments, compares byte-exact. Returns `1` if equal, empty
 if not.
 
-[source,text]
-----
+```text
 %if(%eq(%(mode), release), optimize, debug)
-----
+```
 
 
-=== `%neq(a, b)` — Inequality predicate
+### `%neq(a, b)` — Inequality predicate
 
 Returns `1` if `a != b`, empty if equal. `%eq` and `%neq` are strict
 inverses.
 
-[source,text]
-----
+```text
 %if(%neq(%(backend), sqlite), external-db, sqlite)
-----
+```
 
 
-=== `%not([x])` — Logical negation
+### `%not([x])` — Logical negation
 
 Accepts zero or one argument. Returns `1` if the argument is empty (or absent),
 empty if the argument is non-empty.
@@ -448,29 +430,27 @@ empty if the argument is non-empty.
 `%not()` with no argument: treats the absent argument as empty, so returns `1`.
 `%not(a, b)` is `EvalError::InvalidUsage`.
 
-[source,text]
-----
+```text
 %if(%not(%(feature_flag)), disabled, enabled)
-----
+```
 
 
-=== `%eval(name, args…)` — Dynamic dispatch
+### `%eval(name, args…)` — Dynamic dispatch
 
 Evaluates the first argument to obtain a macro name, then calls that macro with
 the remaining arguments. Enables data-driven dispatch.
 
-[source,text]
-----
+```text
 %def(render_html, x, <b>%(x)</b>)
 %def(render_md, x, **%(x)**)
 %eval(render_%(fmt), hello)   ← fmt = "html" or "md"
-----
+```
 
 
 `%eval` is the dynamic-dispatch escape hatch. Prefer ordinary direct calls when
 the callee name is statically known.
 
-=== `%here(name, args…)` — Source-file patching
+### `%here(name, args…)` — Source-file patching
 
 Calls the macro `name(args…)`, writes the result into the **source file itself**
 immediately after the `%here(...)` call, then stops evaluation (`early_exit`).
@@ -490,43 +470,37 @@ Caveats:
 Once `%here` sets `early_exit`, all subsequent `evaluate()` calls return empty
 immediately. This is not an error condition.
 
-'''
+---
 
 
-== Diagnostics
+## Diagnostics
 
-=== Errors
+### Errors
 
-[%header,cols="1,3"]
-|===
-| Error | Trigger
+| Error | Trigger |
+| --- | --- |
+| `UndefinedMacro(name)` | Macro `%name` not found in scope or builtins |
+| `InvalidUsage(msg)` | Wrong arg count; invalid identifier; positional-after-named; duplicate binding; unknown named arg; extra positional args; attempt to define a builtin name; invalid `%def` / `%redef` rebinding |
+| `Runtime(msg)` | Recursion limit exceeded; script engine error; `%here` I/O failure |
+| `ParseError(msg)` | Lexer or parser failure in a file being evaluated |
+| `IncludeNotFound(path)` | `%include`/`%import` path not resolved |
+| `CircularInclude(path)` | File is already on the include stack |
+| `IoError(e)` | Filesystem error during file inclusion |
 
-| `UndefinedMacro(name)` | Macro `%name` not found in scope or builtins
-| `InvalidUsage(msg)` | Wrong arg count; invalid identifier; positional-after-named; duplicate binding; unknown named arg; extra positional args; attempt to define a builtin name; invalid `%def` / `%redef` rebinding
-| `Runtime(msg)` | Recursion limit exceeded; script engine error; `%here` I/O failure
-| `ParseError(msg)` | Lexer or parser failure in a file being evaluated
-| `IncludeNotFound(path)` | `%include`/`%import` path not resolved
-| `CircularInclude(path)` | File is already on the include stack
-| `IoError(e)` | Filesystem error during file inclusion
-|===
-
-=== Warnings (non-fatal)
+### Warnings (non-fatal)
 
 Warnings are accumulated in the evaluator and drained by the caller via
 `take_warnings()`. They do not abort evaluation.
 
-[%header,cols="1,3"]
-|===
-| Warning | Trigger
+| Warning | Trigger |
+| --- | --- |
+| `%if() with no arguments` | `%if()` called with zero arguments; always returns empty |
+| `%export at global scope` | `%export` called when there is no parent frame; the call is a no-op |
 
-| `%if() with no arguments` | `%if()` called with zero arguments; always returns empty
-| `%export at global scope` | `%export` called when there is no parent frame; the call is a no-op
-|===
-
-'''
+---
 
 
-== String transformations
+## String transformations
 
 All case-conversion builtins apply **word-aware splitting** before
 transformation. Word boundaries are:
@@ -536,18 +510,15 @@ transformation. Word boundaries are:
 * Acronym boundary (upper→upper→lower)
 * Digit transition
 
-[%header,cols="1,2,1"]
-|===
-| Builtin | Transformation | Example
-
-| `%capitalize(s)` | Upper-case first character | `hello` → `Hello`
-| `%decapitalize(s)` | Lower-case first character | `Hello` → `hello`
-| `%to_snake_case(s)` | Lower, underscore-separated | `FooBar` → `foo_bar`
-| `%to_camel_case(s)` | Lower first word, upper rest | `foo_bar` → `fooBar`
-| `%to_pascal_case(s)` | Upper every word | `foo_bar` → `FooBar`
-| `%to_screaming_case(s)` | Upper, underscore-separated | `FooBar` → `FOO_BAR`
-| `%convert_case(s, style)` | Dispatch by `style` string (`lower`, `upper`, `snake`, `screaming`, `kebab`, `screaming-kebab`, `camel`, `pascal`, `ada`) | —
-|===
+| Builtin | Transformation | Example |
+| --- | --- | --- |
+| `%capitalize(s)` | Upper-case first character | `hello` → `Hello` |
+| `%decapitalize(s)` | Lower-case first character | `Hello` → `hello` |
+| `%to_snake_case(s)` | Lower, underscore-separated | `FooBar` → `foo_bar` |
+| `%to_camel_case(s)` | Lower first word, upper rest | `foo_bar` → `fooBar` |
+| `%to_pascal_case(s)` | Upper every word | `foo_bar` → `FooBar` |
+| `%to_screaming_case(s)` | Upper, underscore-separated | `FooBar` → `FOO_BAR` |
+| `%convert_case(s, style)` | Dispatch by `style` string (`lower`, `upper`, `snake`, `screaming`, `kebab`, `screaming-kebab`, `camel`, `pascal`, `ada`) | — |
 
 All return empty string if input is empty.
 
@@ -566,12 +537,12 @@ Accepted `style` values for `%convert_case(s, style)` are:
 
 Invalid style strings are `InvalidUsage`.
 
-'''
+---
 
 
-== File inclusion
+## File inclusion
 
-=== `%include(path)` — Include and evaluate
+### `%include(path)` — Include and evaluate
 
 Resolves `path` against the include-path list. Reads and evaluates the file
 inline; its output is spliced at the call site. Macro definitions made in the
@@ -586,52 +557,47 @@ inside a macro body, definitions are local and disappear on pop.
 The `path` argument is evaluated normally before resolution, so conditional
 include idioms work:
 
-[source,text]
-----
+```text
 %include(%if(%eq(%(target), linux), linux.adoc, %{%}))
-----
+```
 
 
 If the expanded path is empty, the include is skipped.
 
-=== `%import(path)` — Include without output
+### `%import(path)` — Include without output
 
 Like `%include` but discards the text output. Side effects (macro definitions,
 `%set`) are preserved.
 
-[source,text]
-----
+```text
 %import(macros.adoc)   ← load definitions, produce no output
 %render_doc(...)
-----
+```
 
 
 During dependency discovery, `%include` / `%import` still evaluate their path
 argument first. Only the target-file evaluation is skipped after a real path is
 resolved and recorded.
 
-== Python integration
+## Python integration
 
-=== Persistent stores
+### Persistent stores
 
 The Python store (`py_store: HashMap<String, String>`) survives across macro
 calls and across `%def`/`%pydef` definitions for the lifetime of the evaluator
 session. It is **not** part of the scope stack and is **not** popped with
 frames.
 
-[%header,cols="1,1,3"]
-|===
-| Builtin | Store | Description
-
-| `%pyset(k, v)` | Python | Store string `v` as key `k`
-| `%pyget(k)` | Python | Return value for key `k`; empty if missing
-|===
+| Builtin | Store | Description |
+| --- | --- | --- |
+| `%pyset(k, v)` | Python | Store string `v` as key `k` |
+| `%pyget(k)` | Python | Return value for key `k`; empty if missing |
 
 Script stores bypass all scope-stack discipline. They are powerful for
 accumulation patterns but make
 behaviour order-dependent. Prefer local `%set` where possible.
 
-=== `%env(NAME)` — Environment variable
+### `%env(NAME)` — Environment variable
 
 Reads `NAME` from the process environment. Requires `--allow-env`.
 
@@ -641,20 +607,19 @@ If `EvalConfig.env_prefix = Some("WB_".into())` or the CLI is run with
 The prefix is prepended only for the external environment lookup. Inside the
 macro source you still write the stripped logical name:
 
-[source,text]
-----
+```text
 %env(PATH)         ← reads WB_PATH when --env-prefix WB_ is active
 %env(HOME)         ← reads WB_HOME when --env-prefix WB_ is active
-----
+```
 
 
 This keeps macro source uncluttered while letting real environment variables
 stay namespaced.
 
-'''
+---
 
 
-== Recursion limit
+## Recursion limit
 
 The evaluator tracks call depth. Exceeding `MAX_RECURSION_DEPTH` (defined in
 `weaveback_core`) is the default behaviour, but callers may override it with
@@ -662,15 +627,14 @@ The evaluator tracks call depth. Exceeding `MAX_RECURSION_DEPTH` (defined in
 active limit produces `EvalError::Runtime`. There is no tail-call
 optimisation; every call frame occupies stack space.
 
-'''
+---
 
 
-== Configuration
+## Configuration
 
 `EvalConfig` is constructed by the caller and passed to the `Evaluator`.
 
-[source,rust]
-----
+```rust
 pub struct EvalConfig {
     pub sigil: char,                  // default: '%'
     pub include_paths: Vec<PathBuf>,  // default: ["."]
@@ -678,7 +642,7 @@ pub struct EvalConfig {
     pub env_prefix: Option<String>,   // default: None
     pub recursion_limit: usize,       // default: MAX_RECURSION_DEPTH
 }
-----
+```
 
 
 **Dependency discovery**: the separate discovery API still evaluates the
@@ -686,45 +650,42 @@ pub struct EvalConfig {
 whitespace, the include/import is a no-op. If it expands to a real path, the
 resolved path is recorded and the target file is not evaluated.
 
-'''
+---
 
 
-== Builtin summary
+## Builtin summary
 
-[%header,cols="2,3,1,3"]
-|===
-| Call form | Description | Args | Returns
+| Call form | Description | Args | Returns |
+| --- | --- | --- | --- |
+| `%def(n, [p…,] body)` | Define constant text macro | 2+ | empty |
+| `%redef(n, [p…,] body)` | Define or replace rebindable text macro | 2+ | empty |
+| `%pydef(n, [p…,] body)` | Define Python macro | 2+ | empty |
+| `%set(n, v)` | Assign variable in current frame | 2 | empty |
+| `%alias(new, src [, k=v…])` | Alias / partial application | 2+ | empty |
+| `%export(n)` | Copy binding to parent frame | 1 | empty |
+| `%include(path)` | Include and evaluate file | 1 | file content |
+| `%import(path)` | Include without output | 1 | empty |
+| `%if(c, t [, e])` | Conditional (lazy branches) | 1–3 | branch or empty |
+| `%eq(a, b)` | Equality predicate | 2 | `1` or empty |
+| `%neq(a, b)` | Inequality predicate | 2 | `1` or empty |
+| `%not([x])` | Logical negation | 0–1 | `1` or empty |
+| `%eval(n, args…)` | Dynamic dispatch | 1+ | macro result |
+| `%here(n, args…)` | Patch source file and stop | 1+ | empty |
+| `%capitalize(s)` | Upper-case first char | 1 | string |
+| `%decapitalize(s)` | Lower-case first char | 1 | string |
+| `%convert_case(s, style)` | Case conversion by name | 2 | string |
+| `%to_snake_case(s)` | snake_case | 1 | string |
+| `%to_camel_case(s)` | camelCase | 1 | string |
+| `%to_pascal_case(s)` | PascalCase | 1 | string |
+| `%to_screaming_case(s)` | SCREAMING_CASE | 1 | string |
+| `%pyset(k, v)` | Write Python store | 2 | empty |
+| `%pyget(k)` | Read Python store | 1 | store value or empty |
+| `%env(NAME)` | Read env var (requires `--allow-env`) | 0–1 | env value or empty |
 
-| `%def(n, [p…,] body)` | Define constant text macro | 2+ | empty
-| `%redef(n, [p…,] body)` | Define or replace rebindable text macro | 2+ | empty
-| `%pydef(n, [p…,] body)` | Define Python macro | 2+ | empty
-| `%set(n, v)` | Assign variable in current frame | 2 | empty
-| `%alias(new, src [, k=v…])` | Alias / partial application | 2+ | empty
-| `%export(n)` | Copy binding to parent frame | 1 | empty
-| `%include(path)` | Include and evaluate file | 1 | file content
-| `%import(path)` | Include without output | 1 | empty
-| `%if(c, t [, e])` | Conditional (lazy branches) | 1–3 | branch or empty
-| `%eq(a, b)` | Equality predicate | 2 | `1` or empty
-| `%neq(a, b)` | Inequality predicate | 2 | `1` or empty
-| `%not([x])` | Logical negation | 0–1 | `1` or empty
-| `%eval(n, args…)` | Dynamic dispatch | 1+ | macro result
-| `%here(n, args…)` | Patch source file and stop | 1+ | empty
-| `%capitalize(s)` | Upper-case first char | 1 | string
-| `%decapitalize(s)` | Lower-case first char | 1 | string
-| `%convert_case(s, style)` | Case conversion by name | 2 | string
-| `%to_snake_case(s)` | snake_case | 1 | string
-| `%to_camel_case(s)` | camelCase | 1 | string
-| `%to_pascal_case(s)` | PascalCase | 1 | string
-| `%to_screaming_case(s)` | SCREAMING_CASE | 1 | string
-| `%pyset(k, v)` | Write Python store | 2 | empty
-| `%pyget(k)` | Read Python store | 1 | store value or empty
-| `%env(NAME)` | Read env var (requires `--allow-env`) | 0–1 | env value or empty
-|===
-
-'''
+---
 
 
-== Open items
+## Open items
 
 The following behaviours are known limitations and candidates for future work:
 

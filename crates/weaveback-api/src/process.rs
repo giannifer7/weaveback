@@ -199,9 +199,14 @@ fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
 }
 
 fn adoc_table_has_header(attr: Option<&str>) -> bool {
-    attr.map(|attr| attr.replace(' ', "").contains("options=\"header\"")
-        || attr.replace(' ', "").contains("options='header'")
-        || attr.replace(' ', "").contains("options=header"))
+    attr.map(|attr| {
+        let compact = attr.replace(' ', "");
+        compact.contains("options=\"header\"")
+            || compact.contains("options='header'")
+            || compact.contains("options=header")
+            || compact.starts_with("[%header")
+            || compact.contains(",%header")
+    })
         .unwrap_or(false)
 }
 
@@ -456,7 +461,8 @@ fn normalize_adoc_tables_for_markdown(input: &str) -> String {
 
         let mut attr: Option<&str> = None;
         let start_idx;
-        if lines[idx].trim_start().starts_with("[cols=")
+        if lines[idx].trim_start().starts_with('[')
+            && lines[idx].trim_end().ends_with(']')
             && idx + 1 < lines.len()
             && lines[idx + 1].trim() == "|==="
         {
@@ -982,4 +988,3 @@ pub fn run_single_pass(args: SinglePassArgs) -> Result<(), String> {
 }
 #[cfg(test)]
 mod tests;
-

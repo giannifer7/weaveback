@@ -3,6 +3,7 @@
 
 mod helpers;
 mod run;
+mod tools;
 
 pub use run::run_mcp;
 

@@ -40,6 +40,7 @@ layout is visible in one place.
 ¤rust_file(weaveback-api/src/mcp.rs, ¤[
 mod helpers;
 mod run;
+mod tools;
 
 pub use run::run_mcp;
 
@@ -54,6 +55,7 @@ mod tests;
 // <[mcp-types]>
 
 use super::helpers::{send_error, send_response, send_text};
+use super::tools::tools_list_result;
 
 // <[mcp-run]>
 ¤])
@@ -63,4 +65,10 @@ use serde_json::{json, Value};
 use std::io::Write;
 
 // <[mcp-helpers]>
+¤])
+
+¤rust_file(weaveback-api/src/mcp/tools.rs, ¤[
+use serde_json::{json, Value};
+
+// <[mcp-tools]>
 ¤])

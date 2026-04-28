@@ -1,6 +1,10 @@
-= Agent Smoothness
-:toc: left
-:toclevels: 3
+---
+title: |-
+  Agent Smoothness
+toc: left
+toclevels: 3
+---
+# Agent Smoothness
 
 This note records what seems to make weaveback smooth or rough for coding
 agents.
@@ -8,7 +12,7 @@ agents.
 The goal is not to optimize for agents at the expense of humans. The goal is
 to reduce the mechanical translation cost that hurts both.
 
-== Core idea
+## Core idea
 
 The smooth path for an agent is not "more intelligence". It is less guessing.
 
@@ -24,9 +28,9 @@ tooling:
 If those questions require reconstruction by habit, the system is rough.
 If they are answered mechanically, the system becomes much easier to use.
 
-== What helps most
+## What helps most
 
-=== Machine-readable operations
+### Machine-readable operations
 
 Important commands should have stable, structured forms:
 
@@ -37,7 +41,7 @@ Important commands should have stable, structured forms:
 
 This is more valuable to agents than clever human-oriented text output.
 
-=== Deterministic attribution
+### Deterministic attribution
 
 Generated-file locations should map back to source-of-truth locations
 mechanically.
@@ -56,7 +60,7 @@ but also:
 
 That removes repeated detective work.
 
-=== Safe edit primitives
+### Safe edit primitives
 
 Agents work best when the repo offers small, verified operations rather than
 wide-open mutation.
@@ -72,7 +76,7 @@ Examples:
 That is much better than treating the whole workspace as an undifferentiated
 text blob.
 
-=== Explicit ownership
+### Explicit ownership
 
 An agent should not have to infer whether a file is:
 
@@ -83,7 +87,7 @@ An agent should not have to infer whether a file is:
 
 Those answers should come from tooling, not convention.
 
-=== Strong diagnostics
+### Strong diagnostics
 
 Diagnostics should always include the actionable subject:
 
@@ -97,7 +101,7 @@ Diagnostics should always include the actionable subject:
 This matters for agents for exactly the same reason it matters for humans:
 vague errors turn simple work into search and guesswork.
 
-=== Structural linting
+### Structural linting
 
 Explicit invariants help agents because they remove tribal knowledge.
 
@@ -109,7 +113,7 @@ A linter can say:
 
 That is far more useful than hoping the agent infers the rule from examples.
 
-== Recommended shape
+## Recommended shape
 
 The architecture that seems most promising is:
 
@@ -120,7 +124,7 @@ The architecture that seems most promising is:
 
 This keeps one authoritative implementation while serving different workflows.
 
-== Useful debug support
+## Useful debug support
 
 An optional provenance-debug mode would also help.
 
@@ -137,7 +141,7 @@ This is especially useful when:
 
 It should remain optional rather than cluttering normal generated outputs.
 
-== Working standard
+## Working standard
 
 A good practical standard is:
 

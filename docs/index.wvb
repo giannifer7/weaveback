@@ -163,9 +163,11 @@ notes are meant to preserve them without pretending they are settled.
 
 * ¤link(agent-smoothness.adoc, agent smoothness)
 * ¤link(stability-first.adoc, stability first)
+* ¤link(python-agent-interface.adoc, Python agent interface)
 * ¤link(roadmap.adoc, near-term engineering plan)
 * ¤link(complexity-reduction-plan.adoc, complexity reduction plan)
 * ¤link(two-pass-markup-migration.adoc, two-pass markup migration plan)
+* ¤link(m4-comparison.adoc, weaveback-macro vs GNU m4)
 * ¤link(macro-language-critique-prep.adoc, macro language critique prep)
 * ¤link(macro-language-tightening-plan.adoc, macro language tightening plan)
 * ¤link(linter-plan.adoc, linter planning notes)

@@ -1,12 +1,11 @@
-= weaveback-macro vs GNU m4
-:toc: left
+¤doc(weaveback-macro vs GNU m4, ¤{¤}, left, ¤{¤})
 
 GNU m4 is the oldest surviving general-purpose macro processor and the
 closest conceptual relative of weaveback-macro. This document compares
 them across several dimensions to help you decide which is the right tool
 for a given problem, and to be honest about where each one falls short.
 
-== Purpose and design philosophy
+¤h2(¤[Purpose and design philosophy¤])
 
 m4 was designed by Brian Kernighan and Dennis Ritchie in the early 1970s
 as a general-purpose text-substitution layer for Unix. Its canonical use
@@ -31,9 +30,9 @@ In short: m4 is a universal macro language that happens to be used for
 literate-adjacent tasks. weaveback-macro is a literate-programming tool
 that happens to be implemented as a macro language.
 
-== Expressiveness
+¤h2(¤[Expressiveness¤])
 
-=== GNU m4
+¤h3(¤[GNU m4¤])
 
 m4 is Turing-complete. Its expansion model, push the result back onto
 the input stream and re-scan, means any computation expressible as text
@@ -53,7 +52,7 @@ building two abstraction layers on top of raw m4, m4sugar for safe,
 conventional macro utilities and m4sh for macros that generate shell code,
 precisely because raw m4 is too sharp an instrument for daily use.
 
-=== weaveback-macro
+¤h3(¤[weaveback-macro¤])
 
 weaveback-macro is intentionally less expressive at the core level.
 String macros with `%def` and variables with `%set` cover the common case.
@@ -62,7 +61,7 @@ with `%include` and `%import` complete the basic feature set.
 
 Where weaveback-macro regains expressiveness is through a scripting escape
 hatch. `%pydef` writes a macro body in Python-like syntax via
-link:https://github.com/pydantic/monty[monty], a minimal, secure Python
+¤link(https://github.com/pydantic/monty, monty), a minimal, secure Python
 interpreter written in Rust, not CPython, not a subprocess. Scripts
 receive the current scope's variables as strings and return the expanded
 text. They run inside a sandboxed runtime with no filesystem or network
@@ -73,6 +72,7 @@ express it entirely in m4's opaque notation. weaveback-macro covers
 most document-preprocessing needs directly, and delegates the rest to
 Python when computation is genuinely needed.
 
+¤table(adoc, ¤{
 [cols="1,1,1",options="header"]
 |===
 | Capability | GNU m4 | weaveback-macro
@@ -90,10 +90,11 @@ Python when computation is genuinely needed.
 | Scripting language body | ✗ | ✓ (Python)
 | Turing-complete | ✓ | ✓ (via scripting)
 |===
+¤})
 
-== Learning curve
+¤h2(¤[Learning curve¤])
 
-=== GNU m4
+¤h3(¤[GNU m4¤])
 
 m4's learning curve is famously steep. The central difficulty is
 *quoting*. By default, a backtick opens a quoted string and an
@@ -119,7 +120,7 @@ can be cantankerous on occasion in m4."_ Many experienced developers
 avoid writing nontrivial m4 from scratch and instead cargo-cult existing
 patterns, which is not a good sign.
 
-=== weaveback-macro
+¤h3(¤[weaveback-macro¤])
 
 weaveback-macro's model is simpler because it does not re-scan. A macro
 expansion produces text that is output as-is; it does not feed back into
@@ -144,7 +145,7 @@ The main learning investment is understanding which constructs exist
 setting a variable (`%set`). A developer familiar with any template language
 will reach productive use within an hour.
 
-== Quoting and scoping
+¤h2(¤[Quoting and scoping¤])
 
 m4 provides explicit scope manipulation via `pushdef` and `popdef`, which
 requires manual discipline: the programmer must balance every `pushdef`
@@ -167,9 +168,9 @@ m4 uses `ifdef` to test whether a name is defined. weaveback-macro uses
 non-empty string; Python handles any condition more complex than
 that.
 
-== Error messages and debugging
+¤h2(¤[Error messages and debugging¤])
 
-=== GNU m4
+¤h3(¤[GNU m4¤])
 
 m4's error messages are terse and often point to the wrong location,
 because by the time the error is detected the input has been transformed
@@ -180,7 +181,7 @@ the format is unstructured text that requires visual parsing. The manual
 warns that m4 cannot detect infinite rescanning loops because the problem
 is undecidable.
 
-=== weaveback-macro
+¤h3(¤[weaveback-macro¤])
 
 Error messages include the source file and line number from the original
 document before expansion. Because there is no re-scanning, the error
@@ -192,7 +193,7 @@ than a stack overflow. There is no interactive debugger, but the
 fully expanded text to stderr before the tangle pass, which is usually
 sufficient for diagnosis.
 
-== Speed and scaling
+¤h2(¤[Speed and scaling¤])
 
 m4 is written in C and processes tens of megabytes of macro-heavy input
 per second. Its `--freeze-state` and `--reload-state` mechanism lets you
@@ -205,7 +206,7 @@ weaveback-macro itself is fast: Rust and a `memchr` single-byte scan.
 The macro pass and the tangle pass are not the bottleneck for large projects.
 The bottleneck is `weaveback.db`.
 
-=== Database scaling
+¤h3(¤[Database scaling¤])
 
 weaveback.db has two tables that store full file content:
 
@@ -219,6 +220,7 @@ weaveback.db has two tables that store full file content:
 
 Rough projections:
 
+¤table(adoc, ¤{
 [cols="1,1,1,1",options="header"]
 |===
 | Project scale | Source | Generated | Estimated weaveback.db
@@ -228,12 +230,13 @@ Rough projections:
 | Large | 30 MB | 15 MB | ~80 MB
 | Very large | 300 MB | 150 MB | ~700 MB
 |===
+¤})
 
 These are proportional, not fixed costs. The database grows linearly
 with project size. `80 MB` is unremarkable; `700 MB` starts to be a
 consideration for disk space and backup.
 
-=== Memory during a run
+¤h3(¤[Memory during a run¤])
 
 The more immediate concern for large projects is RAM. The temp database
 that accumulates during a tangle run uses SQLite in-memory storage
@@ -251,7 +254,7 @@ database merge, before accounting for the rest of the process.
 m4 has no equivalent cost: it writes output as it expands and keeps
 nothing after the run.
 
-=== Summary
+¤h3(¤[Summary¤])
 
 For the overwhelming majority of literate programming projects, a few
 dozen source files and tens of thousands of lines of generated output,

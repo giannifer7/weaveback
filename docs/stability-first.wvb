@@ -1,12 +1,10 @@
-= Stability First
-:toc: left
-:toclevels: 3
+¤doc(Stability First, ¤{¤}, left, 3)
 
 This note records a practical conclusion from recent work on weaveback.
 It is not a final theory of the project. It is a statement of where effort
 currently seems most justified.
 
-== The current priority
+¤h2(¤[The current priority¤])
 
 The difference between weaveback being a help or a burden is no longer mainly
 about adding clever features. It is about reducing the friction around the
@@ -28,7 +26,7 @@ The highest-value work now looks like:
 
 This is the area where the project most clearly earns or loses its keep.
 
-== Why this matters
+¤h2(¤[Why this matters¤])
 
 Literate programming brings real costs:
 
@@ -47,7 +45,7 @@ Those costs are tolerable only if the project pays them back through:
 If the synchronization loop is shaky, literate structure becomes ceremony.
 If the loop is strong, the project has a serious reason to exist.
 
-== What already helps
+¤h2(¤[What already helps¤])
 
 Weaveback already has important pieces of that loop:
 
@@ -72,7 +70,7 @@ So the right question is no longer "should weaveback be clever?" It is:
 * can the translation and synchronization cost be made cheap enough, reliable
   enough, and visible enough that the system becomes net helpful?
 
-== A useful distinction
+¤h2(¤[A useful distinction¤])
 
 The current cost is mostly not surprise.
 
@@ -93,7 +91,7 @@ It should be pushed downward:
 * then, where interpretation is still needed, into cheap agents
 * and only last onto the human
 
-== Where effort should concentrate
+¤h2(¤[Where effort should concentrate¤])
 
 Near-term effort should favor work such as:
 
@@ -112,12 +110,12 @@ against a stricter standard:
 
 If not, they are probably lower priority than stability work.
 
-== Missing pieces
+¤h2(¤[Missing pieces¤])
 
 The main missing pieces are the ones that still leave humans doing routine
 reconciliation work by hand.
 
-=== Better attribution everywhere
+¤h3(¤[Better attribution everywhere¤])
 
 Many failures still arrive first in generated-file terms:
 
@@ -135,7 +133,7 @@ and consistently:
 The less often a human has to reconstruct that path manually, the cheaper the
 core loop becomes.
 
-=== Early structural linting
+¤h3(¤[Early structural linting¤])
 
 Several project invariants still exist mostly as conventions:
 
@@ -146,7 +144,7 @@ Several project invariants still exist mostly as conventions:
 Those should be reported explicitly and early, before downstream tools need to
 compensate defensively. The linter work belongs here.
 
-=== Stronger source/generated synchronization
+¤h3(¤[Stronger source/generated synchronization¤])
 
 `apply-back` is already valuable, but the overall synchronization loop is still
 rougher than it should be.
@@ -161,7 +159,7 @@ The missing improvements include:
 The goal is not magic. The goal is to make ordinary synchronization cheap and
 predictable.
 
-=== Better diagnostics
+¤h3(¤[Better diagnostics¤])
 
 A recurring source of wasted time is diagnostics that omit the one actionable
 fact the user needs:
@@ -175,7 +173,7 @@ fact the user needs:
 This is not glamorous work, but it has high leverage. A weak error message can
 turn a mechanical fix into detective work.
 
-=== More deterministic translation helpers
+¤h3(¤[More deterministic translation helpers¤])
 
 A lot of friction should be pushed into algorithms rather than habits.
 
@@ -189,7 +187,7 @@ Examples:
 These are precisely the places where the project should let machinery carry the
 translation cost instead of humans.
 
-=== Confidence in the outer workflow
+¤h3(¤[Confidence in the outer workflow¤])
 
 The parser and translation internals matter, but trust also depends on the
 outer surfaces:
@@ -203,7 +201,7 @@ outer surfaces:
 If those layers are weakly tested, the project can still feel fragile even when
 the inner engines are solid.
 
-=== Clearer boundary documentation
+¤h3(¤[Clearer boundary documentation¤])
 
 Users need precise answers to questions such as:
 
@@ -215,7 +213,7 @@ Users need precise answers to questions such as:
 When those boundaries are explicit, the project is easier to trust and harder
 to misuse.
 
-== Working standard
+¤h2(¤[Working standard¤])
 
 For now, a good practical standard is:
 

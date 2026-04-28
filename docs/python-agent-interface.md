@@ -1,5 +1,9 @@
-= Python Agent Interface
-:toc: left
+---
+title: |-
+  Python Agent Interface
+toc: left
+---
+# Python Agent Interface
 
 The Python interface to Weaveback is designed specifically to allow coding
 agents to safely interact with a literate programming codebase. In literate
@@ -12,7 +16,7 @@ The Python interface solves this by providing a highly structured, typed
 boundary between agent logic and the Weaveback Rust core backend. It lives in
 the `weaveback-agent` package at `python/weaveback-agent`.
 
-== Architecture Overview
+## Architecture Overview
 
 The Python interface establishes a strict separation of concerns:
 
@@ -22,9 +26,9 @@ The Python interface establishes a strict separation of concerns:
 2. **Python (`weaveback-agent`)**: Owns the orchestration loop, typed Pydantic
    models for LLM tool calling, and agent loop composition.
 
-== Key Components for Coding Agents
+## Key Components for Coding Agents
 
-=== 1. Pydantic Type Models
+### 1. Pydantic Type Models
 
 The `models.py` file exposes strict Pydantic definitions that agents can output
 via Structured Outputs or Tool Calling. For example, instead of emitting a
@@ -44,7 +48,7 @@ generated string at `out_line` does not exactly match the `expected_output`
 proposed by the agent, the system rejects the change. This guarantees agents
 cannot silently break macros or chunk definitions.
 
-=== 2. The `AgentLoop` Orchestrator
+### 2. The `AgentLoop` Orchestrator
 
 Inside `agent.py`, an `AgentLoop` class wraps the raw Rust FFI
 with `PyWorkspace` into high-level Python methods that directly map to standard
@@ -61,7 +65,7 @@ agent loops: plan, validate, execute.
   tangler with the proposed changes in memory, ensuring that the generated code
   output is exactly what the agent intended.
 
-=== 3. Crate `weaveback-py`
+### 3. Crate `weaveback-py`
 
 Underneath, the `AgentLoop` delegates zero-cost execution down to the Rust core
 via:
@@ -71,7 +75,7 @@ via:
 * `PyWorkspace.preview_change_plan(...)`
 * `PyWorkspace.apply_change_plan(...)`
 
-== How an Agent Should Use It
+## How an Agent Should Use It
 
 1. **Locate Context**: An agent explores the codebase using tools like
    `weaveback_chunk_context` or `weaveback_search`, accessible via the MCP server

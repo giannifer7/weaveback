@@ -125,9 +125,11 @@ notes are meant to preserve them without pretending they are settled.
 
 * [agent smoothness](agent-smoothness.adoc)
 * [stability first](stability-first.adoc)
+* [Python agent interface](python-agent-interface.adoc)
 * [near-term engineering plan](roadmap.adoc)
 * [complexity reduction plan](complexity-reduction-plan.adoc)
 * [two-pass markup migration plan](two-pass-markup-migration.adoc)
+* [weaveback-macro vs GNU m4](m4-comparison.adoc)
 * [macro language critique prep](macro-language-critique-prep.adoc)
 * [macro language tightening plan](macro-language-tightening-plan.adoc)
 * [linter planning notes](linter-plan.adoc)

@@ -373,8 +373,16 @@ fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
 
     let mut violations = Vec::new();
     let mut in_generated_code_macro = false;
+    let mut in_wvb_code_block = false;
     let mut previous_line = "";
     for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if !in_wvb_code_block && starts_wvb_code_block(trimmed) && opens_wvb_block_arg(trimmed) {
+            in_wvb_code_block = true;
+        } else if in_wvb_code_block && closes_wvb_block_arg(trimmed) {
+            in_wvb_code_block = false;
+        }
+
         if line_opens_generated_code_macro(line) {
             in_generated_code_macro = true;
         }
@@ -382,7 +390,7 @@ fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
         let is_raw_source =
             line.starts_with("[source") || line.starts_with("[plantuml") || line.starts_with("[d2");
         let is_prelude_definition_body = previous_line.contains("\u{00a4}redef(");
-        if is_raw_source && !in_generated_code_macro && !is_prelude_definition_body {
+        if is_raw_source && !in_generated_code_macro && !in_wvb_code_block && !is_prelude_definition_body {
             violations.push(LintViolation {
                 file: file.to_path_buf(),
                 line: idx + 1,

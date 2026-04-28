@@ -244,6 +244,12 @@ fn lint_raw_wvb_source_blocks_ignores_rust_string_literals() {
 }
 
 #[test]
+fn lint_raw_wvb_source_blocks_ignores_code_block_examples() {
+    let text = "\u{00a4}code_block(adoc, \u{00a4}[\n[source,rust]\n----\nfn main() {}\n----\n\u{00a4}])\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
 fn lint_raw_wvb_tables_detects_unwrapped_table_fence() {
     let text = "[cols=\"1,1\"]\n|===\n| A | B\n|===\n";
     let violations = lint_raw_wvb_tables(Path::new("sample.wvb"), text);

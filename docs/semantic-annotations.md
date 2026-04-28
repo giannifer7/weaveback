@@ -1,9 +1,13 @@
-= Semantic Annotation Layer
-:toc: left
+---
+title: |-
+  Semantic Annotation Layer
+toc: left
+---
+# Semantic Annotation Layer
 
 Here’s a design that fits Weaveback much better than changing prose language.
 
-== The goal
+## The goal
 
 Keep prose natural, but make the most important parts of intent **structured enough** that:
 
@@ -18,10 +22,10 @@ So the idea is:
 +
 **small intent annotations for semantics**
 
-'''
+---
 
 
-== Design principles
+## Design principles
 
 The annotation layer should be:
 
@@ -34,26 +38,24 @@ The annotation layer should be:
 
 It should feel closer to:
 
-[source,text]
-----
+```text
 @intent avoid global mutable state
 @because cross-pass behavior becomes hard to reason about
-----
+```
 
 
 than to YAML soup or a theorem prover.
 
-'''
+---
 
 
-== A minimal syntax
+## A minimal syntax
 
 I would start with a very small family of directives.
 
-=== Core directives
+### Core directives
 
-[source,text]
-----
+```text
 @intent ...
 @because ...
 @invariant ...
@@ -66,15 +68,14 @@ I would start with a very small family of directives.
 @example ...
 @status ...
 @question ...
-----
+```
 
 
 These are deliberately human-readable.
 
 Example:
 
-[source,text]
-----
+```text
 The parser uses a push-down state machine rather than a general parser
 generator.
 
@@ -82,15 +83,15 @@ generator.
 @because grammar is small but edge cases are subtle
 @tradeoff more handwritten code for easier tracing
 @risk state explosion if too many ad hoc exceptions accumulate
-----
+```
 
 
 That already gives you a lot.
 
-'''
+---
 
 
-== Why this shape works
+## Why this shape works
 
 It preserves the prose as the main thing. The structured lines are just anchors.
 
@@ -115,41 +116,39 @@ That is enough to support:
 * consistency checks
 * targeted agent prompts
 
-'''
+---
 
 
-== Two levels: freeform and normalized
+## Two levels: freeform and normalized
 
 You probably want two layers eventually.
 
-=== Level 1: freeform
+### Level 1: freeform
 
 Very easy to write:
 
-[source,text]
-----
+```text
 @intent avoid hidden coupling
 @because reverse mapping must stay explainable
-----
+```
 
 
-=== Level 2: normalized
+### Level 2: normalized
 
 For places where you want more machine leverage:
 
-[source,text]
-----
+```text
 @intent avoid(hidden_coupling)
 @because explainable(reverse_mapping)
-----
+```
 
 
 My advice: start with **freeform**, and only normalize where repeated patterns emerge. Do not over-formalize too early.
 
-'''
+---
 
 
-== Scoping model
+## Scoping model
 
 This matters a lot.
 
@@ -169,8 +168,7 @@ ____
 
 Example:
 
-[source,adoc]
-----
+```adoc
 == Why the safe writer checks baselines
 
 External edits are expected. Silent overwrite would destroy trust in the
@@ -183,50 +181,47 @@ system.
 // <[safe-writer-check]>=
 ...
 // @
-----
+```
 
 
 These annotations apply to the section above unless a chunk immediately follows and you define that adjacency binds to the chunk. You need one clear rule and to keep it simple.
 
 I would actually make it explicit.
 
-'''
+---
 
 
-== Better: explicit attachment
+## Better: explicit attachment
 
 Use one optional attachment directive:
 
-[source,text]
-----
+```text
 @about section
 @about chunk safe-writer-check
 @about file crates/weaveback-noweb/src/safe_writer.rs
-----
+```
 
 
 Example:
 
-[source,text]
-----
+```text
 @about chunk safe-writer-check
 @intent preserve user trust during reverse writes
 @invariant generated files modified externally must not be overwritten silently
 @because apply-back must be auditable
-----
+```
 
 
 This removes ambiguity and is easier for tooling.
 
-'''
+---
 
 
-== Recommended concrete grammar
+## Recommended concrete grammar
 
 I would use this:
 
-[source,text]
-----
+```text
 @about <kind> <target?>
 @intent <text>
 @because <text>
@@ -239,7 +234,7 @@ I would use this:
 @affects <text>
 @status <text>
 @question <text>
-----
+```
 
 
 Where `<kind>` is one of:
@@ -253,41 +248,38 @@ Where `<kind>` is one of:
 
 Examples:
 
-[source,text]
-----
+```text
 @about chunk parser-block-state
 @intent terminate only on matching block close
 @invariant block state must never consume a mismatched closing tag
 @because mismatches must be reported, not normalized away
-----
+```
 
 
-[source,text]
-----
+```text
 @about file crates/weaveback-noweb/src/db.rs
 @intent centralize persistence logic
 @tradeoff tighter coupling to sqlite for simpler trace queries
 @risk schema drift across tool versions
-----
+```
 
 
-'''
+---
 
 
-== Multiline values
+## Multiline values
 
 You will need them.
 
 Keep the single-line form for most cases, but allow an indented block:
 
-[source,text]
-----
+```text
 @about chunk apply-back
 @because
   Reverse application is only trustworthy if the user can inspect both
   the source span and the generated baseline.
   A black-box overwrite would defeat the point of literate traceability.
-----
+```
 
 
 Parsing rule:
@@ -297,30 +289,28 @@ Parsing rule:
 
 This is easy to parse and nice to write.
 
-'''
+---
 
 
-== Cross references
+## Cross references
 
 You will want relations between concepts.
 
 Add a tiny reference convention:
 
-[source,text]
-----
+```text
 @see chunk parser-block-state
 @see file crates/weaveback-macro/src/parser/mod.rs
 @see concept reverse-mapping
-----
+```
 
 
 and maybe:
 
-[source,text]
-----
+```text
 @conflicts chunk old-safe-writer
 @implements invariant no-silent-overwrite
-----
+```
 
 
 But I would not start with too many relation types. Maybe just:
@@ -329,15 +319,14 @@ But I would not start with too many relation types. Maybe just:
 * `@depends`
 * `@affects`
 
-'''
+---
 
 
-== Suggested first version
+## Suggested first version
 
 If I were trying to keep this sane, version 1 would include only:
 
-[source,text]
-----
+```text
 @about
 @intent
 @because
@@ -348,20 +337,19 @@ If I were trying to keep this sane, version 1 would include only:
 @see
 @status
 @question
-----
+```
 
 
 That is enough to be useful without becoming a second programming language.
 
-'''
+---
 
 
-== Example inside a literate source
+## Example inside a literate source
 
 Here’s a realistic fragment.
 
-[source,adoc]
-----
+```adoc
 == Safe reverse write policy
 
 The reverse write path is where the tool either becomes trustworthy or
@@ -386,15 +374,15 @@ fn verify_baseline(...) -> Result<(), SafeWriterError> {
 @depends baseline database entry for generated path
 @guarantee modified_externally is reported before source mutation
 @see concept apply-back-safety
-----
+```
 
 
 This is readable even without tooling.
 
-'''
+---
 
 
-== How it maps to SQLite
+## How it maps to SQLite
 
 This is where it gets interesting for Weaveback.
 
@@ -402,7 +390,7 @@ You already care about traceability. So treat annotations as first-class mapped 
 
 I’d add tables roughly like these.
 
-=== `doc_node`
+### `doc_node`
 
 Represents semantic anchors in the literate source.
 
@@ -415,7 +403,7 @@ Columns:
 * `start_line`
 * `end_line`
 
-=== `annotation`
+### `annotation`
 
 Stores structured intent statements.
 
@@ -430,7 +418,7 @@ Columns:
 * `line_start`
 * `line_end`
 
-=== `relation`
+### `relation`
 
 Optional normalized edges.
 
@@ -442,7 +430,7 @@ Columns:
 * `to_kind`
 * `to_target`
 
-=== `generated_span_to_doc_node`
+### `generated_span_to_doc_node`
 
 A bridge from generated code spans to semantic source nodes.
 
@@ -465,42 +453,42 @@ ____
 
 That is gold.
 
-'''
+---
 
 
-== Queries this enables
+## Queries this enables
 
 Once stored, you can do genuinely useful things.
 
-=== 1. “Why does this line exist?”
+### 1. “Why does this line exist?”
 
 Given a generated line:
 
 * map to source chunk
 * fetch nearby `@intent`, `@because`, `@tradeoff`
 
-=== 2. “What invariants apply to this function?”
+### 2. “What invariants apply to this function?”
 
 Find source node for chunk/file/function, then attached invariants.
 
-=== 3. “Show all risks in this module”
+### 3. “Show all risks in this module”
 
 Search annotations where key = `risk` and source path matches module.
 
-=== 4. “Find undocumented chunks”
+### 4. “Find undocumented chunks”
 
 Chunks with no attached `intent` or `because`.
 
-=== 5. “Find stale intent”
+### 5. “Find stale intent”
 
 Chunks whose code changed significantly since the annotation changed.
 
 That last one is especially valuable.
 
-'''
+---
 
 
-== Agent workflows
+## Agent workflows
 
 This is where your “project-aware AI” idea gets much stronger.
 
@@ -522,14 +510,14 @@ ____
 
 That is far better than generic RAG over arbitrary chunks.
 
-'''
+---
 
 
-== Consistency checks you could build
+## Consistency checks you could build
 
 Not formal proof, just useful linting.
 
-=== Documentation lint
+### Documentation lint
 
 Warn if:
 
@@ -538,7 +526,7 @@ Warn if:
 * `@question` remains unresolved
 * `@status deprecated` but still widely referenced
 
-=== Drift lint
+### Drift lint
 
 Warn if:
 
@@ -548,10 +536,10 @@ Warn if:
 
 These checks will be fuzzy, but still useful.
 
-'''
+---
 
 
-== Why this is better than just prose
+## Why this is better than just prose
 
 Normal prose is rich but hard to query.
 
@@ -564,20 +552,19 @@ It’s basically:
 * much more useful than plain comments
 * aligned with literate programming
 
-'''
+---
 
 
-== Why this is better than YAML blocks
+## Why this is better than YAML blocks
 
 You could write:
 
-[source,yaml]
-----
+```yaml
 intent:
   - preserve trust
 invariants:
   - no silent overwrite
-----
+```
 
 
 But YAML has a bad habit: it visually dominates the prose and encourages schema creep.
@@ -586,40 +573,38 @@ Inline `@intent` lines feel more like annotations and less like config.
 
 That matters.
 
-'''
+---
 
 
-== A possible future extension
+## A possible future extension
 
 Later, if you want more rigor, you can add stable IDs.
 
-[source,text]
-----
+```text
 @id apply-back-safety
 @intent preserve trust in reverse synchronization
 @invariant no silent overwrite of externally modified generated files
-----
+```
 
 
 Then other places can reference:
 
-[source,text]
-----
+```text
 @see concept apply-back-safety
 @implements invariant apply-back-safety
-----
+```
 
 
 This would let you build a graph of design concepts across files.
 
 But I would not begin there unless you already feel the pain.
 
-'''
+---
 
 
-== My recommended adoption path
+## My recommended adoption path
 
-=== Phase 1
+### Phase 1
 
 Add only:
 
@@ -632,26 +617,24 @@ Add only:
 
 Do this by hand in a few important files.
 
-=== Phase 2
+### Phase 2
 
 Parse them and store them in SQLite.
 
-=== Phase 3
+### Phase 3
 
 Teach `where` or `trace` to show nearby annotations.
 
 For example:
 
-[source,bash]
-----
+```bash
 wb-query where gen/src/parser.rs:148
-----
+```
 
 
 Could output something like:
 
-[source,text]
-----
+```text
 Generated: gen/src/parser.rs:148
 Source: docs/parser.adoc:212
 Chunk: parser-block-state
@@ -664,19 +647,19 @@ Invariant:
 
 Tradeoff:
   more handwritten code for easier tracing
-----
+```
 
 
 That would be excellent.
 
-=== Phase 4
+### Phase 4
 
 Add linting for missing/stale intent.
 
-'''
+---
 
 
-== My honest recommendation on language choice
+## My honest recommendation on language choice
 
 Use **English** for these annotations, even if some prose is in Italian.
 
@@ -694,10 +677,10 @@ A mixed model is fine:
 * narrative in Italian or English
 * structured annotations in short technical English
 
-'''
+---
 
 
-== Bottom line
+## Bottom line
 
 What you want is not a better natural language.
 
@@ -714,10 +697,10 @@ This gives you:
 
 without turning your docs into a logic experiment.
 
-'''
+---
 
 
-== Multiline Formatting Guidelines
+## Multiline Formatting Guidelines
 
 Good question—this is one of those details that can make or break the ergonomics.
 
@@ -728,23 +711,22 @@ You want something that:
 * is trivial to parse (your lexer will thank you)
 * doesn’t visually dominate the prose
 
-'''
+---
 
 
-=== Core rule (keep it consistent everywhere)
+### Core rule (keep it consistent everywhere)
 
 Use **indent-based multiline blocks**, like this:
 
-[source,text]
-----
+```text
 @because
   Reverse application is only trustworthy if the user can inspect both
   the source span and the generated baseline.
   A black-box overwrite would defeat the point of literate traceability.
-----
+```
 
 
-==== Parsing rule
+#### Parsing rule
 
 * `@key VALUE` → single-line
 * `@key` + **indented lines** → multiline
@@ -755,15 +737,14 @@ Use **indent-based multiline blocks**, like this:
 
 This works identically in `.adoc` and `.md`.
 
-'''
+---
 
 
-=== In Markdown (.md)
+### In Markdown (.md)
 
-==== Recommended style
+#### Recommended style
 
-[source,markdown]
-----
+```markdown
 We avoid caching here.
 
 @because
@@ -772,23 +753,22 @@ We avoid caching here.
 
 @tradeoff
   Slight performance loss in exchange for correctness.
-----
+```
 
 
-==== Why this works
+#### Why this works
 
 * Markdown treats this as plain text → no rendering issues
 * indentation is visually clear
 * no need for code blocks (which would be noisy)
 
-==== Avoid this (tempting but bad)
+#### Avoid this (tempting but bad)
 
-[source,markdown]
-----
+```markdown
 @because """
 Reverse application is only trustworthy...
 """
-----
+```
 
 
 Why:
@@ -797,17 +777,16 @@ Why:
 * harder to parse
 * visually heavier
 
-==== Also avoid fenced blocks
+#### Also avoid fenced blocks
 
-[source,markdown]
-----
+```markdown
 @because
 ----
 
 [source,markdown]
 ----
 Reverse application...
-----
+```
 
 
 Why:
@@ -816,14 +795,13 @@ Why:
 * looks like code, not intent
 * harder to associate structurally
 
-=== In AsciiDoc (.adoc)
+### In AsciiDoc (.adoc)
 
 AsciiDoc is trickier because it has richer syntax—but the same approach still works.
 
-==== Recommended (same as Markdown)
+#### Recommended (same as Markdown)
 
-[source,adoc]
-----
+```adoc
 We avoid caching here.
 
 @because
@@ -832,24 +810,23 @@ We avoid caching here.
 
 @tradeoff
   Slight performance loss in exchange for correctness.
-----
+```
 
 
 AsciiDoc will render this as a paragraph with line breaks—fine.
 
-==== Optional: make it visually distinct (if you want)
+#### Optional: make it visually distinct (if you want)
 
 You *can* wrap annotations in a block, but I wouldn’t require it:
 
-[source,adoc]
-----
+```adoc
 [.intent]
 --
 @because
   Reverse application is only trustworthy if the user can inspect both
   the source span and the generated baseline.
 --
-----
+```
 
 
 Pros:
@@ -864,64 +841,63 @@ Cons:
 
 👉 I would **not require this** in v1.
 
-'''
+---
 
 
-=== Edge cases you should define
+### Edge cases you should define
 
-==== 1. Blank lines inside multiline blocks
+#### 1. Blank lines inside multiline blocks
 
 Allow them:
 
-[source,text]
-----
+```text
 @because
   First reason.
 
   Second reason.
-----
+```
 
 
 Rule:
 
 * blank line is allowed **if still indented**
 
-==== 2. Mixed single + multi
+#### 2. Mixed single + multi
 
-[source,text]
-----
+```text
 @intent preserve trust
 @because
   Reverse application must be explainable.
-----
+```
 
 
 Perfectly fine.
 
-==== 3. Multiple annotations of same type
+#### 3. Multiple annotations of same type
 
-[source,text]
-----
+```text
 @risk false positives may annoy users
 @risk false negatives would be catastrophic
-----
+```
 
 
 Keep them as separate entries (simpler than lists).
 
-=== Why indentation beats everything else
+### Why indentation beats everything else
 
 Alternatives you might consider:
 
-[options="header"]
-|===
-| Approach | Problem
-| YAML blocks | too heavy, dominates prose
-| JSON | unreadable in docs
-| Triple quotes | new syntax rules
-| Code blocks | wrong semantic signal
-| Lojban 😄 | overkill
-|===
+<!-- weaveback-table:adoc -->
+
+| Approach | Problem |
+| --- | --- |
+| YAML blocks | too heavy, dominates prose |
+| JSON | unreadable in docs |
+| Triple quotes | new syntax rules |
+| Code blocks | wrong semantic signal |
+| Lojban 😄 | overkill |
+
+<!-- /weaveback-table -->
 
 Indentation gives you:
 
@@ -929,10 +905,10 @@ Indentation gives you:
 * familiar mental model (Python, Markdown lists, etc.)
 * trivial parsing (just count spaces)
 
-'''
+---
 
 
-=== Minimal parser sketch (fits your style)
+### Minimal parser sketch (fits your style)
 
 Given your lexer/DPDA mindset, this is easy:
 
@@ -946,15 +922,14 @@ Given your lexer/DPDA mindset, this is easy:
 
 You don’t need a full parser—this is almost regex + state.
 
-'''
+---
 
 
-=== Example mixing with chunks (your real use case)
+### Example mixing with chunks (your real use case)
 
-==== Markdown
+#### Markdown
 
-[source,markdown]
-----
+```markdown
 ## Safe reverse write
 
 External edits must not be overwritten silently.
@@ -974,13 +949,12 @@ fn verify_baseline(...) { ... }
 @invariant
 If generated file differs from baseline,
 reverse write must abort with explicit error.
-----
+```
 
 
-==== AsciiDoc
+#### AsciiDoc
 
-[source,adoc]
-----
+```adoc
 == Safe reverse write
 
 External edits must not be overwritten silently.
@@ -1001,36 +975,34 @@ fn verify_baseline(...) { ... }
 @invariant
   If generated file differs from baseline,
   reverse write must abort with explicit error.
-----
+```
 
 
-=== Small refinement (optional but nice)
+### Small refinement (optional but nice)
 
 Allow **inline continuation with `\`** for tight blocks:
 
-[source,text]
-----
+```text
 @because Reverse application must be explainable \
          and traceable to the original source.
-----
+```
 
 
 But I’d treat this as sugar, not core.
 
-'''
+---
 
 
-=== Final recommendation
+### Final recommendation
 
 Use exactly this:
 
-[source,text]
-----
+```text
 @key value              # single line
 @key                    # multiline
   indented text
   more text
-----
+```
 
 
 Same in `.md` and `.adoc`.

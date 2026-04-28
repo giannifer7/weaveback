@@ -63,6 +63,7 @@ Both prelude implementations define the same names:
 ¤h1(title)
 ¤h2(title)
 ¤h3(title)
+¤h4(title)
 ¤rule()
 ¤sigil()
 ¤rust_chunk(name, body)

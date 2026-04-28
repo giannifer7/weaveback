@@ -9,6 +9,8 @@
 
 ¤redef(h3, title, ¤{=== ¤(title)¤})
 
+¤redef(h4, title, ¤{==== ¤(title)¤})
+
 ¤redef(rule, ¤{'''
 ¤})
 

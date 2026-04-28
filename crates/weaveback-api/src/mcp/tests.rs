@@ -3,6 +3,11 @@
 
 use super::*;
 use crate::process;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use weaveback_lsp::LspClient;
+use weaveback_macro::evaluator::EvalConfig;
+use weaveback_tangle::db::WeavebackDb;
 
 /// `get_or_spawn_lsp` must return an error immediately for unsupported
 /// extensions, without spawning any process.

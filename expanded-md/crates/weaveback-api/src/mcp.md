@@ -62,7 +62,7 @@ The loop exits cleanly on EOF or an I/O error.
 
 ```rust
 // <[mcp-run]>=
-fn get_or_spawn_lsp<'a>(
+pub(crate) fn get_or_spawn_lsp<'a>(
     clients: &'a mut HashMap<String, LspClient>,
     ext: &str,
 ) -> Result<&'a mut LspClient, String> {
@@ -843,7 +843,7 @@ These three functions build and print JSON-RPC 2.0 response objects on stdout.
 
 ```rust
 // <[mcp-helpers]>=
-fn send_response<W: Write>(writer: &mut W, id: Option<Value>, result: Value) {
+pub(super) fn send_response<W: Write>(writer: &mut W, id: Option<Value>, result: Value) {
     let mut resp = json!({ "jsonrpc": "2.0" });
     if let Some(id) = id {
         resp.as_object_mut().unwrap().insert("id".to_string(), id);
@@ -852,13 +852,13 @@ fn send_response<W: Write>(writer: &mut W, id: Option<Value>, result: Value) {
     let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap());
 }
 
-fn send_text<W: Write>(writer: &mut W, id: Option<Value>, text: &str) {
+pub(super) fn send_text<W: Write>(writer: &mut W, id: Option<Value>, text: &str) {
     send_response(writer, id, json!({
         "content": [{ "type": "text", "text": text }]
     }));
 }
 
-fn send_error<W: Write>(writer: &mut W, id: Option<Value>, msg: &str) {
+pub(super) fn send_error<W: Write>(writer: &mut W, id: Option<Value>, msg: &str) {
     send_response(writer, id, json!({
         "isError": true,
         "content": [{ "type": "text", "text": msg }]
@@ -882,6 +882,11 @@ shorter while preserving local literate ownership of the tests.
 
 use super::*;
 use crate::process;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use weaveback_lsp::LspClient;
+use weaveback_macro::evaluator::EvalConfig;
+use weaveback_tangle::db::WeavebackDb;
 
 /// `get_or_spawn_lsp` must return an error immediately for unsupported
 /// extensions, without spawning any process.
@@ -1617,14 +1622,45 @@ fn mcp_coverage_success_path() {
 // weaveback-api/src/mcp.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-// <[mcp-types]>
+mod helpers;
+mod run;
 
-// <[mcp-run]>
+pub use run::run_mcp;
 
-// <[mcp-helpers]>
+#[cfg(test)]
+pub(crate) use run::get_or_spawn_lsp;
 
 #[cfg(test)]
 mod tests;
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-api/src/mcp/run.rs]>=
+// weaveback-api/src/mcp/run.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[mcp-types]>
+
+use super::helpers::{send_error, send_response, send_text};
+
+// <[mcp-run]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-api/src/mcp/helpers.rs]>=
+// weaveback-api/src/mcp/helpers.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use serde_json::{json, Value};
+use std::io::Write;
+
+// <[mcp-helpers]>
 
 // @
 ```

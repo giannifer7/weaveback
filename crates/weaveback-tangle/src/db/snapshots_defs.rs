@@ -1,0 +1,102 @@
+// weaveback-tangle/src/db/snapshots_defs.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl WeavebackDb {
+    pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT content FROM src_snapshots WHERE path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn list_src_snapshots(&self) -> Result<Vec<(String, Vec<u8>)>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, content FROM src_snapshots")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?
+        )
+    }
+
+    pub fn set_src_snapshot(&self, path: &str, content: &[u8]) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO src_snapshots (path, content) VALUES (?1, ?2)",
+            params![path, content],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_var_def(
+        &self,
+        var_name: &str,
+        src_file: &str,
+        pos: u32,
+        length: u32,
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO var_defs (var_name, src_file, pos, length)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![var_name, file_id, pos, length],
+        )?;
+        Ok(())
+    }
+
+    pub fn query_var_defs(&self, var_name: &str) -> Result<Vec<(String, u32, u32)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, vd.pos, vd.length
+             FROM var_defs vd JOIN files f ON f.id = vd.src_file
+             WHERE vd.var_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![var_name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?
+        )
+    }
+
+    pub fn record_macro_def(
+        &self,
+        macro_name: &str,
+        src_file: &str,
+        pos: u32,
+        length: u32,
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO macro_defs (macro_name, src_file, pos, length)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![macro_name, file_id, pos, length],
+        )?;
+        Ok(())
+    }
+
+    pub fn query_macro_defs(
+        &self,
+        macro_name: &str,
+    ) -> Result<Vec<(String, u32, u32)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, md.pos, md.length
+             FROM macro_defs md JOIN files f ON f.id = md.src_file
+             WHERE md.macro_name = ?1",
+        )?;
+        let rows = stmt.query_map(params![macro_name], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, u32>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?
+        )
+    }
+}
+

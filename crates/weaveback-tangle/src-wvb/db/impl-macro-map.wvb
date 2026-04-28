@@ -1,0 +1,52 @@
+¤h1(¤[DB Macro Map¤])
+
+Macro-expansion trace map storage and lookup.
+
+¤h2(¤[macro_map¤])
+
+Pre-serialized entries (opaque `BLOB` per line) written by the macro expander
+and read back during trace operations.  The driver file path is interned before
+the transaction; `get_macro_map_bytes` resolves the path via a JOIN.
+
+¤rust_chunk(db-macro-map, ¤[
+impl WeavebackDb {
+    pub fn set_macro_map_entries(
+        &mut self,
+        driver_file: &str,
+        entries: &[(u32, Vec<u8>)],
+    ) -> Result<(), DbError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let file_id = intern_file(&self.conn, driver_file)?;
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO macro_map (driver_file, expanded_line, data)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for (line, bytes) in entries {
+                stmt.execute(params![file_id, *line, bytes.as_slice()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_macro_map_bytes(
+        &self,
+        driver_file: &str,
+        expanded_line: u32,
+    ) -> Result<Option<Vec<u8>>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT mm.data FROM macro_map mm JOIN files f ON f.id = mm.driver_file
+                 WHERE f.path = ?1 AND mm.expanded_line = ?2",
+                params![driver_file, expanded_line],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+}
+¤])

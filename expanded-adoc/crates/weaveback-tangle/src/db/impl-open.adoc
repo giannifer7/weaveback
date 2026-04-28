@@ -1,0 +1,120 @@
+= DB Open Modes
+
+Connection construction, file interning, and schema application.
+
+== WeavebackDb — open modes
+
+`WeavebackDb` wraps a single `rusqlite::Connection`.  Three constructors cover
+the three use cases:
+
+* `open` — read-write with WAL mode; used when writing the persistent
+  `weaveback.db` directly (uncommon — most writes go through `open_temp` +
+  `merge_into`).
+* `open_read_only` — read-only, never blocks concurrent writers; used in the
+  MCP server and apply-back reads.
+* `open_temp` — in-memory database that accumulates all writes during a single
+  weaveback run; `merge_into` flushes it to the target file at the end.
+
+`intern_file` inserts a path into `files` if it is not already there, then
+returns its integer ID.  All write methods call this before their transaction so
+the IDs are available without opening a nested transaction.
+
+`needs_file_id_migration` checks whether an on-disk database was created before
+the file-ID schema was introduced by inspecting the column type of
+`noweb_map.out_file`.  `apply_schema` uses this to drop and recreate the
+affected tables (while preserving `gen_baselines` and `src_snapshots`) before
+running `CREATE_SCHEMA`.
+
+[source,rust]
+----
+// <[db-open]>=
+pub struct WeavebackDb {
+    conn: Connection,
+}
+
+/// Intern a file path: insert if not present, return the row id.
+fn intern_file(conn: &Connection, path: &str) -> Result<i64, DbError> {
+    conn.execute("INSERT OR IGNORE INTO files (path) VALUES (?1)", params![path])?;
+    Ok(conn.query_row(
+        "SELECT id FROM files WHERE path = ?1",
+        params![path],
+        |row| row.get(0),
+    )?)
+}
+
+/// Detect whether the db uses the pre-file-ID schema (noweb_map.out_file is TEXT).
+fn needs_file_id_migration(conn: &Connection) -> Result<bool, DbError> {
+    let col_type: Option<String> = conn.query_row(
+        "SELECT type FROM pragma_table_info('noweb_map') WHERE name='out_file'",
+        [],
+        |row| row.get(0),
+    ).optional()?;
+    Ok(col_type.as_deref() == Some("TEXT"))
+}
+
+/// Detect whether `prose_fts` is missing the `tags` column (pre-0.9.2 schema).
+fn needs_prose_fts_tags_migration(conn: &Connection) -> Result<bool, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('prose_fts') WHERE name='tags'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0);
+    Ok(count == 0)
+}
+
+fn apply_schema(conn: &Connection) -> Result<(), DbError> {
+    // If the db was created with the old TEXT-based file columns, drop those
+    // tables so CREATE_SCHEMA recreates them with integer IDs.  The db is a
+    // disposable build artefact; gen_baselines and src_snapshots (which store
+    // the per-file baselines and source snapshots) are left intact.
+    if needs_file_id_migration(conn)? {
+        conn.execute_batch("
+            DROP TABLE IF EXISTS noweb_map;
+            DROP TABLE IF EXISTS macro_map;
+            DROP TABLE IF EXISTS var_defs;
+            DROP TABLE IF EXISTS macro_defs;
+            DROP TABLE IF EXISTS chunk_deps;
+            DROP TABLE IF EXISTS chunk_defs;
+            DROP TABLE IF EXISTS literate_source_config;
+            DROP TABLE IF EXISTS source_blocks;
+        ")?;
+    }
+
+    // FTS5 virtual tables cannot be altered; drop and recreate when the schema
+    // gains a new column.  rebuild_prose_fts always repopulates from source.
+    if needs_prose_fts_tags_migration(conn)? {
+        conn.execute("DROP TABLE IF EXISTS prose_fts", [])?;
+    }
+
+    conn.execute_batch(CREATE_SCHEMA).map_err(DbError::Sql)?;
+    Ok(())
+}
+
+impl WeavebackDb {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        apply_schema(&conn)?;
+        Ok(Self { conn })
+    }
+
+    pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        Ok(Self { conn })
+    }
+
+    pub fn open_temp() -> Result<Self, DbError> {
+        let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        apply_schema(&conn)?;
+        Ok(Self { conn })
+    }
+}
+// @
+----
+

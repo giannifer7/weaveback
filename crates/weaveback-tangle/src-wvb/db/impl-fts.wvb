@@ -1,0 +1,422 @@
+¤h1(¤[DB FTS And Embeddings¤])
+
+FTS search, tags, embeddings, and semantic search.
+
+¤h2(¤[Prose search and embeddings¤])
+
+`rebuild_prose_fts` repopulates the `prose_fts` FTS5 table from the content
+stored in `src_snapshots` and the block boundaries in `source_blocks`.  It is
+called at the end of each tangle run so that `weaveback search` and the
+`weaveback_search` MCP tool always reflect the latest source.
+
+Only `"section"` and `"para"` blocks are indexed — code blocks contain Rust
+syntax that would pollute keyword matches with noise.
+
+`search_prose` runs a BM25-ranked FTS5 query and returns up to `limit` results
+with a `snippet()` excerpt showing the matching context.
+
+`block_embeddings` adds an optional semantic layer.  We intentionally keep it
+simple:
+
+* embeddings are stored per prose block in the same SQLite database
+* blocks are re-embedded only when their BLAKE3 content hash changes or when
+  the configured embedding model changes
+* semantic lookup is a bounded brute-force cosine scan over prose blocks
+
+This avoids an external vector store and keeps semantic retrieval a local
+augmentation over the existing FTS-plus-tags pipeline.
+
+¤rust_chunk(db-fts, ¤[
+/// A single result from `search_prose`.
+#[derive(Debug, Clone)]
+pub struct FtsResult {
+    pub src_file:   String,
+    pub block_type: String,
+    pub line_start: u32,
+    pub line_end:   u32,
+    /// Short excerpt with matched terms wrapped in `**...**`.
+    pub snippet:    String,
+    /// Comma-separated LLM-generated tags; empty if block has not been tagged.
+    pub tags:       String,
+}
+
+/// A tagged block returned by `list_block_tags`.
+#[derive(Debug, Clone)]
+pub struct TaggedBlock {
+    pub src_file:    String,
+    pub block_index: u32,
+    pub block_type:  String,
+    pub line_start:  u32,
+    pub tags:        String,
+}
+
+/// A block that needs embeddings (never embedded, content changed, or model changed).
+#[derive(Debug, Clone)]
+pub struct BlockForEmbedding {
+    pub src_file:     String,
+    pub block_index:  u32,
+    pub block_type:   String,
+    pub line_start:   u32,
+    pub line_end:     u32,
+    pub content_hash: Vec<u8>,
+}
+
+/// A semantic-search hit returned by `search_prose_by_embedding`.
+#[derive(Debug, Clone)]
+pub struct SemanticResult {
+    pub src_file:   String,
+    pub block_type: String,
+    pub line_start: u32,
+    pub line_end:   u32,
+    pub snippet:    String,
+    pub tags:       String,
+    pub score:      f32,
+}
+
+fn normalise_snapshot_path(raw: &str, cwd: &std::path::Path) -> String {
+    let p = std::path::Path::new(raw);
+    if p.is_absolute() {
+        if let Ok(rel) = p.strip_prefix(cwd) {
+            return rel.to_string_lossy().into_owned();
+        }
+        return raw.to_string();
+    }
+    raw.strip_prefix("./").map(str::to_owned).unwrap_or_else(|| raw.to_string())
+}
+
+fn prose_snippet(content: &str) -> String {
+    let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = compact.chars();
+    let prefix: String = chars.by_ref().take(160).collect();
+    if chars.next().is_some() {
+        format!("{prefix}…")
+    } else {
+        prefix
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut norm_a = 0.0f32;
+    let mut norm_b = 0.0f32;
+    for (&lhs, &rhs) in a.iter().zip(b.iter()) {
+        dot += lhs * rhs;
+        norm_a += lhs * lhs;
+        norm_b += rhs * rhs;
+    }
+    let denom = norm_a.sqrt() * norm_b.sqrt();
+    if denom <= f32::EPSILON {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+impl WeavebackDb {
+    /// Rebuild the `prose_fts` index from `src_snapshots` + `source_blocks`.
+    /// Drops and re-inserts all rows so the index is always consistent.
+    /// `root` overrides the CWD for path normalization.
+    pub fn rebuild_prose_fts(&mut self, root: Option<&std::path::Path>) -> Result<(), DbError> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM prose_fts", [])?;
+
+        // Snapshot paths may be stored as "./rel", "rel", or absolute.
+        // The files table uses plain relative paths.  Normalise here.
+        let cwd = root.map(|p| p.to_path_buf()).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+        // Load all snapshots; query block metadata per file.
+        // Deduplicate after path normalisation: the same source file may be
+        // stored under both `./rel/path` and `rel/path` from different passes.
+        let snapshots: Vec<(String, String)> = {
+            let mut stmt = tx.prepare(
+                "SELECT path, content FROM src_snapshots",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?;
+            let mut seen = std::collections::HashSet::new();
+            rows.filter_map(|r| r.ok())
+                .filter_map(|(path, bytes)| {
+                    let path = normalise_snapshot_path(&path, &cwd);
+                    String::from_utf8(bytes).ok().map(|s| (path, s))
+                })
+                .filter(|(path, _)| seen.insert(path.clone()))
+                .collect()
+        };
+
+        for (path, source) in &snapshots {
+            let lines: Vec<&str> = source.lines().collect();
+            let mut stmt = tx.prepare_cached(
+                "SELECT DISTINCT sb.block_type, sb.line_start, sb.line_end, sb.block_index
+                 FROM source_blocks sb JOIN files f ON f.id = sb.src_file
+                 WHERE f.path = ?1
+                   AND sb.block_type IN ('section', 'para')
+                 ORDER BY sb.line_start",
+            )?;
+            let blocks: Vec<(String, u32, u32, u32)> = stmt
+                .query_map(params![path], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u32>(1)?,
+                        row.get::<_, u32>(2)?,
+                        row.get::<_, u32>(3)?,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO prose_fts (content, tags, src_file, block_type, line_start, line_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            let mut tag_stmt = tx.prepare_cached(
+                "SELECT bt.tags FROM block_tags bt
+                 JOIN files f ON f.id = bt.src_file
+                 WHERE f.path = ?1 AND bt.block_index = ?2",
+            )?;
+            for (btype, start, end, block_index) in blocks {
+                let lo = (start as usize).saturating_sub(1);
+                let hi = (end as usize).min(lines.len());
+                if lo >= hi { continue; }
+                let content = lines[lo..hi].join("\n");
+                if content.trim().is_empty() { continue; }
+                let tags: String = tag_stmt
+                    .query_row(params![path, block_index], |row| row.get(0))
+                    .unwrap_or_default();
+                ins.execute(params![content, tags, path, btype, start, end])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// BM25-ranked full-text search over literate source prose.
+    pub fn search_prose(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<FtsResult>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT src_file, block_type, line_start, line_end,
+                    snippet(prose_fts, 0, '**', '**', '…', 16),
+                    tags
+             FROM prose_fts
+             WHERE prose_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![query, limit as i64], |row| {
+            Ok(FtsResult {
+                src_file:   row.get(0)?,
+                block_type: row.get(1)?,
+                line_start: row.get(2)?,
+                line_end:   row.get(3)?,
+                snippet:    row.get(4)?,
+                tags:       row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// List all tagged blocks, optionally filtered to a single source file.
+    /// `file_filter` should be a plain relative path (no leading `./`).
+    pub fn list_block_tags(
+        &self,
+        file_filter: Option<&str>,
+    ) -> Result<Vec<TaggedBlock>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, bt.block_index, sb.block_type, sb.line_start, bt.tags
+             FROM block_tags bt
+             JOIN files f ON f.id = bt.src_file
+             LEFT JOIN source_blocks sb
+               ON sb.src_file = bt.src_file AND sb.block_index = bt.block_index
+             WHERE (?1 IS NULL OR f.path = ?1)
+             ORDER BY f.path, sb.line_start",
+        )?;
+        let rows = stmt.query_map(params![file_filter], |row| {
+            Ok(TaggedBlock {
+                src_file:    row.get(0)?,
+                block_index: row.get(1)?,
+                block_type:  row.get(2)?,
+                line_start:  row.get(3)?,
+                tags:        row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Return all prose blocks that have no tag entry or whose content has
+    /// changed since the last tagging run (hash mismatch).
+    pub fn get_blocks_needing_tags(&self) -> Result<Vec<BlockForTagging>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+             FROM source_blocks sb
+             JOIN files f ON f.id = sb.src_file
+             LEFT JOIN block_tags bt
+               ON bt.src_file = sb.src_file AND bt.block_index = sb.block_index
+             WHERE sb.block_type IN ('section', 'para')
+               AND (bt.src_file IS NULL OR bt.content_hash != sb.content_hash)",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(BlockForTagging {
+                src_file:     row.get(0)?,
+                block_index:  row.get(1)?,
+                block_type:   row.get(2)?,
+                line_start:   row.get(3)?,
+                line_end:     row.get(4)?,
+                content_hash: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Return all prose blocks that need embeddings for `model`.
+    pub fn get_blocks_needing_embeddings(
+        &self,
+        model: &str,
+    ) -> Result<Vec<BlockForEmbedding>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_index, sb.block_type, sb.line_start, sb.line_end, sb.content_hash
+             FROM source_blocks sb
+             JOIN files f ON f.id = sb.src_file
+             LEFT JOIN block_embeddings be
+               ON be.src_file = sb.src_file AND be.block_index = sb.block_index
+             WHERE sb.block_type IN ('section', 'para')
+               AND (be.src_file IS NULL OR be.content_hash != sb.content_hash OR be.model != ?1)",
+        )?;
+        let rows = stmt.query_map(params![model], |row| {
+            Ok(BlockForEmbedding {
+                src_file:     row.get(0)?,
+                block_index:  row.get(1)?,
+                block_type:   row.get(2)?,
+                line_start:   row.get(3)?,
+                line_end:     row.get(4)?,
+                content_hash: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Store LLM-generated tags for a block. Overwrites any previous entry.
+    /// `tags` is a comma-separated string, e.g. `"fts,sqlite,search"`.
+    pub fn set_block_tags(
+        &mut self,
+        src_file: &str,
+        block_index: u32,
+        content_hash: &[u8],
+        tags: &str,
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO block_tags (src_file, block_index, content_hash, tags)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![file_id, block_index, content_hash, tags],
+        )?;
+        Ok(())
+    }
+
+    /// Store an embedding vector for a prose block. Overwrites any previous entry.
+    pub fn set_block_embedding(
+        &mut self,
+        src_file: &str,
+        block_index: u32,
+        content_hash: &[u8],
+        model: &str,
+        vector: &[f32],
+    ) -> Result<(), DbError> {
+        let file_id = intern_file(&self.conn, src_file)?;
+        let vector_json = serde_json::to_string(vector)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO block_embeddings
+             (src_file, block_index, content_hash, model, vector_json)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![file_id, block_index, content_hash, model, vector_json],
+        )?;
+        Ok(())
+    }
+
+    /// Brute-force cosine search over stored prose-block embeddings.
+    pub fn search_prose_by_embedding(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SemanticResult>, DbError> {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let mut snapshot_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, sb.block_type, sb.line_start, sb.line_end,
+                    COALESCE(bt.tags, ''), be.vector_json
+             FROM block_embeddings be
+             JOIN files f ON f.id = be.src_file
+             JOIN source_blocks sb
+               ON sb.src_file = be.src_file AND sb.block_index = be.block_index
+             LEFT JOIN block_tags bt
+               ON bt.src_file = be.src_file AND bt.block_index = be.block_index
+             WHERE sb.block_type IN ('section', 'para')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+                row.get::<_, u32>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let (src_file, block_type, line_start, line_end, tags, vector_json) = row?;
+            let block_embedding: Vec<f32> = serde_json::from_str(&vector_json)?;
+            let score = cosine_similarity(query_embedding, &block_embedding);
+            if !score.is_finite() || score <= 0.0 {
+                continue;
+            }
+
+            let snapshot = if let Some(cached) = snapshot_cache.get(&src_file) {
+                cached.clone()
+            } else {
+                let bytes = self.get_src_snapshot(&src_file)?
+                    .or_else(|| {
+                        let alt = normalise_snapshot_path(&src_file, &cwd);
+                        if alt == src_file {
+                            None
+                        } else {
+                            self.get_src_snapshot(&alt).ok().flatten()
+                        }
+                    });
+                let Some(bytes) = bytes else { continue; };
+                let Ok(source) = String::from_utf8(bytes) else { continue; };
+                snapshot_cache.insert(src_file.clone(), source.clone());
+                source
+            };
+
+            let lines: Vec<&str> = snapshot.lines().collect();
+            let lo = (line_start as usize).saturating_sub(1);
+            let hi = (line_end as usize).min(lines.len());
+            if lo >= hi {
+                continue;
+            }
+            let content = lines[lo..hi].join("\n");
+            results.push(SemanticResult {
+                src_file,
+                block_type,
+                line_start,
+                line_end,
+                snippet: prose_snippet(&content),
+                tags,
+                score,
+            });
+        }
+
+        results.sort_by(|lhs, rhs| rhs.score.partial_cmp(&lhs.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(limit);
+        Ok(results)
+    }
+}
+¤])

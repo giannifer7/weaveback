@@ -1,0 +1,11 @@
+¤h1(¤[DB Test Assembly¤])
+
+The generated DB test module includes focused generated test bodies.
+
+¤rust_file(weaveback-tangle/src/db/tests.rs, ¤[
+include!("tests/merge.rs");
+¤])
+
+¤rust_file(weaveback-tangle/src/db/tests/merge.rs, ¤[
+// <[db-tests-merge]>
+¤])

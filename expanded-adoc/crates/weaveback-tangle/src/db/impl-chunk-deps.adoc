@@ -1,0 +1,132 @@
+= DB Chunk Dependencies
+
+Chunk dependency storage and reverse-dependency queries.
+
+== chunk_deps
+
+`set_chunk_deps` replaces all dependency edges for a given source file in one
+transaction.  File paths are interned before the transaction; the unique-IDs
+list drives the delete pass.  `query_chunk_deps` returns everything a chunk
+directly references (forward edges); `query_reverse_deps` returns everything
+that directly references a chunk (backward edges — "what would break if I edit
+this?").  `query_all_chunk_deps` returns every edge in the graph for DOT export.
+`query_chunk_output_files` maps a chunk name to the `gen/` files it contributes
+lines to, enabling `wb-query impact` to report affected output files.
+
+[source,rust]
+----
+// <[db-chunk-deps]>=
+impl WeavebackDb {
+    /// Write direct chunk→chunk dependency edges.
+    /// Each tuple is `(from_chunk, to_chunk, src_file)`.
+    /// Deletes all existing edges for each source file in `deps` before
+    /// reinserting, so stale edges from renamed chunk references are removed.
+    pub fn set_chunk_deps(
+        &mut self,
+        deps: &[(String, String, String)],
+    ) -> Result<(), DbError> {
+        if deps.is_empty() {
+            return Ok(());
+        }
+        // Pre-intern all src_files.
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for (_, _, src) in deps {
+            if let std::collections::hash_map::Entry::Vacant(v) = src_ids.entry(src.as_str()) {
+                v.insert(intern_file(&self.conn, src)?);
+            }
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut unique_ids: Vec<i64> = src_ids.values().copied().collect();
+            unique_ids.sort_unstable();
+            unique_ids.dedup();
+            let mut del = tx.prepare_cached(
+                "DELETE FROM chunk_deps WHERE src_file = ?1",
+            )?;
+            for id in &unique_ids {
+                del.execute(params![id])?;
+            }
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO chunk_deps (from_chunk, to_chunk, src_file)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for (from, to, src) in deps {
+                ins.execute(params![from, to, src_ids[src.as_str()]])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Return `(to_chunk, src_file)` pairs for all chunks that `chunk_name`
+    /// directly references.
+    pub fn query_chunk_deps(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<(String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT cd.to_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             WHERE cd.from_chunk = ?1",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return `(from_chunk, src_file)` pairs for all chunks that directly
+    /// reference `chunk_name` (reverse / "what uses this?" query).
+    pub fn query_reverse_deps(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<(String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT cd.from_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             WHERE cd.to_chunk = ?1",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return every `(from_chunk, to_chunk, src_file)` triple stored in the
+    /// graph, ordered by `from_chunk` then `to_chunk`.  Used by
+    /// `weaveback graph` to export the full DOT representation.
+    pub fn query_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT cd.from_chunk, cd.to_chunk, f.path
+             FROM chunk_deps cd JOIN files f ON f.id = cd.src_file
+             ORDER BY cd.from_chunk, cd.to_chunk",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+
+    /// Return the distinct output files that contain lines attributed to
+    /// `chunk_name`.  Used by `wb-query impact` to map terminal chunks to
+    /// the `gen/` files they affect.
+    pub fn query_chunk_output_files(
+        &self,
+        chunk_name: &str,
+    ) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT f.path
+             FROM noweb_map nm JOIN files f ON f.id = nm.out_file
+             WHERE nm.chunk_name = ?1 ORDER BY f.path",
+        )?;
+        let rows = stmt.query_map(params![chunk_name], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<_, _>>().map_err(DbError::Sql)
+    }
+}
+// @
+----
+

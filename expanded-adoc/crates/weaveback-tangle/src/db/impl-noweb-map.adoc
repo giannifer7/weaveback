@@ -1,0 +1,189 @@
+= DB Noweb Map
+
+Generated-to-source line mapping storage and lookup.
+
+== noweb_map
+
+`set_noweb_entries` writes all source-map rows for one output file in a single
+transaction.  All file paths are interned before the transaction opens so the
+integer IDs are ready.  `get_noweb_entry` is used by the `wb-query where` and
+`trace` commands; it JOINs the `files` table to return path strings.
+
+[source,rust]
+----
+// <[db-noweb-map]>=
+impl WeavebackDb {
+    pub fn set_noweb_entries(
+        &mut self,
+        out_file: &str,
+        entries: &[(u32, NowebMapEntry)],
+    ) -> Result<(), DbError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Pre-intern all file paths before opening the transaction.
+        let out_file_id = intern_file(&self.conn, out_file)?;
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for (_, e) in entries {
+            if let std::collections::hash_map::Entry::Vacant(v) =
+                src_ids.entry(e.src_file.as_str())
+            {
+                v.insert(intern_file(&self.conn, &e.src_file)?);
+            }
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO noweb_map
+                 (out_file, out_line, src_file, chunk_name, src_line, indent, confidence)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for (line, e) in entries {
+                stmt.execute(params![
+                    out_file_id,
+                    *line,
+                    src_ids[e.src_file.as_str()],
+                    e.chunk_name,
+                    e.src_line,
+                    e.indent,
+                    e.confidence.as_str()
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_noweb_entry(
+        &self,
+        out_file: &str,
+        out_line: u32,
+    ) -> Result<Option<NowebMapEntry>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+                 FROM noweb_map nm
+                 JOIN files f_out ON f_out.id = nm.out_file
+                 JOIN files f_src ON f_src.id = nm.src_file
+                 WHERE f_out.path = ?1 AND nm.out_line = ?2",
+                params![out_file, out_line],
+                |row| {
+                    Ok(NowebMapEntry {
+                        src_file: row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        src_line: row.get::<_, u32>(2)?,
+                        indent: row.get(3)?,
+                        confidence: row
+                            .get::<_, String>(4)
+                            .map(|s| Confidence::parse(&s))
+                            .unwrap_or_default(),
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn get_noweb_entry_by_suffix(
+        &self,
+        out_file_suffix: &str,
+        out_line: u32,
+    ) -> Result<Option<NowebMapEntry>, DbError> {
+        let suffix_pattern = format!("%/{}", out_file_suffix.trim_start_matches("./"));
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+                 FROM noweb_map nm
+                 JOIN files f_out ON f_out.id = nm.out_file
+                 JOIN files f_src ON f_src.id = nm.src_file
+                 WHERE (f_out.path = ?1 OR f_out.path LIKE ?2) AND nm.out_line = ?3
+                 ORDER BY length(f_out.path)
+                 LIMIT 1",
+                params![out_file_suffix, suffix_pattern, out_line],
+                |row| {
+                    Ok(NowebMapEntry {
+                        src_file: row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        src_line: row.get::<_, u32>(2)?,
+                        indent: row.get(3)?,
+                        confidence: row
+                            .get::<_, String>(4)
+                            .map(|s| Confidence::parse(&s))
+                            .unwrap_or_default(),
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn get_noweb_entries_for_file_by_suffix(
+        &self,
+        out_file_suffix: &str,
+    ) -> Result<Vec<(u32, NowebMapEntry)>, DbError> {
+        let suffix_pattern = format!("%/{}", out_file_suffix.trim_start_matches("./"));
+        let mut stmt = self.conn.prepare_cached(
+            "WITH chosen AS (
+                 SELECT id
+                 FROM files
+                 WHERE path = ?1 OR path LIKE ?2
+                 ORDER BY length(path)
+                 LIMIT 1
+             )
+             SELECT nm.out_line, f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+             FROM noweb_map nm
+             JOIN chosen c ON c.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             ORDER BY nm.out_line",
+        )?;
+        let rows = stmt.query_map(params![out_file_suffix, suffix_pattern], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                NowebMapEntry {
+                    src_file: row.get(1)?,
+                    chunk_name: row.get(2)?,
+                    src_line: row.get::<_, u32>(3)?,
+                    indent: row.get(4)?,
+                    confidence: row
+                        .get::<_, String>(5)
+                        .map(|s| Confidence::parse(&s))
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
+    }
+
+    pub fn get_noweb_entries_for_file(
+        &self,
+        out_file: &str,
+    ) -> Result<Vec<(u32, NowebMapEntry)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT nm.out_line, f_src.path, nm.chunk_name, nm.src_line, nm.indent, nm.confidence
+             FROM noweb_map nm
+             JOIN files f_out ON f_out.id = nm.out_file
+             JOIN files f_src ON f_src.id = nm.src_file
+             WHERE f_out.path = ?1
+             ORDER BY nm.out_line",
+        )?;
+        let rows = stmt.query_map(params![out_file], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                NowebMapEntry {
+                    src_file: row.get(1)?,
+                    chunk_name: row.get(2)?,
+                    src_line: row.get::<_, u32>(3)?,
+                    indent: row.get(4)?,
+                    confidence: row
+                        .get::<_, String>(5)
+                        .map(|s| Confidence::parse(&s))
+                        .unwrap_or_default(),
+                },
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sql)
+    }
+}
+// @
+----
+

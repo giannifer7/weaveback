@@ -1,0 +1,125 @@
+// weaveback-tangle/src/db/schema.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+const CREATE_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS files (
+    id   INTEGER PRIMARY KEY,
+    path TEXT    NOT NULL UNIQUE
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS gen_baselines (
+    path    TEXT PRIMARY KEY NOT NULL,
+    content BLOB NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS noweb_map (
+    out_file   INTEGER NOT NULL REFERENCES files(id),
+    out_line   INTEGER NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
+    chunk_name TEXT    NOT NULL,
+    src_line   INTEGER NOT NULL,
+    indent     TEXT    NOT NULL,
+    confidence TEXT    NOT NULL DEFAULT 'exact',
+    PRIMARY KEY (out_file, out_line)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS macro_map (
+    driver_file   INTEGER NOT NULL REFERENCES files(id),
+    expanded_line INTEGER NOT NULL,
+    data          BLOB    NOT NULL,
+    PRIMARY KEY (driver_file, expanded_line)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS src_snapshots (
+    path    TEXT PRIMARY KEY NOT NULL,
+    content BLOB NOT NULL
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS var_defs (
+    var_name TEXT    NOT NULL,
+    src_file INTEGER NOT NULL REFERENCES files(id),
+    pos      INTEGER NOT NULL,
+    length   INTEGER NOT NULL,
+    PRIMARY KEY (var_name, src_file, pos)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS macro_defs (
+    macro_name TEXT    NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
+    pos        INTEGER NOT NULL,
+    length     INTEGER NOT NULL,
+    PRIMARY KEY (macro_name, src_file, pos)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS chunk_deps (
+    from_chunk TEXT    NOT NULL,
+    to_chunk   TEXT    NOT NULL,
+    src_file   INTEGER NOT NULL REFERENCES files(id),
+    PRIMARY KEY (from_chunk, to_chunk, src_file)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS chunk_defs (
+    src_file    INTEGER NOT NULL REFERENCES files(id),
+    chunk_name  TEXT    NOT NULL,
+    nth         INTEGER NOT NULL DEFAULT 0,
+    def_start   INTEGER NOT NULL,
+    def_end     INTEGER NOT NULL,
+    PRIMARY KEY (src_file, chunk_name, nth)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS literate_source_config (
+    src_file        INTEGER NOT NULL REFERENCES files(id),
+    sigil    TEXT    NOT NULL,
+    open_delim      TEXT    NOT NULL,
+    close_delim     TEXT    NOT NULL,
+    chunk_end       TEXT    NOT NULL,
+    comment_markers TEXT    NOT NULL,
+    PRIMARY KEY (src_file)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS run_config (
+    key   TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS source_blocks (
+    src_file    INTEGER NOT NULL REFERENCES files(id),
+    block_index INTEGER NOT NULL,
+    block_type  TEXT    NOT NULL,
+    line_start  INTEGER NOT NULL,
+    line_end    INTEGER NOT NULL,
+    content_hash BLOB   NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS block_tags (
+    src_file     INTEGER NOT NULL REFERENCES files(id),
+    block_index  INTEGER NOT NULL,
+    content_hash BLOB    NOT NULL,
+    tags         TEXT    NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS block_embeddings (
+    src_file     INTEGER NOT NULL REFERENCES files(id),
+    block_index  INTEGER NOT NULL,
+    content_hash BLOB    NOT NULL,
+    model        TEXT    NOT NULL,
+    vector_json  TEXT    NOT NULL,
+    PRIMARY KEY (src_file, block_index)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_chunk_deps_to ON chunk_deps(to_chunk);
+CREATE INDEX IF NOT EXISTS idx_noweb_map_src ON noweb_map(src_file, src_line);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS prose_fts USING fts5(
+    content,
+    tags,
+    src_file   UNINDEXED,
+    block_type UNINDEXED,
+    line_start UNINDEXED,
+    line_end   UNINDEXED,
+    tokenize  = 'porter unicode61'
+);
+";
+

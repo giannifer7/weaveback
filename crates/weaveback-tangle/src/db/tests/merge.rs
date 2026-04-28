@@ -1,0 +1,73 @@
+// weaveback-tangle/src/db/tests/merge.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use tempfile::TempDir;
+
+#[test]
+fn merge_into_replaces_stale_noweb_rows_for_touched_sources() {
+    let temp = TempDir::new().unwrap();
+    let target_path = temp.path().join("target.db");
+
+    let mut target = WeavebackDb::open(&target_path).unwrap();
+    target
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+    drop(target);
+
+    let mut fresh = WeavebackDb::open_temp().unwrap();
+    fresh
+        .set_src_snapshot(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests-macros.adoc",
+            b"snapshot",
+        )
+        .unwrap();
+    fresh
+        .set_baseline(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            b"generated",
+        )
+        .unwrap();
+    fresh
+        .set_noweb_entries(
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs",
+            &[(
+                1,
+                NowebMapEntry {
+                    src_file: "crates/weaveback-macro/src/evaluator/tests-macros.adoc"
+                        .into(),
+                    chunk_name: "test set".into(),
+                    src_line: 515,
+                    indent: String::new(),
+                    confidence: Confidence::Exact,
+                },
+            )],
+        )
+        .unwrap();
+
+    fresh.merge_into(&target_path).unwrap();
+
+    let merged = WeavebackDb::open_read_only(&target_path).unwrap();
+    let out_files = merged.query_chunk_output_files("test set").unwrap();
+    assert_eq!(
+        out_files,
+        vec![
+            "/home/g4/_prj/weaveback/crates/weaveback-macro/src/evaluator/tests/test_set.rs"
+                .to_string()
+        ]
+    );
+}
+

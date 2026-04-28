@@ -38,6 +38,10 @@ Completed or materially improved:
   `crates/weaveback-api/src/coverage.rs` is now a small facade, implementation
   files live under `crates/weaveback-api/src/coverage/`, and tests are assembled
   from focused files under `crates/weaveback-api/src/coverage/tests_coverage/`.
+* `weaveback-tangle` DB has been split at both literate-source and Rust-file
+  level.  `crates/weaveback-tangle/src/db.rs` is now a small facade,
+  implementation files live under `crates/weaveback-tangle/src/db/`, and the
+  merge test is assembled under `crates/weaveback-tangle/src/db/tests/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -57,7 +61,7 @@ Still problematic:
 Line counts from the audit immediately after the `apply-back` split:
 
 File | Lines | Status
-`crates/weaveback-tangle/src/db.rs` | 1674 | Too large; split by schema/storage/query/FTS concerns.
+`crates/weaveback-tangle/src/db.rs` | 23 | Completed; facade now includes focused `src/db/*.rs` files.
 `crates/weaveback-api/src/coverage.rs` | 12 | Completed; facade now includes focused `src/coverage/*.rs` files.
 `crates/weaveback-serve/src/lib.rs` | 20 | Completed; facade now includes focused `src/server/*.rs` files.
 `crates/weaveback-api/src/coverage/tests_coverage.rs` | 11 | Completed; assembly now includes focused `src/coverage/tests_coverage/*.rs` files.
@@ -186,7 +190,7 @@ Acceptance criteria:
 * A clean checkout can retangle without producing tracked diffs.
 * CI fails when generated files drift from canonical sources.
 
-### 4. Split weaveback-tangle DB
+### 4. Split weaveback-tangle DB — completed
 
 Target:
 
@@ -205,6 +209,15 @@ Suggested output shape:
   schema/migrations, connection/opening, source configs, source snapshots,
   chunk definitions, noweb map, macro map, FTS/prose search, baselines, and tests.
 * Avoid moving behavior and changing semantics in the same commit.
+
+Status:
+
+* Completed after the coverage split.
+* Root `db.rs` is now a small facade.
+* Generated DB implementation files are split by schema, types, open modes,
+  baselines, noweb map, chunk deps, chunk defs, macro map, config, source
+  blocks, merge, snapshots/defs, and FTS/embeddings.
+* The existing merge test remains linked through a focused generated test file.
 
 Acceptance criteria:
 
@@ -305,12 +318,11 @@ Pause and ask for review if:
 
 The best next commit is probably:
 
-* split `crates/weaveback-tangle/src-wvb/db.wvb`
-* generate smaller `crates/weaveback-tangle/src/db/*.rs` files or an equivalent
-  focused layout
-* keep the public DB API stable
-* run targeted DB/tangle tests plus full lint/check/docs
+* split `crates/weaveback-tangle/src-wvb/noweb.wvb`
+* generate smaller `crates/weaveback-tangle/src/noweb/*.rs` files or an
+  equivalent focused layout
+* keep the public noweb API stable
+* run targeted noweb/tangle tests plus full lint/check/docs
 
-That commit would remove the largest remaining generated Rust file and attack
-the next central source of complexity after `apply-back`, `weaveback-serve`, and
-`coverage`.
+That commit would remove the next largest central generated Rust file after the
+completed `apply-back`, `weaveback-serve`, `coverage`, and DB splits.

@@ -1,0 +1,162 @@
+¤h1(¤[DB Chunk Definitions¤])
+
+Chunk definition range storage and chunk listing queries.
+
+¤h2(¤[chunk_defs¤])
+
+`set_chunk_defs` replaces all definition records for every source file in the
+batch in a single transaction.  File paths are interned before the transaction;
+the unique-IDs list drives the delete pass.  `get_chunk_def` retrieves a single
+entry by `(src_file, chunk_name, nth)`, used by `wb-serve` to open the
+correct editor location.
+
+¤rust_chunk(db-chunk-defs-api, ¤[
+impl WeavebackDb {
+    pub fn set_chunk_defs(&mut self, entries: &[ChunkDefEntry]) -> Result<(), DbError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Pre-intern all src_files.
+        let mut src_ids: std::collections::HashMap<&str, i64> = Default::default();
+        for e in entries {
+            if let std::collections::hash_map::Entry::Vacant(v) =
+                src_ids.entry(e.src_file.as_str())
+            {
+                v.insert(intern_file(&self.conn, &e.src_file)?);
+            }
+        }
+        let tx = self.conn.transaction()?;
+        {
+            let mut unique_ids: Vec<i64> = src_ids.values().copied().collect();
+            unique_ids.sort_unstable();
+            unique_ids.dedup();
+            let mut del = tx.prepare_cached(
+                "DELETE FROM chunk_defs WHERE src_file = ?1",
+            )?;
+            for id in &unique_ids {
+                del.execute(params![id])?;
+            }
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO chunk_defs (src_file, chunk_name, nth, def_start, def_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for e in entries {
+                stmt.execute(params![
+                    src_ids[e.src_file.as_str()],
+                    e.chunk_name,
+                    e.nth,
+                    e.def_start,
+                    e.def_end
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_chunk_def(
+        &self,
+        src_file: &str,
+        chunk_name: &str,
+        nth: u32,
+    ) -> Result<Option<ChunkDefEntry>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 WHERE f.path = ?1 AND cdef.chunk_name = ?2 AND cdef.nth = ?3",
+                params![src_file, chunk_name, nth],
+                |row| {
+                    Ok(ChunkDefEntry {
+                        src_file:   row.get(0)?,
+                        chunk_name: row.get(1)?,
+                        nth:        row.get::<_, u32>(2)?,
+                        def_start:  row.get::<_, u32>(3)?,
+                        def_end:    row.get::<_, u32>(4)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn list_chunk_defs(&self, src_file: Option<&str>) -> Result<Vec<ChunkDefEntry>, DbError> {
+        fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChunkDefEntry> {
+            Ok(ChunkDefEntry {
+                src_file:   row.get(0)?,
+                chunk_name: row.get(1)?,
+                nth:        row.get::<_, u32>(2)?,
+                def_start:  row.get::<_, u32>(3)?,
+                def_end:    row.get::<_, u32>(4)?,
+            })
+        }
+        if let Some(f) = src_file {
+            let mut stmt = self.conn.prepare(
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 WHERE f.path = ?1 ORDER BY f.path, cdef.def_start",
+            )?;
+            Ok(stmt.query_map(params![f], map_row)?.collect::<Result<Vec<_>, _>>()?)
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+                 FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+                 ORDER BY f.path, cdef.def_start",
+            )?;
+            Ok(stmt.query_map([], map_row)?.collect::<Result<Vec<_>, _>>()?)
+        }
+    }
+
+    pub fn find_chunk_defs_by_name(&self, chunk_name: &str) -> Result<Vec<ChunkDefEntry>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+             FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+             WHERE cdef.chunk_name = ?1 ORDER BY f.path, cdef.nth",
+        )?;
+        Ok(stmt.query_map(params![chunk_name], |row| {
+            Ok(ChunkDefEntry {
+                src_file:   row.get(0)?,
+                chunk_name: row.get(1)?,
+                nth:        row.get::<_, u32>(2)?,
+                def_start:  row.get::<_, u32>(3)?,
+                def_end:    row.get::<_, u32>(4)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn list_all_chunk_defs(&self) -> Result<Vec<ChunkDefEntry>, DbError> {
+        self.list_chunk_defs(None)
+    }
+
+    pub fn list_all_chunk_deps(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        self.query_all_chunk_deps()
+    }
+
+    /// Return all chunk definitions in `src_file` whose line range overlaps
+    /// `[line_start, line_end]`.  Used by incremental-build skip-set computation.
+    pub fn query_chunk_defs_overlapping(
+        &self,
+        src_file: &str,
+        line_start: u32,
+        line_end: u32,
+    ) -> Result<Vec<ChunkDefEntry>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT f.path, cdef.chunk_name, cdef.nth, cdef.def_start, cdef.def_end
+             FROM chunk_defs cdef JOIN files f ON f.id = cdef.src_file
+             WHERE f.path = ?1
+               AND cdef.def_start <= ?3
+               AND cdef.def_end   >= ?2",
+        )?;
+        let rows = stmt.query_map(params![src_file, line_start, line_end], |row| {
+            Ok(ChunkDefEntry {
+                src_file:   row.get(0)?,
+                chunk_name: row.get(1)?,
+                nth:        row.get::<_, u32>(2)?,
+                def_start:  row.get::<_, u32>(3)?,
+                def_end:    row.get::<_, u32>(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+}
+¤])

@@ -50,6 +50,10 @@ Completed or materially improved:
   facade, implementation files live under `crates/weaveback-api/src/process/`,
   and tests are assembled from focused files under
   `crates/weaveback-api/src/process/tests/`.
+* `weaveback-api` MCP has been split at literate-source and Rust-file level.
+  `crates/weaveback-api/src/mcp.rs` is now a small facade, response helpers and
+  the runtime loop live under `crates/weaveback-api/src/mcp/`, and tests are
+  assembled from focused files under `crates/weaveback-api/src/mcp/tests/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -336,8 +340,9 @@ The best next commit is probably:
 
 * split the next largest remaining generated Rust file after a fresh line-count
   audit
-* likely candidates include `mcp.rs`, parser/lexer modules, evaluator modules,
-  or large test aggregations that remain above the chosen threshold
+* likely candidates include the dense MCP runtime dispatch file,
+  parser/lexer modules, evaluator modules, or large test aggregations that
+  remain above the chosen threshold
 * keep public APIs stable unless the user explicitly chooses semantic cleanup
 * run targeted tests plus full lint/check/docs
 

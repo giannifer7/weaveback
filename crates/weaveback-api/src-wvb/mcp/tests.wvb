@@ -1,0 +1,19 @@
+¤h1(¤[MCP Tests¤])
+
+¤h2(¤[Tests¤])
+
+The test body is generated as `mcp/tests.rs` and linked from `mcp.rs`
+with `#[cfg(test)] mod tests;`.  This keeps the server implementation file
+shorter while preserving local literate ownership of the tests.
+
+
+¤rust_file(weaveback-api/src/mcp/tests.rs, ¤[
+mod data;
+mod errors;
+mod helpers;
+mod lsp;
+mod protocol;
+mod smoke;
+¤])
+
+The focused test bodies live in `mcp/tests/*.wvb` files.

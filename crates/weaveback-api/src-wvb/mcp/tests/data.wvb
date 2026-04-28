@@ -1,0 +1,275 @@
+¤h1(¤[MCP Data-Path Tests¤])
+
+¤rust_file(weaveback-api/src/mcp/tests/data.rs, ¤[
+use super::helpers::*;
+use crate::process;
+
+// <[mcp-test-data]>
+¤])
+
+¤rust_chunk(mcp-test-data, ¤[
+#[test]
+fn mcp_list_chunks_returns_seeded_chunk() {
+    let ws = McpWorkspace::new();
+    {
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+            src_file:   "src/lib.adoc".to_string(),
+            chunk_name: "my-chunk".to_string(),
+            nth:        0,
+            def_start:  1,
+            def_end:    5,
+        }]).unwrap();
+    }
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_chunks\",\"arguments\":{}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("my-chunk"), "output was: {out}");
+    assert!(out.contains("src/lib.adoc"));
+}
+#[test]
+fn mcp_find_chunk_returns_seeded_chunk() {
+    let ws = McpWorkspace::new();
+    {
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+            src_file:   "src/lib.adoc".to_string(),
+            chunk_name: "search-target".to_string(),
+            nth:        0,
+            def_start:  10,
+            def_end:    20,
+        }]).unwrap();
+    }
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_find_chunk\",\"arguments\":{\"name\":\"search-target\"}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("src/lib.adoc"), "output was: {out}");
+}
+#[test]
+fn mcp_list_tags_returns_empty_array_for_fresh_db() {
+    let ws = McpWorkspace::new();
+    ws.open_db(); // create db file
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_tags\",\"arguments\":{}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("\"content\""), "output was: {out}");
+    assert!(out.contains("[]"));
+}
+#[test]
+fn mcp_list_chunks_with_file_filter_returns_only_matching() {
+    let ws = McpWorkspace::new();
+    {
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "a.adoc".to_string(), chunk_name: "chunk-a".to_string(),
+                nth: 0, def_start: 1, def_end: 3,
+            },
+            weaveback_tangle::db::ChunkDefEntry {
+                src_file: "b.adoc".to_string(), chunk_name: "chunk-b".to_string(),
+                nth: 0, def_start: 1, def_end: 3,
+            },
+        ]).unwrap();
+    }
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_list_chunks\",\"arguments\":{\"file\":\"a.adoc\"}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("chunk-a"));
+    assert!(!out.contains("chunk-b"));
+}
+#[test]
+fn mcp_trace_returns_seeded_location() {
+    let ws = McpWorkspace::new();
+    let src_rel = "src/test.adoc";
+    ws.write_file(src_rel, "= Title\n\n<<@file pkg/src/test.rs>>=\nline1\n@@\n".as_bytes());
+
+    let args = process::SinglePassArgs {
+        inputs: vec![src_rel.into()],
+        input_dir: ws.root.clone(),
+        gen_dir: ws.root.clone(),
+        db: ws.db_path(),
+        project_root: Some(ws.root.clone()),
+        no_fts: true,
+        no_macros: false,
+        ..process::SinglePassArgs::default_for_test()
+    };
+    process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_trace\",\"arguments\":{\"out_file\":\"pkg/src/test.rs\",\"out_line\":1}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("src/test.adoc"), "Trace failed. Output: {out}");
+}
+#[test]
+fn mcp_search_returns_seeded_results() {
+    let ws = McpWorkspace::new();
+    let src_rel = "src/search.adoc";
+    ws.write_file(src_rel, "= Title\n\n[para]
+SearchMeKeyword\n".as_bytes());
+
+    let args = process::SinglePassArgs {
+        inputs: vec![src_rel.into()],
+        input_dir: ws.root.clone(),
+        gen_dir: ws.root.clone(),
+        db: ws.db_path(),
+        project_root: Some(ws.root.clone()),
+        no_fts: false,
+        ..process::SinglePassArgs::default_for_test()
+    };
+    process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":26,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_search\",\"arguments\":{\"query\":\"SearchMeKeyword\"}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("SearchMe"), "Search failed. Output: {out}");
+    assert!(out.contains("src/search.adoc"), "Search output missing file path: {out}");
+}
+#[test]
+fn mcp_apply_fix_updates_source() {
+    let ws = McpWorkspace::new();
+    let src_rel = "src/test.adoc";
+    ws.write_file(src_rel, "= Title\n\n<<@file test.rs>>=\nold\n@@\n".as_bytes());
+
+    let args = process::SinglePassArgs {
+        inputs: vec![src_rel.into()],
+        input_dir: ws.root.clone(),
+        gen_dir: ws.gen_dir(), // out file at root/gen/test.rs
+        db: ws.db_path(),
+        project_root: Some(ws.root.clone()),
+        no_fts: true,
+        no_macros: false,
+        ..process::SinglePassArgs::default_for_test()
+    };
+    process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+    // Apply fix: change "old" to "new"
+    let req =
+        "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_fix\",\"arguments\":{\"src_file\":\"src/test.adoc\",\"src_line\":4,\"new_src_line\":\"new\",\"out_file\":\"test.rs\",\"out_line\":1,\"expected_output\":\"new\"}}}\n"
+            .to_string();
+    let out = mcp_drive(&ws, &req);
+    assert!(out.contains("Applied ChangePlan"), "Apply fix failed. Output: {out}");
+
+    let content = std::fs::read_to_string(ws.root.join(src_rel)).unwrap();
+    assert!(content.contains("new"), "Source was not updated. Content: {content}");
+}
+#[test]
+fn mcp_apply_back_updates_source() {
+    let ws = McpWorkspace::new();
+    let src_rel = "src/test.adoc";
+    ws.write_file(src_rel, "= Title\n\n<<@file test.rs>>=\nold\n@@\n".as_bytes());
+
+    let args = process::SinglePassArgs {
+        inputs: vec![src_rel.into()],
+        input_dir: ws.root.clone(),
+        gen_dir: ws.gen_dir(), // out file at root/gen/test.rs
+        db: ws.db_path(),
+        project_root: Some(ws.root.clone()),
+        no_fts: true,
+        no_macros: false,
+        ..process::SinglePassArgs::default_for_test()
+    };
+    process::run_single_pass(args).map_err(|e| e.to_string()).unwrap();
+
+    // Edit generated file
+    std::fs::write(ws.gen_dir().join("test.rs"), "new\n").unwrap();
+
+    // Apply back
+    let req = "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\",\"params\":{\"name\":\"weaveback_apply_back\",\"arguments\":{\"files\":[\"test.rs\"]}}}\n";
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("src/test.adoc"), "Apply back failed. Output: {out}");
+
+    let content = std::fs::read_to_string(ws.root.join(src_rel)).unwrap();
+    assert!(content.contains("new"), "Source was not updated. Content: {content}");
+}
+#[test]
+fn mcp_chunk_context_returns_full_metadata() {
+    let ws = McpWorkspace::new();
+    {
+        let mut db = ws.open_db();
+        db.set_chunk_defs(&[weaveback_tangle::db::ChunkDefEntry {
+            src_file:   "src/ctx.adoc".to_string(),
+            chunk_name: "ctx-chunk".to_string(),
+            nth:        0,
+            def_start:  1,
+            def_end:    3,
+        }]).unwrap();
+        ws.write_file("src/ctx.adoc", "== Section Title\n\nctx anchor\n".as_bytes());
+        db.set_src_snapshot("src/ctx.adoc", "== Section Title\n\nctx anchor\n".as_bytes()).unwrap();
+        db.set_source_blocks("src/ctx.adoc", &[weaveback_tangle::block_parser::SourceBlockEntry {
+            block_index: 0,
+            block_type:  "section".to_string(),
+            line_start:  1,
+            line_end:    3,
+            content_hash: [0u8; 32],
+        }]).unwrap();
+        db.rebuild_prose_fts(Some(&ws.root)).unwrap();
+    }
+    let req = r#"{"jsonrpc":"2.0","id":36,"method":"tools/call","params":{"name":"weaveback_chunk_context","arguments":{"file":"src/ctx.adoc","name":"ctx-chunk"}}}"#;
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("Section Title"), "Breadcrumb missing: {out}");
+    assert!(out.contains("ctx-chunk"), "Name missing: {out}");
+}
+#[test]
+fn mcp_list_tags_returns_seeded_tags() {
+    let ws = McpWorkspace::new();
+    {
+        let mut db = ws.open_db();
+        db.set_source_blocks("src/tags.adoc", &[weaveback_tangle::block_parser::SourceBlockEntry {
+            block_index: 0,
+            block_type:  "para".to_string(),
+            line_start:  1,
+            line_end:    5,
+            content_hash: [0u8; 32],
+        }]).unwrap();
+        db.set_block_tags("src/tags.adoc", 0, &[0u8; 32], "test-tag,mcp").unwrap();
+    }
+    let req = r#"{"jsonrpc":"2.0","id":37,"method":"tools/call","params":{"name":"weaveback_list_tags","arguments":{}}}"#;
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("test-tag"), "Tag missing: {out}");
+}
+#[test]
+fn mcp_coverage_reports_stats() {
+    let ws = McpWorkspace::new();
+    ws.open_db(); // Ensure DB exists
+    let lcov = ws.root.join("lcov.info");
+    std::fs::write(&lcov, "SF:src/test.rs\nDA:1,1\nend_of_record\n").unwrap();
+
+    let lcov_path = lcov.to_string_lossy().replace("\\", "/");
+    let req = format!(
+        r#"{{"jsonrpc":"2.0","id":38,"method":"tools/call","params":{{"name":"weaveback_coverage","arguments":{{"lcov_path":"{}"}}}}}}"#,
+        lcov_path
+    );
+    let out = mcp_drive(&ws, &req);
+    assert!(out.contains("attributed_records"), "Coverage report missing or invalid. Output: {out}");
+}
+#[test]
+fn mcp_list_chunks_success_path() {
+    let ws = McpWorkspace::new();
+    ws.open_db();
+    let req = r#"{"jsonrpc":"2.0","id":900,"method":"tools/call","params":{"name":"weaveback_list_chunks","arguments":{}}}"#;
+    let out = mcp_drive(&ws, &(req.to_string() + "\n"));
+    assert!(out.contains("\"id\":900"), "output: {out}");
+}
+#[test]
+fn mcp_apply_back_success_path() {
+    let ws = McpWorkspace::new();
+    ws.open_db();
+    let req = r#"{"jsonrpc":"2.0","id":1000,"method":"tools/call","params":{"name":"weaveback_apply_back","arguments":{"dry_run":true}}}"#;
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("\"id\":1000"), "output: {out}");
+}
+#[test]
+fn mcp_list_tags_success_path() {
+    let ws = McpWorkspace::new();
+    ws.open_db();
+    let req = r#"{"jsonrpc":"2.0","id":1400,"method":"tools/call","params":{"name":"weaveback_list_tags","arguments":{}}}"#;
+    let out = mcp_drive(&ws, req);
+    assert!(out.contains("\"id\":1400"));
+}
+#[test]
+fn mcp_coverage_success_path() {
+    let ws = McpWorkspace::new();
+    ws.open_db();
+    let tmp = tempfile::tempdir().unwrap();
+    let lcov = tmp.path().join("test.lcov");
+    std::fs::write(&lcov, "SF:src/a.rs\nend_of_record\n").unwrap();
+    
+    let req = format!(r#"{{"jsonrpc":"2.0","id":1500,"method":"tools/call","params":{{"name":"weaveback_coverage","arguments":{{"lcov_path":"{}"}}}}}}"#, lcov.display());
+    let out = mcp_drive(&ws, &req);
+    assert!(out.contains("\"id\":1500"));
+}
+¤])

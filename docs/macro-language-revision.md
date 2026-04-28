@@ -1,5 +1,9 @@
-= Weaveback Macro Language — Design and State
-:toc: left
+---
+title: |-
+  Weaveback Macro Language — Design and State
+toc: left
+---
+# Weaveback Macro Language — Design and State
 
 This document records the design decisions behind the macro language and the
 current implementation state. It is structured as a *keep / change / remove*
@@ -8,7 +12,7 @@ analysis per topic, followed by a status summary.
 The goal is a language a coding model, or a human author, can use reliably
 without constantly simulating weird edge cases.
 
-== Target semantic core
+## Target semantic core
 
 A language that is:
 
@@ -31,19 +35,19 @@ Desired properties:
 * strict-by-default or warn-by-default diagnostics
 * script bodies clearly fenced off from macro syntax
 
-'''
+---
 
 
-== 1. Scope and state
+## 1. Scope and state
 
-=== Keep
+### Keep
 
 * Stack of scope frames
 * Shadowing lookup, inner scope wins
 * Local `%set`
 * Global frame never popped
 
-=== Implemented
+### Implemented
 
 Argument evaluation now happens in the **caller scope**, before the callee
 frame is pushed.
@@ -59,27 +63,27 @@ Current behaviour:
 2. A new callee frame is pushed.
 3. The already-evaluated strings are bound to formal parameters.
 
-=== Demoted — still present, not in core story
+### Demoted — still present, not in core story
 
 Persistent script stores with `py_store` are an advanced effect
 system, clearly separated from the main scope model. They bypass all frame
 discipline and are not part of the core semantics.
 
-=== Coding-model rule
+### Coding-model rule
 
 Expressions are evaluated where they are written, then passed as strings.
 
-'''
+---
 
 
-== 2. Capture semantics
+## 2. Capture semantics
 
-=== Keep
+### Keep
 
 `%alias(new, src, k=v, …)` as explicit partial application and selective
 free-variable pinning. The semantics are understandable and useful.
 
-=== Implemented
+### Implemented
 
 Single capture model:
 
@@ -91,28 +95,28 @@ Single capture model:
 `freeze_macro_definition` has been removed. Implicit half-closure semantics
 on `%export` no longer exist.
 
-=== Coding-model rule
+### Coding-model rule
 
 A macro does not secretly gain a frozen environment unless
 `%alias(…, k=v)` explicitly says so.
 
-'''
+---
 
 
-== 3. Argument handling
+## 3. Argument handling
 
-=== Keep
+### Keep
 
 * Positional args must precede named args.
 * Unknown named arg raises an error.
 * Duplicate binding, positional plus named, raises an error.
 
-=== Implemented
+### Implemented
 
 **Extra positional args are an error.**
 A positional arity mismatch is almost always a bug; silently ignoring it hides it.
 
-=== Implemented
+### Implemented
 
 **Missing, unbound, parameters** are now strict by default:
 
@@ -121,39 +125,38 @@ A positional arity mismatch is almost always a bug; silently ignoring it hides i
 
 Possible future addition, explicit optional parameters with inline defaults:
 
-[source,text]
-----
+```text
 %def(fmt, level, tag, msg = "(none)", body)
-----
+```
 
 
-=== Coding-model rule
+### Coding-model rule
 
 Wrong arity is a bug, not a tolerated shape.
 
-'''
+---
 
 
-== 4. Builtins vs. user-defined macros
+## 4. Builtins vs. user-defined macros
 
-=== Keep
+### Keep
 
 Reserved builtin namespace. Builtin names cannot be called as user macros.
 
-=== Implemented
+### Implemented
 
 `%def` and `%alias` attempts that use a builtin name are immediately rejected
 with an error. The name guard runs inside the shared `define_macro` helper,
 so it covers `%pydef` as well.
 
-=== Coding-model rule
+### Coding-model rule
 
 All calls obey the same argument-shape rules regardless of target.
 
-'''
+---
 
 
-== 5. Macro redefinition
+## 5. Macro redefinition
 
 Macro redefinition is a **first-class semantic operation**, not an incidental
 hazard. It supports two canonical patterns:
@@ -166,8 +169,7 @@ Context-dependent meaning:
 Macro identifiers have no fixed meaning. Their expansion is determined by the
 current pass, allowing the same source to be interpreted in multiple ways.
 
-[source,text]
-----
+```text
 %def(FIELDS, %{
   %X(name, string)
   %X(age, int)
@@ -178,31 +180,31 @@ current pass, allowing the same source to be interpreted in multiple ways.
 
 %def(X, name, type, new_%(name): impl Into<%(type)>)  <- pass 2: ctor params
 %FIELDS()
-----
+```
 
 
 `%def` is now constant-in-frame and `%redef` is the explicit rebinding path.
 There is no `@replace` marker.
 
-=== Accidental collision
+### Accidental collision
 
 If independent libraries really need separate naming, solve that at the
 library-definition layer rather than relying on a second import form.
 
-=== Coding-model rule
+### Coding-model rule
 
 Macro identifiers name roles, not values. Redefine to change the role.
 
-'''
+---
 
 
-== 6. Diagnostics — silent failures
+## 6. Diagnostics — silent failures
 
-=== Keep
+### Keep
 
 Empty string as a first-class macro result.
 
-=== Implemented
+### Implemented
 
 Non-fatal warnings, accumulated in `Vec<String>` and drained via `take_warnings()`:
 
@@ -215,14 +217,14 @@ Errors:
 * Extra positional arguments
 * `%env(NAME)` when `--allow-env` is not set
 
-=== Implemented
+### Implemented
 
 * Undefined variable reference `%(typo)` is `UndefinedVariable` by default.
   `--no-strict-vars` restores the old empty fallback.
 * Unbound parameters are `UnboundParameter` by default.
   `--no-strict-params` restores the old empty fallback.
 
-=== Useful future additions
+### Useful future additions
 
 * `%defined(name)` returns `1` if name is defined, empty otherwise.
 * `%default(x, fallback)` returns `x` if non-empty, else `fallback`.
@@ -230,20 +232,20 @@ Errors:
 These let authors express *intended* emptiness instead of relying on silent
 empty-on-undefined.
 
-=== Coding-model rule
+### Coding-model rule
 
 Silence means success, not hidden fallback.
 
-'''
+---
 
 
-== 7. Script integration
+## 7. Script integration
 
-=== Keep
+### Keep
 
 `%pydef` as the escape hatch for computed logic.
 
-=== Implemented
+### Implemented
 
 `%pydef(name, [params,] body)`:
 
@@ -252,22 +254,22 @@ Silence means success, not hidden fallback.
 * Use `%[ ... %]` or `%tag[ ... %tag]` when the body should remain literal.
 * Use `%{ ... %}` when macro preprocessing of the script source is intentional.
 
-=== Coding-model rule
+### Coding-model rule
 
 Inside a script body, script syntax means script syntax.
 Use verbatim blocks when the body should stay literal; reserve macro-aware
 blocks for code that intentionally preprocesses the script source.
 
-'''
+---
 
 
-== 8. `%here`
+## 8. `%here`
 
-=== Keep
+### Keep
 
 The capability, source-file patching on first run, may be useful.
 
-=== Open
+### Open
 
 * Recast as an **explicit workflow primitive**, not a regular expression-forming
   builtin. Options: separate subcommand, required mode flag, or rename to
@@ -276,61 +278,58 @@ The capability, source-file patching on first run, may be useful.
   running only the first.
 * Surface the one-shot behaviour prominently in the docs.
 
-=== Coding-model rule
+### Coding-model rule
 
 `%here` is a source-rewrite operation, not a normal expression-forming macro.
 Generated code should not contain it.
 
-'''
+---
 
 
-== 9. Includes and imports
+## 9. Includes and imports
 
-=== Keep
+### Keep
 
 `%include` and `%import` as-is.
 
-'''
+---
 
 
-== 10. Boolean predicates
+## 10. Boolean predicates
 
-=== Keep
+### Keep
 
 * `%if`, lazy branches evaluated only when reached
 
-=== Implemented
+### Implemented
 
 Canonical predicate builtins returning `1` or empty:
 
-[cols="1,3",options="header"]
-|===
-| Builtin | Semantics
-
-| `%eq(a, b)` | `1` if `a == b` byte-exact, else empty
-| `%neq(a, b)` | `1` if `a != b`, else empty
-| `%not(x)` | `1` if `x` is empty, else empty; accepts 0 or 1 args
-|===
+| Builtin | Semantics |
+| --- | --- |
+| `%eq(a, b)` | `1` if `a == b` byte-exact, else empty |
+| `%neq(a, b)` | `1` if `a != b`, else empty |
+| `%not(x)` | `1` if `x` is empty, else empty; accepts 0 or 1 args |
 
 `%if` treats the empty string as false and any non-empty string as true.
 `%not()` with no arguments returns `1`, no arg means empty means false, negation means true.
 
-=== Coding-model rule
+### Coding-model rule
 
 The boolean model is: empty string is false, non-empty string is true.
 Canonical predicates return `1` or empty. Models do not have to remember
 which of the operands is returned.
 
-'''
+---
 
 
-== 11. Discovery mode
+## 11. Discovery mode
 
-=== Keep
+### Keep
 
 The dependency-discovery feature.
 
-=== Open
+### Open
 
 Present as two separate operations in the API and documentation:
 
@@ -338,15 +337,15 @@ Present as two separate operations in the API and documentation:
 * `discover_dependencies()`, collect `%include` and `%import` paths without
   expanding
 
-=== Coding-model rule
+### Coding-model rule
 
 The same source text should not appear to have two radically different meanings
 depending on a hidden runtime flag.
 
-'''
+---
 
 
-== Recommended authoring rules for generated macros
+## Recommended authoring rules for generated macros
 
 For immediate use in agent and coding-model prompts:
 
@@ -362,12 +361,12 @@ For immediate use in agent and coding-model prompts:
 10. Prefer local `%set`; avoid cross-call hidden state via script stores.
 11. Redefine macros freely to change the current pass or context, X-macro or context-dependent meaning.
 
-'''
+---
 
 
-== Recommended macro-use profile
+## Recommended macro-use profile
 
-=== Green path — encouraged in generated code
+### Green path — encouraged in generated code
 
 * `%def`, `%alias(…, k=v)` for explicit specialization
 * Macro redefinition for X-macro and context-dependent-meaning patterns
@@ -377,14 +376,14 @@ For immediate use in agent and coding-model prompts:
 * String case transforms
 * Named arguments for multi-parameter macros
 
-=== Yellow path — advanced, use carefully
+### Yellow path — advanced, use carefully
 
 * `%export` for variables only
 * `%pydef` with verbatim blocks for computed logic
 * `%env` only when explicitly enabled
 * `%pydef` non-raw when body preprocessing is intentional
 
-=== Red path — avoid in generated code
+### Red path — avoid in generated code
 
 * `%here`
 * Script stores for cross-call accumulation
@@ -393,12 +392,12 @@ For immediate use in agent and coding-model prompts:
 * Side effects in argument position
 * Exporting macros with implicit capture
 
-'''
+---
 
 
-== Implementation status
+## Implementation status
 
-=== Done
+### Done
 
 * Caller-scope argument evaluation
 * `%export` as plain upward copy; `freeze_macro_definition` removed
@@ -411,13 +410,13 @@ For immediate use in agent and coding-model prompts:
 * verbatim blocks `%[ ... %]` and `%name[ ... %name]`
 * Warning infrastructure with `take_warnings()` on `Evaluator`
 
-=== Decided — not implementing
+### Decided — not implementing
 
 * Warning on macro redefinition. Redefinition is a first-class semantic
   operation, X-macro pattern and context-dependent meaning. No `@replace`
   annotation needed.
 
-=== Open
+### Open
 
 * Missing, unbound, parameter diagnostic
 * Undefined variable reference diagnostic, likely too noisy

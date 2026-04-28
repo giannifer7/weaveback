@@ -1,12 +1,16 @@
-= Why Weaveback — intent, tradeoffs, and design rationale
-:toc: left
-:toclevels: 3
+---
+title: |-
+  Why Weaveback — intent, tradeoffs, and design rationale
+toc: left
+toclevels: 3
+---
+# Why Weaveback — intent, tradeoffs, and design rationale
 
 This document explains the *reasons* behind Weaveback's design. Start here
 before reading the architecture or source code. The code answers *what* —
 this page answers *why*.
 
-== Why this still matters now
+## Why this still matters now
 
 The project started from an older frustration: using macros and chunks to keep
 related but distant pieces of a codebase in sync. That use case is still real.
@@ -52,7 +56,7 @@ is used merely to create clever macro machinery, it is ornament. If it helps a
 team preserve intent, keep distant pieces in sync, and audit agent-made changes,
 it is doing real work.
 
-== Tensions, not conclusions
+## Tensions, not conclusions
 
 These tradeoffs are not settled. They are the questions the project is trying
 to answer.
@@ -101,20 +105,19 @@ checks for structural invariants. The tools are already good enough to make
 the approach defensible. They are not yet good enough to make the cost
 disappear.
 
-== The core problem
+## The core problem
 
 Literate programming is a fifty-year-old idea: write prose and code together,
 with the prose explaining the intent behind the code. The vision is compelling.
 The practice almost always fails in the same way.
 
-=== One-way flow is a dead end
+### One-way flow is a dead end
 
 Every traditional literate tool — noweb, CWEB, Org-mode's `org-babel` — works
 like this:
 
-.one-way flow
-[source,d2]
-----
+<!-- graph: one-way flow -->
+```d2
 
 direction: right
 
@@ -129,7 +132,7 @@ tool -> gen: produces
 gen -> author: "edits\n(fast path)" {style.stroke-dash: 5}
 gen -> source: "(never)" {style.stroke: "#cc241d"; style.stroke-dash: 3}
 
-----
+```
 
 
 The dead end is in that last arrow: there is no path from `gen/` back to the
@@ -144,16 +147,15 @@ developer tool operates on the generated code, not the literate source. If
 using the tool correctly is harder than using it incorrectly, people use it
 incorrectly.
 
-=== Weaveback's answer: close the loop
+### Weaveback's answer: close the loop
 
 Weaveback adds bidirectionality. Every generated line carries a precise
 trace back to the literate source. When you edit a generated file, `apply-back`
 propagates those edits back. When an AI agent edits a chunk, the oracle
 verifies the output before writing.
 
-.close the loop
-[source,d2]
-----
+<!-- graph: close the loop -->
+```d2
 
 direction: right
 
@@ -176,13 +178,13 @@ gen -> db: trace
 db -> source: apply-back {style.stroke: "#98971a"; style.bold: true}
 gen -> source: "tools can edit\ngen/ safely" {style.stroke: "#98971a"; style.stroke-dash: 5}
 
-----
+```
 
 
 Closing the loop is the single thesis of the project. Every other design
 decision follows from this.
 
-== Why two passes?
+## Why two passes?
 
 The pipeline has two independent tools: `weaveback-macro` (macro expander) and
 `weaveback-tangle` (chunk extractor). They can be used in sequence, or fused
@@ -190,7 +192,7 @@ into a single pass by the `weaveback` binary.
 
 The split exists for three reasons.
 
-=== 1. Transparent intermediates
+### 1. Transparent intermediates
 
 The output of the macro pass is still human-readable AsciiDoc. A reader who
 does not know `%def` exists can read the expanded document without confusion.
@@ -200,14 +202,14 @@ works on both the input and the output of the macro pass.
 If macros and chunk extraction were one step, the intermediate would either not
 exist or be illegible.
 
-=== 2. Independent tracing
+### 2. Independent tracing
 
 The source map is two-layered: generated code → expanded line → original source
 line. `wb-query trace` can report either level. If expansion and tangle were
 fused, a single error or tracing query would need to disentangle which pass
 introduced a given line — harder to implement and harder to debug.
 
-=== 3. Separate responsibilities, separate bugs
+### 3. Separate responsibilities, separate bugs
 
 The macro expander deals with scope, parameter binding, recursion depth, and
 string substitution. The tangle pass deals with chunk assembly, indentation
@@ -218,12 +220,12 @@ In practice the combined `weaveback` binary is what you run. The split is
 invisible to most users. It matters when something breaks: you can determine
 in seconds whether the fault is in macro expansion or in chunk assembly.
 
-== Why a custom macro language?
+## Why a custom macro language?
 
 The obvious question is: why not m4, Jinja2, Handlebars, or any of a dozen
 existing template languages?
 
-=== The prose constraint
+### The prose constraint
 
 Weaveback's macros live inside prose that a human reads and that Asciidoctor
 renders. This changes the design requirements fundamentally. A template
@@ -234,21 +236,20 @@ know the tool.
 
 Consider:
 
-[source,text]
-----
+```text
 The `greet` macro takes a name and produces a greeting.
 
 %def(greet, name, %{Hello, %(name)!%})
 
 Calling %greet(World) produces: "Hello, World!".
-----
+```
 
 
 The prose around the macro call is still readable. An `m4` version of this
 would require quoting the prose to prevent re-scanning, and the result would
 not be.
 
-=== The re-scanning problem
+### The re-scanning problem
 
 m4 re-scans its output. Every expansion is pushed back onto the input and
 processed again. This is powerful — it enables macro-generating macros — but
@@ -260,7 +261,7 @@ semantics.
 Weaveback expands once. An `%` in the output of a macro is not re-processed.
 This eliminates quoting entirely. Source locations are accurate.
 
-=== Named and positional arguments; no GPL
+### Named and positional arguments; no GPL
 
 Weaveback macros support named arguments (`handler = list_users`) and
 positional arguments in the same call. m4 has neither. Jinja and Handlebars
@@ -269,14 +270,14 @@ have both but are not designed for the prose-with-code use case.
 m4 is also GPL-licensed, which may matter for commercial projects that embed
 a build toolchain. Weaveback is 0BSD/MIT/Apache-2.0.
 
-=== The sigil is configurable
+### The sigil is configurable
 
 The `%` character is the default sigil, but it can be changed per
 pass (`--sigil @`, for example). This matters for self-hosting: the
 weaveback-macro source uses `^` as its sigil so that `%def` can
 appear literally in examples and tests without being consumed by the expander.
 
-== Why Python scripting?
+## Why Python scripting?
 
 The built-in macros handle most cases: text substitution, conditionals,
 case conversion, includes. When you need to compute something — a byte
@@ -285,7 +286,7 @@ escape hatch.
 
 The project now keeps a single escape hatch. Python-familiar teams reach for
 `%pydef`, backed by
-link:https://github.com/pydantic/monty[monty] — a pure-Rust Python interpreter that
+[monty](https://github.com/pydantic/monty) — a pure-Rust Python interpreter that
 is compiled into the weaveback binary. There is no CPython dependency, no
 virtualenv, no installed Python packages required.
 
@@ -304,7 +305,7 @@ The inability to trace scripted macro output is not a bug to be fixed later.
 It is pressure toward the better design: express structure with chunks, use
 scripting only where chunks are genuinely insufficient.
 
-== Why apply-back?
+## Why apply-back?
 
 apply-back is the answer to a workflow question: what do you do when
 rust-analyzer, your IDE, or `cargo fix` edits the generated file?
@@ -318,9 +319,8 @@ generated file and the baseline stored in `weaveback.db`, locates the
 corresponding chunk lines in the literate source via the source map, and
 rewrites them.
 
-.apply-back flow
-[source,d2]
-----
+<!-- graph: apply-back flow -->
+```d2
 
 direction: down
 
@@ -338,7 +338,7 @@ trace -> patch
 db -> patch: "source map"
 patch -> source
 
-----
+```
 
 
 apply-back handles three tracing cases that correspond to how lines end up
@@ -349,12 +349,12 @@ right source line.
 Without apply-back, the bidirectionality claim is hollow. The loop is only
 closed if it is closed cheaply enough that developers actually use it.
 
-== Why SQLite for the source map?
+## Why SQLite for the source map?
 
 The source map is a database, not a set of flat files. Three things drove
 this choice.
 
-=== Queries that flat files cannot answer efficiently
+### Queries that flat files cannot answer efficiently
 
 The source map needs to answer questions like:
 
@@ -366,25 +366,25 @@ The source map needs to answer questions like:
 These are graph queries. SQLite handles them with indexed joins. A flat file
 would require loading everything into memory and scanning.
 
-=== Concurrent access without contention
+### Concurrent access without contention
 
 SQLite in WAL (Write-Ahead Logging) mode allows multiple readers concurrently
 with a single writer. A `ninja -j8` build running eight weaveback passes in
 parallel, the `wb-serve` HTTP server, and an MCP server attached to an
 editor can all read `weaveback.db` simultaneously without blocking each other.
 
-=== Atomicity
+### Atomicity
 
 A weaveback run writes many generated files. If it is interrupted mid-run,
 the database stays consistent: the uncommitted transaction is rolled back.
 Flat files would leave partial state that the next run might misinterpret.
 
-== Why the MCP server?
+## Why the MCP server?
 
 The MCP server is designed for a specific workflow: an AI coding agent working
 on a weaveback project.
 
-=== The problem with agentic code generation on normal repos
+### The problem with agentic code generation on normal repos
 
 On a standard repository, an agent edits files and hopes the output compiles.
 It cannot verify correctness before writing. It cannot ask "what was the
@@ -392,11 +392,10 @@ designer's intent for this function?" without reading unstructured README text.
 After a refactoring tool renames a function in generated files, the agent has
 no path to propagate that rename back to the source.
 
-=== What the MCP tools provide
+### What the MCP tools provide
 
-.MCP tools
-[source,d2]
-----
+<!-- graph: MCP tools -->
+```d2
 
 direction: right
 
@@ -418,7 +417,7 @@ context -> prose: reads {shape: document}
 fix -> oracle: "re-expand macro;\nmatch expected output?" {shape: diamond}
 oracle -> source: "write only\nif verified" {style.stroke: "#98971a"}
 
-----
+```
 
 
 `weaveback_apply_fix` is the key primitive. It re-runs the macro expander on
@@ -431,7 +430,7 @@ section (including prose paragraphs and design notes), and the bodies of all
 direct dependencies. An agent reading this gets code and intent together in
 one query.
 
-=== Why not just give the agent the whole source tree?
+### Why not just give the agent the whole source tree?
 
 Context windows and cost. A request for chunk context returns ~200 lines of
 targeted information. Reading the whole source tree returns tens of thousands
@@ -439,7 +438,7 @@ of lines, most of which are irrelevant to the current edit. The structured
 query model lets the agent navigate incrementally and spend its context budget
 on the right things.
 
-== Why self-hosting?
+## Why self-hosting?
 
 Weaveback's own source code is written as literate AsciiDoc. The `.rs` files
 are generated by running `just tangle`. This is not decoration.
@@ -461,7 +460,7 @@ The cost is that there is no "we will fix tracing properly before we start
 self-hosting." The capability had to be correct and usable from the point
 when the codebase was converted.
 
-== Design principles in summary
+## Design principles in summary
 
 These are the principles that connect the decisions above. They are not
 stated explicitly anywhere in the source, but they are consistent across
@@ -488,14 +487,14 @@ agents with intent and code together.
 *Eating your own dogfood is not optional.* Self-hosting is the only reliable
 way to keep the tool honest.
 
-== Where to go from here
+## Where to go from here
 
-* link:architecture.adoc[architecture.adoc] — the *what*: pipeline stages,
+* [architecture.adoc](architecture.adoc) — the *what*: pipeline stages,
   data structures, CLI flags, source-map schema
-* link:../crates/weaveback-macro/src/weaveback_macro.adoc[weaveback-macro] —
+* [weaveback-macro](../crates/weaveback-macro/src/weaveback_macro.adoc) —
   the macro expander in detail: lexer, parser, evaluator, scripting
-* link:../crates/weaveback-tangle/src/weaveback_tangle.adoc[weaveback-tangle] —
+* [weaveback-tangle](../crates/weaveback-tangle/src/weaveback_tangle.adoc) —
   chunk extraction, safe writer, database schema
-* link:../crates/weaveback-api/src/apply_back.adoc[apply-back] — how bidirectional
+* [apply-back](../crates/weaveback-api/src/apply_back.adoc) — how bidirectional
   propagation works in detail
-* link:../docs/m4-comparison.adoc[m4-comparison] — why not m4, point by point
+* [m4-comparison](../docs/m4-comparison.adoc) — why not m4, point by point

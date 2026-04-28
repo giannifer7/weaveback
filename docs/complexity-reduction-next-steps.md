@@ -1,0 +1,303 @@
+---
+title: |-
+  Complexity Reduction Next Steps
+toc: left
+---
+# Complexity Reduction Next Steps
+
+This is the handoff plan for continuing the complexity-reduction work after
+the first major cleanup passes.
+
+It is intentionally operational.  The broader rationale lives in
+[Complexity Reduction Plan](complexity-reduction-plan.adoc).  This file
+answers the practical question: if work stops here, what should the next model
+or maintainer do, in what order, and how should success be checked?
+
+## Current State
+
+The repository is in a better state than when the complexity-reduction plan was
+written, but it is not done.
+
+Completed or materially improved:
+
+* The `.wvb` two-pass authoring model is active across the main crates.
+* `docs/` has canonical `.wvb` sources with `.adoc` and `.md` projections.
+* `project/agent-python.adoc` is now an architecture note rather than a fake
+  implementation owner.
+* `.github` workflow files are literate through `.github/workflows/workflows.adoc`.
+* `apply-back` has been split at both literate-source and Rust-file level.
+  The public module remains `weaveback_api::apply_back`, but the implementation
+  now lives in focused generated files under `crates/weaveback-api/src/apply_back/`.
+* `apply-back` tests are physically separate from the runtime facade and split
+  by concern in `crates/weaveback-api/src-wvb/apply_back/`.
+* `weaveback-serve` has been split at both literate-source and Rust-file level.
+  `crates/weaveback-serve/src/lib.rs` is now a small facade, implementation
+  files live under `crates/weaveback-serve/src/server/`, and tests are assembled
+  from focused files under `crates/weaveback-serve/src/tests/`.
+* A clean DB retangle exposed stale generated fixes that had not been preserved
+  in canonical sources.  The small canonical catch-ups are now recorded in
+  `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
+
+Still problematic:
+
+* Several generated Rust files remain too large for local reasoning.
+* Some large test modules are still grouped into broad files rather than concern
+  files.
+* CI runs strict literate lint, but does not yet appear to enforce a retangle
+  drift check.
+* Some old `.adoc` implementation sources remain, mostly manifests and CLI
+  specs.  These may be legitimate, but they need explicit classification.
+
+## Known Large Generated Rust Files
+
+Line counts from the audit immediately after the `apply-back` split:
+
+File | Lines | Status
+`crates/weaveback-tangle/src/db.rs` | 1674 | Too large; split by schema/storage/query/FTS concerns.
+`crates/weaveback-api/src/coverage.rs` | 1616 | Too large; split before adding more coverage behavior.
+`crates/weaveback-serve/src/lib.rs` | 20 | Completed; facade now includes focused `src/server/*.rs` files.
+`crates/weaveback-api/src/coverage/tests_coverage.rs` | 1452 | Too large; split alongside coverage runtime.
+`crates/weaveback-api/src/apply_back/tests.rs` | 1303 | Separate from runtime, but still large. Lower priority because source is split.
+`crates/weaveback-tangle/src/noweb.rs` | 1195 | Too large; split parser/model/expansion/writer.
+`crates/weaveback-api/src/process.rs` | 990 | Large; split after higher-risk offenders.
+`crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
+
+These numbers are not themselves the rule.  The rule is whether a maintainer can
+reason about the file locally without scanning unrelated concerns.
+
+## Execution Order
+
+Do not start by touching the most semantically central file.  Split files in an
+order that reduces risk while still attacking real complexity.
+
+### 1. Split weaveback-serve — completed
+
+Target:
+
+* `crates/weaveback-serve/src-wvb/weaveback_serve.wvb`
+* generated `crates/weaveback-serve/src/lib.rs`
+* generated `crates/weaveback-serve/src/tests.rs`
+
+Reason:
+
+* It was the original suggested first target in the complexity plan.
+* It is large enough to matter but less semantically central than tangle DB or
+  noweb expansion.
+* It likely has natural HTTP/server/helper/test boundaries.
+
+Suggested output shape:
+
+* Keep `crates/weaveback-serve/src/lib.rs` as a small facade/module map.
+* Generate focused runtime files under `crates/weaveback-serve/src/`.
+* Split tests by concern under either `src/tests/` or focused `src/*/tests.rs`
+  files, whichever matches the module layout better.
+* Keep the canonical literate files under `crates/weaveback-serve/src-wvb/`,
+  preferably in a subdirectory if multiple files are needed.
+
+Status:
+
+* Completed in the cleanup pass after this plan was written.
+* Largest generated serve implementation file is now `server/ai.rs` at roughly
+  700 lines; the root `lib.rs` is a small facade.
+* `src/tests.rs` is now an assembly file; focused test bodies live under
+  `src/tests/`.
+
+Acceptance criteria:
+
+* No generated serve runtime file remains above roughly 800 lines.
+* Tests are no longer one broad 600+ line file if clear concerns exist.
+* Existing public crate API remains compatible unless a deliberate API cleanup is
+  explicitly chosen.
+
+### 2. Split coverage runtime and tests — next
+
+Target:
+
+* `crates/weaveback-api/src-wvb/coverage.wvb`
+* generated `crates/weaveback-api/src/coverage.rs`
+* generated `crates/weaveback-api/src/coverage/tests_coverage.rs`
+
+Reason:
+
+* Runtime and tests together are one of the largest remaining complexity blocks.
+* Coverage logic has multiple separable responsibilities:
+  LCOV parsing, generated-location scanning, DB attribution, summaries, and CLI
+  output.
+
+Suggested output shape:
+
+* Keep `coverage.rs` as a small facade.
+* Split into files such as:
+  `lcov.rs`, `locations.rs`, `attribution.rs`, `summary.rs`, `cargo.rs`,
+  `render.rs` or similar names based on the actual code.
+* Split tests to mirror those concerns.
+
+Acceptance criteria:
+
+* Coverage runtime concerns are not mixed in a single generated file.
+* The largest coverage test file is substantially smaller than the current
+  `tests_coverage.rs`.
+* Existing coverage commands and MCP behavior still pass.
+
+### 3. Add retangle drift enforcement
+
+Target:
+
+* `.github/workflows/workflows.adoc`
+* generated workflow YAML files
+* possibly `justfile` / `project/project.adoc`
+
+Reason:
+
+* The plan says retangle must become a real drift check.
+* Local practice already uses retangle before commits; CI should enforce it.
+
+Suggested command shape:
+
+* Run `cargo run -p wb-tangle -- --force-generated`.
+* Run `git diff --exit-code` afterward.
+* If expanded docs are generated by `just docs`, decide whether the drift check
+  should include docs or only source/generated Rust and config outputs.
+
+Important nuance:
+
+* This check must not create nondeterministic diffs.
+* If it fails on CI, classify the diff before patching blindly:
+  expected source catch-up, generator bug, or stale committed artifact.
+* A clean rebuild of `weaveback.db` exposed that stale chunk definitions for
+  deleted/renamed expanded sources can still influence output until the DB is
+  rebuilt.  Treat that as a concrete bug candidate for the drift-check work.
+
+Acceptance criteria:
+
+* A clean checkout can retangle without producing tracked diffs.
+* CI fails when generated files drift from canonical sources.
+
+### 4. Split weaveback-tangle DB
+
+Target:
+
+* `crates/weaveback-tangle/src-wvb/db.wvb`
+* generated `crates/weaveback-tangle/src/db.rs`
+
+Reason:
+
+* This is currently the largest generated Rust file.
+* It is central and therefore riskier than `weaveback-serve` or coverage.
+
+Suggested output shape:
+
+* Keep the public `db` module stable at first.
+* Split by responsibility:
+  schema/migrations, connection/opening, source configs, source snapshots,
+  chunk definitions, noweb map, macro map, FTS/prose search, baselines, and tests.
+* Avoid moving behavior and changing semantics in the same commit.
+
+Acceptance criteria:
+
+* Public DB API remains compatible.
+* Each split file has one responsibility.
+* DB tests still pass without SQLite lock flakiness.
+
+### 5. Split weaveback-tangle noweb
+
+Target:
+
+* `crates/weaveback-tangle/src-wvb/noweb.wvb`
+* generated `crates/weaveback-tangle/src/noweb.rs`
+
+Reason:
+
+* `noweb.rs` is the core of chunk parsing, expansion, and writing.
+* The current file mixes parser model, expansion logic, path safety, writer
+  routing, and diagnostics.
+
+Suggested output shape:
+
+* `syntax.rs` or `parser.rs` for noweb syntax parsing.
+* `clip.rs` for the chunk store / expansion state.
+* `expand.rs` for recursive expansion and mapping.
+* `writer.rs` for file-output routing.
+* `safety.rs` for path validation if it is substantial enough.
+
+Acceptance criteria:
+
+* The public `weaveback_tangle::noweb` surface remains stable initially.
+* Tests still cover duplicate file chunks, strict undefined chunks, path safety,
+  recursion, and mapping.
+
+## Per-Task Checklist
+
+For every split:
+
+1. Inspect the generated file and the canonical `.wvb` source.
+2. Identify concern boundaries before editing.
+3. Split canonical `.wvb` files first.
+4. Retangle with `cargo run -p wb-tangle -- --force-generated`.
+5. Inspect generated Rust diffs.  For pure splits, behavior should not change.
+6. Run the targeted package tests.
+7. Run strict literate lint.
+8. Run docs if expanded docs changed.
+9. Run workspace check or tests before committing.
+10. Commit one subsystem split at a time.
+
+Recommended verification commands:
+
+```sh
+cargo run -p wb-tangle -- --force-generated
+cargo run -p wb-query -- lint --strict
+cargo test -p <affected-package>
+cargo check --workspace --exclude weaveback-py
+cargo clippy --workspace --exclude weaveback-py -- -D warnings
+just docs
+```
+
+
+Use narrower tests first while iterating, then the full command list before
+committing.
+
+## Rules For The Next Model
+
+Do:
+
+* Preserve public APIs during structural splits unless the user explicitly asks
+  for API cleanup.
+* Prefer small facade modules and focused generated files over giant chunk
+  accumulation.
+* Keep tests physically separate from runtime files.
+* Keep generated files checked in, but treat canonical `.wvb` / `.adoc` as the
+  source of truth.
+* Inspect generated diffs after every retangle.
+* Commit each subsystem independently.
+
+Do not:
+
+* Hide complexity by moving 1500 lines into one included file with a new name.
+* Convert architecture pages into fake implementation owners.
+* Mix semantic refactors with mechanical file splits unless unavoidable.
+* Trust generated Rust over canonical literate source.
+* Patch generated files manually without fixing the source.
+
+## Stop Conditions
+
+Pause and ask for review if:
+
+* a split requires public API changes;
+* retangle changes unrelated generated files;
+* generated docs or Rust drift in a way that is not explainable;
+* tests expose a behavioral bug unrelated to the split;
+* the split would create more files without clearer ownership boundaries.
+
+## Good Next Commit
+
+The best next commit is probably:
+
+* split `crates/weaveback-api/src-wvb/coverage.wvb`
+* generate smaller `crates/weaveback-api/src/coverage/*.rs` files or an
+  equivalent focused layout
+* split `coverage/tests_coverage.rs` by concern
+* run targeted coverage tests plus full lint/check/docs
+
+That commit would remove the next largest `weaveback-api` runtime/test pair and
+provide a third example, after `apply-back` and `weaveback-serve`, of the desired
+final shape.

@@ -1,0 +1,228 @@
+= Serve Entry Point
+
+Project discovery, public run functions, and source-file rebuild watcher.
+
+== Entry point
+
+`run_serve` starts the file watcher, prints the URL, then blocks on the
+tiny_http request loop.  Each request is handled in a new thread to avoid
+blocking other clients during SSE streaming.
+
+[source,rust]
+----
+// <[serve-run]>=
+fn find_project_root() -> PathBuf {
+    let mut dir = std::env::current_dir().expect("cannot determine cwd");
+    loop {
+        let cargo_toml = dir.join("Cargo.toml");
+        if cargo_toml.exists()
+            && let Ok(content) = std::fs::read_to_string(&cargo_toml)
+            && content.contains("[workspace]") {
+            return dir;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    std::env::current_dir().unwrap()
+}
+
+pub fn run_serve(
+    port: u16,
+    html_override: Option<PathBuf>,
+    tangle_cfg: TangleConfig,
+    watch: bool,
+) -> Result<(), String> {
+    let project_root = find_project_root();
+    let html_dir = html_override.unwrap_or_else(|| project_root.join("docs").join("html"));
+    let html_dir = if html_dir.exists() {
+        html_dir.canonicalize().map_err(|e| e.to_string())?
+    } else {
+        return Err(format!(
+            "docs directory not found: {}\nRun `just docs` first to generate the HTML documentation.",
+            html_dir.display()
+        ));
+    };
+
+    let addr = format!("127.0.0.1:{port}");
+    let server = Server::http(&addr).map_err(|e| e.to_string())?;
+
+    run_server_loop(
+        server,
+        project_root,
+        html_dir,
+        watch,
+        tangle_cfg,
+    )
+}
+
+pub fn run_server_loop(
+    server: Server,
+    project_root: PathBuf,
+    html_dir: PathBuf,
+    watch: bool,
+    tangle_cfg: TangleConfig,
+) -> Result<(), String> {
+    let senders: SseSenders = Arc::new(Mutex::new(Vec::new()));
+    let reload_version: ReloadVersion = Arc::new(AtomicU64::new(0));
+    spawn_watcher(html_dir.clone(), senders.clone(), reload_version.clone());
+    if watch {
+        spawn_source_watcher(project_root.clone());
+    }
+
+    let tangle_cfg = Arc::new(tangle_cfg);
+
+    println!("wb-serve: http://{}", server.server_addr());
+    println!("  Serving: {}", html_dir.display());
+    println!("  Editor:  $VISUAL / $EDITOR ({})",
+        std::env::var("VISUAL")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "vi (fallback)".into()));
+    if watch {
+        println!("  Watch:   .adoc + theme sources (tangle + docs on change)");
+    }
+    println!("  Press Ctrl-C to stop.");
+
+    for request in server.incoming_requests() {
+        let html_dir2     = html_dir.clone();
+        let senders2      = senders.clone();
+        let reload_version2 = reload_version.clone();
+        let root2         = project_root.clone();
+        let cfg2          = tangle_cfg.clone();
+        thread::spawn(move || {
+            handle_request(request, &html_dir2, &senders2, &reload_version2, &root2, &cfg2);
+        });
+    }
+
+    Ok(())
+}
+// @
+----
+
+
+== Source-file watcher
+
+`find_docgen_bin` locates the `weaveback-docgen` binary alongside the running
+`weaveback` executable (the usual layout after `cargo build --release`), falling
+back to `weaveback-docgen` on `$PATH`.
+
+`find_plantuml_jar` keeps the watch rebuild output consistent with `just docs`
+and `just docs-ai`: it first honors `$PLANTUML_JAR`, then falls back to the
+system path `/usr/share/java/plantuml/plantuml.jar` when present.
+
+`run_rebuild` executes the rebuild pipeline in order:
+
+1. If `.adoc` files changed: `python3 scripts/tangle.py` (incremental — the
+   `source_blocks` table gives sub-file granularity so only blocks whose
+   BLAKE3 hash changed are re-emitted).
+2. If theme sources changed: `node scripts/serve-ui/build.mjs` to rebuild the
+   CSS/JS bundle.
+3. Always: `weaveback-docgen --sigil % --sigil ^`, plus `--plantuml-jar` when
+   a jar is available, to re-render stale HTML without dropping diagrams.
+
+`spawn_source_watcher` opens a second `notify` watcher on the project root,
+debounces filesystem events for 500 ms of quiet, then calls `run_rebuild`.
+Events inside `docs/html/` and `target/` are ignored to avoid feedback loops.
+
+[source,rust]
+----
+// <[serve-source-watcher]>=
+fn find_docgen_bin() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.with_file_name("weaveback-docgen");
+        if sibling.exists() { return sibling; }
+    }
+    PathBuf::from("weaveback-docgen")
+}
+
+fn find_plantuml_jar() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("PLANTUML_JAR") {
+        let jar = PathBuf::from(path);
+        if jar.exists() {
+            return Some(jar);
+        }
+    }
+
+    let default = PathBuf::from("/usr/share/java/plantuml/plantuml.jar");
+    if default.exists() {
+        Some(default)
+    } else {
+        None
+    }
+}
+
+fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
+    if tangle {
+        eprintln!("wb-serve --watch: tangle...");
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| PathBuf::from("weaveback"));
+        let ok = std::process::Command::new(&exe)
+            .arg("tangle")
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("wb-serve --watch: tangle failed"); return; }
+    }
+    if theme {
+        eprintln!("wb-serve --watch: theme...");
+        let ok = std::process::Command::new("node")
+            .arg(project_root.join("scripts").join("serve-ui").join("build.mjs"))
+            .current_dir(project_root)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok { eprintln!("wb-serve --watch: theme build failed"); return; }
+    }
+    eprintln!("wb-serve --watch: docs...");
+    let mut cmd = std::process::Command::new(find_docgen_bin());
+    cmd.args(["--sigil", "%", "--sigil", "^"])
+        .current_dir(project_root);
+    if let Some(jar) = find_plantuml_jar() {
+        cmd.arg("--plantuml-jar").arg(jar);
+    }
+    let _ = cmd.status();
+}
+
+fn spawn_source_watcher(project_root: PathBuf) {
+    use std::time::Duration;
+    thread::spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => { eprintln!("wb-serve: source watcher error: {e}"); return; }
+        };
+        if let Err(e) = watcher.watch(&project_root, RecursiveMode::Recursive) {
+            eprintln!("wb-serve: source watch error: {e}");
+            return;
+        }
+        let docs_html  = project_root.join("docs").join("html");
+        let target_dir = project_root.join("target");
+        let theme_src  = project_root.join("scripts").join("serve-ui").join("src");
+        while let Ok(first) = rx.recv() {
+            let mut need_tangle = false;
+            let mut need_theme  = false;
+            if let Ok(event) = first {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            while let Ok(Ok(event)) = rx.recv_timeout(Duration::from_millis(500)) {
+                for p in &event.paths {
+                    if p.starts_with(&docs_html) || p.starts_with(&target_dir) { continue; }
+                    if p.extension().is_some_and(|e| e == "adoc") { need_tangle = true; }
+                    if p.starts_with(&theme_src) { need_theme = true; }
+                }
+            }
+            if need_tangle || need_theme {
+                run_rebuild(&project_root, need_tangle, need_theme);
+            }
+        }
+        drop(watcher);
+    });
+}
+// @
+----
+

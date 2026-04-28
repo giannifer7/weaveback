@@ -240,7 +240,7 @@ jobs:
       - name: Generate docs
         run: |
           cargo run --release --package weaveback-docgen -- \
-            --special %% --special ^ \
+            --special % --special ^ \
             --plantuml-jar /opt/plantuml/plantuml.jar
 
       - name: Copy static assets

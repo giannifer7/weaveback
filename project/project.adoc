@@ -986,6 +986,30 @@ comment_markers = "//"
 chunk_end = "@@"
 
 [[pass]]
+dir = "docs/"
+gen = "docs/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/asciidoc.wvb"]
+expanded_ext = "adoc"
+expanded_adoc_dir = "docs"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
+dir = "docs/"
+gen = "docs/"
+ext = "wvb"
+sigil = "¤"
+macro_prelude = ["prelude/markdown.wvb"]
+expanded_ext = "md"
+expanded_md_dir = "docs"
+macro_only = true
+open_delim = "<["
+close_delim = "]>"
+
+[[pass]]
 dir = "project/"
 gen = "."
 ext = "adoc"

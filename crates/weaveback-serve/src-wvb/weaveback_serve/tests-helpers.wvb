@@ -1,0 +1,58 @@
+¤h1(¤[Serve Test Helpers¤])
+
+Shared test imports and temporary workspace fixture.
+
+¤rust_chunk(serve-tests-helpers, ¤[
+use super::{
+    build_chunk_context, content_type, extract_prose, heading_level, parse_query,
+    percent_decode, safe_path, section_range, sse_headers, tangle_oracle, title_chain,
+    AiBackend, AiChannelReader, SseReader, TangleConfig,
+};
+use std::fs;
+use std::io::Read;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+use weaveback_tangle::db::{ChunkDefEntry, Confidence, NowebMapEntry, WeavebackDb};
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct TestWorkspace {
+    root: PathBuf,
+}
+
+impl TestWorkspace {
+    fn new() -> Self {
+        let unique = format!(
+            "wb-serve-tests-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock drifted backwards")
+                .as_nanos()
+                + u128::from(TEST_COUNTER.fetch_add(1, Ordering::Relaxed))
+        );
+        let root = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&root).expect("create temp workspace");
+        Self { root }
+    }
+
+    fn write_file(&self, rel: &str, content: &str) {
+        let path = self.root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent");
+        }
+        fs::write(path, content).expect("write file");
+    }
+
+    fn open_db(&self) -> WeavebackDb {
+        WeavebackDb::open(self.root.join("weaveback.db")).expect("open sqlite db")
+    }
+}
+
+impl Drop for TestWorkspace {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+¤])

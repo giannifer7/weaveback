@@ -283,21 +283,48 @@ fn is_adoc_fence_delimiter(line: &str) -> bool {
     matches!(line.trim(), "----" | "....")
 }
 
+fn starts_wvb_code_block(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('\u{00a4}') && trimmed.contains("code_block(")
+}
+
+fn opens_wvb_block_arg(line: &str) -> bool {
+    line.contains("\u{00a4}[") || line.contains("\u{00a4}{")
+}
+
+fn closes_wvb_block_arg(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "\u{00a4}])"
+        || trimmed == "\u{00a4}})"
+        || trimmed == "\u{00a4}])\u{00a4})"
+        || trimmed == "\u{00a4}})\u{00a4})"
+}
+
 fn lint_chunk_body_outside_fence(
     file: &Path,
     text: &str,
     syntaxes: &[&NowebSyntax],
 ) -> Vec<LintViolation> {
     let mut in_fence = false;
+    let is_wvb = file.extension().and_then(|ext| ext.to_str()) == Some("wvb");
+    let mut in_wvb_code_block = false;
     let mut violations = Vec::new();
     for (idx, line) in text.lines().enumerate() {
         let trimmed = line.trim();
+        if is_wvb {
+            if !in_wvb_code_block && starts_wvb_code_block(trimmed) && opens_wvb_block_arg(trimmed) {
+                in_wvb_code_block = true;
+            } else if in_wvb_code_block && closes_wvb_block_arg(trimmed) {
+                in_wvb_code_block = false;
+                continue;
+            }
+        }
         if is_adoc_fence_delimiter(trimmed) {
             in_fence = !in_fence;
             continue;
         }
         if let Some(chunk_name) =
-            parse_chunk_definition_name(trimmed, syntaxes).filter(|_| !in_fence)
+            parse_chunk_definition_name(trimmed, syntaxes).filter(|_| !in_fence && !in_wvb_code_block)
         {
             violations.push(LintViolation {
                 file: file.to_path_buf(),
@@ -409,8 +436,16 @@ fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
 
     let mut violations = Vec::new();
     let mut in_generated_code_macro = false;
+    let mut in_wvb_code_block = false;
     let mut previous_line = "";
     for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if !in_wvb_code_block && starts_wvb_code_block(trimmed) && opens_wvb_block_arg(trimmed) {
+            in_wvb_code_block = true;
+        } else if in_wvb_code_block && closes_wvb_block_arg(trimmed) {
+            in_wvb_code_block = false;
+        }
+
         if line_opens_generated_code_macro(line) {
             in_generated_code_macro = true;
         }
@@ -418,7 +453,7 @@ fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
         let is_raw_source =
             line.starts_with("[source") || line.starts_with("[plantuml") || line.starts_with("[d2");
         let is_prelude_definition_body = previous_line.contains("\u{00a4}redef(");
-        if is_raw_source && !in_generated_code_macro && !is_prelude_definition_body {
+        if is_raw_source && !in_generated_code_macro && !in_wvb_code_block && !is_prelude_definition_body {
             violations.push(LintViolation {
                 file: file.to_path_buf(),
                 line: idx + 1,
@@ -636,6 +671,20 @@ fn lint_accepts_chunk_inside_literal_block() {
 }
 
 #[test]
+fn lint_accepts_chunk_inside_wvb_code_block_macro() {
+    let text =
+        "\u{00a4}code_block(rust, \u{00a4}[\n// <[@file src/main.rs]>=\nfn main() {}\n// @\n\u{00a4}])\n";
+    let syntax = NowebSyntax::new(
+        "<[",
+        "]>",
+        "@",
+        &["#".to_string(), "//".to_string()],
+    );
+    let syntaxes = vec![&syntax];
+    assert!(lint_chunk_body_outside_fence(Path::new("sample.wvb"), text, &syntaxes).is_empty());
+}
+
+#[test]
 fn lint_detects_unterminated_chunk_at_end_of_file() {
     let text = "= Title\n\n----\n// <<alpha>>=\nbody\n----\n";
     let syntax = NowebSyntax::new(
@@ -815,6 +864,12 @@ fn lint_raw_wvb_source_blocks_detects_direct_source_block() {
 #[test]
 fn lint_raw_wvb_source_blocks_ignores_rust_string_literals() {
     let text = "let src = \"[source,rust]\\n----\\nfn main() {}\\n----\\n\";\n";
+    assert!(lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text).is_empty());
+}
+
+#[test]
+fn lint_raw_wvb_source_blocks_ignores_code_block_examples() {
+    let text = "\u{00a4}code_block(adoc, \u{00a4}[\n[source,rust]\n----\nfn main() {}\n----\n\u{00a4}])\n";
     assert!(lint_raw_wvb_source_blocks(Path::new("sample.wvb"), text).is_empty());
 }
 

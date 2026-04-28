@@ -1,0 +1,68 @@
+¤h1(¤[Serve Editor Open¤])
+
+Editor integration plus URL query parsing helpers.
+
+¤h2(¤[Editor open¤])
+
+`open_in_editor` shells out to `$VISUAL` / `$EDITOR` to open `file` at `line`.
+Most terminal editors (`vim`, `nvim`, `nano`, `helix`) accept `+LINE FILE`.
+VS Code uses `--goto FILE:LINE`.
+
+¤rust_chunk(serve-open, ¤[
+fn open_in_editor(file: &str, line: u32, project_root: &Path) {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+    let editor_base = Path::new(&editor)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let full = project_root.join(file);
+    let full_str = full.to_string_lossy().into_owned();
+    let args: Vec<String> = match editor_base.as_str() {
+        "code" | "code-insiders" => {
+            vec!["--goto".into(), format!("{}:{}", full_str, line)]
+        }
+        _ => vec![format!("+{}", line), full_str],
+    };
+    let _ = std::process::Command::new(&editor).args(&args).spawn();
+}
+
+fn parse_query(url: &str) -> HashMap<String, String> {
+    let query = url.split_once('?').map(|x| x.1).unwrap_or("");
+    query
+        .split('&')
+        .filter_map(|pair| {
+            let mut it = pair.splitn(2, '=');
+            let k = it.next()?;
+            let v = it.next().unwrap_or("");
+            Some((
+                percent_decode(k),
+                percent_decode(v),
+            ))
+        })
+        .collect()
+}
+
+fn percent_decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len()
+            && let (Some(h), Some(l)) = (
+                char::from(bytes[i + 1]).to_digit(16),
+                char::from(bytes[i + 2]).to_digit(16),
+            )
+        {
+            out.push(char::from((h * 16 + l) as u8));
+            i += 3;
+            continue;
+        }
+        out.push(char::from(bytes[i]));
+        i += 1;
+    }
+    out
+}
+¤])

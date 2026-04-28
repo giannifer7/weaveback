@@ -1,0 +1,89 @@
+= Serve Request Dispatch
+
+HTTP endpoint dispatch and response routing.
+
+== Request dispatcher
+
+`handle_request` routes each request to the appropriate handler.
+
+[source,rust]
+----
+// <[serve-dispatch]>=
+fn handle_request(
+    request: Request,
+    html_dir: &Path,
+    senders: &SseSenders,
+    reload_version: &ReloadVersion,
+    project_root: &Path,
+    tangle_cfg: &TangleConfig,
+) {
+    let url = request.url().to_string();
+
+    if url == "/__events" || url.starts_with("/__events?") {
+        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        senders.lock().unwrap().push(tx);
+        let reader = SseReader::new(rx);
+        let response = Response::new(
+            StatusCode(200),
+            vec![
+                Header::from_bytes("Content-Type", "text/event-stream").unwrap(),
+                Header::from_bytes("Cache-Control", "no-cache").unwrap(),
+                Header::from_bytes("X-Accel-Buffering", "no").unwrap(),
+            ],
+            reader,
+            None,
+            None,
+        );
+        let _ = request.respond(response);
+        return;
+    }
+
+    if url == "/__version" || url.starts_with("/__version?") {
+        let response = Response::from_string(reload_version.load(Ordering::Relaxed).to_string())
+            .with_header(Header::from_bytes("Content-Type", "text/plain; charset=utf-8").unwrap())
+            .with_header(Header::from_bytes("Cache-Control", "no-cache").unwrap());
+        let _ = request.respond(response);
+        return;
+    }
+
+    if url.starts_with("/__open") {
+        let params = parse_query(&url);
+        let file = params.get("file").map(|s| s.as_str()).unwrap_or("");
+        let line: u32 = params
+            .get("line")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        if !file.is_empty() {
+            open_in_editor(file, line, project_root);
+        }
+        let response = Response::from_string("ok")
+            .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap());
+        let _ = request.respond(response);
+        return;
+    }
+
+    if url == "/__apply" || url.starts_with("/__apply?") {
+        handle_apply(request, project_root, tangle_cfg);
+        return;
+    }
+
+    if url.starts_with("/__chunk") {
+        handle_chunk(request, &url, project_root);
+        return;
+    }
+
+    if url == "/__ai" || url.starts_with("/__ai?") {
+        handle_ai(request, project_root, tangle_cfg);
+        return;
+    }
+
+    if url == "/__save_note" {
+        handle_save_note(request, project_root);
+        return;
+    }
+
+    serve_static(request, &url, html_dir);
+}
+// @
+----
+

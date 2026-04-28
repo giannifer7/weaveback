@@ -1,0 +1,163 @@
+# Serve Edge Case Tests
+
+Focused edge-case tests for static paths, headings, prose extraction, query parsing, and SSE EOF.
+
+```rust
+// <[serve-tests-edge-cases]>=
+// ── content_type extended ─────────────────────────────────────────────
+
+#[test]
+fn content_type_covers_all_mapped_extensions() {
+    let cases = &[
+        ("style.css",  "text/css; charset=utf-8"),
+        ("logo.svg",   "image/svg+xml"),
+        ("icon.ico",   "image/x-icon"),
+        ("data.json",  "application/json"),
+        ("photo.png",  "image/png"),
+        ("main.js",    "application/javascript; charset=utf-8"),
+        ("blob.bin",   "application/octet-stream"),
+    ];
+    let base = PathBuf::from("/tmp");
+    for (name, expected) in cases {
+        assert_eq!(content_type(&base.join(name)), *expected, "for {name}");
+    }
+}
+
+// ── safe_path edge cases ──────────────────────────────────────────────
+
+#[test]
+fn safe_path_rejects_absolute_url_path() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "");
+    let docs_dir = workspace.root.join("docs");
+    // URL path that resolves outside of docs_dir via absolute-looking component
+    assert_eq!(safe_path(&docs_dir, "/../etc/passwd"), None);
+}
+
+#[test]
+fn safe_path_returns_none_for_empty_directory_without_index() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/sub/contents.txt", "");
+    let docs_dir = workspace.root.join("docs");
+    assert_eq!(safe_path(&docs_dir, "/sub"), None);
+}
+
+// ── heading_level extended ────────────────────────────────────────────
+
+#[test]
+fn heading_level_returns_correct_depth() {
+    assert_eq!(heading_level("= Title"), Some(1));
+    assert_eq!(heading_level("== Section"), Some(2));
+    assert_eq!(heading_level("==== Level4"), Some(4));
+    assert_eq!(heading_level(""), None);
+    // A trailing space without title: "== " has t.len() == count+1; t[count] == b' ' is true but no title text
+    assert_eq!(heading_level("== "), None); // empty title — implementation returns None
+    assert_eq!(heading_level("=no space"), None);
+}
+
+// ── section_range edge cases ──────────────────────────────────────────
+
+#[test]
+fn section_range_returns_entire_file_when_no_heading() {
+    let lines = vec!["plain", "text", "only"];
+    // def_start=0, no heading found ↑, sec_start=0, sec_level=1
+    // no next heading found → sec_end=len
+    let (start, end) = section_range(&lines, 1);
+    assert_eq!(start, 0);
+    assert_eq!(end, lines.len());
+}
+
+#[test]
+fn section_range_stops_at_sibling_heading() {
+    let lines = vec![
+        "== Alpha",   // 0
+        "alpha body", // 1
+        "== Beta",    // 2 — sibling
+        "beta body",  // 3
+    ];
+    let (start, end) = section_range(&lines, 1);
+    assert_eq!(start, 0);
+    assert_eq!(end, 2); // stops before Beta
+}
+
+// ── extract_prose edge cases ──────────────────────────────────────────
+
+#[test]
+fn extract_prose_handles_interleaved_fence_and_chunk() {
+    let lines = vec![
+        "Intro.",               // 0
+        "----",                 // 1 — open fence
+        "code inside fence",   // 2
+        "----",                 // 3 — close fence
+        "// <<chunk>>=",       // 4 — open chunk
+        "chunk body",          // 5
+        "// @",                // 6 — close chunk
+        "Outro.",              // 7
+    ];
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert!(!prose.contains("code inside fence"));
+    assert!(!prose.contains("chunk body"));
+    assert!(prose.contains("Intro."));
+    assert!(prose.contains("Outro."));
+}
+
+#[test]
+fn extract_prose_returns_empty_for_all_code() {
+    let lines = vec!["----", "all code", "----"];
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert_eq!(prose, "");
+}
+
+// ── percent_decode edge cases ─────────────────────────────────────────
+
+#[test]
+fn percent_decode_handles_uppercase_hex() {
+    assert_eq!(percent_decode("%2F"), "/");
+    assert_eq!(percent_decode("%20"), " ");
+    assert_eq!(percent_decode("%7E"), "~");
+}
+
+#[test]
+fn percent_decode_passes_non_encoded_chars() {
+    assert_eq!(percent_decode("hello world"), "hello world");
+    assert_eq!(percent_decode(""), "");
+}
+
+// ── parse_query edge cases ────────────────────────────────────────────
+
+#[test]
+fn parse_query_returns_empty_when_no_query_string() {
+    let params = parse_query("/__chunk");
+    // No '?' in the URL → empty query → all keys from empty string split are empty
+    assert!(!params.contains_key("file"));
+    assert!(!params.contains_key("name"));
+}
+
+#[test]
+fn parse_query_handles_empty_query_string() {
+    let params = parse_query("/__chunk?");
+    assert!(params.is_empty() || params.contains_key(""));
+}
+
+// ── SseReader EOF ─────────────────────────────────────────────────────
+
+#[test]
+fn sse_reader_returns_zero_bytes_on_sender_drop() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    // drain the initial keepalive
+    while {
+        let n = sse.read(&mut buf).unwrap();
+        n > 0 && buf[..n] != *b": weaveback-serve\n\n"
+    } {}
+    // drop the sender — next read should return 0 (EOF)
+    drop(tx);
+    loop {
+        let n = sse.read(&mut buf).unwrap();
+        if n == 0 { break; }
+    }
+}
+// @
+```
+

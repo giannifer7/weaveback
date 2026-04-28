@@ -1,0 +1,317 @@
+// weaveback-serve/src/tests/core.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+#[test]
+fn content_type_and_safe_path_handle_common_cases() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/index.html", "<html></html>");
+    workspace.write_file("docs/app.js", "console.log('x');");
+
+    let docs_dir = workspace.root.join("docs");
+    assert_eq!(content_type(&docs_dir.join("index.html")), "text/html; charset=utf-8");
+    assert_eq!(
+        content_type(&docs_dir.join("app.js")),
+        "application/javascript; charset=utf-8"
+    );
+    assert_eq!(safe_path(&docs_dir, "/index.html"), Some(docs_dir.join("index.html")));
+    assert_eq!(safe_path(&docs_dir, "/"), Some(docs_dir.join("index.html")));
+    assert_eq!(safe_path(&docs_dir, "/../secret"), None);
+    assert_eq!(safe_path(&docs_dir, "/missing.txt"), None);
+}
+
+#[test]
+fn parse_query_and_percent_decode_decode_pairs() {
+    let params = parse_query("/__chunk?file=docs%2Fintro.adoc&name=alpha%20beta&nth=2");
+    assert_eq!(params.get("file").map(String::as_str), Some("docs/intro.adoc"));
+    assert_eq!(params.get("name").map(String::as_str), Some("alpha beta"));
+    assert_eq!(params.get("nth").map(String::as_str), Some("2"));
+    assert_eq!(percent_decode("a%2Fb%20c"), "a/b c");
+    assert_eq!(percent_decode("%4"), "%4");
+}
+
+#[test]
+fn parse_query_and_percent_decode_preserve_incomplete_or_empty_values() {
+    let params = parse_query("/__chunk?flag&empty=&bad=%zz");
+    assert_eq!(params.get("flag").map(String::as_str), Some(""));
+    assert_eq!(params.get("empty").map(String::as_str), Some(""));
+    assert_eq!(params.get("bad").map(String::as_str), Some("%zz"));
+    assert_eq!(percent_decode("plain"), "plain");
+}
+
+#[test]
+fn section_helpers_extract_expected_prose_context() {
+    let lines = vec![
+        "= Root",
+        "",
+        "== Parser",
+        "Intro prose.",
+        "----",
+        "code",
+        "----",
+        "",
+        "=== Nested",
+        "Nested prose.",
+        "== Other",
+        "Later.",
+    ];
+
+    assert_eq!(heading_level("== Parser"), Some(2));
+    assert_eq!(heading_level("==Parser"), None);
+    assert_eq!(section_range(&lines, 3), (2, 10));
+    assert_eq!(title_chain(&lines, 9), vec!["Root", "Parser", "Nested"]);
+    assert_eq!(extract_prose(&lines, 2, 10), "== Parser\nIntro prose.\n\n=== Nested\nNested prose.");
+}
+
+#[test]
+fn extract_prose_skips_chunk_bodies_and_trims_blank_edges() {
+    let lines = vec![
+        "",
+        "Intro paragraph.",
+        "",
+        "// <<alpha>>=",
+        "let hidden = true;",
+        "// @",
+        "",
+        "Outro paragraph.",
+        "",
+    ];
+
+    let prose = extract_prose(&lines, 0, lines.len());
+    assert!(!prose.contains("hidden = true"));
+    assert!(prose.starts_with("Intro paragraph."));
+    assert!(prose.ends_with("Outro paragraph."));
+}
+
+#[test]
+fn heading_and_section_helpers_handle_edge_cases() {
+    let lines = vec!["= Root", "plain text", "=== Deep", "==== Deeper", "body"];
+
+    assert_eq!(heading_level("plain text"), None);
+    assert_eq!(heading_level("==NoSpace"), None);
+    assert_eq!(heading_level("=== Deep"), Some(3));
+    assert_eq!(title_chain(&lines, 4), vec!["Root", "Deep", "Deeper"]);
+    assert_eq!(section_range(&lines, 4), (3, 5));
+}
+
+#[test]
+fn default_tangle_config_matches_expected_defaults() {
+    let cfg = TangleConfig::default();
+    assert_eq!(cfg.open_delim, "<[");
+    assert_eq!(cfg.close_delim, "]>");
+    assert_eq!(cfg.chunk_end, "@@");
+    assert_eq!(cfg.comment_markers, vec!["//".to_string()]);
+    assert!(matches!(cfg.ai_backend, AiBackend::ClaudeCli));
+    assert!(cfg.ai_model.is_none());
+    assert!(cfg.ai_endpoint.is_none());
+}
+
+#[test]
+fn build_chunk_context_includes_dependencies_outputs_and_section_prose() {
+    let workspace = TestWorkspace::new();
+    let source = [
+        "= Root",
+        "",
+        "== Serve",
+        "Serve prose.",
+        "",
+        "// <<alpha>>=",
+        "alpha line",
+        "<<beta>>",
+        "// @",
+        "",
+        "// <<beta>>=",
+        "beta line",
+        "// @",
+    ]
+    .join("\n");
+    workspace.write_file("docs/serve.adoc", &source);
+
+    let mut db = workspace.open_db();
+    db.set_chunk_defs(&[
+        ChunkDefEntry {
+            src_file: "docs/serve.adoc".to_string(),
+            chunk_name: "alpha".to_string(),
+            nth: 0,
+            def_start: 6,
+            def_end: 9,
+        },
+        ChunkDefEntry {
+            src_file: "docs/serve.adoc".to_string(),
+            chunk_name: "beta".to_string(),
+            nth: 0,
+            def_start: 11,
+            def_end: 13,
+        },
+    ])
+    .unwrap();
+    db.set_chunk_deps(&[
+        ("alpha".to_string(), "beta".to_string(), "docs/serve.adoc".to_string()),
+        ("gamma".to_string(), "alpha".to_string(), "docs/serve.adoc".to_string()),
+    ])
+    .unwrap();
+    db.set_noweb_entries(
+        "gen/out.rs",
+        &[(
+            0,
+            NowebMapEntry {
+                src_file: "docs/serve.adoc".to_string(),
+                chunk_name: "alpha".to_string(),
+                src_line: 5,
+                indent: String::new(),
+                confidence: Confidence::Exact,
+            },
+        )],
+    )
+    .unwrap();
+    drop(db);
+
+    let ctx = build_chunk_context(&workspace.root, "docs/serve.adoc", "alpha", 0);
+    assert_eq!(ctx["file"], "docs/serve.adoc");
+    assert_eq!(ctx["name"], "alpha");
+    assert_eq!(ctx["body"], "alpha line\n<<beta>>");
+    assert_eq!(ctx["section_title_chain"], serde_json::json!(["Root", "Serve"]));
+    assert_eq!(ctx["section_prose"], "== Serve\nServe prose.");
+    assert_eq!(ctx["output_files"], serde_json::json!(["gen/out.rs"]));
+    assert_eq!(ctx["reverse_dependencies"], serde_json::json!(["gamma"]));
+    assert_eq!(ctx["dependencies"]["beta"]["file"], "docs/serve.adoc");
+    assert_eq!(ctx["dependencies"]["beta"]["body"], "beta line");
+    assert!(ctx["git_log"].as_array().is_some_and(|items| items.is_empty()));
+}
+
+#[test]
+fn build_chunk_context_returns_null_for_missing_chunk() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/serve.adoc", "= Title\n");
+    let ctx = build_chunk_context(&workspace.root, "docs/serve.adoc", "missing", 0);
+    assert_eq!(ctx, serde_json::Value::Null);
+}
+
+#[test]
+fn tangle_oracle_accepts_plain_prose_files() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/a.adoc", "= A\n\nPlain prose.\n");
+    workspace.write_file("docs/b.adoc", "= B\n\nOther prose.\n");
+
+    let result = tangle_oracle(
+        &workspace.root,
+        "docs/a.adoc",
+        "= A\n\nUpdated prose.\n",
+        &TangleConfig {
+            open_delim: "<<".to_string(),
+            close_delim: ">>".to_string(),
+            chunk_end: "@".to_string(),
+            comment_markers: vec!["//".to_string()],
+            ..TangleConfig::default()
+        },
+    );
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn tangle_oracle_reports_missing_directory() {
+    let workspace = TestWorkspace::new();
+    let err = tangle_oracle(
+        &workspace.root,
+        "missing/a.adoc",
+        "= A\n",
+        &TangleConfig::default(),
+    )
+    .expect_err("missing directory should fail");
+    assert!(err.contains("io_error"));
+}
+
+#[test]
+fn sse_headers_and_readers_emit_expected_frames() {
+    let headers = sse_headers();
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "text/event-stream")
+    );
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Cache-Control") && h.value.as_str() == "no-cache")
+    );
+
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    let n = sse.read(&mut buf).unwrap();
+    let first = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(first, ": weaveback-serve\n\n");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut ai = AiChannelReader::new(rx);
+    let n = ai.read(&mut buf).unwrap();
+    let first = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(first, ": weaveback-ai\n\n");
+    tx.send("event: token\ndata: {\"t\":\"hi\"}\n\n".to_string())
+        .unwrap();
+    let n = ai.read(&mut buf).unwrap();
+    let second = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(second, "event: token\ndata: {\"t\":\"hi\"}\n\n");
+}
+
+#[test]
+fn json_resp_sets_json_and_cors_headers() {
+    let response = super::json_resp(serde_json::json!({ "ok": true }));
+    let headers = response.headers();
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Content-Type") && h.value.as_str() == "application/json")
+    );
+    assert!(
+        headers
+            .iter()
+            .any(|h| h.field.equiv("Access-Control-Allow-Origin") && h.value.as_str() == "*")
+    );
+}
+
+#[test]
+fn sse_reader_emits_reload_frame_after_signal() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut sse = SseReader::new(rx);
+    let mut buf = [0u8; 64];
+    let _ = sse.read(&mut buf).unwrap();
+    tx.send(()).unwrap();
+    let n = sse.read(&mut buf).unwrap();
+    let frame = std::str::from_utf8(&buf[..n]).unwrap();
+    assert_eq!(frame, "event: reload\ndata:\n\n");
+}
+
+#[test]
+fn git_log_for_file_returns_empty_outside_repo() {
+    let workspace = TestWorkspace::new();
+    let log = super::git_log_for_file(&workspace.root, "docs/missing.adoc");
+    assert!(log.is_empty());
+}
+
+#[test]
+fn dep_bodies_skips_missing_definitions() {
+    let workspace = TestWorkspace::new();
+    workspace.write_file("docs/dep.adoc", "// <<alpha>>=\nalpha\n// @\n");
+
+    let mut db = workspace.open_db();
+    db.set_chunk_defs(&[ChunkDefEntry {
+        src_file: "docs/dep.adoc".to_string(),
+        chunk_name: "alpha".to_string(),
+        nth: 0,
+        def_start: 1,
+        def_end: 3,
+    }])
+    .unwrap();
+    let deps = super::dep_bodies(
+        &db,
+        &workspace.root,
+        &[
+            ("alpha".to_string(), "docs/dep.adoc".to_string()),
+            ("missing".to_string(), "docs/dep.adoc".to_string()),
+        ],
+    );
+    assert_eq!(deps.len(), 1);
+    assert_eq!(deps["alpha"]["body"], "alpha");
+}
+

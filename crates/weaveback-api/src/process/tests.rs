@@ -842,3 +842,4 @@ fn run_single_pass_bench_no_fts() {
     };
     run_single_pass(args).unwrap();
 }
+

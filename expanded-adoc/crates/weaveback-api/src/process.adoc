@@ -246,9 +246,14 @@ fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
 }
 
 fn adoc_table_has_header(attr: Option<&str>) -> bool {
-    attr.map(|attr| attr.replace(' ', "").contains("options=\"header\"")
-        || attr.replace(' ', "").contains("options='header'")
-        || attr.replace(' ', "").contains("options=header"))
+    attr.map(|attr| {
+        let compact = attr.replace(' ', "");
+        compact.contains("options=\"header\"")
+            || compact.contains("options='header'")
+            || compact.contains("options=header")
+            || compact.starts_with("[%header")
+            || compact.contains(",%header")
+    })
         .unwrap_or(false)
 }
 
@@ -503,7 +508,8 @@ fn normalize_adoc_tables_for_markdown(input: &str) -> String {
 
         let mut attr: Option<&str> = None;
         let start_idx;
-        if lines[idx].trim_start().starts_with("[cols=")
+        if lines[idx].trim_start().starts_with('[')
+            && lines[idx].trim_end().ends_with(']')
             && idx + 1 < lines.len()
             && lines[idx + 1].trim() == "|==="
         {
@@ -1135,6 +1141,30 @@ fn write_depfile_escapes_spaces_in_paths() {
 fn normalize_adoc_table_to_markdown_pipe_table() {
     let input = concat!(
         "[cols=\"1,2\",options=\"header\"]\n",
+        "|===\n",
+        "| Name | Meaning\n",
+        "\n",
+        "| `%def` | Constant binding\n",
+        "| `%redef` | Rebindable binding\n",
+        "|===\n",
+    );
+
+    let out = normalize_adoc_tables_for_markdown(input);
+    assert_eq!(
+        out,
+        concat!(
+            "| Name | Meaning |\n",
+            "| --- | --- |\n",
+            "| `%def` | Constant binding |\n",
+            "| `%redef` | Rebindable binding |\n",
+        )
+    );
+}
+
+#[test]
+fn normalize_adoc_table_with_header_attrs_to_markdown_pipe_table() {
+    let input = concat!(
+        "[%header,cols=\"1,2\"]\n",
         "|===\n",
         "| Name | Meaning\n",
         "\n",

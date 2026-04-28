@@ -1,0 +1,44 @@
+= Serve HTML Watcher
+
+Filesystem watcher that notifies connected browsers about rendered HTML changes.
+
+== File-change detection
+
+`spawn_watcher` uses the `notify` crate which delegates to the kernel's
+native filesystem event mechanism — inotify on Linux, kqueue on
+macOS/BSDs, ReadDirectoryChangesW on Windows.  No polling occurs; events
+arrive as soon as the kernel delivers them.
+
+The watcher is kept alive for the lifetime of the background thread by
+binding it to a local variable before entering the event loop.
+
+[source,rust]
+----
+// <[serve-watcher]>=
+type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
+type ReloadVersion = Arc<AtomicU64>;
+
+fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion) {
+    thread::spawn(move || {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => { eprintln!("wb-serve: watcher error: {e}"); return; }
+        };
+        if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::Recursive) {
+            eprintln!("wb-serve: watch error: {e}");
+            return;
+        }
+        for result in &rx {
+            if result.is_ok() {
+                version.fetch_add(1, Ordering::Relaxed);
+                let mut locked = senders.lock().unwrap();
+                locked.retain(|s| s.send(()).is_ok());
+            }
+        }
+        drop(watcher);
+    });
+}
+// @
+----
+

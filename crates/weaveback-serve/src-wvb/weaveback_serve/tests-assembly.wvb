@@ -1,0 +1,27 @@
+¤h1(¤[Serve Test Assembly¤])
+
+The generated `tests.rs` file includes focused generated test bodies so runtime
+and test concerns stay physically separate.
+
+¤rust_file(weaveback-serve/src/tests.rs, ¤[
+include!("tests/helpers.rs");
+include!("tests/core.rs");
+include!("tests/edge_cases.rs");
+include!("tests/editing.rs");
+¤])
+
+¤rust_file(weaveback-serve/src/tests/helpers.rs, ¤[
+// <[serve-tests-helpers]>
+¤])
+
+¤rust_file(weaveback-serve/src/tests/core.rs, ¤[
+// <[serve-tests-core]>
+¤])
+
+¤rust_file(weaveback-serve/src/tests/edge_cases.rs, ¤[
+// <[serve-tests-edge-cases]>
+¤])
+
+¤rust_file(weaveback-serve/src/tests/editing.rs, ¤[
+// <[serve-tests-editing]>
+¤])

@@ -1,12 +1,16 @@
-= Macro Language Critique Prep
-:toc: left
+---
+title: |-
+  Macro Language Critique Prep
+toc: left
+---
+# Macro Language Critique Prep
 
 This note is meant to accompany
-link:macro-language.adoc[macro-language.adoc] when asking for outside review.
+[macro-language.adoc](macro-language.adoc) when asking for outside review.
 It states what changed recently, what is already intentional, and what still
 deserves critique.
 
-== Recent changes
+## Recent changes
 
 The language surface was simplified in two important ways:
 
@@ -26,7 +30,7 @@ The intended consequence is a smaller and more explicit model:
 * deliberate rebinding is marked with `%redef`
 * literal regions are marked with verbatim syntax instead of builtin variants
 
-== What is intentionally settled
+## What is intentionally settled
 
 These points are not accidents in the current design:
 
@@ -37,7 +41,7 @@ These points are not accidents in the current design:
 * `%pydef` is the only scripting escape hatch
 * verbatim blocks are lexer-level opaque, not evaluator-level conventions
 
-== What should be critiqued hard
+## What should be critiqued hard
 
 The most useful external criticism is on these questions:
 
@@ -50,14 +54,14 @@ The most useful external criticism is on these questions:
 * Are the remaining silent-empty behaviours still too permissive?
 * Is the scripting escape hatch too implicit, or appropriately minimal now?
 
-== Known weak spots in the current spec
+## Known weak spots in the current spec
 
 These are real candidates for critique, not oversights in the review request:
 
 * `%here` remains operationally odd even though the docs are clearer now
 * discovery mode is still a flag on config rather than a separate API surface
 
-== Suggested reviewer posture
+## Suggested reviewer posture
 
 The most valuable review is not:
 

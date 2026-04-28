@@ -1,0 +1,179 @@
+// weaveback-api/src/coverage/locations.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+pub fn open_db(db_path: &Path) -> std::result::Result<weaveback_tangle::db::WeavebackDb, CoverageApiError> {
+    if !db_path.exists() {
+        return Err(CoverageApiError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Database not found at {}. Run weaveback on your source files first.", db_path.display()),
+        )));
+    }
+    Ok(weaveback_tangle::db::WeavebackDb::open_read_only(db_path)?)
+}
+
+pub fn parse_generated_location(spec: &str) -> Result<(String, u32, u32), CoverageApiError> {
+    let mut parts = spec.rsplitn(3, ':');
+    let last = parts.next().ok_or_else(|| {
+        CoverageApiError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "location must be FILE:LINE or FILE:LINE:COL",
+        ))
+    })?;
+    let middle = parts.next().ok_or_else(|| {
+        CoverageApiError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "location must be FILE:LINE or FILE:LINE:COL",
+        ))
+    })?;
+
+    if let Some(file) = parts.next() {
+        let line = middle.parse::<u32>().map_err(|e| {
+            CoverageApiError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid line in location `{spec}`: {e}"),
+            ))
+        })?;
+        let col = last.parse::<u32>().map_err(|e| {
+            CoverageApiError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid column in location `{spec}`: {e}"),
+            ))
+        })?;
+        Ok((file.to_string(), line, col))
+    } else {
+        let line = last.parse::<u32>().map_err(|e| {
+            CoverageApiError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid line in location `{spec}`: {e}"),
+            ))
+        })?;
+        Ok((middle.to_string(), line, 1))
+    }
+}
+
+pub fn scan_generated_locations(text: &str) -> Vec<String> {
+    fn normalize_scanned_location(token: &str) -> Option<String> {
+        let trimmed = token
+            .trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '"' | '\'' | ',' | ';'))
+            .trim_end_matches(['.', ':', '!', '?']);
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(trimmed.to_string())
+    }
+
+    let pattern = regex::Regex::new(r"(?P<loc>(?:[A-Za-z]:)?[^\s]+:\d+(?::\d+)?)")
+        .expect("valid location regex");
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for captures in pattern.captures_iter(text) {
+        let Some(loc) = captures
+            .name("loc")
+            .and_then(|m| normalize_scanned_location(m.as_str()))
+        else {
+            continue;
+        };
+        if parse_generated_location(&loc).is_ok() && seen.insert(loc.clone()) {
+            out.push(loc);
+        }
+    }
+    out
+}
+
+pub fn run_where(out_file: String, line: u32, db_path: PathBuf, gen_dir: PathBuf) -> Result<(), CoverageApiError> {
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+
+    match lookup::perform_where(&out_file, line, &db, &resolver) {
+        Ok(Some(json)) => {
+            println!("{}", serde_json::to_string_pretty(&json).unwrap());
+            Ok(())
+        }
+        Ok(None) => {
+            eprintln!("No mapping found for {}:{}", out_file, line);
+            Ok(())
+        }
+        Err(lookup::LookupError::InvalidInput(msg)) => {
+            Err(CoverageApiError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)))
+        }
+        Err(lookup::LookupError::Db(e)) => Err(CoverageApiError::Noweb(WeavebackError::Db(e))),
+        Err(lookup::LookupError::Io(e)) => Err(CoverageApiError::Io(e)),
+    }
+}
+
+pub fn run_attribute(
+    scan_stdin: bool,
+    summary: bool,
+    mut locations: Vec<String>,
+    db_path: PathBuf,
+    gen_dir: PathBuf,
+    eval_config: weaveback_macro::evaluator::EvalConfig,
+) -> Result<(), CoverageApiError> {
+    if scan_stdin {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .map_err(CoverageApiError::Io)?;
+        locations.extend(scan_generated_locations(&input));
+        locations.sort();
+        locations.dedup();
+    }
+    if locations.is_empty() {
+        return Err(CoverageApiError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "at least one location is required (or use --scan-stdin)",
+        )));
+    }
+    if !summary && !scan_stdin && locations.len() == 1 {
+        let (out_file, line, col) = parse_generated_location(&locations[0])?;
+        return run_trace(out_file, line, col, db_path, gen_dir, eval_config);
+    }
+
+    let db = open_db(&db_path)?;
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let resolver = PathResolver::new(project_root, gen_dir);
+    let mut results = Vec::new();
+
+    for location in locations {
+        let (out_file, line, col) = parse_generated_location(&location)?;
+        match lookup::perform_trace(&out_file, line, col, &db, &resolver, eval_config.clone()) {
+            Ok(Some(json)) => results.push(json!({
+                "location": location,
+                "ok": true,
+                "trace": json,
+            })),
+            Ok(None) => results.push(json!({
+                "location": location,
+                "ok": false,
+                "trace": serde_json::Value::Null,
+            })),
+            Err(lookup::LookupError::InvalidInput(msg)) => {
+                return Err(CoverageApiError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    msg,
+                )));
+            }
+            Err(lookup::LookupError::Db(e)) => return Err(CoverageApiError::Noweb(WeavebackError::Db(e))),
+            Err(lookup::LookupError::Io(e)) => return Err(CoverageApiError::Io(e)),
+        }
+    }
+
+    if summary {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "count": results.len(),
+                "ok_count": results.iter().filter(|r| r["ok"].as_bool() == Some(true)).count(),
+                "miss_count": results.iter().filter(|r| r["ok"].as_bool() != Some(true)).count(),
+                "results": results,
+                "weaveback_source_summary": build_location_attribution_summary(&results),
+            }))
+            .unwrap()
+        );
+    } else {
+        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    }
+    Ok(())
+}
+

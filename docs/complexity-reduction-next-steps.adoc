@@ -30,6 +30,10 @@ Completed or materially improved:
   `crates/weaveback-serve/src/lib.rs` is now a small facade, implementation
   files live under `crates/weaveback-serve/src/server/`, and tests are assembled
   from focused files under `crates/weaveback-serve/src/tests/`.
+* `coverage` has been split at both literate-source and Rust-file level.
+  `crates/weaveback-api/src/coverage.rs` is now a small facade, implementation
+  files live under `crates/weaveback-api/src/coverage/`, and tests are assembled
+  from focused files under `crates/weaveback-api/src/coverage/tests_coverage/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -50,9 +54,9 @@ Line counts from the audit immediately after the `apply-back` split:
 
 File | Lines | Status
 `crates/weaveback-tangle/src/db.rs` | 1674 | Too large; split by schema/storage/query/FTS concerns.
-`crates/weaveback-api/src/coverage.rs` | 1616 | Too large; split before adding more coverage behavior.
+`crates/weaveback-api/src/coverage.rs` | 12 | Completed; facade now includes focused `src/coverage/*.rs` files.
 `crates/weaveback-serve/src/lib.rs` | 20 | Completed; facade now includes focused `src/server/*.rs` files.
-`crates/weaveback-api/src/coverage/tests_coverage.rs` | 1452 | Too large; split alongside coverage runtime.
+`crates/weaveback-api/src/coverage/tests_coverage.rs` | 11 | Completed; assembly now includes focused `src/coverage/tests_coverage/*.rs` files.
 `crates/weaveback-api/src/apply_back/tests.rs` | 1303 | Separate from runtime, but still large. Lower priority because source is split.
 `crates/weaveback-tangle/src/noweb.rs` | 1195 | Too large; split parser/model/expansion/writer.
 `crates/weaveback-api/src/process.rs` | 990 | Large; split after higher-risk offenders.
@@ -105,7 +109,7 @@ Acceptance criteria:
 * Existing public crate API remains compatible unless a deliberate API cleanup is
   explicitly chosen.
 
-=== 2. Split coverage runtime and tests — next
+=== 2. Split coverage runtime and tests — completed
 
 Target:
 
@@ -127,6 +131,15 @@ Suggested output shape:
   `lcov.rs`, `locations.rs`, `attribution.rs`, `summary.rs`, `cargo.rs`,
   `render.rs` or similar names based on the actual code.
 * Split tests to mirror those concerns.
+
+Status:
+
+* Completed in the cleanup pass after `weaveback-serve`.
+* Root `coverage.rs` is now a small facade.
+* Runtime implementation files are split into error, locations, LCOV summary,
+  cargo attribution, and text/query command files.
+* Test assembly is split into helper, location, cargo, LCOV summary, summary
+  output, location-error, and cargo-extra files.
 
 Acceptance criteria:
 
@@ -289,12 +302,12 @@ Pause and ask for review if:
 
 The best next commit is probably:
 
-* split `crates/weaveback-api/src-wvb/coverage.wvb`
-* generate smaller `crates/weaveback-api/src/coverage/*.rs` files or an
-  equivalent focused layout
-* split `coverage/tests_coverage.rs` by concern
-* run targeted coverage tests plus full lint/check/docs
+* split `crates/weaveback-tangle/src-wvb/db.wvb`
+* generate smaller `crates/weaveback-tangle/src/db/*.rs` files or an equivalent
+  focused layout
+* keep the public DB API stable
+* run targeted DB/tangle tests plus full lint/check/docs
 
-That commit would remove the next largest `weaveback-api` runtime/test pair and
-provide a third example, after `apply-back` and `weaveback-serve`, of the desired
-final shape.
+That commit would remove the largest remaining generated Rust file and attack
+the next central source of complexity after `apply-back`, `weaveback-serve`, and
+`coverage`.

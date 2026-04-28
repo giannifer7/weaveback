@@ -1,0 +1,201 @@
+¤h1(¤[Noweb Write Files¤])
+
+Clip write_files and dry-run output-file expansion.
+
+¤h3(¤[Writing files and dry-run¤])
+
+`write_files` iterates over every `@file` chunk, calls `expand_with_map` to
+get both the expanded lines and their `NowebMapEntry` source-map entries,
+writes the content through a `ChunkWriter`, then stores the source-map entries
+in the database's `noweb_map` table.
+
+After `write_chunk` runs (including any configured formatter), the formatted
+output is read back from disk.  If it differs from the pre-formatter content,
+`remap_noweb_entries` re-keys the source-map entries using post-formatter
+line numbers.  This ensures that `perform_trace` always receives line numbers
+consistent with the file the user sees in their editor.
+
+After all files are written, unused-chunk warnings are emitted.
+
+`list_output_files` resolves the same paths that `write_files` would write to,
+without touching the filesystem.  It is used by `--dry-run`.
+
+¤rust_chunk(noweb-clip-write, ¤[
+impl Clip {
+    /// Write all `@file` chunks, skipping those whose name is in `skip`.
+    /// Skipped chunks do not expand or write; the source-map and chunk_deps
+    /// entries for them are not updated (the previous run's entries remain).
+    /// Chunk definitions for all chunks (including skipped ones) are still
+    /// recorded so `wb-serve` navigation stays accurate.
+    pub fn write_files_incremental(
+        &mut self,
+        skip: &std::collections::HashSet<String>,
+    ) -> Result<(), WeavebackError> {
+        if self.store.strict_undefined && !self.store.parse_errors.is_empty() {
+            return Err(WeavebackError::Chunk(
+                self.store.parse_errors.remove(0),
+            ));
+        }
+        let fc = self.store.get_file_chunks().to_vec();
+        let mut all_referenced = HashSet::new();
+        for name in &fc {
+            let skip_write = skip.contains(name);
+            let (lines, map_entries, referenced, deps) = self.store.expand_with_map(name, "")?;
+            all_referenced.extend(referenced);
+
+            let written_bytes = if skip_write {
+                None
+            } else {
+                let mut cw = ChunkWriter::new(&mut self.writer);
+                cw.write_chunk(name, &lines)?
+            };
+
+            let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
+            let out_file_key = {
+                let expanded = expand_tilde(out_file);
+                let path = std::path::Path::new(&expanded);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.writer.get_gen_base().join(path)
+                }
+            };
+
+            let keyed = if let Some(bytes) = written_bytes {
+                let formatted = String::from_utf8_lossy(&bytes);
+                let pre_content: String = lines.concat();
+                if formatted.as_ref() != pre_content {
+                    remap_noweb_entries(&lines, formatted.as_ref(), map_entries)
+                } else {
+                    map_entries.into_iter().enumerate()
+                        .map(|(i, e)| (i as u32, e)).collect()
+                }
+            } else {
+                map_entries.into_iter().enumerate()
+                    .map(|(i, e)| (i as u32, e)).collect()
+            };
+
+            self.writer
+                .db_mut()
+                .set_noweb_entries(&out_file_key.to_string_lossy(), &keyed)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+            self.writer
+                .db_mut()
+                .set_chunk_deps(&deps)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+        }
+        let chunk_def_entries = self.store.chunk_defs();
+        self.writer
+            .db_mut()
+            .set_chunk_defs(&chunk_def_entries)
+            .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+        if self.store.warn_unused {
+            for w in self.store.check_unused_chunks(&all_referenced) {
+                eprintln!("{}", w);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn write_files(&mut self) -> Result<(), WeavebackError> {
+        // In strict mode, promote any parse-time errors (e.g. @file redefinition)
+        // to hard errors before writing anything.
+        if self.store.strict_undefined && !self.store.parse_errors.is_empty() {
+            return Err(WeavebackError::Chunk(
+                self.store.parse_errors.remove(0),
+            ));
+        }
+        let fc = self.store.get_file_chunks().to_vec();
+        let mut all_referenced = HashSet::new();
+        for name in &fc {
+            let (lines, map_entries, referenced, deps) = self.store.expand_with_map(name, "")?;
+            all_referenced.extend(referenced);
+
+            let mut cw = ChunkWriter::new(&mut self.writer);
+            let written_bytes = cw.write_chunk(name, &lines)?;
+
+            let out_file = name.strip_prefix("@file ").unwrap_or(name).trim();
+            let out_file_key = {
+                let expanded = expand_tilde(out_file);
+                let path = std::path::Path::new(&expanded);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    self.writer.get_gen_base().join(path)
+                }
+            };
+
+            // After formatting, re-key map entries to post-formatter lines.
+            // Use the bytes already returned by write_chunk — no second disk read.
+            let keyed = if let Some(bytes) = written_bytes {
+                let formatted = String::from_utf8_lossy(&bytes);
+                let pre_content: String = lines.concat();
+                if formatted.as_ref() != pre_content {
+                    remap_noweb_entries(&lines, formatted.as_ref(), map_entries)
+                } else {
+                    map_entries.into_iter().enumerate()
+                        .map(|(i, e)| (i as u32, e)).collect()
+                }
+            } else {
+                map_entries.into_iter().enumerate()
+                    .map(|(i, e)| (i as u32, e)).collect()
+            };
+
+            self.writer
+                .db_mut()
+                .set_noweb_entries(&out_file_key.to_string_lossy(), &keyed)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+            self.writer
+                .db_mut()
+                .set_chunk_deps(&deps)
+                .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+        }
+        // Persist chunk definition line ranges for `wb-serve` navigation.
+        let chunk_def_entries = self.store.chunk_defs();
+        self.writer
+            .db_mut()
+            .set_chunk_defs(&chunk_def_entries)
+            .map_err(|e| WeavebackError::SafeWriter(SafeWriterError::DbError(e)))?;
+
+        if self.store.warn_unused {
+            for w in self.store.check_unused_chunks(&all_referenced) {
+                eprintln!("{}", w);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn list_output_files(&self) -> Vec<std::path::PathBuf> {
+        let gen_base = self.writer.get_gen_base();
+        self.store
+            .get_file_chunks()
+            .iter()
+            .map(|name| {
+                let path_str = name.strip_prefix("@file ").unwrap_or(name).trim();
+                let expanded = expand_tilde(path_str);
+                let path = std::path::Path::new(&expanded);
+                if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    gen_base.join(path_str)
+                }
+            })
+            .collect()
+    }
+
+    pub fn db(&self) -> &crate::db::WeavebackDb {
+        self.writer.db()
+    }
+
+    pub fn db_mut(&mut self) -> &mut crate::db::WeavebackDb {
+        self.writer.db_mut()
+    }
+
+    pub fn finish(self, target: &Path) -> Result<(), WeavebackError> {
+        self.writer.finish(target).map_err(WeavebackError::SafeWriter)
+    }
+}
+¤])

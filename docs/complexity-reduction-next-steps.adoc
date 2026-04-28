@@ -38,6 +38,9 @@ Completed or materially improved:
   level.  `crates/weaveback-tangle/src/db.rs` is now a small facade,
   implementation files live under `crates/weaveback-tangle/src/db/`, and the
   merge test is assembled under `crates/weaveback-tangle/src/db/tests/`.
+* `weaveback-tangle` noweb has been split at both literate-source and Rust-file
+  level.  `crates/weaveback-tangle/src/noweb.rs` is now a small facade and
+  implementation files live under `crates/weaveback-tangle/src/noweb/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -62,7 +65,7 @@ File | Lines | Status
 `crates/weaveback-serve/src/lib.rs` | 20 | Completed; facade now includes focused `src/server/*.rs` files.
 `crates/weaveback-api/src/coverage/tests_coverage.rs` | 11 | Completed; assembly now includes focused `src/coverage/tests_coverage/*.rs` files.
 `crates/weaveback-api/src/apply_back/tests.rs` | 1303 | Separate from runtime, but still large. Lower priority because source is split.
-`crates/weaveback-tangle/src/noweb.rs` | 1195 | Too large; split parser/model/expansion/writer.
+`crates/weaveback-tangle/src/noweb.rs` | 26 | Completed; facade now includes focused `src/noweb/*.rs` files.
 `crates/weaveback-api/src/process.rs` | 990 | Large; split after higher-risk offenders.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 
@@ -221,7 +224,7 @@ Acceptance criteria:
 * Each split file has one responsibility.
 * DB tests still pass without SQLite lock flakiness.
 
-=== 5. Split weaveback-tangle noweb
+=== 5. Split weaveback-tangle noweb — completed
 
 Target:
 
@@ -241,6 +244,14 @@ Suggested output shape:
 * `expand.rs` for recursive expansion and mapping.
 * `writer.rs` for file-output routing.
 * `safety.rs` for path validation if it is substantial enough.
+
+Status:
+
+* Completed after the DB split.
+* Root `noweb.rs` is now a small facade.
+* Generated noweb implementation files are split by types/syntax, path safety,
+  chunk-store reading, expansion, utilities, writer, clip facade, remapping, and
+  write-files orchestration.
 
 Acceptance criteria:
 
@@ -315,11 +326,13 @@ Pause and ask for review if:
 
 The best next commit is probably:
 
-* split `crates/weaveback-tangle/src-wvb/noweb.wvb`
-* generate smaller `crates/weaveback-tangle/src/noweb/*.rs` files or an
-  equivalent focused layout
-* keep the public noweb API stable
-* run targeted noweb/tangle tests plus full lint/check/docs
+* split the next largest remaining generated Rust file after a fresh line-count
+  audit
+* likely candidates include `process.rs`, `mcp.rs`, parser/lexer modules, or
+  large test aggregations that remain above the chosen threshold
+* keep public APIs stable unless the user explicitly chooses semantic cleanup
+* run targeted tests plus full lint/check/docs
 
-That commit would remove the next largest central generated Rust file after the
-completed `apply-back`, `weaveback-serve`, `coverage`, and DB splits.
+That commit should continue the same pattern: small facade, focused generated
+files, physically separated tests, and no semantic refactor mixed into the
+mechanical split.

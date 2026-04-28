@@ -16,11 +16,10 @@ by the `wb-tangle` binary for its single-pass mode.
 [source,rust]
 ----
 // <[process-args]>=
-use std::path::{Path, PathBuf};
-use std::collections::{HashMap, HashSet};
-use weaveback_macro::evaluator::{EvalConfig, EvalError, Evaluator};
-use weaveback_macro::macro_api::{discover_includes_in_string, process_string};
-use weaveback_tangle::{Clip, SafeFileWriter, SafeWriterConfig, WeavebackError};
+use std::path::PathBuf;
+
+use weaveback_macro::evaluator::EvalError;
+use weaveback_tangle::WeavebackError;
 
 /// Combined error type for a single tangle pass.
 #[derive(Debug, thiserror::Error)]
@@ -187,7 +186,7 @@ pub fn write_depfile(path: &std::path::Path, target: &std::path::Path, deps: &[P
 [source,rust]
 ----
 // <[process-macro-prelude]>=
-fn evaluate_macro_preludes(
+pub(super) fn evaluate_macro_preludes(
     evaluator: &mut Evaluator,
     preludes: &[PathBuf],
 ) -> Result<(), String> {
@@ -213,7 +212,7 @@ tables, while structurally richer tables fall back to HTML.
 [source,rust]
 ----
 // <[process-markdown-normalize]>=
-fn is_markdown_ext(expanded_ext: Option<&str>) -> bool {
+pub(super) fn is_markdown_ext(expanded_ext: Option<&str>) -> bool {
     matches!(
         expanded_ext.unwrap_or_default().trim_start_matches('.'),
         "md" | "markdown"
@@ -480,7 +479,7 @@ fn render_adoc_table_for_markdown(attr: Option<&str>, body: &[&str], original: &
     render_markdown_table(&table).unwrap_or_else(|| render_html_table(&table))
 }
 
-fn normalize_adoc_tables_for_markdown(input: &str) -> String {
+pub(crate) fn normalize_adoc_tables_for_markdown(input: &str) -> String {
     let lines: Vec<&str> = input.lines().collect();
     let mut out: Vec<String> = Vec::new();
     let mut idx = 0;
@@ -647,7 +646,7 @@ fn normalize_explicit_table_blocks(expanded_ext: Option<&str>, input: &str) -> S
     rendered
 }
 
-fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: &[u8]) -> String {
+pub(crate) fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: &[u8]) -> String {
     let expanded = String::from_utf8_lossy(expanded);
     let expanded = normalize_explicit_table_blocks(expanded_ext, &expanded);
     if is_markdown_ext(expanded_ext) {
@@ -675,7 +674,7 @@ fn with_replaced_extension(path: &Path, expanded_ext: Option<&str>) -> PathBuf {
     out
 }
 
-fn expanded_source_key(
+pub(super) fn expanded_source_key(
     full_path: &Path,
     project_root: &Path,
     expanded_ext: Option<&str>,
@@ -704,7 +703,7 @@ fn expanded_output_path(
     expanded_dir.join(with_replaced_extension(&rel, expanded_ext))
 }
 
-fn write_expanded_document(
+pub(super) fn write_expanded_document(
     full_path: &Path,
     base_dir: &Path,
     expanded_adoc_dir: &Path,
@@ -838,8 +837,6 @@ pub fn compute_skip_set(
 [source,rust]
 ----
 // <[process-run]>=
-use weaveback_tangle::db::WeavebackDb;
-
 /// Run one tangle pass with the given arguments.
 ///
 /// Returns `Err` on file I/O errors, macro evaluation failures, or tangle
@@ -1078,8 +1075,11 @@ pipeline implementation shorter while preserving local literate ownership.
 // I'd Really Rather You Didn't edit this generated file.
 
 use super::*;
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::tempdir;
+use weaveback_tangle::db::WeavebackDb;
 
 #[test]
 fn find_files_discovers_matching_extensions() {
@@ -1931,15 +1931,136 @@ fn run_single_pass_bench_no_fts() {
 // weaveback-api/src/process.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-// <[process-args]>
-// <[process-fs]>
-// <[process-macro-prelude]>
-// <[process-markdown-normalize]>
-// <[process-expanded-paths]>
-// <[process-skip]>
-// <[process-run]>
+mod args;
+mod expanded_paths;
+mod fs;
+mod macro_prelude;
+mod markdown_normalize;
+mod run;
+mod skip;
+
+pub use args::{ProcessError, SinglePassArgs};
+pub use fs::{find_files, write_depfile};
+pub use run::run_single_pass;
+pub use skip::compute_skip_set;
+
+#[cfg(test)]
+pub(crate) use markdown_normalize::{normalize_adoc_tables_for_markdown, normalize_expanded_document};
+
 #[cfg(test)]
 mod tests;
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/args.rs]>=
+// weaveback-api/src/process/args.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[process-args]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/fs.rs]>=
+// weaveback-api/src/process/fs.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::path::PathBuf;
+
+// <[process-fs]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/macro_prelude.rs]>=
+// weaveback-api/src/process/macro_prelude.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::path::PathBuf;
+
+use weaveback_macro::evaluator::Evaluator;
+use weaveback_macro::macro_api::process_string;
+
+// <[process-macro-prelude]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/markdown_normalize.rs]>=
+// weaveback-api/src/process/markdown_normalize.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[process-markdown-normalize]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/expanded_paths.rs]>=
+// weaveback-api/src/process/expanded_paths.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::path::{Path, PathBuf};
+
+use super::markdown_normalize::is_markdown_ext;
+
+// <[process-expanded-paths]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/skip.rs]>=
+// weaveback-api/src/process/skip.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::collections::{HashMap, HashSet};
+
+// <[process-skip]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/run.rs]>=
+// weaveback-api/src/process/run.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use weaveback_macro::evaluator::{EvalConfig, Evaluator};
+use weaveback_macro::macro_api::{discover_includes_in_string, process_string};
+use weaveback_tangle::{Clip, SafeFileWriter, SafeWriterConfig};
+use weaveback_tangle::db::WeavebackDb;
+
+use super::args::SinglePassArgs;
+use super::expanded_paths::{expanded_source_key, write_expanded_document};
+use super::fs::{find_files, write_depfile};
+use super::macro_prelude::evaluate_macro_preludes;
+use super::markdown_normalize::normalize_expanded_document;
+use super::skip::compute_skip_set;
+
+// <[process-run]>
 
 // @
 ----

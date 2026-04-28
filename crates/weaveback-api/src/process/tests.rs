@@ -2,8 +2,11 @@
 // I'd Really Rather You Didn't edit this generated file.
 
 use super::*;
+use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::tempdir;
+use weaveback_tangle::db::WeavebackDb;
 
 #[test]
 fn find_files_discovers_matching_extensions() {

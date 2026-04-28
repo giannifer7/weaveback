@@ -40,6 +40,9 @@ Completed or materially improved:
 * `weaveback-tangle` noweb has been split at both literate-source and Rust-file
   level.  `crates/weaveback-tangle/src/noweb.rs` is now a small facade and
   implementation files live under `crates/weaveback-tangle/src/noweb/`.
+* `weaveback-api` single-pass processing has been split at the generated
+  Rust-file level.  `crates/weaveback-api/src/process.rs` is now a small facade
+  and implementation files live under `crates/weaveback-api/src/process/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -66,7 +69,7 @@ File | Lines | Status
 `crates/weaveback-api/src/coverage/tests_coverage.rs` | 11 | Completed; assembly now includes focused `src/coverage/tests_coverage/*.rs` files.
 `crates/weaveback-api/src/apply_back/tests.rs` | 1303 | Separate from runtime, but still large. Lower priority because source is split.
 `crates/weaveback-tangle/src/noweb.rs` | 26 | Completed; facade now includes focused `src/noweb/*.rs` files.
-`crates/weaveback-api/src/process.rs` | 990 | Large; split after higher-risk offenders.
+`crates/weaveback-api/src/process.rs` | 19 | Runtime split completed; generated tests still need concern-level splitting.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 ¤])
 
@@ -327,8 +330,8 @@ The best next commit is probably:
 
 * split the next largest remaining generated Rust file after a fresh line-count
   audit
-* likely candidates include `process.rs`, `mcp.rs`, parser/lexer modules, or
-  large test aggregations that remain above the chosen threshold
+* likely candidates include `process/tests.rs`, `mcp.rs`, parser/lexer modules,
+  or large test aggregations that remain above the chosen threshold
 * keep public APIs stable unless the user explicitly chooses semantic cleanup
 * run targeted tests plus full lint/check/docs
 

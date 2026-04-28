@@ -1,0 +1,48 @@
+# Apply Back Fuzzy
+
+Whitespace-tolerant line matching used when exact source coordinates drift.
+
+## Fuzzy line matching
+
+When the source line is not found at the expected index (e.g., after an
+unrelated edit above it), a broader bounded search is used:
+
+* whitespace-normalised fuzzy matching around the hinted line
+* nearby-line exploration inside the same source file
+* macro-call fallback search when body-level attribution is too coarse
+
+See [weaveback.adoc](lib.adoc) for the module map.
+
+## Generated chunk
+
+```rust
+// <[applyback-fuzzy]>=
+/// Search `lines` in a ±`window` range around `center` for a unique line that
+/// matches a whitespace-normalised regex derived from `needle`.
+///
+/// Returns the 0-indexed line index on a unique match; `None` if not found or
+/// ambiguous.
+fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize) -> Option<usize> {
+    let trimmed = needle.trim();
+    if trimmed.is_empty() { return None; }
+
+    // Build a pattern that tolerates interior whitespace changes.
+    let escaped = regex::escape(trimmed);
+    let parts: Vec<&str> = escaped.split(r"\ ").collect();
+    let pattern = parts.join(r"\s+");
+    let re = Regex::new(&format!(r"^\s*{}\s*$", pattern)).ok()?;
+
+    let lo = center.saturating_sub(window);
+    let hi = (center + window).min(lines.len().saturating_sub(1));
+    let mut found: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().take(hi + 1).skip(lo) {
+        if re.is_match(line) {
+            if found.is_some() { return None; } // ambiguous
+            found = Some(i);
+        }
+    }
+    found
+}
+// @
+```
+

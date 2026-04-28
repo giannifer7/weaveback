@@ -1,0 +1,89 @@
+# Apply Back Oracle
+
+Oracle verification helpers that re-expand candidate source edits.
+
+## Oracle verification
+
+`verify_candidate` re-evaluates `src_content` (at a synthetic `<oracle>` path
+so the expander uses the in-memory patched string) and checks that line
+`expanded_line` of the output equals `desired`.
+
+`splice_line` is a helper that replaces one element of `lines` and rejoins.
+
+```rust
+// <[applyback-oracle]>=
+/// Re-evaluate `src_content` and check that line `expanded_line` of the output
+/// equals `desired`.  Returns `true` on match, `false` on mismatch or error.
+fn verify_candidate(
+    src_content: &str,
+    src_path: &std::path::Path,
+    eval_config: &EvalConfig,
+    expanded_line: u32,
+    desired: &str,
+) -> bool {
+    let oracle_path = src_path.with_file_name("<oracle>");
+    let mut evaluator = Evaluator::new(eval_config.clone());
+    match process_string(src_content, Some(&oracle_path), &mut evaluator) {
+        Ok(bytes) => {
+            let s = String::from_utf8_lossy(&bytes);
+            s.lines().nth(expanded_line as usize) == Some(desired)
+        }
+        Err(_) => false,
+    }
+}
+
+/// Splice one line in `lines`, join back to a string, and return it.
+fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newline: bool) -> String {
+    let mut out: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+    out[idx] = new_line;
+    let mut s = out.join("\n");
+    if had_trailing_newline { s.push('\n'); }
+    s
+}
+
+fn token_overlap_score(text: &str, old_text: &str, new_text: &str) -> i32 {
+    fn tokens(s: &str) -> Vec<String> {
+        s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+            .filter(|t| !t.is_empty())
+            .map(|t| t.to_ascii_lowercase())
+            .collect()
+    }
+
+    let line_tokens = tokens(text);
+    let mut score = 0i32;
+    for token in tokens(old_text).into_iter().chain(tokens(new_text)) {
+        if line_tokens.iter().any(|existing| existing == &token) {
+            score += 3;
+        }
+    }
+    score
+}
+
+fn differing_token_pair(old_text: &str, new_text: &str) -> Option<(String, String)> {
+    fn tokens(s: &str) -> Vec<String> {
+        s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    let old_tokens = tokens(old_text);
+    let new_tokens = tokens(new_text);
+    if old_tokens.len() != new_tokens.len() {
+        return None;
+    }
+
+    let diffs: Vec<(String, String)> = old_tokens.into_iter()
+        .zip(new_tokens)
+        .filter(|(old, new)| old != new)
+        .collect();
+
+    if diffs.len() == 1 {
+        diffs.into_iter().next()
+    } else {
+        None
+    }
+}
+// @
+```
+

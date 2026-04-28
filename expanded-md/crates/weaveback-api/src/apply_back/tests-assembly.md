@@ -1,0 +1,23 @@
+# Apply-Back Test Assembly
+
+The generated test module is assembled from focused chunks so each concern can be reviewed independently.
+
+```rust
+// <[@file weaveback-api/src/apply_back/tests.rs]>=
+// weaveback-api/src/apply_back/tests.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[applyback-tests-primitives]>
+// <[applyback-tests-workspace]>
+
+// <[applyback-tests-resolution]>
+
+// <[applyback-tests-apply-file]>
+
+// <[applyback-tests-runner]>
+
+// <[applyback-tests-batch]>
+
+// @
+```
+

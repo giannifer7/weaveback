@@ -1,0 +1,224 @@
+// weaveback-api/src/apply_back/resolve.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_patch_source(
+    rel_path: &str,
+    out_line_0: u32,
+    col: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+    nw_src_file: &str,
+    nw_src_line: u32,
+    snapshot: Option<&[u8]>,
+    sigil: char,
+    len: usize,
+) -> Result<PatchSource, ApplyBackError> {
+    let trace = lookup::perform_trace(
+        rel_path,
+        out_line_0 + 1,
+        col,
+        db,
+        resolver,
+        eval_config.clone(),
+    )?
+    .or_else(|| {
+        let resolved = resolver.resolve_gen(rel_path);
+        let resolved = resolved.to_string_lossy().into_owned();
+        if resolved == rel_path {
+            None
+        } else {
+            lookup::perform_trace(
+                &resolved,
+                out_line_0 + 1,
+                col,
+                db,
+                resolver,
+                eval_config.clone(),
+            )
+            .ok()
+            .flatten()
+        }
+    });
+
+    let Some(json) = trace else {
+        return Ok(PatchSource::Noweb {
+            src_file: nw_src_file.to_string(),
+            src_line: nw_src_line as usize,
+            len,
+        });
+    };
+
+    let obj = json.as_object().unwrap();
+
+    let (src_file, src_line_0) = match (obj.get("src_file"), obj.get("src_line")) {
+        (Some(sf), Some(sl)) => {
+            let sf = sf.as_str().unwrap_or(nw_src_file).to_string();
+            let sl = sl.as_u64().unwrap_or(nw_src_line as u64 + 1) as usize - 1;
+            (sf, sl)
+        }
+        _ => return Ok(PatchSource::Noweb {
+            src_file: nw_src_file.to_string(),
+            src_line: nw_src_line as usize,
+            len,
+        }),
+    };
+
+    let kind = obj.get("kind").and_then(|k| k.as_str()).unwrap_or("Literal");
+
+    match kind {
+        "Literal" => Ok(PatchSource::Literal { src_file, src_line: src_line_0, len }),
+
+        "MacroBody" => {
+            let macro_name = obj.get("macro_name")
+                .and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let snap_line = snapshot.and_then(|bytes| {
+                let s = String::from_utf8_lossy(bytes);
+                s.lines().nth(src_line_0).map(|l| l.to_string())
+            });
+            let has_vars = snap_line.as_deref()
+                .is_none_or(|l| l.contains(sigil));
+
+            if has_vars {
+                Ok(PatchSource::MacroBodyWithVars { src_file, src_line: src_line_0, macro_name })
+            } else {
+                Ok(PatchSource::MacroBodyLiteral { src_file, src_line: src_line_0, macro_name })
+            }
+        }
+
+        "MacroArg" => {
+            let macro_name = obj.get("macro_name").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let param_name = obj.get("param_name").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let src_col    = obj.get("src_col")   .and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            Ok(PatchSource::MacroArg { src_file, src_line: src_line_0, src_col, macro_name, param_name })
+        }
+
+        other => Ok(PatchSource::Unpatchable {
+            src_file,
+            src_line: src_line_0,
+            kind_label: other.to_string(),
+        }),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_best_patch_source(
+    rel_path: &str,
+    out_line_0: u32,
+    old_text: &str,
+    new_text: &str,
+    indent_chars: u32,
+    db: &WeavebackDb,
+    resolver: &PathResolver,
+    eval_config: &EvalConfig,
+    nw_src_file: &str,
+    nw_src_line: u32,
+    snapshot: Option<&[u8]>,
+    sigil: char,
+    len: usize,
+    lsp_hint: Option<&LspDefinitionHint>,
+) -> Result<PatchSource, ApplyBackError> {
+    let first_diff = old_text.chars().zip(new_text.chars())
+        .position(|(a, b)| a != b)
+        .unwrap_or(0) as u32;
+    let old_len = old_text.chars().count() as u32;
+    let new_len = new_text.chars().count() as u32;
+    let last_changed = old_len.max(new_len).saturating_sub(1);
+    let start = first_diff.min(last_changed);
+    let end = (first_diff + 6).min(last_changed);
+
+    let mut cols = Vec::new();
+    for rel_col in start..=end {
+        let col = indent_chars + rel_col + 1;
+        if !cols.contains(&col) {
+            cols.push(col);
+        }
+    }
+    if cols.is_empty() {
+        cols.push(indent_chars + 1);
+    }
+
+    let mut best = None;
+    let mut best_rank = i32::MIN;
+    for col in cols {
+        let candidate = resolve_patch_source(
+            rel_path,
+            out_line_0,
+            col,
+            db,
+            resolver,
+            eval_config,
+            nw_src_file,
+            nw_src_line,
+            snapshot,
+            sigil,
+            len,
+        )?;
+        let (candidate_file, candidate_line) = patch_source_location(&candidate);
+        let mut rank = patch_source_rank(&candidate);
+        if matches!(candidate, PatchSource::Literal { .. } | PatchSource::Noweb { .. })
+            && candidate_file == nw_src_file
+            && candidate_line == nw_src_line as usize
+        {
+            rank -= 20;
+        }
+        if let Some(hint) = lsp_hint
+            && candidate_file == hint.src_file
+        {
+            rank += 15;
+            if candidate_line.abs_diff(hint.src_line) <= 2 {
+                rank += 20;
+            }
+        }
+        if rank > best_rank {
+            best_rank = rank;
+            best = Some(candidate);
+        }
+    }
+
+    best.ok_or_else(|| ApplyBackError::Io(std::io::Error::other("no patch source candidates found")))
+}
+
+fn lsp_definition_hint(
+    rel_path: &str,
+    out_line_0: u32,
+    col_1: u32,
+    resolver: &PathResolver,
+    db: &WeavebackDb,
+    eval_config: &EvalConfig,
+    lsp_clients: &mut HashMap<String, LspClient>,
+) -> Option<LspDefinitionHint> {
+    let ext = std::path::Path::new(rel_path).extension()?.to_str()?;
+    let client = if let Some(client) = lsp_clients.get_mut(ext) {
+        client
+    } else {
+        let (lsp_cmd, lsp_lang) = weaveback_lsp::get_lsp_config(ext)?;
+        let project_root = std::env::current_dir().ok()?;
+        let mut client = LspClient::spawn(&lsp_cmd, &[], &project_root, lsp_lang).ok()?;
+        client.initialize(&project_root).ok()?;
+        lsp_clients.insert(ext.to_string(), client);
+        lsp_clients.get_mut(ext)?
+    };
+
+    let out_path = resolver.resolve_gen(rel_path);
+    client.did_open(&out_path).ok()?;
+    let loc = client.goto_definition(&out_path, out_line_0, col_1.saturating_sub(1)).ok()??;
+    let target_path = loc.uri.to_file_path().ok()?;
+    let target_line = loc.range.start.line + 1;
+    let target_col = loc.range.start.character + 1;
+    let traced = lookup::perform_trace(
+        &target_path.to_string_lossy(),
+        target_line,
+        target_col,
+        db,
+        resolver,
+        eval_config.clone(),
+    ).ok()??;
+    let obj = traced.as_object()?;
+    Some(LspDefinitionHint {
+        src_file: obj.get("src_file")?.as_str()?.to_string(),
+        src_line: obj.get("src_line")?.as_u64()? as usize - 1,
+    })
+}
+

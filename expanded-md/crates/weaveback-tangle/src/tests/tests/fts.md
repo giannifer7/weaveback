@@ -1,0 +1,780 @@
+# FTS and Database Tests
+
+The FTS tests also cover related database query helpers that share the same fixture shape.
+
+
+
+
+
+```rust
+// <[@file weaveback-tangle/src/tests/fts.rs]>=
+// weaveback-tangle/src/tests/fts.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// src/tests/fts.rs
+use crate::{
+    block_parser::SourceBlockEntry,
+    db::WeavebackDb,
+};
+
+/// Build a SourceBlockEntry for testing (hash doesn't matter for FTS tests).
+fn block(index: u32, block_type: &str, line_start: u32, line_end: u32) -> SourceBlockEntry {
+    SourceBlockEntry {
+        block_index: index,
+        block_type: block_type.to_string(),
+        line_start,
+        line_end,
+        content_hash: [0u8; 32],
+    }
+}
+
+#[test]
+fn test_fts_basic_search() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Introduction\n\nWeaveback is a literate programming tool.\n";
+    db.set_src_snapshot("docs/intro.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/intro.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let results = db.search_prose("literate", 10).unwrap();
+    assert!(!results.is_empty(), "should find 'literate' in para block");
+    assert_eq!(results[0].src_file, "docs/intro.adoc");
+    assert_eq!(results[0].block_type, "para");
+}
+
+#[test]
+fn test_fts_section_and_para_indexed_code_not() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= My Section\n\nSome prose here.\n\n----\nfn secret_fn() {}\n----\n";
+    db.set_src_snapshot("src/lib.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("src/lib.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("prose", 10).unwrap();
+    assert!(!r.is_empty());
+
+    // code content is NOT indexed
+    let r = db.search_prose("secret_fn", 10).unwrap();
+    assert!(r.is_empty(), "code blocks should not be indexed");
+}
+
+#[test]
+fn test_fts_multiple_files() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let src_a = "= Alpha\n\nThis covers the alpha feature.\n";
+    let src_b = "= Beta\n\nThis covers the beta feature.\n";
+
+    db.set_src_snapshot("docs/alpha.adoc", src_a.as_bytes()).unwrap();
+    db.set_source_blocks("docs/alpha.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_src_snapshot("docs/beta.adoc", src_b.as_bytes()).unwrap();
+    db.set_source_blocks("docs/beta.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("feature", 10).unwrap();
+    let files: Vec<&str> = r.iter().map(|x| x.src_file.as_str()).collect();
+    assert!(files.contains(&"docs/alpha.adoc"));
+    assert!(files.contains(&"docs/beta.adoc"));
+
+    // "alpha feature" is unique to alpha.adoc
+    let r = db.search_prose("\"alpha feature\"", 10).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].src_file, "docs/alpha.adoc");
+}
+
+#[test]
+fn test_fts_rebuild_is_idempotent() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Title\n\nSome searchable content.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("searchable", 10).unwrap();
+    assert_eq!(r.len(), 1, "duplicate rebuild must not produce duplicate results");
+}
+
+#[test]
+fn test_fts_empty_source_no_panic() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("empty.adoc", b"").unwrap();
+    // No source_blocks for this file -- must not panic or error.
+    db.rebuild_prose_fts(None).unwrap();
+    let r = db.search_prose("anything", 10).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_fts_normalises_dotslash_path() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Normalised\n\nThis tests path normalisation.\n";
+    // Snapshot stored with "./" prefix (as some passes do).
+    db.set_src_snapshot("./docs/norm.adoc", source.as_bytes()).unwrap();
+    // source_blocks stored under the plain path (as the files table has it).
+    db.set_source_blocks("docs/norm.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("normalisation", 10).unwrap();
+    assert!(!r.is_empty(), "dotslash prefix must be stripped before path lookup");
+}
+
+#[test]
+fn test_fts_deduplicates_same_path_stored_twice() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Dedup\n\nThis text should appear once.\n";
+    // Same file stored under two keys (as two passes might do).
+    db.set_src_snapshot("./docs/dedup.adoc", source.as_bytes()).unwrap();
+    db.set_src_snapshot("docs/dedup.adoc",   source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/dedup.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("once", 10).unwrap();
+    assert_eq!(r.len(), 1, "same file stored twice must not produce duplicate FTS rows");
+}
+
+// ── block_tags / list_block_tags / get_blocks_needing_tags ───────────────────
+
+#[test]
+fn test_list_block_tags_empty_when_none_stored() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let r = db.list_block_tags(None).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_set_and_list_block_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse here.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[1u8; 32], "design,architecture").unwrap();
+    db.set_block_tags("a.adoc", 1, &[2u8; 32], "prose,overview").unwrap();
+
+    let r = db.list_block_tags(None).unwrap();
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0].block_index, 0);
+    assert_eq!(r[0].tags, "design,architecture");
+    assert_eq!(r[1].block_index, 1);
+    assert_eq!(r[1].tags, "prose,overview");
+}
+
+#[test]
+fn test_list_block_tags_file_filter() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    for (file, tag) in [("a.adoc", "alpha"), ("b.adoc", "beta")] {
+        let src = format!("= {tag}\n\nContent.\n");
+        db.set_src_snapshot(file, src.as_bytes()).unwrap();
+        db.set_source_blocks(file, &[block(0, "section", 1, 1)]).unwrap();
+        db.set_block_tags(file, 0, &[0u8; 32], tag).unwrap();
+    }
+
+    let r = db.list_block_tags(Some("a.adoc")).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].tags, "alpha");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_all_when_no_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_skips_up_to_date() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    // Tag both with the same hash as stored in source_blocks ([0u8; 32]).
+    db.set_block_tags("a.adoc", 0, &[0u8; 32], "design").unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "prose").unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert!(need.is_empty(), "no blocks should need re-tagging");
+}
+
+#[test]
+fn test_get_blocks_needing_tags_returns_stale_hash() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_tags("a.adoc", 0, &[9u8; 32], "stale").unwrap(); // hash mismatch
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "fresh").unwrap(); // matches
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 1);
+    assert_eq!(need[0].block_index, 0);
+}
+
+#[test]
+fn test_get_blocks_needing_tags_excludes_code_blocks() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nProse.\n\n----\ncode\n----\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_tags().unwrap();
+    assert_eq!(need.len(), 2);
+    assert!(need.iter().all(|b| b.block_type != "code"));
+}
+
+#[test]
+fn test_search_result_includes_tags() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Tagging\n\nThis block has tags.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "testing,fts").unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("tags", 10).unwrap();
+    assert!(!r.is_empty());
+    let para = r.iter().find(|x| x.block_type == "para").unwrap();
+    assert_eq!(para.tags, "testing,fts");
+}
+
+#[test]
+fn test_search_finds_block_by_tag_word() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    // Prose does NOT contain the word "incremental" -- it's only in the tag.
+    let source = "= Build System\n\nThis section describes how building works.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "incremental,build").unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("incremental", 10).unwrap();
+    assert!(!r.is_empty(), "tag-only word should be findable via FTS");
+    assert_eq!(r[0].src_file, "a.adoc");
+}
+
+#[test]
+fn test_get_blocks_needing_embeddings_returns_all_when_none_stored() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    let need = db.get_blocks_needing_embeddings("test-model").unwrap();
+    assert_eq!(need.len(), 2);
+}
+
+#[test]
+fn test_get_blocks_needing_embeddings_respects_hash_and_model() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Section\n\nParagraph.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_block_embedding("a.adoc", 0, &[0u8; 32], "model-a", &[1.0, 0.0]).unwrap();
+    db.set_block_embedding("a.adoc", 1, &[9u8; 32], "model-a", &[0.0, 1.0]).unwrap();
+
+    let need_same_model = db.get_blocks_needing_embeddings("model-a").unwrap();
+    assert_eq!(need_same_model.len(), 1);
+    assert_eq!(need_same_model[0].block_index, 1);
+
+    let need_new_model = db.get_blocks_needing_embeddings("model-b").unwrap();
+    assert_eq!(need_new_model.len(), 2);
+}
+
+#[test]
+fn test_search_prose_by_embedding_ranks_semantic_match() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Search\n\nApples and fruit.\n\nOranges and citrus.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "para",    5, 5),
+    ]).unwrap();
+    db.set_block_tags("a.adoc", 1, &[0u8; 32], "fruit").unwrap();
+    db.set_block_tags("a.adoc", 2, &[0u8; 32], "citrus").unwrap();
+    db.set_block_embedding("a.adoc", 1, &[0u8; 32], "model-a", &[1.0, 0.0]).unwrap();
+    db.set_block_embedding("a.adoc", 2, &[0u8; 32], "model-a", &[0.0, 1.0]).unwrap();
+
+    let results = db.search_prose_by_embedding(&[0.9, 0.1], 10).unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(results[0].line_start, 3);
+    assert_eq!(results[0].tags, "fruit");
+}
+
+// ── baseline ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_list_baselines_returns_all_stored() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_baseline("a.rs", b"content_a").unwrap();
+    db.set_baseline("b.rs", b"content_b").unwrap();
+    let mut baselines = db.list_baselines().unwrap();
+    baselines.sort_by_key(|(p, _)| p.clone());
+    assert_eq!(baselines.len(), 2);
+    assert_eq!(baselines[0].0, "a.rs");
+    assert_eq!(baselines[1].0, "b.rs");
+}
+
+#[test]
+fn db_get_baseline_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_baseline("nonexistent.rs").unwrap().is_none());
+}
+
+// ── noweb_map ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_get_noweb_entry_roundtrips() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src/foo.adoc".to_string(),
+        chunk_name: "greet".to_string(),
+        src_line: 10,
+        indent: "  ".to_string(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(5, entry.clone())]).unwrap();
+    let result = db.get_noweb_entry("gen/out.rs", 5).unwrap();
+    let got = result.expect("entry should exist");
+    assert_eq!(got.src_file, "src/foo.adoc");
+    assert_eq!(got.chunk_name, "greet");
+    assert_eq!(got.src_line, 10);
+}
+
+#[test]
+fn db_get_noweb_entry_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_noweb_entry("gen/out.rs", 99).unwrap().is_none());
+}
+
+#[test]
+fn db_get_noweb_entry_by_suffix() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src/foo.adoc".to_string(),
+        chunk_name: "hello".to_string(),
+        src_line: 3,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("crates/foo/src/lib.rs", &[(0, entry)]).unwrap();
+    let got = db.get_noweb_entry_by_suffix("foo/src/lib.rs", 0).unwrap();
+    assert!(got.is_some(), "should find via suffix");
+    assert_eq!(got.unwrap().chunk_name, "hello");
+}
+
+#[test]
+fn db_get_noweb_entries_for_file_by_suffix() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entries: Vec<(u32, NowebMapEntry)> = (0..3).map(|i| (i, NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: format!("c{}", i),
+        src_line: i + 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    })).collect();
+    db.set_noweb_entries("gen/out.rs", &entries).unwrap();
+    let result = db.get_noweb_entries_for_file_by_suffix("out.rs").unwrap();
+    assert_eq!(result.len(), 3);
+}
+
+#[test]
+fn db_query_chunk_output_files() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "main-chunk".to_string(),
+        src_line: 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(0, entry)]).unwrap();
+    let files = db.query_chunk_output_files("main-chunk").unwrap();
+    assert_eq!(files, vec!["gen/out.rs".to_string()]);
+}
+
+#[test]
+fn db_get_output_location_roundtrips() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = NowebMapEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "chunk".to_string(),
+        src_line: 42,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    };
+    db.set_noweb_entries("gen/out.rs", &[(7, entry)]).unwrap();
+    let loc = db.get_output_location("src.adoc", 42).unwrap();
+    assert!(loc.is_some());
+    let (file, line) = loc.unwrap();
+    assert_eq!(file, "gen/out.rs");
+    assert_eq!(line, 7);
+}
+
+#[test]
+fn db_get_all_output_mappings() {
+    use crate::db::{Confidence, NowebMapEntry};
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entries: Vec<(u32, NowebMapEntry)> = (0..2).map(|i| (i, NowebMapEntry {
+        src_file: "s.adoc".to_string(),
+        chunk_name: "c".to_string(),
+        src_line: i + 1,
+        indent: String::new(),
+        confidence: Confidence::Exact,
+    })).collect();
+    db.set_noweb_entries("gen/x.rs", &entries).unwrap();
+    let mappings = db.get_all_output_mappings("s.adoc").unwrap();
+    assert_eq!(mappings.len(), 2);
+}
+
+// ── chunk_deps ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_query_reverse_deps() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_deps(&[
+        ("parent".into(), "child".into(), "src.adoc".into()),
+        ("uncle".into(),  "child".into(), "src.adoc".into()),
+    ]).unwrap();
+    let mut rev = db.query_reverse_deps("child").unwrap();
+    rev.sort();
+    assert_eq!(rev.len(), 2);
+    let parents: Vec<&str> = rev.iter().map(|(p, _)| p.as_str()).collect();
+    assert!(parents.contains(&"parent"));
+    assert!(parents.contains(&"uncle"));
+}
+
+// ── chunk_defs ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_chunk_def() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = ChunkDefEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "my-chunk".to_string(),
+        nth: 0,
+        def_start: 10,
+        def_end: 20,
+    };
+    db.set_chunk_defs(&[entry]).unwrap();
+    let got = db.get_chunk_def("src.adoc", "my-chunk", 0).unwrap();
+    let got = got.expect("should find the chunk def");
+    assert_eq!(got.def_start, 10);
+    assert_eq!(got.def_end, 20);
+}
+
+#[test]
+fn db_list_chunk_defs_with_file_filter() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "x".into(), nth: 0, def_start: 1, def_end: 5 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "y".into(), nth: 0, def_start: 1, def_end: 5 },
+    ]).unwrap();
+    let all = db.list_chunk_defs(None).unwrap();
+    assert_eq!(all.len(), 2);
+    let filtered = db.list_chunk_defs(Some("a.adoc")).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].chunk_name, "x");
+}
+
+#[test]
+fn db_find_chunk_defs_by_name() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 1, def_end: 3 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 5, def_end: 7 },
+        ChunkDefEntry { src_file: "c.adoc".into(), chunk_name: "bar".into(), nth: 0, def_start: 1, def_end: 2 },
+    ]).unwrap();
+    let foos = db.find_chunk_defs_by_name("foo").unwrap();
+    assert_eq!(foos.len(), 2);
+    let bars = db.find_chunk_defs_by_name("bar").unwrap();
+    assert_eq!(bars.len(), 1);
+}
+
+#[test]
+fn db_query_chunk_defs_overlapping() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "alpha".into(), nth: 0, def_start: 1,  def_end: 10 },
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "beta".into(),  nth: 0, def_start: 20, def_end: 30 },
+    ]).unwrap();
+    // Query overlapping [5, 15] -- should hit alpha but not beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 5, 15).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "alpha");
+    // Query overlapping [25, 25] -- should hit beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 25, 25).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "beta");
+}
+
+// ── macro_map ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_macro_map() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let data = b"macro-trace-data".to_vec();
+    db.set_macro_map_entries("driver.adoc", &[(3, data.clone())]).unwrap();
+    let result = db.get_macro_map_bytes("driver.adoc", 3).unwrap();
+    assert_eq!(result, Some(data));
+}
+
+#[test]
+fn db_get_macro_map_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_macro_map_bytes("nonexistent.adoc", 1).unwrap().is_none());
+}
+
+// ── source_config ─────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_source_config() {
+    use crate::db::TangleConfig;
+    let db = WeavebackDb::open_temp().unwrap();
+    let cfg = TangleConfig {
+        sigil: '%',
+        open_delim: "<<".to_string(),
+        close_delim: ">>".to_string(),
+        chunk_end: "@".to_string(),
+        comment_markers: vec!["#".to_string(), "//".to_string()],
+    };
+    db.set_source_config("src/foo.adoc", &cfg).unwrap();
+    let got = db.get_source_config("src/foo.adoc").unwrap().expect("should find config");
+    assert_eq!(got.open_delim, "<<");
+    assert_eq!(got.sigil, '%');
+    assert_eq!(got.comment_markers, vec!["#", "//"]);
+}
+
+#[test]
+fn db_get_source_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_source_config("nonexistent.adoc").unwrap().is_none());
+}
+
+// ── run_config ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_run_config_roundtrips() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("my_key", "my_value").unwrap();
+    let val = db.get_run_config("my_key").unwrap();
+    assert_eq!(val, Some("my_value".to_string()));
+}
+
+#[test]
+fn db_run_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_run_config("absent").unwrap().is_none());
+}
+
+#[test]
+fn db_run_config_overwrite() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("k", "v1").unwrap();
+    db.set_run_config("k", "v2").unwrap();
+    assert_eq!(db.get_run_config("k").unwrap(), Some("v2".to_string()));
+}
+
+// ── source_blocks ─────────────────────────────────────────────────────────────
+
+#[test]
+fn db_source_blocks_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 5),
+        block(2, "code",    7, 10),
+    ];
+    db.set_source_blocks("docs/x.adoc", &blocks).unwrap();
+    let hashes = db.get_source_block_hashes("docs/x.adoc").unwrap();
+    assert_eq!(hashes.len(), 3);
+}
+
+#[test]
+fn db_query_blocks_overlapping_range() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "para", 1,  5),
+        block(1, "para", 10, 15),
+        block(2, "para", 20, 25),
+    ];
+    db.set_source_blocks("src.adoc", &blocks).unwrap();
+    // Range [3, 12] overlaps blocks 0 (1-5) and 1 (10-15)
+    let hits = db.query_blocks_overlapping_range("src.adoc", 3, 12).unwrap();
+    assert_eq!(hits.len(), 2);
+}
+
+// ── snapshots and var/macro defs ─────────────────────────────────────────────
+
+#[test]
+fn db_src_snapshot_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("src/a.adoc", b"hello world").unwrap();
+    let got = db.get_src_snapshot("src/a.adoc").unwrap();
+    assert_eq!(got, Some(b"hello world".to_vec()));
+}
+
+#[test]
+fn db_list_src_snapshots() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("a.adoc", b"aaa").unwrap();
+    db.set_src_snapshot("b.adoc", b"bbb").unwrap();
+    let snaps = db.list_src_snapshots().unwrap();
+    assert_eq!(snaps.len(), 2);
+}
+
+#[test]
+fn db_src_snapshot_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_src_snapshot("missing.adoc").unwrap().is_none());
+}
+
+#[test]
+fn db_var_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_var_def("MY_VAR", "src.adoc", 100, 5).unwrap();
+    let defs = db.query_var_defs("MY_VAR").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+    assert_eq!(defs[0].1, 100);
+    assert_eq!(defs[0].2, 5);
+}
+
+#[test]
+fn db_query_var_defs_missing_returns_empty() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let defs = db.query_var_defs("UNDEFINED").unwrap();
+    assert!(defs.is_empty());
+}
+
+#[test]
+fn db_macro_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_macro_def("my_macro", "src.adoc", 50, 10).unwrap();
+    let defs = db.query_macro_defs("my_macro").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+}
+
+// ── blocks needing tags / embeddings ─────────────────────────────────────────
+
+#[test]
+fn db_get_blocks_needing_tags_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_tags().unwrap();
+    assert!(blocks.is_empty());
+}
+
+#[test]
+fn db_set_block_tags_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let source = "= Title\n\nSome prose.\n";
+    db.set_src_snapshot("doc.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("doc.adoc", &[block(0, "para", 3, 3)]).unwrap();
+    db.set_block_tags("doc.adoc", 0, &[0u8; 32], "important,api").unwrap();
+    let tags = db.list_block_tags(Some("doc.adoc")).unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].tags, "important,api");
+}
+
+#[test]
+fn db_get_blocks_needing_embeddings_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_embeddings("model-x").unwrap();
+    assert!(blocks.is_empty());
+}
+
+// @@
+```
+

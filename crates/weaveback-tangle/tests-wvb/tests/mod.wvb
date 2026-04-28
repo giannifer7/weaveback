@@ -1,0 +1,23 @@
+¤h1(¤[Test Module Map¤])
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/mod.rs, ¤[
+mod advanced;
+mod basic;
+mod common;
+mod fts;
+mod safe_writer;
+mod utils;
+
+pub(crate) use common::*;
+pub(crate) use utils::*;
+¤])

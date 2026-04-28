@@ -1,13 +1,17 @@
-= Linter Planning Notes
-:toc: left
-:toclevels: 3
+---
+title: |-
+  Linter Planning Notes
+toc: left
+toclevels: 3
+---
+# Linter Planning Notes
 
 This document is a planning note for a future structural linter.
 It is intentionally provisional. The goal is not to freeze policy too early,
 but to record which invariants already matter in practice and which checks would
 pay for themselves.
 
-== Why a linter belongs here
+## Why a linter belongs here
 
 Weaveback already depends on structural conventions that are stronger than what
 plain AsciiDoc or noweb enforce by themselves.
@@ -27,7 +31,7 @@ reported explicitly.
 
 That is the role of a future linter.
 
-== Immediate rule candidate
+## Immediate rule candidate
 
 The first concrete rule uncovered by recent work is:
 
@@ -51,11 +55,11 @@ Recommended initial severity:
 * start as a warning
 * later consider making it an error for first-party project sources
 
-== Likely linter areas
+## Likely linter areas
 
 The linter probably wants to cover several families of checks.
 
-=== 1. Literate structure
+### 1. Literate structure
 
 Examples:
 
@@ -64,7 +68,7 @@ Examples:
 * nested or overlapping chunk markers in invalid positions
 * duplicate file-chunk ownership where uniqueness is expected
 
-=== 2. Documentation drift
+### 2. Documentation drift
 
 Examples:
 
@@ -75,7 +79,7 @@ Examples:
 This overlaps with the earlier facts-and-claims discussion and may eventually
 share infrastructure with a `docs-check` command.
 
-=== 3. Projection discipline
+### 3. Projection discipline
 
 Examples:
 
@@ -83,7 +87,7 @@ Examples:
 * known generated paths missing from expected tangle passes
 * source-of-truth notes present without discoverable links from served docs
 
-=== 4. Workflow hygiene
+### 4. Workflow hygiene
 
 Examples:
 
@@ -91,7 +95,7 @@ Examples:
 * stale local caches accidentally checked in
 * project-owned generated files drifting from their `.adoc` sources
 
-== Desired design qualities
+## Desired design qualities
 
 The linter should be:
 
@@ -104,16 +108,15 @@ The linter should be:
 It should avoid turning into a generic style enforcer unless there is a strong
 project-specific reason.
 
-== Possible command shape
+## Possible command shape
 
 A plausible future interface could be:
 
-[source,bash]
-----
+```bash
 weaveback lint
 weaveback lint --strict
 weaveback lint --rule chunk-body-outside-fence
-----
+```
 
 
 Possible output style:
@@ -126,15 +129,14 @@ Possible output style:
 
 Example:
 
-[source,text]
-----
+```text
 crates/weaveback/src/serve.adoc:712: chunk-body-outside-fence
   chunk definition `extract-prose` is not fully enclosed by a fenced code block
   prose/context tools assume section prose excludes chunk bodies
-----
+```
 
 
-== Non-goal for now
+## Non-goal for now
 
 This document does not commit the project to implementing the linter
 immediately. It records the invariants that are already shaping behavior, so

@@ -1,5 +1,9 @@
-= Near-Term Engineering Plan
-:toc: left
+---
+title: |-
+  Near-Term Engineering Plan
+toc: left
+---
+# Near-Term Engineering Plan
 
 This is not a grand roadmap. It is a short working plan for the next phase of
 weaveback, based on the practical standard already stated elsewhere:
@@ -9,7 +13,7 @@ weaveback, based on the practical standard already stated elsewhere:
 * make the safe edit path obvious
 * let agents use intelligence for interpretation, not for basic provenance
 
-== Main objective
+## Main objective
 
 The main objective is to make weaveback cheaper to use in the ordinary loop of:
 
@@ -22,7 +26,7 @@ The main objective is to make weaveback cheaper to use in the ordinary loop of:
 If that loop remains expensive, the project becomes burden. If that loop
 becomes routine and mostly mechanical, the project becomes help.
 
-== Current dogfood status
+## Current dogfood status
 
 The current state is better than when this plan was first written.
 
@@ -51,9 +55,9 @@ basic enablement. It is:
 * continuing to remove special-case path and config handling from user-visible
   workflows
 
-== Workstreams
+## Workstreams
 
-=== 1. Shared syntax and structure
+### 1. Shared syntax and structure
 
 Avoid parallel parsers and local ad hoc syntax rules.
 
@@ -68,7 +72,7 @@ Success condition:
 * syntax changes should need to be implemented once, not in several loosely
   related tools
 
-=== 2. Mechanical attribution
+### 2. Mechanical attribution
 
 Generated-file failures should be translated into source-of-truth terms by
 default.
@@ -84,7 +88,7 @@ Success condition:
 
 * routine diagnostic translation should not require manual trace-back
 
-=== 3. Structural linting
+### 3. Structural linting
 
 Use linting to enforce project invariants early instead of compensating for
 them later.
@@ -99,7 +103,7 @@ Success condition:
 
 * common structural mistakes are caught directly and described clearly
 
-=== 4. Safe edit workflow
+### 4. Safe edit workflow
 
 The edit path should be narrow, auditable, and unsurprising.
 
@@ -114,7 +118,7 @@ Success condition:
 * a user or agent can tell quickly what to edit, where to edit, and why an edit
   was accepted or rejected
 
-=== 5. Outer-loop trust
+### 5. Outer-loop trust
 
 Parser correctness is not enough if the outer workflow still feels fragile.
 
@@ -128,7 +132,7 @@ Success condition:
 
 * the whole workflow feels dependable, not only the inner parsing engines
 
-=== 6. Structured composition surfaces
+### 6. Structured composition surfaces
 
 The core should remain authoritative, but the composition layers should become
 easier to use programmatically.
@@ -143,7 +147,7 @@ Success condition:
 
 * the project can be driven through structured APIs instead of shell/text glue
 
-== Prioritization rule
+## Prioritization rule
 
 When choosing between possible improvements, prefer the ones that:
 
@@ -158,7 +162,7 @@ And deprioritize work that:
 * duplicates syntax or logic already present elsewhere
 * improves elegance more than trustworthiness
 
-== Review questions
+## Review questions
 
 This plan should be revisited periodically with a few blunt questions:
 

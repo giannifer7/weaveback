@@ -1,5 +1,4 @@
-= Facts And Rules For Option Specs
-:toc: left
+¤doc(Facts And Rules For Option Specs, ¤{¤}, left, ¤{¤})
 
 This note explores a possible next step for the CLI option-spec work: treat
 option declarations as facts, then run declarative rules over them to check for
@@ -7,8 +6,7 @@ drift, omission, and weak documentation.
 
 The immediate motivation is simple: an option declaration like
 
-[source,text]
-----
+¤code_block(text, ¤[
 option(
     command = tangle,
     id = force_generated,
@@ -18,14 +16,13 @@ option(
     help_short = "Overwrite drifted generated files.",
     rationale = "Explicit regeneration when literate source is authoritative.",
 )
-----
-
+¤])
 
 already looks much more like a fact in a logic program than like arbitrary
 procedural code. Once we admit that, useful rule checks become easier to state
 and reason about.
 
-== Why Bother
+¤h2(¤[Why Bother¤])
 
 The value here is not abstract cleverness. It is a practical attempt to catch:
 
@@ -39,7 +36,7 @@ The value here is not abstract cleverness. It is a practical attempt to catch:
 This is especially aligned with weaveback's broader goal: preserve not only the
 surface syntax, but also intent, provenance, and constraints.
 
-== The Facts
+¤h2(¤[The Facts¤])
 
 The option-spec declarations already carry several distinct facts:
 
@@ -54,8 +51,7 @@ The option-spec declarations already carry several distinct facts:
 
 That means we can think in terms of relations such as:
 
-[source,prolog]
-----
+¤code_block(prolog, ¤[
 option(tangle, force_generated).
 long_name(tangle, force_generated, "force-generated").
 value_kind(tangle, force_generated, bool).
@@ -67,13 +63,12 @@ rationale(tangle, force_generated,
 safety_sensitive(tangle, force_generated).
 example(tangle, force_generated,
     "wb-tangle --force-generated").
-----
-
+¤])
 
 This is only a different view of data we already have. The gain comes from the
 rules we can state over it.
 
-== First Useful Rules
+¤h2(¤[First Useful Rules¤])
 
 The most useful first rules are the ones that catch drift and omission cheaply.
 
@@ -105,7 +100,7 @@ The most useful first rules are the ones that catch drift and omission cheaply.
   The generated CLI and docs should be able to point back to the declaration
   site.
 
-== Stronger Rules Worth Considering
+¤h2(¤[Stronger Rules Worth Considering¤])
 
 These are more ambitious, but still grounded.
 
@@ -126,7 +121,7 @@ These are more ambitious, but still grounded.
 * Every documented example must parse.
   This is often one of the cheapest and highest-value rules.
 
-== About Tests
+¤h2(¤[About Tests¤])
 
 "Every option must have a test" is attractive, but too crude. It tends to
 produce checkbox tests.
@@ -139,7 +134,7 @@ A better formulation is:
 
 That keeps the rule tied to risk rather than bureaucratic completeness.
 
-== About Errors
+¤h2(¤[About Errors¤])
 
 One very worthwhile rule is:
 
@@ -158,7 +153,7 @@ So for options this suggests:
 If the option-spec system is the source of truth, the rule engine can enforce
 this instead of relying on discipline.
 
-== A Useful Fact And Rule Split
+¤h2(¤[A Useful Fact And Rule Split¤])
 
 Facts:
 
@@ -192,7 +187,7 @@ If we implement only a few rules first, the highest-value ones are probably:
 * every example parses successfully
 * every validation error mentions the option name
 
-== Prolog, SQL, Datalog
+¤h2(¤[Prolog, SQL, Datalog¤])
 
 I lean with the idea that this layer should be functionally distinct from the
 usual project database. The point is not persistent storage first; the point is
@@ -200,7 +195,7 @@ expressing checks cleanly.
 
 That makes a logic-oriented layer attractive.
 
-=== Prolog
+¤h3(¤[Prolog¤])
 
 Pros:
 
@@ -218,7 +213,7 @@ Cons:
 Prolog feels like the most direct conceptual fit if the main question is:
 "what rules do we want to express over our declarations?"
 
-=== SQL
+¤h3(¤[SQL¤])
 
 SQL can express a surprising amount of this, especially if facts are already
 materialized into SQLite. For joins and anti-joins it is often enough.
@@ -231,7 +226,7 @@ But SQL is less appealing here if:
 
 So SQL is a valid implementation path, but not necessarily the best design fit.
 
-=== Datalog And Relatives
+¤h3(¤[Datalog And Relatives¤])
 
 Datalog is worth serious consideration.
 
@@ -271,7 +266,7 @@ My current bias is:
   to stay disciplined and analysis-friendly
 * Prolog may be the better thinking tool while the design is still exploratory
 
-== Suggested Next Step
+¤h2(¤[Suggested Next Step¤])
 
 Do not start by building the whole engine.
 

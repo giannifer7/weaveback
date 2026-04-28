@@ -5,14 +5,6 @@ Pure helper behavior and small local transformations used by apply-back.
 [source,rust]
 ----
 // <[applyback-tests-primitives]>=
-use super::*;
-use std::fs;
-use weaveback_tangle::db::{ChunkDefEntry, Confidence};
-
-fn lines(s: &str) -> Vec<String> {
-    s.lines().map(str::to_string).collect()
-}
-
 // ── fuzzy_find_line ────────────────────────────────────────────────────
 
 #[test]

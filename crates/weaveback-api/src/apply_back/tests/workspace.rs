@@ -1,9 +1,8 @@
-# Apply-Back Workspace Tests
+// weaveback-api/src/apply_back/tests/workspace.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-Temporary workspace fixtures and source-map edge cases around the public runner.
+use super::*;
 
-```rust
-// <[applyback-tests-workspace]>=
 // ── run_apply_back empty database & diff edge cases ─────────────────────
 
 #[test]
@@ -81,6 +80,4 @@ fn run_apply_back_reports_missing_source_map_on_diff() {
     assert!(s.contains("Processing out.rs"));
     assert!(s.contains("skip line 2: no source map entry"));
 }
-// @
-```
 

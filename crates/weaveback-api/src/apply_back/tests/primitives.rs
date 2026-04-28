@@ -1,8 +1,8 @@
-¤h1(¤[Apply-Back Test Primitives¤])
+// weaveback-api/src/apply_back/tests/primitives.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-Pure helper behavior and small local transformations used by apply-back.
+use super::*;
 
-¤rust_chunk(applyback-tests-primitives, ¤[
 // ── fuzzy_find_line ────────────────────────────────────────────────────
 
 #[test]
@@ -107,7 +107,7 @@ fn attempt_macro_arg_patch_fallback_finds_differing_part() {
     let ls = lines("    let x = old_val;");
     let old_text = "let x = old_val;";
     let new_text = "let x = new_val;";
-    // old/new differ at "old_val" vs "new_val". 
+    // old/new differ at "old_val" vs "new_val".
     // common prefix: "let x = " (8 chars)
     // common suffix: ";" (1 char)
     // old_frag: "old_val"
@@ -377,4 +377,4 @@ fn attempt_macro_body_fix_returns_none_when_body_eq_expanded() {
     let result = attempt_macro_body_fix("plain text", "plain text", "new text", '%');
     assert_eq!(result, Some("new text".to_string()));
 }
-¤])
+

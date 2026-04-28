@@ -1,0 +1,63 @@
+# Single-Pass Expanded Paths
+
+## Expanded Document Paths
+
+```rust
+// <[process-expanded-paths]>=
+
+fn with_replaced_extension(path: &Path, expanded_ext: Option<&str>) -> PathBuf {
+    let mut out = path.to_path_buf();
+    if let Some(ext) = expanded_ext.filter(|ext| !ext.is_empty()) {
+        out.set_extension(ext.trim_start_matches('.'));
+    }
+    out
+}
+
+pub(super) fn expanded_source_key(
+    full_path: &Path,
+    project_root: &Path,
+    expanded_ext: Option<&str>,
+) -> String {
+    let expanded = with_replaced_extension(full_path, expanded_ext);
+    if let Ok(rel) = expanded.strip_prefix(project_root) {
+        rel.to_string_lossy().to_string()
+    } else {
+        expanded.to_string_lossy().to_string()
+    }
+}
+
+fn expanded_output_path(
+    full_path: &Path,
+    base_dir: &Path,
+    expanded_dir: &Path,
+    expanded_ext: Option<&str>,
+) -> PathBuf {
+    let rel = if let Ok(path) = full_path.strip_prefix(base_dir) {
+        path.to_path_buf()
+    } else if let Some(name) = full_path.file_name() {
+        PathBuf::from(name)
+    } else {
+        full_path.to_path_buf()
+    };
+    expanded_dir.join(with_replaced_extension(&rel, expanded_ext))
+}
+
+pub(super) fn write_expanded_document(
+    full_path: &Path,
+    base_dir: &Path,
+    expanded_adoc_dir: &Path,
+    expanded_md_dir: &Path,
+    expanded_ext: Option<&str>,
+    expanded: &str,
+) -> Result<PathBuf, String> {
+    let expanded_dir = if is_markdown_ext(expanded_ext) { expanded_md_dir } else { expanded_adoc_dir };
+    let out_path = expanded_output_path(full_path, base_dir, expanded_dir, expanded_ext);
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&out_path, expanded).map_err(|e| e.to_string())?;
+    Ok(out_path)
+}
+// @
+```
+

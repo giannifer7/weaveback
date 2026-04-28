@@ -1,0 +1,37 @@
+¤h1(¤[Single-Pass Filesystem Helpers¤])
+
+¤h2(¤[Filesystem Helpers¤])
+
+¤rust_chunk(process-fs, ¤[
+/// Recursively collect all files whose extension matches any entry in `exts`.
+pub fn find_files(dir: &std::path::Path, exts: &[String], out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            find_files(&path, exts, out)?;
+        } else if let Some(e) = path.extension().and_then(|e| e.to_str())
+            && exts.iter().any(|x| x == e)
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn depfile_escape(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace(' ', "\\ ")
+}
+
+/// Write a Makefile depfile: `target: dep1 dep2 …`.
+pub fn write_depfile(path: &std::path::Path, target: &std::path::Path, deps: &[PathBuf]) -> std::io::Result<()> {
+    use std::fmt::Write as FmtWrite;
+    let mut out = String::new();
+    std::write!(out, "{}:", depfile_escape(target)).unwrap();
+    for dep in deps {
+        std::write!(out, " {}", depfile_escape(dep)).unwrap();
+    }
+    out.push('\n');
+    std::fs::write(path, out)
+}
+¤])

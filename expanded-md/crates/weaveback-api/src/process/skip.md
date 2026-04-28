@@ -1,0 +1,109 @@
+# Single-Pass Skip-Set Computation
+
+## Skip-Set Computation
+
+```rust
+// <[process-skip]>=
+use rayon::prelude::*;
+
+/// Compute the set of `@file …` chunk names that can be skipped this run
+/// because none of their contributing source blocks changed.
+pub fn compute_skip_set(
+    source_contents: &HashMap<String, String>,
+    prev_db: &Option<weaveback_tangle::db::WeavebackDb>,
+    current_db: &mut weaveback_tangle::db::WeavebackDb,
+    gen_dir: &std::path::Path,
+) -> HashSet<String> {
+    use weaveback_tangle::parse_source_blocks;
+
+    let parsed: Vec<(&String, Vec<_>)> = source_contents
+        .par_iter()
+        .map(|(path, content)| {
+            let ext = std::path::Path::new(path.as_str())
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            (path, parse_source_blocks(content, ext))
+        })
+        .collect();
+
+    let mut dirty_chunks: HashSet<String> = HashSet::new();
+
+    for (path, new_blocks) in &parsed {
+        if let Err(e) = current_db.set_source_blocks(path, new_blocks) {
+            eprintln!("warning: set_source_blocks failed for {path}: {e}");
+            dirty_chunks.insert("*".to_string());
+            continue;
+        }
+
+        let prev = prev_db.as_ref();
+        let prev_hashes: HashMap<u32, Vec<u8>> = prev
+            .and_then(|db| db.get_source_block_hashes(path).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        for blk in new_blocks {
+            let changed = prev_hashes
+                .get(&blk.block_index)
+                .map(|old| old.as_slice() != blk.content_hash.as_slice())
+                .unwrap_or(true);
+
+            if changed
+                && let Some(db) = prev
+                && let Ok(chunk_defs) = db.query_chunk_defs_overlapping(path, blk.line_start, blk.line_end) {
+                    for def in chunk_defs {
+                        dirty_chunks.insert(def.chunk_name.clone());
+                    }
+            }
+        }
+    }
+
+    if let Some(db) = prev_db.as_ref() {
+        let mut queue: Vec<String> = dirty_chunks.iter().cloned().collect();
+        while let Some(chunk) = queue.pop() {
+            if let Ok(rev_deps) = db.query_reverse_deps(&chunk) {
+                for (from_chunk, _src_file) in rev_deps {
+                    if dirty_chunks.insert(from_chunk.clone()) {
+                        queue.push(from_chunk);
+                    }
+                }
+            }
+        }
+    }
+
+    if dirty_chunks.contains("*") {
+        return HashSet::new();
+    }
+
+    let Some(prev) = prev_db.as_ref() else {
+        return HashSet::new();
+    };
+
+    let all_file_chunks: Vec<String> = prev
+        .list_chunk_defs(None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.chunk_name.starts_with("@file "))
+        .map(|e| e.chunk_name)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut skip: HashSet<String> = HashSet::new();
+    for name in all_file_chunks {
+        if dirty_chunks.contains(&name) {
+            continue;
+        }
+        let out_file = name.strip_prefix("@file ").unwrap_or(&name).trim();
+        if prev.get_baseline(out_file).ok().flatten().is_some()
+            && gen_dir.join(out_file).exists()
+        {
+            skip.insert(name);
+        }
+    }
+    skip
+}
+// @
+```
+

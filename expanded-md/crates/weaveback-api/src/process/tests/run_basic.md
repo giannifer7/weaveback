@@ -1,0 +1,252 @@
+# Single-Pass Basic Runner Tests
+
+```rust
+// <[@file weaveback-api/src/process/tests/run_basic.rs]>=
+// weaveback-api/src/process/tests/run_basic.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::super::{run_single_pass, SinglePassArgs};
+use std::fs;
+use std::path::PathBuf;
+use tempfile::tempdir;
+
+// <[process-test-run-basic]>
+
+// @
+```
+
+
+```rust
+// <[process-test-run-basic]>=
+#[test]
+fn run_single_pass_writes_output_file() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    let gen_dir = tmp.path().join("gen_out");
+    fs::create_dir(&gen_dir).unwrap();
+
+    fs::write(&src, "// <<@file output.txt>>=\nhello world\n// @\n").unwrap();
+
+    let db_path = tmp.path().join("wb.db");
+    let args = SinglePassArgs {
+        inputs: vec![src.file_name().unwrap().into()],
+        directory: None,
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: gen_dir.clone(),
+        open_delim: "<<".to_string(),
+        close_delim: ">>".to_string(),
+        chunk_end: "@".to_string(),
+        comment_markers: "//,#".to_string(),
+        ext: vec!["adoc".to_string()],
+        no_macros: true,
+        macro_prelude: vec![],
+        expanded_ext: None,
+        expanded_adoc_dir: PathBuf::from("expanded-adoc"),
+        expanded_md_dir: PathBuf::from("expanded-md"),
+        macro_only: false,
+        dry_run: false,
+        db: db_path,
+        depfile: None,
+        stamp: None,
+        strict: false,
+        warn_unused: false,
+        allow_env: false,
+        allow_home: true,
+        force_generated: false,
+        sigil: '%',
+        include: String::new(),
+        formatter: vec![],
+        no_fts: true,
+        dump_expanded: false,
+        project_root: None,
+    };
+    run_single_pass(args).unwrap();
+    let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
+    assert_eq!(out.trim(), "hello world");
+}
+#[test]
+fn test_run_single_pass_force_generated() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    let gen_dir = tmp.path().join("gen_out");
+    fs::create_dir(&gen_dir).unwrap();
+
+    fs::write(&src, "// <<@file output.txt>>=\ncontent\n// @\n").unwrap();
+    let out_file = gen_dir.join("output.txt");
+    fs::write(&out_file, "old").unwrap();
+
+    let db_path = tmp.path().join("wb.db");
+    let args = SinglePassArgs {
+        inputs: vec![src.file_name().unwrap().into()],
+        directory: None,
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: gen_dir.clone(),
+        open_delim: "<<".to_string(),
+        close_delim: ">>".to_string(),
+        chunk_end: "@".to_string(),
+        comment_markers: "//,#".to_string(),
+        ext: vec!["adoc".to_string()],
+        no_macros: true,
+        macro_prelude: vec![],
+        expanded_ext: None,
+        expanded_adoc_dir: PathBuf::from("expanded-adoc"),
+        expanded_md_dir: PathBuf::from("expanded-md"),
+        macro_only: false,
+        dry_run: false,
+        db: db_path,
+        depfile: None,
+        stamp: None,
+        strict: false,
+        warn_unused: false,
+        allow_env: false,
+        allow_home: true,
+        force_generated: true, // Force!
+        sigil: '%',
+        include: String::new(),
+        formatter: vec![],
+        no_fts: true,
+        dump_expanded: false,
+        project_root: None,
+    };
+    run_single_pass(args).unwrap();
+    assert_eq!(fs::read_to_string(&out_file).unwrap().trim(), "content");
+
+    // force_generated is for when it *matches* the baseline but we want to write anyway.
+}
+#[test]
+fn run_single_pass_with_custom_sigil() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    // Use '%' instead of default '<<'
+    fs::write(&src, "%@file output.txt%=\ncontent\n%@\n").unwrap();
+    
+    let gen_dir = tmp.path().join("gen_out");
+    fs::create_dir(&gen_dir).unwrap();
+    
+    let db_path = tmp.path().join("wb.db");
+    let args = SinglePassArgs {
+        inputs: vec![src.file_name().unwrap().into()],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: gen_dir.clone(),
+        sigil: '%',
+        open_delim: "%".into(),
+        close_delim: "%".into(),
+        chunk_end: "%@".into(),
+        db: db_path,
+        no_fts: true,
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+    
+    let out = fs::read_to_string(gen_dir.join("output.txt")).unwrap();
+    assert_eq!(out.trim(), "content");
+}
+#[test]
+fn run_single_pass_directory_mode() {
+    let tmp = tempdir().unwrap();
+    let src_a = tmp.path().join("a.adoc");
+    let src_b = tmp.path().join("b.adoc");
+    fs::write(&src_a, "<<@file a.txt>>=\nA\n@").unwrap();
+    fs::write(&src_b, "<<@file b.txt>>=\nB\n@").unwrap();
+
+    let gen_dir = tmp.path().join("gen");
+    fs::create_dir(&gen_dir).unwrap();
+
+    let args = SinglePassArgs {
+        directory: Some(tmp.path().to_path_buf()),
+        ext: vec!["adoc".to_string()],
+        gen_dir: gen_dir.clone(),
+        db: tmp.path().join("wb.db"),
+        no_fts: true,
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).expect("run_single_pass failed");
+
+    assert_eq!(fs::read_to_string(gen_dir.join("a.txt")).unwrap().trim(), "A");
+    assert_eq!(fs::read_to_string(gen_dir.join("b.txt")).unwrap().trim(), "B");
+}
+#[test]
+fn run_single_pass_depfile_and_stamp() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    fs::write(&src, "<<@file out.txt>>=\ncontent\n@").unwrap();
+
+    let gen_dir = tmp.path().join("gen");
+    fs::create_dir(&gen_dir).unwrap();
+    let depfile = tmp.path().join("out.d");
+    let stamp = tmp.path().join("out.stamp");
+
+    let args = SinglePassArgs {
+        inputs: vec![PathBuf::from("input.adoc")],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir,
+        db: tmp.path().join("wb.db"),
+        depfile: Some(depfile.clone()),
+        stamp: Some(stamp.clone()),
+        no_fts: true,
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+
+    assert!(depfile.exists());
+    assert!(stamp.exists());
+    let dep_content = fs::read_to_string(depfile).unwrap();
+    assert!(dep_content.contains("input.adoc"));
+}
+#[test]
+fn run_single_pass_dry_run_no_writes() {
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    fs::write(&src, "<<@file out.txt>>=\ncontent\n@").unwrap();
+
+    let gen_dir = tmp.path().join("gen");
+    fs::create_dir(&gen_dir).unwrap();
+
+    let args = SinglePassArgs {
+        inputs: vec![PathBuf::from("input.adoc")],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: gen_dir.clone(),
+        db: tmp.path().join("wb.db"),
+        dry_run: true,
+        no_fts: true,
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+
+    assert!(!gen_dir.join("out.txt").exists(), "Dry run should not write files");
+}
+#[test]
+fn run_single_pass_error_missing_input() {
+    let tmp = tempdir().unwrap();
+    let args = SinglePassArgs {
+        inputs: vec![PathBuf::from("missing.adoc")],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: tmp.path().join("gen"),
+        db: tmp.path().join("wb.db"),
+        no_fts: true,
+        ..SinglePassArgs::default_for_test()
+    };
+    let res = run_single_pass(args);
+    assert!(res.is_err());
+    let err = res.unwrap_err();
+    assert!(err.contains("No such file or directory") || err.contains("not found"));
+}
+#[test]
+fn run_single_pass_bench_no_fts() {
+    // Just verify it doesn't crash when no_fts is false and db is present
+    let tmp = tempdir().unwrap();
+    let src = tmp.path().join("input.adoc");
+    fs::write(&src, "<<@file out.txt>>=\n@").unwrap();
+    let args = SinglePassArgs {
+        inputs: vec![PathBuf::from("input.adoc")],
+        input_dir: tmp.path().to_path_buf(),
+        gen_dir: tmp.path().join("gen"),
+        db: tmp.path().join("wb.db"),
+        no_fts: false, // Rebuild FTS!
+        ..SinglePassArgs::default_for_test()
+    };
+    run_single_pass(args).unwrap();
+}
+// @
+```
+

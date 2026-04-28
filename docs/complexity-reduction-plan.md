@@ -1,5 +1,9 @@
-= Complexity Reduction Plan
-:toc: left
+---
+title: |-
+  Complexity Reduction Plan
+toc: left
+---
+# Complexity Reduction Plan
 
 This note records the cleanup plan for the current state of the project:
 
@@ -20,12 +24,12 @@ documentation and generation model:
 * smaller generated modules and smaller test units
 
 The practical migration mechanism is the two-pass `.wvb` authoring model
-described in link:two-pass-markup-migration.adoc[two-pass markup migration].
+described in [two-pass markup migration](two-pass-markup-migration.adoc).
 Moving a document to `.wvb` should not be a mechanical syntax conversion.
 Each migration is also a review gate for source ownership, module boundaries,
 test placement, and generated-file size.
 
-== Problem statement
+## Problem statement
 
 The current failure mode is not just "bugs exist". It is structural:
 
@@ -41,7 +45,7 @@ That produces a delusional self-documentation effect:
 * humans trust the prose too much
 * CI becomes the first place where reality pushes back
 
-== Desired invariants
+## Desired invariants
 
 After the cleanup, these statements should be true:
 
@@ -57,11 +61,11 @@ After the cleanup, these statements should be true:
 6. Tests are physically separate from large runtime files while still linked in
    the literate layer by module maps and references.
 
-== Document taxonomy
+## Document taxonomy
 
 Every document should belong to one class only.
 
-=== 1. Canonical implementation source
+### 1. Canonical implementation source
 
 Examples:
 
@@ -75,7 +79,7 @@ Rules:
 * must stay mechanically in sync with generated outputs
 * should be local to the code they own
 
-=== 2. Architecture / rationale
+### 2. Architecture / rationale
 
 Examples:
 
@@ -90,7 +94,7 @@ Rules:
 * use links to canonical sources
 * embedded code should be short excerpts, not duplicated file bodies
 
-=== 3. User documentation
+### 3. User documentation
 
 Examples:
 
@@ -104,7 +108,7 @@ Rules:
 * avoid implementation detail unless it directly helps the user
 * avoid copying large implementation fragments
 
-=== 4. Planning / notes
+### 4. Planning / notes
 
 Examples:
 
@@ -118,9 +122,9 @@ Rules:
 * must not describe themselves as settled truth
 * should be easy to delete or rewrite later
 
-== Workstreams
+## Workstreams
 
-== Execution model: `.wvb` as the cleanup vehicle
+## Execution model: `.wvb` as the cleanup vehicle
 
 The two-pass migration and this complexity plan are one workstream, not two.
 For each document selected for `.wvb` conversion, perform these checks before
@@ -142,7 +146,7 @@ accepting the migration:
 This keeps the migration honest: `.wvb` is not another documentation layer on
 top of complexity; it is the tool used to remove complexity.
 
-== Candidate ordering
+## Candidate ordering
 
 Use small, leaf documents first to validate workflow, then move toward files
 where the structural payoff is high.
@@ -164,7 +168,7 @@ where the structural payoff is high.
    Do not convert mechanically.
    First decide whether the page owns code or merely explains code.
 
-== Workstream A: Restore Source-Of-Truth Boundaries
+## Workstream A: Restore Source-Of-Truth Boundaries
 
 Goal:
 
@@ -190,7 +194,7 @@ Initial targets:
 * `project/agent-python.adoc`
 * any remaining cross-crate overview pages with code duplication
 
-== Workstream B: Make Retangle a Real Drift Check
+## Workstream B: Make Retangle a Real Drift Check
 
 Goal:
 
@@ -220,7 +224,7 @@ Likely follow-up work:
 * continue auditing places where generated `.rs` was manually patched
 * tighten the workflow around checked-in generated files
 
-== Workstream C: Split Giant Generated Rust Files
+## Workstream C: Split Giant Generated Rust Files
 
 Goal:
 
@@ -255,7 +259,7 @@ Acceptance criteria:
 * each major runtime concern lives in its own generated module
 * test code is no longer a giant tail attached to a runtime file
 
-== Workstream D: Separate Tests But Keep Them Linked
+## Workstream D: Separate Tests But Keep Them Linked
 
 Goal:
 
@@ -285,7 +289,7 @@ Acceptance criteria:
 * test files are separated physically
 * runtime files become shorter and clearer
 
-== Workstream E: Reduce Documentation Claims
+## Workstream E: Reduce Documentation Claims
 
 Goal:
 
@@ -304,7 +308,7 @@ Acceptance criteria:
 * no misleading authority claims remain in overview pages
 * generated docs describe the system honestly, even if more modestly
 
-== Workstream F: CI and Validation Alignment
+## Workstream F: CI and Validation Alignment
 
 Goal:
 
@@ -327,11 +331,11 @@ Acceptance criteria:
 * CI failures localize quickly
 * fewer tests fail because of global environment races
 
-== Immediate sequence
+## Immediate sequence
 
 This is the recommended order of execution.
 
-=== Phase 1: stop the obvious lying
+### Phase 1: stop the obvious lying
 
 1. Convert hybrid overview pages into true overview pages.
 2. Remove non-canonical file-assembly sections.
@@ -341,7 +345,7 @@ Exit condition:
 
 * no major page still pretends to own code it does not generate
 
-=== Phase 2: clean generated drift
+### Phase 2: clean generated drift
 
 1. Run full retangle.
 2. Classify every diff.
@@ -352,7 +356,7 @@ Exit condition:
 
 * full retangle no longer produces surprising diffs
 
-=== Phase 3: split the worst large files
+### Phase 3: split the worst large files
 
 1. Pick the largest generated Rust offender.
 2. Split runtime modules first.
@@ -367,7 +371,7 @@ Suggested second targets:
 
 * whichever generated files are still largest after that
 
-=== Phase 4: institutionalize the boundary
+### Phase 4: institutionalize the boundary
 
 1. Add/document a retangle drift check.
 2. Keep architecture docs architecture-only.
@@ -377,7 +381,7 @@ Exit condition:
 
 * the project has fewer authoritative surfaces and more trustworthy ones
 
-== Candidate issue list
+## Candidate issue list
 
 These are good cleanup tickets to spin out later.
 
@@ -389,7 +393,7 @@ These are good cleanup tickets to spin out later.
   wording.
 * Document the bootstrap-artifact rule explicitly.
 
-== Non-goals
+## Non-goals
 
 This plan is not trying to:
 

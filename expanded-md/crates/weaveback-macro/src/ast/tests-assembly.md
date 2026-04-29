@@ -1,3 +1,17 @@
+---
+title: |-
+  weaveback-macro AST tests
+description: |-
+  Literate source for crates/weaveback-macro/src/ast/tests.rs
+toc: left
+toclevels: 3
+---
+# weaveback-macro AST tests
+
+The AST test root keeps shared parser/node helpers and delegates behavior checks to focused child modules. This keeps the Rust test file small while preserving the same private test-only helpers for all children.
+
+```rust
+// <[@file weaveback-macro/src/ast/tests.rs]>=
 // weaveback-macro/src/ast/tests.rs
 // I'd Really Rather You Didn't edit this generated file.
 
@@ -103,4 +117,7 @@ fn check_node(node: &ASTNode, expected_kind: NodeKind, expected_parts: usize) {
     assert_eq!(node.kind, expected_kind);
     assert_eq!(node.parts.len(), expected_parts);
 }
+
+// @
+```
 

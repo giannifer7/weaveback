@@ -1,0 +1,12 @@
+¤doc(¤[weaveback-api Tangle tests¤], ¤[Literate source for crates/weaveback-api/src/tangle/tests.rs¤], ¤[left¤], ¤[3¤])
+
+The tangle test root keeps shared imports and delegates command construction, config parsing, and run-path tests to focused child modules.
+
+¤rust_file(weaveback-api/src/tangle/tests.rs, ¤[
+mod command;
+mod config;
+mod run;
+
+use super::*;
+use tempfile::TempDir;
+¤])

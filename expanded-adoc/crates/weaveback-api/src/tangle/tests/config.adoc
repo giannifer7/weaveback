@@ -1,0 +1,87 @@
+= Tangle Config Parsing Tests
+:description: Literate source for crates/weaveback-api/src/tangle/tests/config.rs
+:toc: left
+:toclevels: 3
+
+[source,rust]
+----
+// <[@file weaveback-api/src/tangle/tests/config.rs]>=
+// weaveback-api/src/tangle/tests/config.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn tangle_cfg_roundtrips_from_toml() {
+    let toml_src = r#"
+gen = "crates/"
+
+[[pass]]
+dir = "crates/foo/"
+ext = "adoc"
+no_macros = true
+open_delim = "<<"
+close_delim = ">>"
+"#;
+    let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+    assert_eq!(cfg.default_gen.as_deref(), Some("crates/"));
+    assert_eq!(cfg.passes.len(), 1);
+    assert_eq!(cfg.passes[0].dir, "crates/foo/");
+    assert!(cfg.passes[0].no_macros);
+    assert_eq!(cfg.passes[0].open_delim.as_deref(), Some("<<"));
+}
+
+#[test]
+fn default_tags_values_are_sensible() {
+    assert!(!default_tags_backend().is_empty());
+    assert!(!default_tags_model().is_empty());
+    assert!(default_tags_batch_size() > 0);
+}
+
+#[test]
+fn tangle_cfg_parses_tags_section() {
+    let toml_src = r#"
+[[pass]]
+dir = "src/"
+
+[tags]
+backend = "gemini"
+model = "gemini-1.5-pro"
+batch_size = 5
+"#;
+    let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+    let tags = cfg.tags.unwrap();
+    assert_eq!(tags.backend, "gemini");
+    assert_eq!(tags.model, "gemini-1.5-pro");
+    assert_eq!(tags.batch_size, 5);
+}
+
+#[test]
+fn tangle_cfg_tags_uses_defaults_when_absent() {
+    let toml_src = "[[pass]]\ndir = \"src/\"\n[tags]\n";
+    let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+    let tags = cfg.tags.unwrap();
+    assert_eq!(tags.backend, default_tags_backend());
+    assert_eq!(tags.model, default_tags_model());
+    assert_eq!(tags.batch_size, default_tags_batch_size());
+}
+
+#[test]
+fn test_tangle_cfg_parses_embeddings() {
+    let toml_src = r#"
+[[pass]]
+dir = "src/"
+[embeddings]
+backend = "openai"
+model = "text-embedding-3-small"
+"#;
+    let cfg: TangleCfg = toml::from_str(toml_src).unwrap();
+    let eb = cfg.embeddings.unwrap();
+    assert_eq!(eb.backend, "openai");
+    assert_eq!(eb.model, "text-embedding-3-small");
+    assert_eq!(eb.batch_size, crate::semantic::default_embeddings_batch_size());
+}
+
+// @
+----
+

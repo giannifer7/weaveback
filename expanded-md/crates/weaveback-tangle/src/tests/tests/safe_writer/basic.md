@@ -1,0 +1,111 @@
+# Basic Safe Writer Operations
+
+
+
+
+
+```rust
+// <[@file weaveback-tangle/src/tests/safe_writer/basic.rs]>=
+// weaveback-tangle/src/tests/safe_writer/basic.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn test_basic_file_writing() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let test_content = "Hello, World!";
+
+    write_file(&mut writer, &test_file, test_content)?;
+
+    let final_path = writer.get_gen_base().join(&test_file);
+    let content = fs::read_to_string(&final_path)?;
+    assert_eq!(content, test_content);
+    Ok(())
+}
+
+#[test]
+fn test_multiple_file_generation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file1 = PathBuf::from("file1.txt");
+    let test_file2 = PathBuf::from("file2.txt");
+
+    write_file(&mut writer, &test_file1, "Content 1")?;
+    write_file(&mut writer, &test_file2, "Content 2")?;
+
+    let content1 = fs::read_to_string(writer.get_gen_base().join(&test_file1))?;
+    let content2 = fs::read_to_string(writer.get_gen_base().join(&test_file2))?;
+
+    assert_eq!(content1.trim(), "Content 1");
+    assert_eq!(content2.trim(), "Content 2");
+    Ok(())
+}
+
+#[test]
+fn test_unmodified_file_update() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "Initial content")?;
+    write_file(&mut writer, &test_file, "New content")?;
+
+    let content = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert_eq!(content, "New content", "New content should be written");
+    Ok(())
+}
+
+#[test]
+fn test_shorter_regeneration_truncates_old_suffix() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+
+    write_file(&mut writer, &test_file, "line one\nline two\nline three\n")?;
+    write_file(&mut writer, &test_file, "short\n")?;
+
+    let content = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert_eq!(content, "short\n");
+    assert!(!content.contains("line two"));
+    assert!(!content.contains("line three"));
+    Ok(())
+}
+
+#[test]
+fn test_backup_creation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let test_file = PathBuf::from("test.txt");
+    let content = "Test content";
+
+    write_file(&mut writer, &test_file, content)?;
+
+    let baseline = writer.get_baseline_for_test("test.txt");
+    assert!(baseline.is_some(), "Baseline should be stored in db");
+    assert_eq!(
+        baseline.as_deref().unwrap(),
+        content.as_bytes(),
+        "Baseline content should match written content"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_nested_directory_creation() -> Result<(), WeavebackError> {
+    let (_temp, mut writer) = create_test_writer();
+    let nested_path = PathBuf::from("dir1/dir2/test.txt");
+
+    write_file(&mut writer, &nested_path, "Nested content")?;
+
+    let gen_dir = writer.get_gen_base().join("dir1").join("dir2");
+    assert!(gen_dir.exists(), "Generated directory structure should exist");
+
+    let baseline = writer.get_baseline_for_test("dir1/dir2/test.txt");
+    assert!(
+        baseline.is_some(),
+        "Baseline for nested file should be stored in db"
+    );
+    Ok(())
+}
+
+// @@
+```
+

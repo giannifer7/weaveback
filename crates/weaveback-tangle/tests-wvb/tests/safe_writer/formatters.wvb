@@ -1,0 +1,121 @@
+¤h1(¤[Formatter Integration¤])
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/safe_writer/formatters.rs, ¤[
+use super::*;
+
+#[test]
+fn test_formatter_is_applied() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let mut formatters = HashMap::new();
+    // Shell script that replaces the file content with "FORMATTED\n"
+    formatters.insert(
+        "txt".to_string(),
+        "sh -c echo FORMATTED > \"$1\" && echo FORMATTED > \"$1\"".to_string(),
+    );
+    // Use a simpler approach: a script file
+    let script_path = temp.path().join("fmt.sh");
+    fs::write(&script_path, "#!/bin/sh\necho FORMATTED > \"$1\"\n").unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .status()
+        .unwrap();
+
+    let mut formatters2 = HashMap::new();
+    formatters2.insert("txt".to_string(), script_path.to_string_lossy().to_string());
+
+    let config = SafeWriterConfig {
+        formatters: formatters2,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    write_file(&mut writer, &test_file, "original content")?;
+
+    let output = fs::read_to_string(writer.get_gen_base().join(&test_file))?;
+    assert!(
+        output.contains("FORMATTED"),
+        "Formatter should have replaced content, got: {:?}",
+        output
+    );
+    Ok(())
+}
+
+#[test]
+fn test_formatter_error_propagates() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let mut formatters = HashMap::new();
+    formatters.insert("txt".to_string(), "nonexistent-formatter-xyz".to_string());
+
+    let config = SafeWriterConfig {
+        formatters,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    let result = write_file(&mut writer, &test_file, "some content");
+    match result {
+        Err(WeavebackError::SafeWriter(SafeWriterError::FormatterError(_))) => Ok(()),
+        Ok(_) => panic!("Expected FormatterError but write succeeded"),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+}
+
+#[test]
+fn test_formatter_prevents_false_positive() -> Result<(), WeavebackError> {
+    let temp = tempfile::TempDir::new().unwrap();
+    let script_path = temp.path().join("noop.sh");
+    // A no-op formatter: copies file to itself (content unchanged)
+    fs::write(
+        &script_path,
+        "#!/bin/sh\ncp \"$1\" \"$1.bak\" && mv \"$1.bak\" \"$1\"\n",
+    )
+    .unwrap();
+    std::process::Command::new("chmod")
+        .arg("+x")
+        .arg(&script_path)
+        .status()
+        .unwrap();
+
+    let mut formatters = HashMap::new();
+    formatters.insert("txt".to_string(), script_path.to_string_lossy().to_string());
+
+    let config = SafeWriterConfig {
+        formatters,
+        ..SafeWriterConfig::default()
+    };
+    let mut writer =
+        SafeFileWriter::with_config(temp.path().join("gen"), config)?;
+
+    let test_file = PathBuf::from("test.txt");
+    write_file(&mut writer, &test_file, "initial content")?;
+
+    // Simulate formatter running externally on the output (content unchanged)
+    let output_path = writer.get_gen_base().join(&test_file);
+    let content = fs::read_to_string(&output_path)?;
+    fs::write(&output_path, &content)?;
+
+    // Second write should NOT trigger ModifiedExternally (content is the same as baseline)
+    let result = write_file(&mut writer, &test_file, "initial content");
+    assert!(
+        result.is_ok(),
+        "Expected success but got: {:?}",
+        result.err()
+    );
+    Ok(())
+}
+¤])

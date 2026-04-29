@@ -1,0 +1,14 @@
+¤doc(¤[Lexer Smoke Tests¤], ¤[Literate source for crates/weaveback-macro/src/lexer/tests/smoke.rs¤], ¤[left¤], ¤[3¤])
+
+¤rust_file(weaveback-macro/src/lexer/tests/smoke.rs, ¤[
+use super::*;
+
+#[test]
+fn test_no_error() {
+    let input = "Hello %macro(arg)";
+    let tokens_res = collect_tokens_with_timeout(input);
+    assert!(tokens_res.is_ok());
+    let tokens = tokens_res.unwrap();
+    assert!(!tokens.is_empty());
+}
+¤])

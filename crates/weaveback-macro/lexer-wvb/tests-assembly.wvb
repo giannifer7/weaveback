@@ -1,6 +1,8 @@
-// weaveback-macro/src/lexer/tests.rs
-// I'd Really Rather You Didn't edit this generated file.
+¤doc(¤[weaveback-macro Lexer tests¤], ¤[Literate source for crates/weaveback-macro/src/lexer/tests.rs¤], ¤[left¤], ¤[3¤])
 
+The lexer test root keeps shared token collection/assertion helpers and delegates feature checks to focused child modules.
+
+¤rust_file(weaveback-macro/src/lexer/tests.rs, ¤[
 mod errors_comments;
 mod core_tokens;
 mod verbatim;
@@ -89,4 +91,4 @@ fn assert_tokens_with_sigil(input: &str, sigil: char, expected: &[(TokenKind, &s
         );
     }
 }
-
+¤])

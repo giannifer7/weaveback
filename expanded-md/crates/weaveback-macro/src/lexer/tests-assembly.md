@@ -1,3 +1,17 @@
+---
+title: |-
+  weaveback-macro Lexer tests
+description: |-
+  Literate source for crates/weaveback-macro/src/lexer/tests.rs
+toc: left
+toclevels: 3
+---
+# weaveback-macro Lexer tests
+
+The lexer test root keeps shared token collection/assertion helpers and delegates feature checks to focused child modules.
+
+```rust
+// <<@file weaveback-macro/src/lexer/tests.rs>>=
 // weaveback-macro/src/lexer/tests.rs
 // I'd Really Rather You Didn't edit this generated file.
 
@@ -89,4 +103,7 @@ fn assert_tokens_with_sigil(input: &str, sigil: char, expected: &[(TokenKind, &s
         );
     }
 }
+
+// @
+```
 

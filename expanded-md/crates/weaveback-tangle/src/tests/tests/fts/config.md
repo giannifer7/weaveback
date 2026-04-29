@@ -1,0 +1,81 @@
+# Macro Source and Run Config
+
+
+
+
+
+```rust
+// <[@file weaveback-tangle/src/tests/fts/config.rs]>=
+// weaveback-tangle/src/tests/fts/config.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn db_set_and_get_macro_map() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let data = b"macro-trace-data".to_vec();
+    db.set_macro_map_entries("driver.adoc", &[(3, data.clone())]).unwrap();
+    let result = db.get_macro_map_bytes("driver.adoc", 3).unwrap();
+    assert_eq!(result, Some(data));
+}
+
+#[test]
+fn db_get_macro_map_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_macro_map_bytes("nonexistent.adoc", 1).unwrap().is_none());
+}
+
+// ── source_config ─────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_source_config() {
+    use crate::db::TangleConfig;
+    let db = WeavebackDb::open_temp().unwrap();
+    let cfg = TangleConfig {
+        sigil: '%',
+        open_delim: "<<".to_string(),
+        close_delim: ">>".to_string(),
+        chunk_end: "@".to_string(),
+        comment_markers: vec!["#".to_string(), "//".to_string()],
+    };
+    db.set_source_config("src/foo.adoc", &cfg).unwrap();
+    let got = db.get_source_config("src/foo.adoc").unwrap().expect("should find config");
+    assert_eq!(got.open_delim, "<<");
+    assert_eq!(got.sigil, '%');
+    assert_eq!(got.comment_markers, vec!["#", "//"]);
+}
+
+#[test]
+fn db_get_source_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_source_config("nonexistent.adoc").unwrap().is_none());
+}
+
+// ── run_config ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_run_config_roundtrips() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("my_key", "my_value").unwrap();
+    let val = db.get_run_config("my_key").unwrap();
+    assert_eq!(val, Some("my_value".to_string()));
+}
+
+#[test]
+fn db_run_config_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_run_config("absent").unwrap().is_none());
+}
+
+#[test]
+fn db_run_config_overwrite() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_run_config("k", "v1").unwrap();
+    db.set_run_config("k", "v2").unwrap();
+    assert_eq!(db.get_run_config("k").unwrap(), Some("v2".to_string()));
+}
+
+// @@
+```
+

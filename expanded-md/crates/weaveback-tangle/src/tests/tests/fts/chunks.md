@@ -1,0 +1,99 @@
+# Chunk Metadata Queries
+
+
+
+
+
+```rust
+// <[@file weaveback-tangle/src/tests/fts/chunks.rs]>=
+// weaveback-tangle/src/tests/fts/chunks.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn db_query_reverse_deps() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_deps(&[
+        ("parent".into(), "child".into(), "src.adoc".into()),
+        ("uncle".into(),  "child".into(), "src.adoc".into()),
+    ]).unwrap();
+    let mut rev = db.query_reverse_deps("child").unwrap();
+    rev.sort();
+    assert_eq!(rev.len(), 2);
+    let parents: Vec<&str> = rev.iter().map(|(p, _)| p.as_str()).collect();
+    assert!(parents.contains(&"parent"));
+    assert!(parents.contains(&"uncle"));
+}
+
+// ── chunk_defs ────────────────────────────────────────────────────────────────
+
+#[test]
+fn db_set_and_get_chunk_def() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let entry = ChunkDefEntry {
+        src_file: "src.adoc".to_string(),
+        chunk_name: "my-chunk".to_string(),
+        nth: 0,
+        def_start: 10,
+        def_end: 20,
+    };
+    db.set_chunk_defs(&[entry]).unwrap();
+    let got = db.get_chunk_def("src.adoc", "my-chunk", 0).unwrap();
+    let got = got.expect("should find the chunk def");
+    assert_eq!(got.def_start, 10);
+    assert_eq!(got.def_end, 20);
+}
+
+#[test]
+fn db_list_chunk_defs_with_file_filter() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "x".into(), nth: 0, def_start: 1, def_end: 5 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "y".into(), nth: 0, def_start: 1, def_end: 5 },
+    ]).unwrap();
+    let all = db.list_chunk_defs(None).unwrap();
+    assert_eq!(all.len(), 2);
+    let filtered = db.list_chunk_defs(Some("a.adoc")).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].chunk_name, "x");
+}
+
+#[test]
+fn db_find_chunk_defs_by_name() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "a.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 1, def_end: 3 },
+        ChunkDefEntry { src_file: "b.adoc".into(), chunk_name: "foo".into(), nth: 0, def_start: 5, def_end: 7 },
+        ChunkDefEntry { src_file: "c.adoc".into(), chunk_name: "bar".into(), nth: 0, def_start: 1, def_end: 2 },
+    ]).unwrap();
+    let foos = db.find_chunk_defs_by_name("foo").unwrap();
+    assert_eq!(foos.len(), 2);
+    let bars = db.find_chunk_defs_by_name("bar").unwrap();
+    assert_eq!(bars.len(), 1);
+}
+
+#[test]
+fn db_query_chunk_defs_overlapping() {
+    use crate::db::ChunkDefEntry;
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_chunk_defs(&[
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "alpha".into(), nth: 0, def_start: 1,  def_end: 10 },
+        ChunkDefEntry { src_file: "s.adoc".into(), chunk_name: "beta".into(),  nth: 0, def_start: 20, def_end: 30 },
+    ]).unwrap();
+    // Query overlapping [5, 15] -- should hit alpha but not beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 5, 15).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "alpha");
+    // Query overlapping [25, 25] -- should hit beta
+    let hits = db.query_chunk_defs_overlapping("s.adoc", 25, 25).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].chunk_name, "beta");
+}
+
+// @@
+```
+

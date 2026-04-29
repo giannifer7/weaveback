@@ -1,0 +1,43 @@
+= Block Status Queries
+
+
+
+
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/tests/fts/block_status.rs]>=
+// weaveback-tangle/src/tests/fts/block_status.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn db_get_blocks_needing_tags_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_tags().unwrap();
+    assert!(blocks.is_empty());
+}
+
+#[test]
+fn db_set_block_tags_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let source = "= Title\n\nSome prose.\n";
+    db.set_src_snapshot("doc.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("doc.adoc", &[block(0, "para", 3, 3)]).unwrap();
+    db.set_block_tags("doc.adoc", 0, &[0u8; 32], "important,api").unwrap();
+    let tags = db.list_block_tags(Some("doc.adoc")).unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].tags, "important,api");
+}
+
+#[test]
+fn db_get_blocks_needing_embeddings_empty_on_fresh_db() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let blocks = db.get_blocks_needing_embeddings("model-x").unwrap();
+    assert!(blocks.is_empty());
+}
+
+// @@
+----
+

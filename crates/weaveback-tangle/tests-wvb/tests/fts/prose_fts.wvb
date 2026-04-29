@@ -1,0 +1,154 @@
+¤h1(¤[Prose FTS Search¤])
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/fts/prose_fts.rs, ¤[
+use super::*;
+
+#[test]
+fn test_fts_basic_search() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Introduction\n\nWeaveback is a literate programming tool.\n";
+    db.set_src_snapshot("docs/intro.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/intro.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let results = db.search_prose("literate", 10).unwrap();
+    assert!(!results.is_empty(), "should find 'literate' in para block");
+    assert_eq!(results[0].src_file, "docs/intro.adoc");
+    assert_eq!(results[0].block_type, "para");
+}
+
+#[test]
+fn test_fts_section_and_para_indexed_code_not() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= My Section\n\nSome prose here.\n\n----\nfn secret_fn() {}\n----\n";
+    db.set_src_snapshot("src/lib.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("src/lib.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+        block(2, "code",    5, 7),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("prose", 10).unwrap();
+    assert!(!r.is_empty());
+
+    // code content is NOT indexed
+    let r = db.search_prose("secret_fn", 10).unwrap();
+    assert!(r.is_empty(), "code blocks should not be indexed");
+}
+
+#[test]
+fn test_fts_multiple_files() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let src_a = "= Alpha\n\nThis covers the alpha feature.\n";
+    let src_b = "= Beta\n\nThis covers the beta feature.\n";
+
+    db.set_src_snapshot("docs/alpha.adoc", src_a.as_bytes()).unwrap();
+    db.set_source_blocks("docs/alpha.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.set_src_snapshot("docs/beta.adoc", src_b.as_bytes()).unwrap();
+    db.set_source_blocks("docs/beta.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("feature", 10).unwrap();
+    let files: Vec<&str> = r.iter().map(|x| x.src_file.as_str()).collect();
+    assert!(files.contains(&"docs/alpha.adoc"));
+    assert!(files.contains(&"docs/beta.adoc"));
+
+    // "alpha feature" is unique to alpha.adoc
+    let r = db.search_prose("\"alpha feature\"", 10).unwrap();
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0].src_file, "docs/alpha.adoc");
+}
+
+#[test]
+fn test_fts_rebuild_is_idempotent() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Title\n\nSome searchable content.\n";
+    db.set_src_snapshot("a.adoc", source.as_bytes()).unwrap();
+    db.set_source_blocks("a.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("searchable", 10).unwrap();
+    assert_eq!(r.len(), 1, "duplicate rebuild must not produce duplicate results");
+}
+
+#[test]
+fn test_fts_empty_source_no_panic() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("empty.adoc", b"").unwrap();
+    // No source_blocks for this file -- must not panic or error.
+    db.rebuild_prose_fts(None).unwrap();
+    let r = db.search_prose("anything", 10).unwrap();
+    assert!(r.is_empty());
+}
+
+#[test]
+fn test_fts_normalises_dotslash_path() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Normalised\n\nThis tests path normalisation.\n";
+    // Snapshot stored with "./" prefix (as some passes do).
+    db.set_src_snapshot("./docs/norm.adoc", source.as_bytes()).unwrap();
+    // source_blocks stored under the plain path (as the files table has it).
+    db.set_source_blocks("docs/norm.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("normalisation", 10).unwrap();
+    assert!(!r.is_empty(), "dotslash prefix must be stripped before path lookup");
+}
+
+#[test]
+fn test_fts_deduplicates_same_path_stored_twice() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+
+    let source = "= Dedup\n\nThis text should appear once.\n";
+    // Same file stored under two keys (as two passes might do).
+    db.set_src_snapshot("./docs/dedup.adoc", source.as_bytes()).unwrap();
+    db.set_src_snapshot("docs/dedup.adoc",   source.as_bytes()).unwrap();
+    db.set_source_blocks("docs/dedup.adoc", &[
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 3),
+    ]).unwrap();
+
+    db.rebuild_prose_fts(None).unwrap();
+
+    let r = db.search_prose("once", 10).unwrap();
+    assert_eq!(r.len(), 1, "same file stored twice must not produce duplicate FTS rows");
+}
+¤])

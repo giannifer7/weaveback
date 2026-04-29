@@ -1,0 +1,96 @@
+= Source Blocks Snapshots and Definitions
+
+
+
+
+
+[source,rust]
+----
+// <[@file weaveback-tangle/src/tests/fts/source_state.rs]>=
+// weaveback-tangle/src/tests/fts/source_state.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+#[test]
+fn db_source_blocks_roundtrip() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "section", 1, 1),
+        block(1, "para",    3, 5),
+        block(2, "code",    7, 10),
+    ];
+    db.set_source_blocks("docs/x.adoc", &blocks).unwrap();
+    let hashes = db.get_source_block_hashes("docs/x.adoc").unwrap();
+    assert_eq!(hashes.len(), 3);
+}
+
+#[test]
+fn db_query_blocks_overlapping_range() {
+    let mut db = WeavebackDb::open_temp().unwrap();
+    let blocks = vec![
+        block(0, "para", 1,  5),
+        block(1, "para", 10, 15),
+        block(2, "para", 20, 25),
+    ];
+    db.set_source_blocks("src.adoc", &blocks).unwrap();
+    // Range [3, 12] overlaps blocks 0 (1-5) and 1 (10-15)
+    let hits = db.query_blocks_overlapping_range("src.adoc", 3, 12).unwrap();
+    assert_eq!(hits.len(), 2);
+}
+
+// ── snapshots and var/macro defs ─────────────────────────────────────────────
+
+#[test]
+fn db_src_snapshot_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("src/a.adoc", b"hello world").unwrap();
+    let got = db.get_src_snapshot("src/a.adoc").unwrap();
+    assert_eq!(got, Some(b"hello world".to_vec()));
+}
+
+#[test]
+fn db_list_src_snapshots() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.set_src_snapshot("a.adoc", b"aaa").unwrap();
+    db.set_src_snapshot("b.adoc", b"bbb").unwrap();
+    let snaps = db.list_src_snapshots().unwrap();
+    assert_eq!(snaps.len(), 2);
+}
+
+#[test]
+fn db_src_snapshot_missing_returns_none() {
+    let db = WeavebackDb::open_temp().unwrap();
+    assert!(db.get_src_snapshot("missing.adoc").unwrap().is_none());
+}
+
+#[test]
+fn db_var_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_var_def("MY_VAR", "src.adoc", 100, 5).unwrap();
+    let defs = db.query_var_defs("MY_VAR").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+    assert_eq!(defs[0].1, 100);
+    assert_eq!(defs[0].2, 5);
+}
+
+#[test]
+fn db_query_var_defs_missing_returns_empty() {
+    let db = WeavebackDb::open_temp().unwrap();
+    let defs = db.query_var_defs("UNDEFINED").unwrap();
+    assert!(defs.is_empty());
+}
+
+#[test]
+fn db_macro_defs_roundtrip() {
+    let db = WeavebackDb::open_temp().unwrap();
+    db.record_macro_def("my_macro", "src.adoc", 50, 10).unwrap();
+    let defs = db.query_macro_defs("my_macro").unwrap();
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].0, "src.adoc");
+}
+
+// @@
+----
+

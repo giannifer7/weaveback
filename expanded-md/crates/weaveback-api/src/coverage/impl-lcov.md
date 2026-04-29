@@ -2,8 +2,13 @@
 
 LCOV parsing, source attribution summaries, unmapped ranges, and coverage summary output.
 
+## LCOV Parsing
+
 ```rust
-// <[coverage-lcov-summary]>=
+// <[@file weaveback-api/src/coverage/lcov/parse.rs]>=
+// weaveback-api/src/coverage/lcov/parse.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
     let mut current_file: Option<String> = None;
     let mut out = Vec::new();
@@ -35,6 +40,17 @@ pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
 
     out
 }
+
+// @
+```
+
+
+## Source Summary
+
+```rust
+// <[@file weaveback-api/src/coverage/lcov/summary.rs]>=
+// weaveback-api/src/coverage/lcov/summary.rs
+// I'd Really Rather You Didn't edit this generated file.
 
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
@@ -469,6 +485,17 @@ fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json:
     json!(ranges)
 }
 
+// @
+```
+
+
+## Summary Output
+
+```rust
+// <[@file weaveback-api/src/coverage/lcov/output.rs]>=
+// weaveback-api/src/coverage/lcov/output.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 /// Print unmapped line ranges for one unattributed file.
 /// Reads `unmapped_ranges` from the pre-computed JSON field.
 /// When `show_content` is true and the file is readable, prints source lines.
@@ -651,6 +678,17 @@ pub fn build_coverage_summary_view(
     }
     value
 }
+
+// @
+```
+
+
+## Coverage Command
+
+```rust
+// <[@file weaveback-api/src/coverage/lcov/run.rs]>=
+// weaveback-api/src/coverage/lcov/run.rs
+// I'd Really Rather You Didn't edit this generated file.
 
 pub fn run_coverage(
     summary_only: bool,

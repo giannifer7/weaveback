@@ -52,7 +52,10 @@ mod tests_coverage;
 ¤])
 
 ¤rust_file(weaveback-api/src/coverage/lcov.rs, ¤[
-// <[coverage-lcov-summary]>
+include!("lcov/parse.rs");
+include!("lcov/summary.rs");
+include!("lcov/output.rs");
+include!("lcov/run.rs");
 ¤])
 
 ¤rust_file(weaveback-api/src/coverage/cargo.rs, ¤[

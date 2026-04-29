@@ -1,3 +1,17 @@
+---
+title: |-
+  weaveback-macro Parser tests
+description: |-
+  Literate source for crates/weaveback-macro/src/parser/tests.rs
+toc: left
+toclevels: 3
+---
+# weaveback-macro Parser tests
+
+The parser test root keeps shared lex/parse helpers and delegates behavior checks to focused child modules.
+
+```rust
+// <[@file weaveback-macro/src/parser/tests.rs]>=
 // weaveback-macro/src/parser/tests.rs
 // I'd Really Rather You Didn't edit this generated file.
 
@@ -33,4 +47,7 @@ fn lex_parse_err(src: &str) -> String {
         .map(|e| e.to_string())
         .unwrap_or_default()
 }
+
+// @
+```
 

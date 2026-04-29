@@ -73,7 +73,7 @@ notify = "6"
 ureq = { version = "2", features = ["json"] }
 
 memchr = "2"
-monty = { git = "https://github.com/pydantic/monty" }
+monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.17" }
 
 blake3 = "1"
 rayon = "1"

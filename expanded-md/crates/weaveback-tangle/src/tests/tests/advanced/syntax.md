@@ -1,0 +1,52 @@
+# Noweb Syntax Parsing
+
+
+
+
+
+```rust
+// <[@file weaveback-tangle/src/tests/advanced/syntax.rs]>=
+// weaveback-tangle/src/tests/advanced/syntax.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+#[test]
+fn noweb_syntax_parse_definition_line_file_chunk() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    let m = syn.parse_definition_line("# <<@file out.rs>>=").unwrap();
+    assert!(m.is_file);
+    assert_eq!(m.base_name, "out.rs");
+    assert!(!m.is_replace);
+}
+
+#[test]
+fn noweb_syntax_parse_definition_line_replace() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    let m = syn.parse_definition_line("# <<@replace greet>>=").unwrap();
+    assert!(m.is_replace);
+    assert!(!m.is_file);
+    assert_eq!(m.base_name, "greet");
+}
+
+#[test]
+fn noweb_syntax_parse_definition_line_returns_none_for_content() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    assert!(syn.parse_definition_line("just a plain line").is_none());
+    assert!(syn.parse_definition_line("# ordinary comment").is_none());
+}
+
+#[test]
+fn noweb_syntax_is_close_line() {
+    use crate::noweb::NowebSyntax;
+    let syn = NowebSyntax::new("<<", ">>", "@", &["#".to_string()]);
+    assert!(syn.is_close_line("# @"));
+    assert!(syn.is_close_line("@"));
+    assert!(!syn.is_close_line("not a close"));
+    assert!(!syn.is_close_line("# @ more text"));
+}
+
+// @@
+```
+

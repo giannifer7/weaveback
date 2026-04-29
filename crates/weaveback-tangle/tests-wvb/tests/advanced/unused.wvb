@@ -1,0 +1,76 @@
+¤h1(¤[Unused Chunk Checks¤])
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/advanced/unused.rs, ¤[
+use super::super::*;
+
+/// Unused named chunks produce no warnings by default -- `check_unused_chunks`
+/// is never called when `warn_unused` is false, but the API itself is always
+/// available.  Here we verify that the helper correctly identifies unused chunks.
+#[test]
+fn test_check_unused_chunks_finds_orphan() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file out.txt>>=\nhello\n# @\n\
+         # <<orphan>>=\nnever used\n# @\n",
+        "src.nw",
+    );
+    // Simulate what write_files does: start from @file chunk names.
+    let all_file_chunks: std::collections::HashSet<String> =
+        setup.clip.get_file_chunks().into_iter().collect();
+    let warns = setup.clip.check_unused_chunks(&all_file_chunks);
+    assert!(
+        warns.iter().any(|w| w.contains("orphan")),
+        "expected unused-chunk warning for 'orphan', got: {:?}",
+        warns
+    );
+}
+
+/// A chunk in the referenced set must NOT appear in the unused-chunk report.
+/// `check_unused_chunks` takes the full transitive closure of referenced
+/// chunks (including `@file` names themselves), so we build that set manually.
+#[test]
+fn test_check_unused_chunks_skips_referenced() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        "# <<@file out.txt>>=\n# <<used>>\n# @\n\
+         # <<used>>=\ncontent\n# @\n",
+        "src.nw",
+    );
+    // Provide the full transitive closure: @file chunk + the named chunk it references.
+    let mut referenced = std::collections::HashSet::new();
+    referenced.insert("@file out.txt".to_string());
+    referenced.insert("used".to_string());
+    let warns = setup.clip.check_unused_chunks(&referenced);
+    assert!(
+        warns.is_empty(),
+        "no unused-chunk warnings expected when all chunks are reachable, got: {:?}",
+        warns
+    );
+}
+
+/// `set_warn_unused` round-trips through the public API without panicking, and
+/// `write_files` completes successfully in both modes.
+#[test]
+fn test_set_warn_unused_write_files_ok() {
+    for warn in [false, true] {
+        let mut setup = TestSetup::new(&["#"]);
+        setup.clip.set_warn_unused(warn);
+        setup.clip.read(
+            "# <<@file out.txt>>=\nhello\n# @\n\
+             # <<unused>>=\ndropped\n# @\n",
+            "src.nw",
+        );
+        setup.clip.write_files().unwrap();
+    }
+}
+¤])

@@ -1,0 +1,133 @@
+¤h1(¤[Reference Order Modifiers¤])
+
+¤redef(rust_chunk, name, body, ¤{¤code_block(rust, ¤{
+// <[¤(name)]>=¤(body)// @@
+¤})¤})
+
+¤redef(rust_file, path, body, ¤{¤rust_chunk(@file ¤(path), ¤{
+// ¤(path)
+// ¤pastafarian_warning()
+¤(body)
+¤})¤})
+
+¤rust_file(weaveback-tangle/src/tests/advanced/modifiers.rs, ¤[
+use super::super::*;
+
+/// A regular chunk may accumulate multiple definitions (without @replace).
+/// A plain reference expands them in definition order (first → last).
+#[test]
+fn test_accumulated_chunks_normal_order() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<items>>=
+alpha
+# @
+
+# <<items>>=
+beta
+# @
+
+# <<items>>=
+gamma
+# @
+
+# <<list>>=
+# <<items>>
+# @
+"#,
+        "normal_order.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "beta\n", "gamma\n"]);
+}
+
+/// `@reversed` on a reference expands the chunk's accumulated definitions in
+/// reverse order (last-defined first).
+#[test]
+fn test_reversed_reference() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<items>>=
+alpha
+# @
+
+# <<items>>=
+beta
+# @
+
+# <<items>>=
+gamma
+# @
+
+# <<list>>=
+# <<@reversed items>>
+# @
+"#,
+        "reversed.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["gamma\n", "beta\n", "alpha\n"]);
+}
+
+/// `@compact` trims blank edge lines from each accumulated definition before
+/// splicing them into the caller. This is useful for table rows and similar
+/// projection chunks where each definition should contribute one logical line.
+#[test]
+fn test_compact_reference_trims_blank_edge_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+# @
+
+# <<rows>>=
+
+beta
+
+# @
+
+# <<list>>=
+# <<@compact rows>>
+# @
+"#,
+        "compact.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "beta\n"]);
+}
+
+/// `@tight` is stronger than `@compact`: it also drops blank-only lines inside
+/// each accumulated definition. This is useful for highly structured fragments
+/// like generated table rows.
+#[test]
+fn test_tight_reference_drops_blank_only_lines() {
+    let mut setup = TestSetup::new(&["#"]);
+    setup.clip.read(
+        r#"
+# <<rows>>=
+
+alpha
+
+omega
+
+# @
+
+# <<list>>=
+# <<@tight rows>>
+# @
+"#,
+        "tight.nw",
+    );
+
+    let expanded = setup.clip.expand("list", "").unwrap();
+    assert_eq!(expanded, vec!["alpha\n", "omega\n"]);
+}
+¤])

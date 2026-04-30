@@ -56,6 +56,12 @@ pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
 
 use super::*;
 
+mod generated_lookup;
+mod ranges;
+
+pub(in crate::coverage) use generated_lookup::find_noweb_entries_for_generated_file;
+pub(in crate::coverage) use ranges::compute_unmapped_ranges;
+
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
     db: &weaveback_tangle::db::WeavebackDb,
@@ -417,6 +423,18 @@ pub fn build_coverage_summary(
     })
 }
 
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/coverage/lcov/summary/generated_lookup.rs]>=
+// weaveback-api/src/coverage/lcov/summary/generated_lookup.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::super::*;
+
 pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
     db: &weaveback_tangle::db::WeavebackDb,
     file_name: &str,
@@ -449,6 +467,18 @@ pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
 
     None
 }
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/coverage/lcov/summary/ranges.rs]>=
+// weaveback-api/src/coverage/lcov/summary/ranges.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::super::*;
 
 /// Group a `generated_lines` slice into consecutive ranges.
 /// Returns a JSON array of `{start, end, missed_count}` objects so the

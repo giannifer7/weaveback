@@ -79,6 +79,10 @@ Completed or materially improved:
   `crates/weaveback-api/src/process/markdown_normalize.rs` is now a small
   facade over AsciiDoc table parsing/rendering, Markdown table conversion, and
   explicit table block handling under `src/process/markdown_normalize/`.
+* `weaveback-api` LCOV summary helpers have been split at Rust-file level.
+  Generated-file lookup and unmapped-range grouping now live under
+  `crates/weaveback-api/src/coverage/lcov/summary/`, leaving the summary file
+  focused on aggregation.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -109,6 +113,7 @@ File | Lines | Status
 `crates/weaveback-api/src/lint.rs` | 73 | Completed; facade now includes focused `src/lint/*.rs` files.
 `crates/weaveback-agent-core/src/read_api.rs` | 64 | Completed; facade now includes focused `src/read_api/*.rs` files.
 `crates/weaveback-api/src/process/markdown_normalize.rs` | 34 | Completed; facade now includes focused `src/process/markdown_normalize/*.rs` files.
+`crates/weaveback-api/src/coverage/lcov/summary.rs` | 372 | Partially improved; lookup and range helpers now live under `src/coverage/lcov/summary/`.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 
 These numbers are not themselves the rule.  The rule is whether a maintainer can

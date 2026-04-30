@@ -3,6 +3,12 @@
 
 use super::*;
 
+mod generated_lookup;
+mod ranges;
+
+pub(in crate::coverage) use generated_lookup::find_noweb_entries_for_generated_file;
+pub(in crate::coverage) use ranges::compute_unmapped_ranges;
+
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
     db: &weaveback_tangle::db::WeavebackDb,
@@ -362,77 +368,5 @@ pub fn build_coverage_summary(
         "unattributed": unattributed,
         "unattributed_files": unattributed_files,
     })
-}
-
-pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
-    db: &weaveback_tangle::db::WeavebackDb,
-    file_name: &str,
-    project_root: &Path,
-) -> Option<Vec<(u32, weaveback_tangle::db::NowebMapEntry)>> {
-    let mut candidates = Vec::new();
-    candidates.push(file_name.to_string());
-    let file_path = Path::new(file_name);
-    if let Ok(rel) = file_path.strip_prefix(project_root) {
-        let rel = rel.to_string_lossy().replace('\\', "/");
-        if !candidates.contains(&rel) {
-            candidates.push(rel);
-        }
-    }
-
-    for candidate in candidates {
-        if let Ok(entries) = db.get_noweb_entries_for_file(&candidate)
-            && !entries.is_empty()
-        {
-            return Some(entries);
-        }
-        for suffix in distinctive_suffix_candidates(&candidate) {
-            if let Ok(entries) = db.get_noweb_entries_for_file_by_suffix(&suffix)
-                && !entries.is_empty()
-            {
-                return Some(entries);
-            }
-        }
-    }
-
-    None
-}
-
-/// Group a `generated_lines` slice into consecutive ranges.
-/// Returns a JSON array of `{start, end, missed_count}` objects so the
-/// result can be embedded directly in the summary JSON and consumed by
-/// both agents (via JSON output) and humans (via `--summary`).
-pub(in crate::coverage) fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
-    let mut lines: Vec<(u64, bool)> = generated_lines
-        .iter()
-        .filter_map(|r| {
-            let ln = r["generated_line"].as_u64()?;
-            let hit = r["hit_count"].as_u64().unwrap_or(0) > 0;
-            Some((ln, hit))
-        })
-        .collect();
-    lines.sort_by_key(|(ln, _)| *ln);
-    lines.dedup_by_key(|(ln, _)| *ln);
-
-    let mut ranges: Vec<serde_json::Value> = Vec::new();
-    for (ln, hit) in lines {
-        let missed = !hit;
-        if let Some(last) = ranges.last_mut() {
-            let last_end = last["end"].as_u64().unwrap();
-            if ln == last_end + 1 {
-                *last.get_mut("end").unwrap() = json!(ln);
-                if missed {
-                    let mc = last["missed_count"].as_u64().unwrap_or(0);
-                    *last.get_mut("missed_count").unwrap() = json!(mc + 1);
-                }
-                continue;
-            }
-        }
-        ranges.push(json!({
-            "start": ln,
-            "end":   ln,
-            "missed_count": if missed { 1u64 } else { 0u64 },
-        }));
-    }
-    json!(ranges)
 }
 

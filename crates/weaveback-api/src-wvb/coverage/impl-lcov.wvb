@@ -43,6 +43,12 @@ pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
 ¤rust_file(weaveback-api/src/coverage/lcov/summary.rs, ¤[
 use super::*;
 
+mod generated_lookup;
+mod ranges;
+
+pub(in crate::coverage) use generated_lookup::find_noweb_entries_for_generated_file;
+pub(in crate::coverage) use ranges::compute_unmapped_ranges;
+
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
     db: &weaveback_tangle::db::WeavebackDb,
@@ -403,6 +409,10 @@ pub fn build_coverage_summary(
         "unattributed_files": unattributed_files,
     })
 }
+¤])
+
+¤rust_file(weaveback-api/src/coverage/lcov/summary/generated_lookup.rs, ¤[
+use super::super::*;
 
 pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
     db: &weaveback_tangle::db::WeavebackDb,
@@ -436,6 +446,10 @@ pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
 
     None
 }
+¤])
+
+¤rust_file(weaveback-api/src/coverage/lcov/summary/ranges.rs, ¤[
+use super::super::*;
 
 /// Group a `generated_lines` slice into consecutive ranges.
 /// Returns a JSON array of `{start, end, missed_count}` objects so the

@@ -105,32 +105,108 @@ The single output file is assembled from all the chunks defined below.
 
 // <[parser struct]>
 
-// <[parser impl]>
+mod api;
+mod arena;
+mod handlers;
+mod parse;
+mod token_io;
 
 // @
 ```
 
 
-## `impl Parser` Structure
-
-The impl block assembles every method sub-chunk in declaration order.
-The sections below define each sub-chunk in the same sequence.
-
 ```rust
-// <[parser impl]>=
+// <[@file weaveback-macro/src/parser/arena.rs]>=
+// weaveback-macro/src/parser/arena.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
 impl Parser {
     // <[parser arena]>
     // <[parser block_tag]>
-    // <[parser handle_block]>
-    // <[parser handle_param]>
-    // <[parser handle_comment]>
-    // <[parser parse]>
-    // <[parser token_io]>
-    // <[parser api]>
 }
+
 // @
 ```
 
+
+```rust
+// <[@file weaveback-macro/src/parser/handlers.rs]>=
+// weaveback-macro/src/parser/handlers.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl Parser {
+    // <[parser handle_block]>
+    // <[parser handle_param]>
+    // <[parser handle_comment]>
+}
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/parser/parse.rs]>=
+// weaveback-macro/src/parser/parse.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl Parser {
+    // <[parser parse]>
+}
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/parser/token_io.rs]>=
+// weaveback-macro/src/parser/token_io.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl Parser {
+    // <[parser token_io]>
+}
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-macro/src/parser/api.rs]>=
+// weaveback-macro/src/parser/api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl Parser {
+    // <[parser api]>
+}
+
+// @
+```
+
+
+## Module Structure
+
+`mod.rs` owns the public parser type, error type, stack-frame state, and
+diagnostic context.  Implementation methods are split into focused child
+modules:
+
+* `arena.rs` contains parse-node arena and stack primitives.
+* `handlers.rs` contains state-specific token handlers.
+* `parse.rs` contains the main dispatch loop.
+* `io.rs` contains token-stream readers.
+* `api.rs` contains public node accessors, AST construction, and test helpers.
+
+Cross-module implementation helpers use `pub(in crate::parser)` so they are
+visible only inside the parser module, not as public crate API.
 
 ## Module Preamble
 
@@ -377,7 +453,7 @@ pub fn new() -> Self {
     }
 }
 
-fn create_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
+pub(in crate::parser) fn create_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
     let node = ParseNode {
         kind,
         src,
@@ -389,13 +465,13 @@ fn create_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
     self.nodes.len() - 1
 }
 
-fn add_child(&mut self, parent_idx: usize, child_idx: usize) {
+pub(in crate::parser) fn add_child(&mut self, parent_idx: usize, child_idx: usize) {
     if let Some(parent) = self.nodes.get_mut(parent_idx) {
         parent.parts.push(child_idx);
     }
 }
 
-fn create_add_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
+pub(in crate::parser) fn create_add_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
     let new_idx = self.create_node(kind, src, token);
     // Attach it to the node on top of the stack
     if let Some(&(_, parent_idx)) = self.stack.last() {
@@ -405,7 +481,7 @@ fn create_add_node(&mut self, kind: NodeKind, src: u32, token: Token) -> usize {
 }
 
 /// Convenience: `create_add_node` + push a new stack frame in one call.
-fn push_node(&mut self, state: ParserState, kind: NodeKind, src: u32, token: Token) -> usize {
+pub(in crate::parser) fn push_node(&mut self, state: ParserState, kind: NodeKind, src: u32, token: Token) -> usize {
     let idx = self.create_add_node(kind, src, token);
     self.stack.push((state, idx));
     idx
@@ -414,7 +490,7 @@ fn push_node(&mut self, state: ParserState, kind: NodeKind, src: u32, token: Tok
 /// Set `end_pos` on the node currently at the top of the stack.
 /// Must be called *before* the corresponding `stack.pop()`.
 /// Returns `Err` rather than panicking so callers can propagate cleanly.
-fn close_top(&mut self, end: usize) -> Result<(), ParserError> {
+pub(in crate::parser) fn close_top(&mut self, end: usize) -> Result<(), ParserError> {
     let (_, node_idx) = *self.stack.last().ok_or_else(|| {
         ParserError::Parse("internal error: close_top on empty stack".into())
     })?;
@@ -431,7 +507,7 @@ fn close_top(&mut self, end: usize) -> Result<(), ParserError> {
 
 /// Close all open nodes and clear the stack.  Called on both error and
 /// normal termination paths to keep the tree structurally consistent.
-fn unwind_stack(&mut self, end: usize) {
+pub(in crate::parser) fn unwind_stack(&mut self, end: usize) {
     while let Some(&(_, node_idx)) = self.stack.last() {
         debug_assert!(node_idx < self.nodes.len(), "unwind_stack: node_idx {node_idx} OOB");
         self.nodes[node_idx].end_pos = end;
@@ -450,7 +526,7 @@ fn unwind_stack(&mut self, end: usize) {
 /// For `%{` / `%}` (length 2) the tag is empty (tag_len == 0).
 /// For `%foo{` / `%foo}` (length > 2) the tag is bytes
 /// [pos+special_len .. pos+length-1].
-fn block_tag(token: &Token, content: &[u8]) -> (usize, usize) {
+pub(in crate::parser) fn block_tag(token: &Token, content: &[u8]) -> (usize, usize) {
     let special_len = content
         .get(token.pos..)
         .and_then(|tail| std::str::from_utf8(tail).ok())
@@ -479,7 +555,7 @@ second stack lookup.
 /// `tag_pos`/`tag_len` come directly from the caller's pattern match —
 /// no second stack lookup needed.
 /// Returns `Ok(true)` if the token was consumed (caller should `continue`).
-fn handle_block(
+pub(in crate::parser) fn handle_block(
     &mut self,
     token: Token,
     ctx: &ParseContext,
@@ -527,7 +603,7 @@ to allow nested blocks, macros, and variables inside parameter values.
 // <[parser handle_param]>=
 /// Handle a token when the top of the stack is a `Param`.
 /// Returns `Ok(true)` if the token was consumed (caller should `continue`).
-fn handle_param(&mut self, token: Token) -> Result<bool, ParserError> {
+pub(in crate::parser) fn handle_param(&mut self, token: Token) -> Result<bool, ParserError> {
     match token.kind {
         TokenKind::Comma => {
             // Close current Param, open next Param.
@@ -585,7 +661,7 @@ ParserError>`.
 // <[parser handle_comment]>=
 /// Handle a token when the top of the stack is a `Comment`.
 /// Comment state always consumes every token, so no bool return is needed.
-fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
+pub(in crate::parser) fn handle_comment(&mut self, token: Token) -> Result<(), ParserError> {
     match token.kind {
         TokenKind::CommentClose => {
             self.close_top(token.end())?;
@@ -937,4 +1013,3 @@ The parser tests are generated from focused files under
 The suite covers basic parse-tree construction, tagged block matching,
 tagged block mismatch diagnostics, lex-level error propagation, and parser
 invariants such as EOF suppression and root `end_pos` coverage.
-

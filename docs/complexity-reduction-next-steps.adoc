@@ -57,6 +57,11 @@ Completed or materially improved:
   `crates/weaveback-macro/src/lexer/mod.rs` now owns only the public lexer type,
   state enums, and constructor API; cursor helpers, emission, dispatch, state
   handlers, and sigil handling live in focused `src/lexer/*.rs` files.
+* `weaveback-macro` parser runtime has been split at Rust-file level.
+  `crates/weaveback-macro/src/parser/mod.rs` now owns the parser type, state,
+  diagnostics, and shared parse context; arena helpers, state handlers, the
+  main parse loop, token I/O, and public accessors live in focused
+  `src/parser/*.rs` files.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -351,8 +356,8 @@ The best next commit is probably:
 
 * split the next largest remaining generated Rust file after a fresh line-count
   audit
-* likely candidates include the dense macro parser module, MCP runtime dispatch,
-  evaluator modules, or large test aggregations that remain above the chosen
+* likely candidates include MCP runtime dispatch, evaluator modules, docgen
+  cross-reference code, or large test aggregations that remain above the chosen
   threshold
 * keep public APIs stable unless the user explicitly chooses semantic cleanup
 * run targeted tests plus full lint/check/docs

@@ -114,23 +114,23 @@ stop
 // weaveback-macro/src/evaluator/core.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-// <[core preamble]>
-// <[evaluator struct]>
-// <[evaluator binding helpers]>
-// <[evaluator new and accessors]>
-// <[evaluator py store]>
-// <[evaluator macro and var]>
-// <[evaluator source and file]>
-// <[evaluator plain evaluate]>
-// <[evaluator node text]>
-// <[evaluator extract name]>
-// <[evaluator macro call plain]>
-// <[evaluator export and freeze]>
-// <[evaluator parse string and find file]>
-// <[evaluator do include]>
-// <[evaluator tracing helpers]>
-// <[evaluator evaluate to]>
-// <[evaluator macro call to]>
+include!("core/preamble.rs");
+include!("core/types.rs");
+include!("core/bindings.rs");
+include!("core/accessors.rs");
+include!("core/py_store.rs");
+include!("core/state_delegates.rs");
+include!("core/source.rs");
+include!("core/evaluate.rs");
+include!("core/node_text.rs");
+include!("core/extract_name.rs");
+include!("core/macro_call.rs");
+include!("core/export.rs");
+include!("core/parse_include.rs");
+include!("core/do_include.rs");
+include!("core/tracing.rs");
+include!("core/evaluate_to.rs");
+include!("core/macro_call_to.rs");
 
 // @
 ```
@@ -139,7 +139,10 @@ stop
 ## Preamble
 
 ```rust
-// <[core preamble]>=
+// <[@file weaveback-macro/src/evaluator/core/preamble.rs]>=
+// weaveback-macro/src/evaluator/core/preamble.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -150,6 +153,7 @@ use super::monty_eval::MontyEvaluator;
 use super::output::{EvalOutput, PreciseTracingOutput, SourceSpan, SpanKind, SpanRange};
 use super::state::{EvalConfig, EvaluatorState, MacroDefinition, ScriptKind};
 use crate::types::{ASTNode, NodeKind, Token, TokenKind};
+
 // @
 ```
 
@@ -157,19 +161,26 @@ use crate::types::{ASTNode, NodeKind, Token, TokenKind};
 ## `Evaluator` struct
 
 ```rust
-// <[evaluator struct]>=
+// <[@file weaveback-macro/src/evaluator/core/types.rs]>=
+// weaveback-macro/src/evaluator/core/types.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 pub struct Evaluator {
     state: EvaluatorState,
     builtins: HashMap<String, BuiltinFn>,
     monty_evaluator: MontyEvaluator,
     py_store: HashMap<String, String>,
 }
+
 // @
 ```
 
 
 ```rust
-// <[evaluator binding helpers]>=
+// <[@file weaveback-macro/src/evaluator/core/bindings.rs]>=
+// weaveback-macro/src/evaluator/core/bindings.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 #[derive(Clone, Copy)]
 struct PositionalBinding<'a> {
     param_name: &'a str,
@@ -187,6 +198,7 @@ struct BindingPlan<'a> {
     named: Vec<NamedBinding<'a>>,
     unbound: Vec<&'a str>,
 }
+
 // @
 ```
 
@@ -194,7 +206,10 @@ struct BindingPlan<'a> {
 ## Constructor and accessors
 
 ```rust
-// <[evaluator new and accessors]>=
+// <[@file weaveback-macro/src/evaluator/core/accessors.rs]>=
+// weaveback-macro/src/evaluator/core/accessors.rs
+// I'd Really Rather You Didn't edit this generated file.
+
 impl Evaluator {
     fn macro_param_nodes(node: &ASTNode) -> Vec<&ASTNode> {
         node.parts
@@ -352,6 +367,9 @@ impl Evaluator {
     pub fn sources(&self) -> &crate::evaluator::state::SourceManager {
         &self.state.source_manager
     }
+}
+
+
 // @
 ```
 
@@ -359,7 +377,11 @@ impl Evaluator {
 ## Python store
 
 ```rust
-// <[evaluator py store]>=
+// <[@file weaveback-macro/src/evaluator/core/py_store.rs]>=
+// weaveback-macro/src/evaluator/core/py_store.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn pystore_set(&mut self, key: String, value: String) {
         self.py_store.insert(key, value);
     }
@@ -367,6 +389,9 @@ impl Evaluator {
     pub fn pystore_get(&self, key: &str) -> String {
         self.py_store.get(key).cloned().unwrap_or_default()
     }
+}
+
+
 // @
 ```
 
@@ -377,7 +402,11 @@ These thin methods forward to `EvaluatorState` and also handle call-site
 recording for the tracing maps.
 
 ```rust
-// <[evaluator macro and var]>=
+// <[@file weaveback-macro/src/evaluator/core/state_delegates.rs]>=
+// weaveback-macro/src/evaluator/core/state_delegates.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
         self.state.define_macro(mac)
     }
@@ -421,6 +450,9 @@ recording for the tracing maps.
     pub fn take_warnings(&mut self) -> Vec<String> {
         self.state.drain_warnings()
     }
+}
+
+
 // @
 ```
 
@@ -428,7 +460,11 @@ recording for the tracing maps.
 ## Source and file management
 
 ```rust
-// <[evaluator source and file]>=
+// <[@file weaveback-macro/src/evaluator/core/source.rs]>=
+// weaveback-macro/src/evaluator/core/source.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
         self.state
             .source_manager
@@ -470,6 +506,9 @@ recording for the tracing maps.
     pub fn num_source_files(&self) -> usize {
         self.state.source_manager.num_sources()
     }
+}
+
+
 // @
 ```
 
@@ -480,7 +519,11 @@ The plain path returns a `String`.  Comments are silently dropped.  All other
 node kinds recurse over their children.
 
 ```rust
-// <[evaluator plain evaluate]>=
+// <[@file weaveback-macro/src/evaluator/core/evaluate.rs]>=
+// weaveback-macro/src/evaluator/core/evaluate.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn evaluate(&mut self, node: &ASTNode) -> EvalResult<String> {
         if self.state.early_exit {
             return Ok(String::new());
@@ -520,6 +563,9 @@ node kinds recurse over their children.
         }
         Ok(out)
     }
+}
+
+
 // @
 ```
 
@@ -535,7 +581,11 @@ of being hard-coded to one byte. `extract_name_value` returns the raw bytes for
 a plain `Ident` token (no stripping needed).
 
 ```rust
-// <[evaluator node text]>=
+// <[@file weaveback-macro/src/evaluator/core/node_text.rs]>=
+// weaveback-macro/src/evaluator/core/node_text.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn node_text(&self, node: &ASTNode) -> String {
         if let Some(source) = self.state.source_manager.get_source(node.token.src) {
             let start = node.token.pos;
@@ -586,12 +636,19 @@ a plain `Ident` token (no stripping needed).
             "".into()
         }
     }
+}
+
+
 // @
 ```
 
 
 ```rust
-// <[evaluator extract name]>=
+// <[@file weaveback-macro/src/evaluator/core/extract_name.rs]>=
+// weaveback-macro/src/evaluator/core/extract_name.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn extract_name_value(&self, name_token: &Token) -> String {
         if let Some(source) = self.state.source_manager.get_source(name_token.src) {
             let start = name_token.pos;
@@ -615,6 +672,9 @@ a plain `Ident` token (no stripping needed).
             "".into()
         }
     }
+}
+
+
 // @
 ```
 
@@ -632,7 +692,11 @@ the callee frame. Verbatim blocks (`%[ ... %]`) make parts of the body
 opaque to macro expansion, so `%pydef` no longer needs a separate raw mode.
 
 ```rust
-// <[evaluator macro call plain]>=
+// <[@file weaveback-macro/src/evaluator/core/macro_call.rs]>=
+// weaveback-macro/src/evaluator/core/macro_call.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn evaluate_macro_call(&mut self, node: &ASTNode, name: &str) -> EvalResult<String> {
         if let Some(bf) = self.builtins.get(name) {
             return bf(self, node);
@@ -716,6 +780,9 @@ opaque to macro expansion, so `%pydef` no longer needs a separate raw mode.
 
         Ok(result)
     }
+}
+
+
 // @
 ```
 
@@ -731,7 +798,11 @@ evaluated at alias-definition time and stored in `frozen_args`, giving the
 same pin-at-definition-time effect without hidden semantics on `%export`.
 
 ```rust
-// <[evaluator export and freeze]>=
+// <[@file weaveback-macro/src/evaluator/core/export.rs]>=
+// weaveback-macro/src/evaluator/core/export.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn export(&mut self, name: &str) {
         let stack_len = self.state.scope_stack.len();
         if stack_len <= 1 {
@@ -778,6 +849,9 @@ same pin-at-definition-time effect without hidden semantics on `%export`.
                 .insert(name.to_string(), mac);
         }
     }
+}
+
+
 // @
 ```
 
@@ -797,7 +871,11 @@ cycles.  The path is always removed on exit — whether the include succeeds or
 fails — to prevent a failed include from permanently blocking re-includes.
 
 ```rust
-// <[evaluator parse string and find file]>=
+// <[@file weaveback-macro/src/evaluator/core/parse_include.rs]>=
+// weaveback-macro/src/evaluator/core/parse_include.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn parse_string(&mut self, text: &str, path: &PathBuf) -> Result<ASTNode, EvalError> {
         let src = match fs::metadata(path) {
             Ok(md) if md.is_file() => self.add_source_if_not_present(path.clone())?,
@@ -825,12 +903,19 @@ fails — to prevent a failed include from permanently blocking re-includes.
         }
         Err(EvalError::IncludeNotFound(filename.into()))
     }
+}
+
+
 // @
 ```
 
 
 ```rust
-// <[evaluator do include]>=
+// <[@file weaveback-macro/src/evaluator/core/do_include.rs]>=
+// weaveback-macro/src/evaluator/core/do_include.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;
 
@@ -863,6 +948,9 @@ fails — to prevent a failed include from permanently blocking re-includes.
     pub(crate) fn set_dependency_discovery_active(&mut self, enabled: bool) {
         self.state.dependency_discovery_active = enabled;
     }
+}
+
+
 // @
 ```
 
@@ -877,7 +965,11 @@ argument into a `PreciseTracingOutput` to get both the value string and its
 `MacroArg { macro_name, param_name }`.
 
 ```rust
-// <[evaluator tracing helpers]>=
+// <[@file weaveback-macro/src/evaluator/core/tracing.rs]>=
+// weaveback-macro/src/evaluator/core/tracing.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     // ---- Tracked evaluation (EvalOutput) ------------------------------------
 
     /// Build a `SourceSpan` from the token of an AST node, defaulting to Literal.
@@ -921,6 +1013,9 @@ argument into a `PreciseTracingOutput` to get both the value string and its
             raw_spans.into_iter().map(|mut sr| { sr.span.kind = kind.clone(); sr }).collect()
         }
     }
+}
+
+
 // @
 ```
 
@@ -938,7 +1033,11 @@ with its own adjusted `pos` within the original token, so every output line
 maps to the correct source line.
 
 ```rust
-// <[evaluator evaluate to]>=
+// <[@file weaveback-macro/src/evaluator/core/evaluate_to.rs]>=
+// weaveback-macro/src/evaluator/core/evaluate_to.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     /// Like `evaluate`, but writes to an `EvalOutput` sink so that span
     /// information is available to the caller.
     pub fn evaluate_to(
@@ -1044,6 +1143,9 @@ maps to the correct source line.
         }
         Ok(())
     }
+}
+
+
 // @
 ```
 
@@ -1064,7 +1166,11 @@ through the builtin map, so the `ScriptKind::Python`
 branch here is currently unreachable.
 
 ```rust
-// <[evaluator macro call to]>=
+// <[@file weaveback-macro/src/evaluator/core/macro_call_to.rs]>=
+// weaveback-macro/src/evaluator/core/macro_call_to.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+impl Evaluator {
     /// Like `evaluate_macro_call`, but writes to an `EvalOutput` sink.
     pub fn evaluate_macro_call_to(
         &mut self,
@@ -1218,6 +1324,8 @@ branch here is currently unreachable.
         Ok(())
     }
 }
+
+
 // @
 ```
 

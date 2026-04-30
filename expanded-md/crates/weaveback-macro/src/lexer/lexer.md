@@ -180,41 +180,115 @@ This source tests `<[ ... ]>` literally, so its generated noweb chunks use `<< .
 
 // <<lexer struct>>
 
-// <<lexer impl>>
+mod cursor;
+mod emit;
+mod run;
+mod states;
+mod sigil;
+
+impl<'a> Lexer<'a> {
+    // <<lexer pub api>>
+}
 
 // @
 ```
 
 
-## `impl Lexer` structure
+```rust
+// <<@file weaveback-macro/src/lexer/cursor.rs>>=
+// weaveback-macro/src/lexer/cursor.rs
+// I'd Really Rather You Didn't edit this generated file.
 
-Every method group gets its own sub-chunk.  They are assembled here in
-the order they appear in the impl block.
+use super::*;
+
+impl<'a> Lexer<'a> {
+    // <<lexer input helpers>>
+}
+
+// @
+```
+
 
 ```rust
-// <<lexer impl>>=
+// <<@file weaveback-macro/src/lexer/emit.rs>>=
+// weaveback-macro/src/lexer/emit.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
 impl<'a> Lexer<'a> {
-    // <<lexer pub api>>
-
-    // <<lexer input helpers>>
-
     // <<lexer emission>>
+}
 
+// @
+```
+
+
+```rust
+// <<@file weaveback-macro/src/lexer/run.rs>>=
+// weaveback-macro/src/lexer/run.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl<'a> Lexer<'a> {
     // <<lexer run>>
+}
 
+// @
+```
+
+
+```rust
+// <<@file weaveback-macro/src/lexer/states.rs>>=
+// weaveback-macro/src/lexer/states.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl<'a> Lexer<'a> {
     // <<lexer block state>>
 
     // <<lexer verbatim state>>
 
     // <<lexer macro state>>
+}
 
+// @
+```
+
+
+```rust
+// <<@file weaveback-macro/src/lexer/sigil.rs>>=
+// weaveback-macro/src/lexer/sigil.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+impl<'a> Lexer<'a> {
     // <<lexer sigil handler>>
 
     // <<lexer comment state>>
 }
+
 // @
 ```
 
+
+## Module structure
+
+`mod.rs` owns the public type, state enums, and public constructor API.  The
+implementation methods are split into focused child modules:
+
+* `cursor.rs` contains byte cursor and identifier helpers.
+* `emit.rs` contains token and error emission.
+* `run.rs` contains the top-level dispatch loop.
+* `states.rs` contains block, verbatim, and macro-argument states.
+* `sigil.rs` contains shared sigil dispatch, variable handling, and block
+  comment handling.
+
+Cross-module helper methods use `pub(in crate::lexer)`: visible inside the
+lexer implementation only, not as public crate API.
 
 ## Module preamble
 
@@ -399,21 +473,21 @@ byte offset.  Named-block open and close use this to match tags
 // <<lexer input helpers>>=
 // ── Low-level cursor ──────────────────────────────────────────────────
 
-fn peek_byte(&self) -> Option<u8> {
+pub(in crate::lexer) fn peek_byte(&self) -> Option<u8> {
     self.bytes.get(self.pos).copied()
 }
 
-fn advance(&mut self) -> Option<u8> {
+pub(in crate::lexer) fn advance(&mut self) -> Option<u8> {
     let b = self.bytes.get(self.pos).copied()?;
     self.pos += 1;
     Some(b)
 }
 
-fn starts_with_sigil(&self) -> bool {
+pub(in crate::lexer) fn starts_with_sigil(&self) -> bool {
     self.bytes[self.pos..].starts_with(&self.sigil_bytes)
 }
 
-fn advance_sigil(&mut self) -> bool {
+pub(in crate::lexer) fn advance_sigil(&mut self) -> bool {
     if self.starts_with_sigil() {
         self.pos += self.sigil_bytes.len();
         true
@@ -423,7 +497,7 @@ fn advance_sigil(&mut self) -> bool {
 }
 
 /// Advance past the rest of the current line (through `\n` or to EOF).
-fn skip_line_comment(&mut self) {
+pub(in crate::lexer) fn skip_line_comment(&mut self) {
     let rest = &self.bytes[self.pos..];
     match memchr(b'\n', rest) {
         Some(i) => self.pos += i + 1,
@@ -432,7 +506,7 @@ fn skip_line_comment(&mut self) {
 }
 
 /// Returns the byte index just past the end of an identifier starting at `start`.
-fn get_identifier_end(&self, start: usize) -> usize {
+pub(in crate::lexer) fn get_identifier_end(&self, start: usize) -> usize {
     let bytes = self.bytes;
     if start >= bytes.len() || !is_identifier_start(bytes[start]) {
         return start;
@@ -444,13 +518,13 @@ fn get_identifier_end(&self, start: usize) -> usize {
     end
 }
 
-fn starts_with_bytes(&self, pat: &[u8]) -> bool {
+pub(in crate::lexer) fn starts_with_bytes(&self, pat: &[u8]) -> bool {
     self.bytes[self.pos..].starts_with(pat)
 }
 
 /// Extract the identifier tag from a `%tag{` or `%tag}` position.
 /// `pct_start` is the byte offset of `%`. Returns `""` for anonymous `%{`/`%}`.
-fn block_tag_at(&self, pct_start: usize) -> &str {
+pub(in crate::lexer) fn block_tag_at(&self, pct_start: usize) -> &str {
     let start = pct_start + self.sigil_bytes.len(); // skip sigil bytes
     let mut end = start;
     while end < self.bytes.len() && is_identifier_continue(self.bytes[end]) {
@@ -476,14 +550,14 @@ always produces a usable stream.
 // <<lexer emission>>=
 // ── Emission ──────────────────────────────────────────────────────────
 
-fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
+pub(in crate::lexer) fn emit_token(&mut self, pos: usize, length: usize, kind: TokenKind) {
     if length == 0 && kind != TokenKind::EOF {
         return;
     }
     self.tokens.push(Token { kind, src: self.src, pos, length });
 }
 
-fn error_at(&mut self, pos: usize, message: &str) {
+pub(in crate::lexer) fn error_at(&mut self, pos: usize, message: &str) {
     self.errors.push(LexerError { pos, message: message.to_string() });
 }
 // @
@@ -587,7 +661,7 @@ calls the new state), pop (return `false`), or stay in the loop.
 // <<lexer block state>>=
 // ── Block state ───────────────────────────────────────────────────────
 
-fn run_block_state(&mut self) -> bool {
+pub(in crate::lexer) fn run_block_state(&mut self) -> bool {
     loop {
         let rest = &self.bytes[self.pos..];
         let text_len = match memmem::find(rest, &self.sigil_bytes) {
@@ -627,7 +701,7 @@ Verbatim blocks are opaque to macro parsing.  Only `%[` / `%name[` opens and
 // <<lexer verbatim state>>=
 // ── Verbatim state ────────────────────────────────────────────────────
 
-fn run_verbatim_state(&mut self) -> bool {
+pub(in crate::lexer) fn run_verbatim_state(&mut self) -> bool {
     loop {
         let rest = &self.bytes[self.pos..];
         let text_len = match memmem::find(rest, &self.sigil_bytes) {
@@ -717,7 +791,7 @@ must return false without consuming `)`.
 // <<lexer macro state>>=
 // ── Macro arg state ───────────────────────────────────────────────────
 
-fn run_macro_state(&mut self) -> bool {
+pub(in crate::lexer) fn run_macro_state(&mut self) -> bool {
     while let Some(b) = self.peek_byte() {
         if b == b')' {
             let start = self.pos;
@@ -813,7 +887,7 @@ deviation produces an error and emits the malformed sequence as `Text`.
 // Called after the sigil has been consumed.
 // `pct_start` is the byte offset of the sigil itself.
 
-fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
+pub(in crate::lexer) fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
     match self.peek_byte() {
         Some(b'(') => {
             self.handle_var(pct_start);
@@ -966,7 +1040,7 @@ fn handle_after_sigil(&mut self, pct_start: usize) -> SpecialAction {
 }
 
 /// Handle a `%(varname)` sequence. `pct_start` is the byte offset of the `%`.
-fn handle_var(&mut self, pct_start: usize) {
+pub(in crate::lexer) fn handle_var(&mut self, pct_start: usize) {
     self.advance(); // consume '('
     let ident_start = self.pos;
     let ident_end = self.get_identifier_end(ident_start);
@@ -1008,7 +1082,7 @@ error is recorded.  The frame is then popped by returning `false`.
 // <<lexer comment state>>=
 // ── Comment state ─────────────────────────────────────────────────────
 
-fn run_comment_state(&mut self) -> bool {
+pub(in crate::lexer) fn run_comment_state(&mut self) -> bool {
     let comment_text_start = self.pos;
 
     loop {
@@ -1074,4 +1148,3 @@ The lexer tests are generated from focused files under
 The suite covers token basics, error recovery, comments, block/verbatim
 nesting, custom Unicode sigils, completion/boundary cases, variable tokens,
 and realistic macro bodies.
-

@@ -67,6 +67,10 @@ Completed or materially improved:
   function type, registry, and module map; definition, include/control, scope,
   strings, stores/env, predicates, and shared identifier validation live in
   focused `src/evaluator/builtins/*.rs` files.
+* `weaveback-api` lint has been split at Rust-file level.
+  `crates/weaveback-api/src/lint.rs` is now a small facade over configuration,
+  filesystem scanning, lint rules, and the CLI runner under
+  `crates/weaveback-api/src/lint/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -94,6 +98,7 @@ File | Lines | Status
 `crates/weaveback-api/src/apply_back/tests.rs` | 1303 | Separate from runtime, but still large. Lower priority because source is split.
 `crates/weaveback-tangle/src/noweb.rs` | 26 | Completed; facade now includes focused `src/noweb/*.rs` files.
 `crates/weaveback-api/src/process.rs` | 22 | Completed; facade now includes focused `src/process/*.rs` files.
+`crates/weaveback-api/src/lint.rs` | 73 | Completed; facade now includes focused `src/lint/*.rs` files.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 
 These numbers are not themselves the rule.  The rule is whether a maintainer can

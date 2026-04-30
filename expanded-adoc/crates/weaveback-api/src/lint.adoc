@@ -95,7 +95,7 @@ should never be linted.
 [source,rust]
 ----
 // <[lint-fs]>=
-fn should_skip_dir(path: &Path) -> bool {
+pub(in crate::lint) fn should_skip_dir(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
@@ -112,21 +112,21 @@ fn should_skip_dir(path: &Path) -> bool {
     ) || path.ends_with("docs/html")
 }
 
-fn is_lint_source_file(path: &Path) -> bool {
+pub(in crate::lint) fn is_lint_source_file(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| matches!(ext, "adoc" | "wvb"))
 }
 
-fn is_wvb_file(path: &Path) -> bool {
+pub(in crate::lint) fn is_wvb_file(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()) == Some("wvb")
 }
 
-fn is_prelude_file(path: &Path) -> bool {
+pub(in crate::lint) fn is_prelude_file(path: &Path) -> bool {
     path.components().any(|component| component.as_os_str() == "prelude")
 }
 
-fn collect_literate_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+pub(in crate::lint) fn collect_literate_files(path: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if path.is_file() {
         if is_lint_source_file(path) {
             out.push(path.to_path_buf());
@@ -181,13 +181,13 @@ struct LintCfg {
 }
 
 #[derive(Clone)]
-struct LintSyntaxEntry {
-    dir:    Option<PathBuf>,
-    ext:    Option<String>,
-    syntax: NowebSyntax,
+pub(in crate::lint) struct LintSyntaxEntry {
+    pub(in crate::lint) dir:    Option<PathBuf>,
+    pub(in crate::lint) ext:    Option<String>,
+    pub(in crate::lint) syntax: NowebSyntax,
 }
 
-fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
+pub(in crate::lint) fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     let mut syntaxes = vec![LintSyntaxEntry {
         dir: None,
         ext: None,
@@ -229,11 +229,11 @@ fn load_lint_syntaxes_from(base_dir: &Path) -> Vec<LintSyntaxEntry> {
     syntaxes
 }
 
-fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
+pub(in crate::lint) fn load_lint_syntaxes() -> Vec<LintSyntaxEntry> {
     load_lint_syntaxes_from(Path::new("."))
 }
 
-fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> Vec<&'a NowebSyntax> {
+pub(in crate::lint) fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> Vec<&'a NowebSyntax> {
     let rel = file.strip_prefix(".").unwrap_or(file);
     let file_ext = file.extension().and_then(|e| e.to_str());
     let mut matched = syntaxes
@@ -265,7 +265,7 @@ fn lint_syntaxes_for_file<'a>(file: &Path, syntaxes: &'a [LintSyntaxEntry]) -> V
 [source,rust]
 ----
 // <[lint-rules]>=
-fn parse_chunk_definition_name(line: &str, syntaxes: &[&NowebSyntax]) -> Option<String> {
+pub(in crate::lint) fn parse_chunk_definition_name(line: &str, syntaxes: &[&NowebSyntax]) -> Option<String> {
     for syntax in syntaxes {
         if let Some(def_match) = syntax.parse_definition_line(line) {
             return Some(def_match.base_name);
@@ -274,7 +274,7 @@ fn parse_chunk_definition_name(line: &str, syntaxes: &[&NowebSyntax]) -> Option<
     None
 }
 
-fn parse_chunk_definition(line: &str, syntaxes: &[&NowebSyntax]) -> Option<(String, usize)> {
+pub(in crate::lint) fn parse_chunk_definition(line: &str, syntaxes: &[&NowebSyntax]) -> Option<(String, usize)> {
     for (idx, syntax) in syntaxes.iter().enumerate() {
         if let Some(def_match) = syntax.parse_definition_line(line) {
             return Some((def_match.base_name, idx));
@@ -283,20 +283,20 @@ fn parse_chunk_definition(line: &str, syntaxes: &[&NowebSyntax]) -> Option<(Stri
     None
 }
 
-fn is_adoc_fence_delimiter(line: &str) -> bool {
+pub(in crate::lint) fn is_adoc_fence_delimiter(line: &str) -> bool {
     matches!(line.trim(), "----" | "....")
 }
 
-fn starts_wvb_code_block(line: &str) -> bool {
+pub(in crate::lint) fn starts_wvb_code_block(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.starts_with('\u{00a4}') && trimmed.contains("code_block(")
 }
 
-fn opens_wvb_block_arg(line: &str) -> bool {
+pub(in crate::lint) fn opens_wvb_block_arg(line: &str) -> bool {
     line.contains("\u{00a4}[") || line.contains("\u{00a4}{")
 }
 
-fn closes_wvb_block_arg(line: &str) -> bool {
+pub(in crate::lint) fn closes_wvb_block_arg(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed == "\u{00a4}])"
         || trimmed == "\u{00a4}})"
@@ -304,7 +304,7 @@ fn closes_wvb_block_arg(line: &str) -> bool {
         || trimmed == "\u{00a4}})\u{00a4})"
 }
 
-fn lint_chunk_body_outside_fence(
+pub(in crate::lint) fn lint_chunk_body_outside_fence(
     file: &Path,
     text: &str,
     syntaxes: &[&NowebSyntax],
@@ -347,7 +347,7 @@ fn lint_chunk_body_outside_fence(
     violations
 }
 
-fn lint_unterminated_chunk_definition(
+pub(in crate::lint) fn lint_unterminated_chunk_definition(
     file: &Path,
     text: &str,
     syntaxes: &[&NowebSyntax],
@@ -400,7 +400,7 @@ fn lint_unterminated_chunk_definition(
     violations
 }
 
-fn lint_raw_wvb_links(file: &Path, text: &str) -> Vec<LintViolation> {
+pub(in crate::lint) fn lint_raw_wvb_links(file: &Path, text: &str) -> Vec<LintViolation> {
     if !is_wvb_file(file) || is_prelude_file(file) {
         return Vec::new();
     }
@@ -433,7 +433,7 @@ fn lint_raw_wvb_links(file: &Path, text: &str) -> Vec<LintViolation> {
     violations
 }
 
-fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
+pub(in crate::lint) fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
     if !is_wvb_file(file) || is_prelude_file(file) {
         return Vec::new();
     }
@@ -475,20 +475,20 @@ fn lint_raw_wvb_source_blocks(file: &Path, text: &str) -> Vec<LintViolation> {
     violations
 }
 
-fn line_opens_generated_code_macro(line: &str) -> bool {
+pub(in crate::lint) fn line_opens_generated_code_macro(line: &str) -> bool {
     line.contains("\u{00a4}rust_chunk(") || line.contains("\u{00a4}rust_file(")
 }
 
-fn line_opens_table_macro(line: &str) -> bool {
+pub(in crate::lint) fn line_opens_table_macro(line: &str) -> bool {
     line.contains("\u{00a4}table(")
 }
 
-fn line_closes_prelude_block(line: &str) -> bool {
+pub(in crate::lint) fn line_closes_prelude_block(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed == "\u{00a4}])" || trimmed == "\u{00a4}})"
 }
 
-fn lint_raw_wvb_tables(file: &Path, text: &str) -> Vec<LintViolation> {
+pub(in crate::lint) fn lint_raw_wvb_tables(file: &Path, text: &str) -> Vec<LintViolation> {
     if !is_wvb_file(file) || is_prelude_file(file) {
         return Vec::new();
     }
@@ -524,7 +524,7 @@ fn lint_raw_wvb_tables(file: &Path, text: &str) -> Vec<LintViolation> {
     violations
 }
 
-pub fn lint_paths(
+pub(in crate::lint) fn lint_paths(
     paths: &[PathBuf],
     rule_filter: Option<LintRule>,
 ) -> Result<Vec<LintViolation>, String> {
@@ -932,12 +932,84 @@ fn run_lint_can_emit_json() {
 // I'd Really Rather You Didn't edit this generated file.
 
 // <[lint-core-types]>
-// <[lint-fs]>
-// <[lint-config]>
-// <[lint-rules]>
-// <[lint-run]>
+mod config;
+mod fs_scan;
+mod rules;
+mod run;
+
+pub use run::run_lint;
+
+#[cfg(test)]
+use config::{lint_syntaxes_for_file, load_lint_syntaxes_from};
+#[cfg(test)]
+use fs_scan::collect_literate_files;
+#[cfg(test)]
+use rules::{
+    lint_chunk_body_outside_fence, lint_raw_wvb_links, lint_raw_wvb_source_blocks,
+    lint_raw_wvb_tables, lint_unterminated_chunk_definition, parse_chunk_definition_name,
+};
+
 #[cfg(test)]
 mod tests;
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/lint/config.rs]>=
+// weaveback-api/src/lint/config.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[lint-config]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/lint/fs_scan.rs]>=
+// weaveback-api/src/lint/fs_scan.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[lint-fs]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/lint/rules.rs]>=
+// weaveback-api/src/lint/rules.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::config::{lint_syntaxes_for_file, load_lint_syntaxes};
+use super::fs_scan::{collect_literate_files, is_prelude_file, is_wvb_file};
+
+// <[lint-rules]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/lint/run.rs]>=
+// weaveback-api/src/lint/run.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::rules::lint_paths;
+
+// <[lint-run]>
 
 // @
 ----

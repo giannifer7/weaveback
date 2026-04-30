@@ -66,6 +66,11 @@ Completed or materially improved:
   diagnostics, and shared parse context; arena helpers, state handlers, the
   main parse loop, token I/O, and public accessors live in focused
   `src/parser/*.rs` files.
+* `weaveback-macro` evaluator builtins have been split at Rust-file level.
+  `crates/weaveback-macro/src/evaluator/builtins.rs` now owns only the builtin
+  function type, registry, and module map; definition, include/control, scope,
+  strings, stores/env, predicates, and shared identifier validation live in
+  focused `src/evaluator/builtins/*.rs` files.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -359,7 +364,7 @@ The best next commit is probably:
 
 * split the next largest remaining generated Rust file after a fresh line-count
   audit
-* likely candidates include MCP runtime dispatch, evaluator modules, docgen
+* likely candidates include MCP runtime dispatch, agent read APIs, docgen
   cross-reference code, or large test aggregations that remain above the chosen
   threshold
 * keep public APIs stable unless the user explicitly chooses semantic cleanup

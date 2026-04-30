@@ -170,18 +170,51 @@ about chunk composition rather than macro evaluation.
 
 ¤rust_file(weaveback-macro/src/evaluator/builtins.rs, ¤[
 // <[builtins preamble]>
+// <[builtins modules]>
 // <[builtins type and registry]>
-// <[builtins def macro config]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/util.rs, ¤[
+use super::*;
+
 // <[builtins single ident param]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/definition.rs, ¤[
+use super::*;
+
+// <[builtins def macro config]>
 // <[builtins define macro helper]>
 // <[builtins def pydef]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/include.rs, ¤[
+use super::*;
+
 // <[builtins include import]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/control.rs, ¤[
+use super::*;
+
 // <[builtins if]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/scope.rs, ¤[
+use super::*;
+
 // <[builtins set export eval here]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/strings.rs, ¤[
+use super::*;
+
 // <[builtins capitalize]>
 // <[builtins convert case builtins]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/stores.rs, ¤[
+use super::*;
+
 // <[builtins py store builtins]>
 // <[builtins env]>
+¤])
+¤rust_file(weaveback-macro/src/evaluator/builtins/predicates.rs, ¤[
+use super::*;
+
 // <[builtins predicates]>
 ¤])
 ¤rust_file(weaveback-macro/src/evaluator/case_conversion.rs, ¤[
@@ -209,6 +242,34 @@ use super::core::Evaluator;
 use super::errors::{EvalError, EvalResult};
 use super::state::{MacroBindingKind, ScriptKind};
 use crate::types::{ASTNode, NodeKind};
+¤])
+
+¤rust_chunk(builtins modules, ¤[
+mod control;
+mod definition;
+mod include;
+mod predicates;
+mod scope;
+mod stores;
+mod strings;
+mod util;
+
+use control::builtin_if;
+use definition::{builtin_def, builtin_pydef, builtin_redef};
+use include::{builtin_import, builtin_include};
+use predicates::{builtin_eq, builtin_neq, builtin_not};
+use scope::{builtin_alias, builtin_eval, builtin_export, builtin_here, builtin_set};
+use stores::{builtin_env, builtin_pyget, builtin_pyset};
+use strings::{
+    builtin_capitalize,
+    builtin_convert_case,
+    builtin_decapitalize,
+    builtin_to_camel_case,
+    builtin_to_pascal_case,
+    builtin_to_screaming_case,
+    builtin_to_snake_case,
+};
+use util::single_ident_param;
 ¤])
 
 ¤h2(¤[`BuiltinFn` type and default registry¤])
@@ -288,7 +349,11 @@ variable names in `%set` / `%export`.
 
 ¤rust_chunk(builtins single ident param, ¤[
 /// Helper: Checks that a Param node contains exactly one identifier child
-fn single_ident_param(eval: &Evaluator, param_node: &ASTNode, desc: &str) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn single_ident_param(
+    eval: &Evaluator,
+    param_node: &ASTNode,
+    desc: &str,
+) -> EvalResult<String> {
     if param_node.kind != NodeKind::Param {
         return Err(EvalError::InvalidUsage(format!(
             "{desc} must be a Param node"
@@ -412,7 +477,7 @@ fn define_macro(
 ¤h2(¤[`%def`, `%redef`, `%pydef`¤])
 
 ¤rust_chunk(builtins def pydef, ¤[
-pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
         node,
@@ -428,7 +493,7 @@ pub fn builtin_def(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     )
 }
 
-pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
         node,
@@ -444,7 +509,7 @@ pub fn builtin_redef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     )
 }
 
-pub fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_pydef(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     define_macro(
         eval,
         node,
@@ -483,11 +548,11 @@ fn process_include_file(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<Stri
     eval.do_include(&filename)
 }
 
-pub fn builtin_include(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_include(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     process_include_file(eval, node)
 }
 
-pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let _ = process_include_file(eval, node)?;
     Ok("".into())
 }
@@ -499,7 +564,7 @@ pub fn builtin_import(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
 `%if` treats any non-empty string as truthy.
 
 ¤rust_chunk(builtins if, ¤[
-pub fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_if(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
         eval.push_warning("%if() called with no arguments — always expands to \"\"".to_string());
@@ -534,7 +599,7 @@ prefix before the `%here` call (neutralising it) and the expansion after it
 (skipping the rest of the original line).  Then it sets `early_exit`.
 
 ¤rust_chunk(builtins set export eval here, ¤[
-pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
         return Err(EvalError::InvalidUsage("set: exactly 2 args".into()));
@@ -563,7 +628,7 @@ pub fn builtin_set(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
 /// references `%(chunk_name)` in its body but does not declare `chunk_name` as
 /// a parameter, `%alias(emit_option, source_name, chunk_name = tangle-rows)`
 /// pins that free variable for the lifetime of the alias.
-pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() < 2 {
         return Err(EvalError::InvalidUsage(
@@ -612,7 +677,7 @@ pub fn builtin_alias(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     Ok("".into())
 }
 
-pub fn builtin_export(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_export(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 1 {
         return Err(EvalError::InvalidUsage("export: exactly 1 arg".into()));
@@ -622,7 +687,7 @@ pub fn builtin_export(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String
     Ok("".into())
 }
 
-pub fn builtin_eval(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_eval(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.is_empty() {
         return Err(EvalError::InvalidUsage("eval requires macroName".into()));
@@ -651,7 +716,7 @@ pub fn builtin_eval(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     eval.evaluate_macro_call(&call_node, macro_name)
 }
 
-pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Ok("".into());
     }
@@ -663,7 +728,7 @@ pub fn builtin_here(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> 
     let prepend_triplet = (start_pos, eval.get_sigil(), false);
     let append_triplet = (node.end_pos, expansion.into_bytes(), true);
 
-    super::source_utils::modify_source(&path, &[prepend_triplet, append_triplet])?;
+    crate::evaluator::source_utils::modify_source(&path, &[prepend_triplet, append_triplet])?;
 
     eval.set_early_exit();
     Ok("".into())
@@ -690,11 +755,11 @@ fn eval_first_char_case(eval: &mut Evaluator, node: &ASTNode, upper: bool) -> Ev
     Ok(format!("{}{}", first, chars.collect::<String>()))
 }
 
-pub fn builtin_capitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_capitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     eval_first_char_case(eval, node, true)
 }
 
-pub fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_decapitalize(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     eval_first_char_case(eval, node, false)
 }
 ¤])
@@ -713,7 +778,7 @@ fn builtin_single_arg_case(eval: &mut Evaluator, node: &ASTNode, case: &str) -> 
     Ok(convert_case_str(&original, case)?)
 }
 
-pub fn builtin_convert_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_convert_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
         return Err(EvalError::InvalidUsage(
@@ -728,19 +793,19 @@ pub fn builtin_convert_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<
     Ok(convert_case_str(&original, &case)?)
 }
 
-pub fn builtin_to_snake_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_to_snake_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "snake")
 }
 
-pub fn builtin_to_camel_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_to_camel_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "camel")
 }
 
-pub fn builtin_to_pascal_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_to_pascal_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "pascal")
 }
 
-pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     builtin_single_arg_case(eval, node, "screaming")
 }
 ¤])
@@ -748,7 +813,7 @@ pub fn builtin_to_screaming_case(eval: &mut Evaluator, node: &ASTNode) -> EvalRe
 ¤h2(¤[Python store builtins¤])
 
 ¤rust_chunk(builtins py store builtins, ¤[
-pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
         return Err(EvalError::InvalidUsage(
@@ -761,7 +826,7 @@ pub fn builtin_pyset(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
     Ok("".into())
 }
 
-pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if node.parts.is_empty() {
         return Err(EvalError::InvalidUsage("pyget: requires a key".into()));
     }
@@ -773,7 +838,7 @@ pub fn builtin_pyget(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String>
 ¤h2(¤[`%env`¤])
 
 ¤rust_chunk(builtins env, ¤[
-pub fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_env(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     if !eval.allow_env() {
         return Err(EvalError::InvalidUsage(
             "env: environment variable access is disabled; pass --allow-env to enable".into(),
@@ -803,7 +868,7 @@ which is falsy, so `%not()` → `"1"`.
 ¤rust_chunk(builtins predicates, ¤[
 /// `%eq(a, b)` — returns `"1"` if `a == b` (byte-exact), else `""`.
 /// Canonical boolean predicate; always returns `1` or `""`, never an operand.
-pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
         return Err(EvalError::InvalidUsage("eq: exactly 2 args".into()));
@@ -814,7 +879,7 @@ pub fn builtin_eq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
 }
 
 /// `%neq(a, b)` — returns `"1"` if `a != b` (byte-exact), else `""`.
-pub fn builtin_neq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_neq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() != 2 {
         return Err(EvalError::InvalidUsage("neq: exactly 2 args".into()));
@@ -827,7 +892,7 @@ pub fn builtin_neq(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
 /// `%not(x)` — returns `"1"` if `x` is the empty string, else `""`.
 /// Logical negation: empty string is falsy, any non-empty string is truthy.
 /// Accepts 0 or 1 args; 0 args is treated as empty string → returns `"1"`.
-pub fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
+pub(in crate::evaluator::builtins) fn builtin_not(eval: &mut Evaluator, node: &ASTNode) -> EvalResult<String> {
     let parts = &node.parts;
     if parts.len() > 1 {
         return Err(EvalError::InvalidUsage("not: at most 1 arg".into()));

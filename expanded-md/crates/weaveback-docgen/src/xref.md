@@ -106,7 +106,7 @@ crate names (normalised to underscore form).  The list is used by
 
 ```rust
 // <[xref-workspace]>=
-pub fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
+pub(crate) fn workspace_crate_names(crates_dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
     let Ok(entries) = std::fs::read_dir(crates_dir) else {
         return names;
@@ -147,7 +147,7 @@ because the module will simply have no edges in the graph.
 
 ```rust
 // <[xref-use-tree]>=
-fn collect_use_tree(tree: &syn::UseTree, prefix: &str, out: &mut Vec<String>) {
+pub(in crate::xref) fn collect_use_tree(tree: &syn::UseTree, prefix: &str, out: &mut Vec<String>) {
     match tree {
         syn::UseTree::Path(p) => {
             let new_prefix = format!("{}{}::", prefix, p.ident);
@@ -173,11 +173,11 @@ fn collect_use_tree(tree: &syn::UseTree, prefix: &str, out: &mut Vec<String>) {
     }
 }
 
-fn is_pub(vis: &syn::Visibility) -> bool {
+pub(in crate::xref) fn is_pub(vis: &syn::Visibility) -> bool {
     matches!(vis, syn::Visibility::Public(_))
 }
 
-fn collect_items(items: &[syn::Item], use_paths: &mut Vec<String>, symbols: &mut Vec<String>) {
+pub(in crate::xref) fn collect_items(items: &[syn::Item], use_paths: &mut Vec<String>, symbols: &mut Vec<String>) {
     for item in items {
         match item {
             syn::Item::Use(u) => {
@@ -215,7 +215,7 @@ fn collect_items(items: &[syn::Item], use_paths: &mut Vec<String>, symbols: &mut
     }
 }
 
-fn analyze_file(path: &Path) -> (Vec<String>, Vec<String>) {
+pub(in crate::xref) fn analyze_file(path: &Path) -> (Vec<String>, Vec<String>) {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return (vec![], vec![]),
@@ -250,7 +250,7 @@ silently dropped and produces no graph edge.
 
 ```rust
 // <[xref-resolve]>=
-fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> Option<String> {
+pub(in crate::xref) fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> Option<String> {
     for len in (1..=segments.len()).rev() {
         let parts = &segments[..len];
         let rel: PathBuf = parts.iter().collect();
@@ -263,7 +263,7 @@ fn resolve_to_module(segments: &[&str], crate_dir: &Path, crate_name: &str) -> O
     None
 }
 
-fn resolve_import(
+pub(in crate::xref) fn resolve_import(
     use_path: &str,
     current_key: &str,
     current_crate: &str,
@@ -322,7 +322,7 @@ in `inject_xref` so long as the `.adoc` stem matches the `.rs` stem.
 
 ```rust
 // <[xref-adoc-scan]>=
-fn atfile_re() -> &'static Regex {
+pub(in crate::xref) fn atfile_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"<<@file\s+([^>]+?)>>").unwrap())
 }
@@ -378,7 +378,7 @@ files, not generated output.
 // <[xref-exclude]>=
 const EXCLUDE_DIRS: &[&str] = &["target", ".git", "gen", "node_modules", ".venv"];
 
-fn is_excluded(path: &Path) -> bool {
+pub(in crate::xref) fn is_excluded(path: &Path) -> bool {
     path.components().any(|c| {
         EXCLUDE_DIRS
             .iter()
@@ -505,7 +505,7 @@ pub fn build_xref(project_root: &Path, use_lsp: bool) -> HashMap<String, XrefEnt
     result
 }
 
-fn enrich_with_lsp(
+pub(in crate::xref) fn enrich_with_lsp(
     client: &mut LspClient,
     current_key: &str,
     path: &Path,
@@ -545,7 +545,7 @@ fn enrich_with_lsp(
     }
 }
 
-fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
+pub(in crate::xref) fn find_line_col(text: &str, byte_offset: usize) -> (u32, u32) {
     let offset = byte_offset.min(text.len());
     let prefix = &text[..offset];
     let line_1 = prefix.bytes().filter(|&b| b == b'\n').count() as u32 + 1;
@@ -573,15 +573,127 @@ use std::sync::OnceLock;
 use weaveback_lsp::LspClient;
 
 // <[xref-types]>
-// <[xref-module-key]>
-// <[xref-workspace]>
-// <[xref-use-tree]>
-// <[xref-resolve]>
-// <[xref-adoc-scan]>
-// <[xref-exclude]>
-// <[xref-build]>
+mod adoc_scan;
+mod analysis;
+mod build;
+mod exclude;
+mod module_key;
+mod resolve;
+mod workspace;
+
+pub use adoc_scan::scan_adoc_file_declarations;
+pub use build::build_xref;
+pub use module_key::{html_path_for_key, module_key};
+
+#[cfg(test)]
+use analysis::{analyze_file, collect_items, collect_use_tree};
+#[cfg(test)]
+use build::find_line_col;
+#[cfg(test)]
+use exclude::is_excluded;
+#[cfg(test)]
+use resolve::{resolve_import, resolve_to_module};
+#[cfg(test)]
+use workspace::workspace_crate_names;
+
 #[cfg(test)]
 mod tests;
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/module_key.rs]>=
+// weaveback-docgen/src/xref/module_key.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[xref-module-key]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/workspace.rs]>=
+// weaveback-docgen/src/xref/workspace.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[xref-workspace]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/analysis.rs]>=
+// weaveback-docgen/src/xref/analysis.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[xref-use-tree]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/resolve.rs]>=
+// weaveback-docgen/src/xref/resolve.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[xref-resolve]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/adoc_scan.rs]>=
+// weaveback-docgen/src/xref/adoc_scan.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::exclude::is_excluded;
+
+// <[xref-adoc-scan]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/exclude.rs]>=
+// weaveback-docgen/src/xref/exclude.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[xref-exclude]>
+
+// @
+```
+
+
+```rust
+// <[@file weaveback-docgen/src/xref/build.rs]>=
+// weaveback-docgen/src/xref/build.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::analysis::analyze_file;
+use super::exclude::is_excluded;
+use super::resolve::resolve_import;
+use super::workspace::workspace_crate_names;
+
+// <[xref-build]>
 
 // @
 ```

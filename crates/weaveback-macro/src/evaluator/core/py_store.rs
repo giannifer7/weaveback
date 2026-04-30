@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/py_store.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn pystore_set(&mut self, key: String, value: String) {
         self.py_store.insert(key, value);

@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/parse_include.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn parse_string(&mut self, text: &str, path: &PathBuf) -> Result<ASTNode, EvalError> {
         let src = match fs::metadata(path) {
@@ -16,7 +18,7 @@ impl Evaluator {
         result.map_err(EvalError::ParseError)
     }
 
-    fn find_file(&self, filename: &str) -> EvalResult<PathBuf> {
+    pub(super) fn find_file(&self, filename: &str) -> EvalResult<PathBuf> {
         let p = Path::new(filename);
         if p.is_absolute() && p.exists() {
             return Ok(p.to_path_buf());

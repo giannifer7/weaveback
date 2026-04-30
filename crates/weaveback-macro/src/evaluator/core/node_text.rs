@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/node_text.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn node_text(&self, node: &ASTNode) -> String {
         if let Some(source) = self.state.source_manager.get_source(node.token.src) {

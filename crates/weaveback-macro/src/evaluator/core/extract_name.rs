@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/extract_name.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn extract_name_value(&self, name_token: &Token) -> String {
         if let Some(source) = self.state.source_manager.get_source(name_token.src) {

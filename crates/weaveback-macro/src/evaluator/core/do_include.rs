@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/do_include.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn do_include(&mut self, filename: &str) -> EvalResult<String> {
         let path = self.find_file(filename)?;

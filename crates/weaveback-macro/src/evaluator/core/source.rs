@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/source.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn add_source_if_not_present(&mut self, file_path: PathBuf) -> Result<u32, std::io::Error> {
         self.state

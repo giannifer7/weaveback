@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/evaluate_to.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     /// Like `evaluate`, but writes to an `EvalOutput` sink so that span
     /// information is available to the caller.
@@ -14,7 +16,7 @@ impl Evaluator {
 
     /// Internal evaluation method that accepts an optional `context_span` prefix.
     /// This is used to thread `MacroBody` attribution down the evaluation tree.
-    fn evaluate_to_with_context(
+    pub(super) fn evaluate_to_with_context(
         &mut self,
         node: &ASTNode,
         out: &mut dyn EvalOutput,

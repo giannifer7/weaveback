@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/export.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn export(&mut self, name: &str) {
         let stack_len = self.state.scope_stack.len();

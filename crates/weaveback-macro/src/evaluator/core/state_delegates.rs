@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/state_delegates.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn define_macro(&mut self, mac: crate::evaluator::state::MacroDefinition) -> EvalResult<()> {
         self.state.define_macro(mac)
@@ -23,18 +25,18 @@ impl Evaluator {
     }
 
     pub fn record_var_def(&mut self, var_name: String, src: u32, pos: u32, length: u32) {
-        self.state.var_defs.push(super::state::VarDefRaw { var_name, src, pos, length });
+        self.state.var_defs.push(crate::evaluator::state::VarDefRaw { var_name, src, pos, length });
     }
 
     pub fn record_macro_def(&mut self, macro_name: String, src: u32, pos: u32, length: u32) {
-        self.state.macro_defs.push(super::state::MacroDefRaw { macro_name, src, pos, length });
+        self.state.macro_defs.push(crate::evaluator::state::MacroDefRaw { macro_name, src, pos, length });
     }
 
-    pub fn drain_var_defs(&mut self) -> Vec<super::state::VarDefRaw> {
+    pub fn drain_var_defs(&mut self) -> Vec<crate::evaluator::state::VarDefRaw> {
         self.state.drain_var_defs()
     }
 
-    pub fn drain_macro_defs(&mut self) -> Vec<super::state::MacroDefRaw> {
+    pub fn drain_macro_defs(&mut self) -> Vec<crate::evaluator::state::MacroDefRaw> {
         self.state.drain_macro_defs()
     }
 

@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/evaluate.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn evaluate(&mut self, node: &ASTNode) -> EvalResult<String> {
         if self.state.early_exit {

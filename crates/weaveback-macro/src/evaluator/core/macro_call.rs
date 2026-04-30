@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/macro_call.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     pub fn evaluate_macro_call(&mut self, node: &ASTNode, name: &str) -> EvalResult<String> {
         if let Some(bf) = self.builtins.get(name) {

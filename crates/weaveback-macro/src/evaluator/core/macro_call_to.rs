@@ -1,6 +1,8 @@
 // weaveback-macro/src/evaluator/core/macro_call_to.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
     /// Like `evaluate_macro_call`, but writes to an `EvalOutput` sink.
     pub fn evaluate_macro_call_to(

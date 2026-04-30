@@ -1,8 +1,10 @@
 // weaveback-macro/src/evaluator/core/accessors.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Evaluator {
-    fn macro_param_nodes(node: &ASTNode) -> Vec<&ASTNode> {
+    pub(super) fn macro_param_nodes(node: &ASTNode) -> Vec<&ASTNode> {
         node.parts
             .iter()
             .filter(|p| p.kind == NodeKind::Param)
@@ -55,7 +57,7 @@ impl Evaluator {
             .any(|child| self.arg_contains_builtin_call(child, builtin_name))
     }
 
-    fn validate_argument_side_effects(
+    pub(super) fn validate_argument_side_effects(
         &self,
         param_nodes: &[&ASTNode],
         macro_name: &str,
@@ -91,7 +93,7 @@ impl Evaluator {
         Ok(())
     }
 
-    fn plan_macro_bindings<'a>(
+    pub(super) fn plan_macro_bindings<'a>(
         &self,
         mac: &'a MacroDefinition,
         param_nodes: &[&'a ASTNode],

@@ -46,6 +46,7 @@ pub(in crate::server) use watcher::{spawn_watcher, ReloadVersion, SseSenders};
 
 #[cfg(test)]
 pub(crate) use ai::{
+    AiChannelReader,
     build_chunk_context,
     dep_bodies,
     extract_prose,
@@ -54,7 +55,6 @@ pub(crate) use ai::{
     section_range,
     sse_headers,
     title_chain,
-    AiChannelReader,
 };
 #[cfg(test)]
 pub(crate) use open::percent_decode;

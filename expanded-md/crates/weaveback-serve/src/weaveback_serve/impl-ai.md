@@ -49,8 +49,7 @@ and sends formatted SSE lines through the channel.  This decouples the
 Anthropic response parsing from the tiny_http response write loop.
 
 ```rust
-// <[serve-ai]>=
-use std::process::Stdio;
+// <[serve-ai-context]>=
 
 // ── AsciiDoc source helpers ───────────────────────────────────────────────────
 
@@ -257,7 +256,12 @@ pub(crate) fn build_chunk_context(
         "git_log":              log,
     })
 }
+// @
+```
 
+
+```rust
+// <[serve-ai-stream]>=
 pub(crate) struct AiChannelReader {
     rx:  std::sync::mpsc::Receiver<String>,
     buf: Vec<u8>,
@@ -296,6 +300,13 @@ pub(crate) fn sse_headers() -> Vec<Header> {
         Header::from_bytes("Access-Control-Allow-Origin","*").unwrap(),
     ]
 }
+// @
+```
+
+
+```rust
+// <[serve-ai-backends]>=
+use std::process::Stdio;
 
 /// Call `claude -p --output-format stream-json --verbose` as a subprocess.
 ///
@@ -308,7 +319,7 @@ pub(crate) fn sse_headers() -> Vec<Header> {
 /// * `type == "assistant"` — message with `message.content[].text` fields;
 ///   send each text chunk as a token event.
 /// * `type == "result"` — final summary; stop reading.
-fn call_claude_cli(
+pub(in crate::server::ai) fn call_claude_cli(
     system_prompt: String,
     user_content: String,
     tx: std::sync::mpsc::Sender<String>,
@@ -377,7 +388,7 @@ fn call_claude_cli(
 ///
 /// Requires `ANTHROPIC_API_KEY`.  Parses the native Anthropic SSE stream
 /// (`content_block_delta` events) and forwards text deltas to the channel.
-fn call_anthropic_api(
+pub(in crate::server::ai) fn call_anthropic_api(
     api_key: String,
     api_body: serde_json::Value,
     tx: std::sync::mpsc::Sender<String>,
@@ -434,7 +445,7 @@ fn call_anthropic_api(
 /// Call the Google Gemini API directly via HTTP.
 ///
 /// Requires `GOOGLE_API_KEY`. Uses the `streamGenerateContent` endpoint.
-fn call_gemini_api(
+pub(in crate::server::ai) fn call_gemini_api(
     api_key: String,
     model: String,
     system_prompt: String,
@@ -509,7 +520,7 @@ fn call_gemini_api(
 /// Call a local Ollama API via HTTP.
 ///
 /// Uses the `/api/chat` endpoint with `stream: true`.
-fn call_ollama_api(
+pub(in crate::server::ai) fn call_ollama_api(
     base_url: String,
     model: String,
     system_prompt: String,
@@ -575,7 +586,7 @@ fn call_ollama_api(
 /// Call an OpenAI-compatible API directly via HTTP.
 ///
 /// Handles standard Chat Completions streaming format.
-fn call_openai_api(
+pub(in crate::server::ai) fn call_openai_api(
     api_key: Option<String>,
     base_url: String,
     model: String,
@@ -641,7 +652,12 @@ fn call_openai_api(
     }
     let _ = tx.send("event: done\ndata:\n\n".to_string());
 }
+// @
+```
 
+
+```rust
+// <[serve-ai-handler]>=
 pub(in crate::server) fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {

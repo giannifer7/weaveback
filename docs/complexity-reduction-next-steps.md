@@ -34,6 +34,9 @@ Completed or materially improved:
   `crates/weaveback-serve/src/lib.rs` is now a small facade, implementation
   files live under `crates/weaveback-serve/src/server/`, and tests are assembled
   from focused files under `crates/weaveback-serve/src/tests/`.
+* The largest remaining `weaveback-serve` file, `server/ai.rs`, has also been
+  split.  It is now a small facade over context extraction, stream plumbing,
+  backend calls, and request handling files under `src/server/ai/`.
 * `coverage` has been split at both literate-source and Rust-file level.
   `crates/weaveback-api/src/coverage.rs` is now a small facade, implementation
   files live under `crates/weaveback-api/src/coverage/`, and tests are assembled
@@ -340,9 +343,9 @@ The best next commit is probably:
 
 * split the next largest remaining generated Rust file after a fresh line-count
   audit
-* likely candidates include the dense MCP runtime dispatch file,
-  parser/lexer modules, evaluator modules, or large test aggregations that
-  remain above the chosen threshold
+* likely candidates include the dense macro parser/lexer modules, MCP runtime
+  dispatch, evaluator modules, or large test aggregations that remain above the
+  chosen threshold
 * keep public APIs stable unless the user explicitly chooses semantic cleanup
 * run targeted tests plus full lint/check/docs
 

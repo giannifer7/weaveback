@@ -144,6 +144,7 @@ pub(in crate::server) use watcher::{spawn_watcher, ReloadVersion, SseSenders};
 
 #[cfg(test)]
 pub(crate) use ai::{
+    AiChannelReader,
     build_chunk_context,
     dep_bodies,
     extract_prose,
@@ -152,7 +153,6 @@ pub(crate) use ai::{
     section_range,
     sse_headers,
     title_chain,
-    AiChannelReader,
 };
 #[cfg(test)]
 pub(crate) use open::percent_decode;
@@ -322,7 +322,88 @@ use super::*;
 
 use super::*;
 
-// <[serve-ai]>
+mod backends;
+mod context;
+mod handler;
+mod stream;
+
+use backends::{
+    call_anthropic_api,
+    call_claude_cli,
+    call_gemini_api,
+    call_ollama_api,
+    call_openai_api,
+};
+pub(crate) use context::build_chunk_context;
+pub(crate) use stream::{AiChannelReader, sse_headers};
+
+pub(in crate::server) use handler::handle_ai;
+
+#[cfg(test)]
+pub(crate) use context::{
+    dep_bodies,
+    extract_prose,
+    git_log_for_file,
+    heading_level,
+    section_range,
+    title_chain,
+};
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-serve/src/server/ai/context.rs]>=
+// weaveback-serve/src/server/ai/context.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[serve-ai-context]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-serve/src/server/ai/stream.rs]>=
+// weaveback-serve/src/server/ai/stream.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[serve-ai-stream]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-serve/src/server/ai/backends.rs]>=
+// weaveback-serve/src/server/ai/backends.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[serve-ai-backends]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-serve/src/server/ai/handler.rs]>=
+// weaveback-serve/src/server/ai/handler.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[serve-ai-handler]>
 
 // @
 ----

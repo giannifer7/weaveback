@@ -66,8 +66,9 @@ Still problematic:
 * Several generated Rust files remain too large for local reasoning.
 * Some large test modules are still grouped into broad files rather than concern
   files.
-* CI runs strict literate lint, but does not yet appear to enforce a retangle
-  drift check.
+* CI runs strict literate lint and now enforces a retangle drift check by
+  running `cargo run --package wb-tangle -- --force-generated` followed by
+  `git diff --exit-code`.
 * Some old `.adoc` implementation sources remain, mostly manifests and CLI
   specs.  These may be legitimate, but they need explicit classification.
 
@@ -171,7 +172,7 @@ Acceptance criteria:
   `tests_coverage.rs`.
 * Existing coverage commands and MCP behavior still pass.
 
-### 3. Add retangle drift enforcement
+### 3. Add retangle drift enforcement — completed
 
 Target:
 
@@ -204,6 +205,12 @@ Acceptance criteria:
 
 * A clean checkout can retangle without producing tracked diffs.
 * CI fails when generated files drift from canonical sources.
+
+Status:
+
+* Completed after the serve AI split.
+* The generated CI workflow runs a dedicated generated-file check before tests.
+* The root `justfile` has a matching `check-generated` recipe for local use.
 
 ### 4. Split weaveback-tangle DB — completed
 

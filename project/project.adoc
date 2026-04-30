@@ -217,6 +217,11 @@ lint:
     cargo clippy -- -D warnings
     cargo run --package wb-query -- lint --strict
 
+# Verify generated files are current with the canonical literate sources
+check-generated:
+    cargo run --package wb-tangle -- --force-generated
+    git diff --exit-code
+
 # Python lint/type-check suite
 lint-python:
     cd {{_pyproj}} && uv run ruff check .

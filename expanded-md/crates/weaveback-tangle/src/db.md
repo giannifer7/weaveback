@@ -85,8 +85,9 @@ assembled from focused files under `weaveback-tangle/src/db/tests/`.
 
 ## Assembly
 
-`db.rs` remains the public database module facade.  It includes focused generated
-files in one module so private helper visibility and the public API stay stable.
+`db.rs` remains the public database module facade.  It declares focused
+generated files as real Rust modules and re-exports the small internal surface
+those sibling modules share.
 
 ```rust
 // <[@file weaveback-tangle/src/db.rs]>=
@@ -96,19 +97,27 @@ files in one module so private helper visibility and the public API stay stable.
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::path::Path;
 
-include!("db/schema.rs");
-include!("db/types.rs");
-include!("db/open.rs");
-include!("db/baselines.rs");
-include!("db/noweb_map.rs");
-include!("db/chunk_deps.rs");
-include!("db/chunk_defs.rs");
-include!("db/macro_map.rs");
-include!("db/config.rs");
-include!("db/source_blocks.rs");
-include!("db/merge.rs");
-include!("db/snapshots_defs.rs");
-include!("db/fts.rs");
+mod schema;
+mod types;
+mod open;
+mod baselines;
+mod noweb_map;
+mod chunk_deps;
+mod chunk_defs;
+mod macro_map;
+mod config;
+mod source_blocks;
+mod merge;
+mod snapshots_defs;
+mod fts;
+
+pub use fts::{BlockForEmbedding, FtsResult, TaggedBlock};
+pub use types::BlockForTagging;
+pub use open::WeavebackDb;
+pub use types::*;
+
+pub(in crate::db) use open::{apply_schema, intern_file};
+pub(in crate::db) use schema::CREATE_SCHEMA;
 
 #[cfg(test)]
 mod tests;
@@ -144,6 +153,8 @@ mod tests;
 // weaveback-tangle/src/db/open.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-open]>
 
 // @
@@ -154,6 +165,8 @@ mod tests;
 // <[@file weaveback-tangle/src/db/baselines.rs]>=
 // weaveback-tangle/src/db/baselines.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[db-baselines]>
 
@@ -166,6 +179,8 @@ mod tests;
 // weaveback-tangle/src/db/noweb_map.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-noweb-map]>
 
 // @
@@ -176,6 +191,8 @@ mod tests;
 // <[@file weaveback-tangle/src/db/chunk_deps.rs]>=
 // weaveback-tangle/src/db/chunk_deps.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[db-chunk-deps]>
 
@@ -188,6 +205,8 @@ mod tests;
 // weaveback-tangle/src/db/chunk_defs.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-chunk-defs-api]>
 
 // @
@@ -198,6 +217,8 @@ mod tests;
 // <[@file weaveback-tangle/src/db/macro_map.rs]>=
 // weaveback-tangle/src/db/macro_map.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[db-macro-map]>
 
@@ -210,6 +231,8 @@ mod tests;
 // weaveback-tangle/src/db/config.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-config]>
 
 // @
@@ -220,6 +243,8 @@ mod tests;
 // <[@file weaveback-tangle/src/db/source_blocks.rs]>=
 // weaveback-tangle/src/db/source_blocks.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[db-source-blocks]>
 
@@ -232,6 +257,8 @@ mod tests;
 // weaveback-tangle/src/db/merge.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-merge]>
 
 // @
@@ -243,6 +270,8 @@ mod tests;
 // weaveback-tangle/src/db/snapshots_defs.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[db-rest]>
 
 // @
@@ -253,6 +282,8 @@ mod tests;
 // <[@file weaveback-tangle/src/db/fts.rs]>=
 // weaveback-tangle/src/db/fts.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[db-fts]>
 

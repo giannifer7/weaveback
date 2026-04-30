@@ -1,9 +1,11 @@
 // weaveback-tangle/src/noweb/clip.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub struct Clip {
-    store: ChunkStore,
-    writer: SafeFileWriter,
+    pub(super) store: ChunkStore,
+    pub(super) writer: SafeFileWriter,
 }
 
 impl Clip {

@@ -1,7 +1,9 @@
 // weaveback-tangle/src/noweb/writer.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-pub struct ChunkWriter<'a> {
+use super::*;
+
+pub(in crate::noweb) struct ChunkWriter<'a> {
     safe_file_writer: &'a mut SafeFileWriter,
 }
 

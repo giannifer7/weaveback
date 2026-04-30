@@ -45,7 +45,7 @@ fn normalise_for_hash(line: &str) -> &str {
     }
 }
 
-fn remap_noweb_entries(
+pub(in crate::noweb) fn remap_noweb_entries(
     pre_lines: &[String],
     post_content: &str,
     entries: Vec<NowebMapEntry>,

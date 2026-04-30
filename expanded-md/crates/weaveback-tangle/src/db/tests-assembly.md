@@ -7,7 +7,9 @@ The generated DB test module includes focused generated test bodies.
 // weaveback-tangle/src/db/tests.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-include!("tests/merge.rs");
+use super::*;
+
+mod merge;
 
 // @
 ```

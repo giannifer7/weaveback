@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/lcov_summary.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn parse_lcov_records_extracts_file_line_hits() {
     let text = "TN:\nSF:src/generated.rs\nDA:1,3\nDA:2,0\nend_of_record\nSF:other.rs\nDA:4,1\nend_of_record\n";

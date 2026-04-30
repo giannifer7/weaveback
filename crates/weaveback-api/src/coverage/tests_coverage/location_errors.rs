@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/location_errors.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn test_parse_lcov_records_simple() {
     let lcov = "SF:file.rs\nDA:1,10\nDA:2,0\nend_of_record\nSF:other.rs\nDA:5,1\nend_of_record\n";

@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/config.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl WeavebackDb {
     pub fn set_source_config(
         &self,

@@ -7,10 +7,10 @@ ChunkStore state, construction, source ingestion, and chunk definition parsing.
 ```rust
 // <[noweb-chunkstore-struct]>=
 pub struct ChunkStore {
-    chunks: HashMap<String, NamedChunk>,
-    file_chunks: Vec<String>,
-    syntax: NowebSyntax,
-    file_names: Vec<String>,
+    pub(super) chunks: HashMap<String, NamedChunk>,
+    pub(super) file_chunks: Vec<String>,
+    pub(super) syntax: NowebSyntax,
+    pub(super) file_names: Vec<String>,
     /// When `true`, referencing an undefined chunk is a fatal error
     /// and `@file` redefinition without `@replace` is also a fatal error.
     /// Default `false`: undefined chunks expand to nothing; redefinitions warn.

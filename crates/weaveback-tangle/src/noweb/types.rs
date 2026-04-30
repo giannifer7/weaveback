@@ -1,20 +1,22 @@
 // weaveback-tangle/src/noweb/types.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[derive(Debug, Clone)]
-struct ChunkDef {
-    content: Vec<String>,
-    base_indent: usize,
-    file_idx: usize,
+pub(in crate::noweb) struct ChunkDef {
+    pub(in crate::noweb) content: Vec<String>,
+    pub(in crate::noweb) base_indent: usize,
+    pub(in crate::noweb) file_idx: usize,
     /// 0-indexed line of the open marker (`// <<name>>=`) in the source file.
-    line: usize,
+    pub(in crate::noweb) line: usize,
     /// 0-indexed line of the close marker (`// @@`).  `None` if the file ended
     /// before the close marker was seen (malformed input).
-    def_end: Option<usize>,
+    pub(in crate::noweb) def_end: Option<usize>,
 }
 
 impl ChunkDef {
-    fn new(base_indent: usize, file_idx: usize, line: usize) -> Self {
+    pub(in crate::noweb) fn new(base_indent: usize, file_idx: usize, line: usize) -> Self {
         Self {
             content: Vec::new(),
             base_indent,
@@ -78,10 +80,10 @@ pub struct ChunkDefinitionMatch {
 }
 
 #[derive(Debug, Clone)]
-struct ChunkReferenceMatch {
-    add_indent: String,
-    modifier: String,
-    referenced_chunk: String,
+pub(in crate::noweb) struct ChunkReferenceMatch {
+    pub(in crate::noweb) add_indent: String,
+    pub(in crate::noweb) modifier: String,
+    pub(in crate::noweb) referenced_chunk: String,
 }
 
 #[derive(Debug, Clone)]
@@ -148,7 +150,7 @@ impl NowebSyntax {
             && self.close_re.is_match(line)
     }
 
-    fn parse_reference_line(&self, line: &str) -> Option<ChunkReferenceMatch> {
+    pub(super) fn parse_reference_line(&self, line: &str) -> Option<ChunkReferenceMatch> {
         memchr::memmem::find(line.as_bytes(), &self.open_bytes)?;
         let caps = self.slot_re.captures(line)?;
         Some(ChunkReferenceMatch {
@@ -159,12 +161,12 @@ impl NowebSyntax {
     }
 }
 #[derive(Debug)]
-struct NamedChunk {
-    definitions: Vec<ChunkDef>,
+pub(in crate::noweb) struct NamedChunk {
+    pub(in crate::noweb) definitions: Vec<ChunkDef>,
 }
 
 impl NamedChunk {
-    fn new() -> Self {
+    pub(in crate::noweb) fn new() -> Self {
         Self {
             definitions: Vec::new(),
         }

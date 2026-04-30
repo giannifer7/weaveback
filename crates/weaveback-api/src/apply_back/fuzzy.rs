@@ -1,12 +1,14 @@
 // weaveback-api/src/apply_back/fuzzy.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Search `lines` in a ±`window` range around `center` for a unique line that
 /// matches a whitespace-normalised regex derived from `needle`.
 ///
 /// Returns the 0-indexed line index on a unique match; `None` if not found or
 /// ambiguous.
-fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize) -> Option<usize> {
+pub(in crate::apply_back) fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize) -> Option<usize> {
     let trimmed = needle.trim();
     if trimmed.is_empty() { return None; }
 

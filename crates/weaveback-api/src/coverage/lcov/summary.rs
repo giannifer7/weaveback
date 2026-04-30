@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/lcov/summary.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
     db: &weaveback_tangle::db::WeavebackDb,
@@ -362,7 +364,7 @@ pub fn build_coverage_summary(
     })
 }
 
-fn find_noweb_entries_for_generated_file(
+pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
     db: &weaveback_tangle::db::WeavebackDb,
     file_name: &str,
     project_root: &Path,
@@ -399,7 +401,7 @@ fn find_noweb_entries_for_generated_file(
 /// Returns a JSON array of `{start, end, missed_count}` objects so the
 /// result can be embedded directly in the summary JSON and consumed by
 /// both agents (via JSON output) and humans (via `--summary`).
-fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
+pub(in crate::coverage) fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
     let mut lines: Vec<(u64, bool)> = generated_lines
         .iter()
         .filter_map(|r| {

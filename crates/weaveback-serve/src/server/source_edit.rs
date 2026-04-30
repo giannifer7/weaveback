@@ -1,6 +1,8 @@
 // weaveback-serve/src/server/source_edit.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn apply_chunk_edit(src_text: &str, def_start: usize, def_end: usize, new_body: &str) -> String {
     let src_lines: Vec<&str> = src_text.lines().collect();
     if def_start >= src_lines.len() || def_end > src_lines.len() {
@@ -48,13 +50,13 @@ pub fn insert_note_into_source(src_text: &str, def_end: usize, note: &str) -> St
     }
     new_content
 }
-fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
+pub(crate) fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(val.to_string())
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
         .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap())
 }
 
-fn tangle_oracle(
+pub(crate) fn tangle_oracle(
     project_root: &Path,
     modified_file: &str,
     new_content: &str,
@@ -102,7 +104,7 @@ fn tangle_oracle(
         .map_err(|e| e.to_string())
 }
 
-fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
+pub(in crate::server) fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     // Read and parse request body.
     let mut body_str = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body_str) {

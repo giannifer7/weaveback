@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/lcov/run.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn run_coverage(
     summary_only: bool,
     top_sources: usize,

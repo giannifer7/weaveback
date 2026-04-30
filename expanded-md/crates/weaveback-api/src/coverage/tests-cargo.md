@@ -175,7 +175,7 @@ fn emit_cargo_summary_message_emits_final_grouped_json() {
 }
 
 use std::sync::Mutex;
-static CARGO_TEST_MUTEX: Mutex<()> = Mutex::new(());
+pub(super) static CARGO_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
 fn run_cargo_annotated_to_writer_traces_real_generated_compile_error() {

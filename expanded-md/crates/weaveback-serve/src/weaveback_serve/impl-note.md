@@ -12,7 +12,7 @@ responses as first-class literate documentation — they become part of
 
 ```rust
 // <[serve-save-note]>=
-fn handle_save_note(mut request: Request, project_root: &Path) {
+pub(in crate::server) fn handle_save_note(mut request: Request, project_root: &Path) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
         let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"io_error"})));

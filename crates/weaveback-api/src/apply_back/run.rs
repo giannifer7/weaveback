@@ -1,6 +1,8 @@
 // weaveback-api/src/apply_back/run.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn run_apply_back(opts: ApplyBackOptions, out: &mut dyn Write) -> Result<(), ApplyBackError> {
     if !opts.db_path.exists() {
         let _ = writeln!(out,

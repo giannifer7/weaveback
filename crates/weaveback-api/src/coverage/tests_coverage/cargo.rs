@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/cargo.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn emit_augmented_cargo_message_attaches_full_trace_json() {
     let line = r#"{"reason":"compiler-message","message":{"spans":[]}}"#;
@@ -172,7 +174,7 @@ fn emit_cargo_summary_message_emits_final_grouped_json() {
 }
 
 use std::sync::Mutex;
-static CARGO_TEST_MUTEX: Mutex<()> = Mutex::new(());
+pub(super) static CARGO_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
 fn run_cargo_annotated_to_writer_traces_real_generated_compile_error() {

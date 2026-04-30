@@ -1,6 +1,8 @@
 // weaveback-tangle/src/noweb/remap.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Normalise a source line for content-hash matching:
 /// strip leading/trailing whitespace and drop any trailing `//` comment.
 fn normalise_for_hash(line: &str) -> &str {
@@ -13,7 +15,7 @@ fn normalise_for_hash(line: &str) -> &str {
     }
 }
 
-fn remap_noweb_entries(
+pub(in crate::noweb) fn remap_noweb_entries(
     pre_lines: &[String],
     post_content: &str,
     entries: Vec<NowebMapEntry>,

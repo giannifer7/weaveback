@@ -14,13 +14,22 @@ use crate::WeavebackError;
 use crate::SafeFileWriter;
 use log::debug;
 
-include!("noweb/types.rs");
-include!("noweb/paths.rs");
-include!("noweb/store_read.rs");
-include!("noweb/expand.rs");
-include!("noweb/utils.rs");
-include!("noweb/writer.rs");
-include!("noweb/clip.rs");
-include!("noweb/remap.rs");
-include!("noweb/write_files.rs");
+mod types;
+mod paths;
+mod store_read;
+mod expand;
+mod utils;
+mod writer;
+mod clip;
+mod remap;
+mod write_files;
+
+pub use clip::{tangle_check, Clip};
+pub use types::{ChunkDefinitionMatch, ChunkError, NowebSyntax};
+
+pub(in crate::noweb) use paths::{expand_tilde, path_is_safe};
+pub(in crate::noweb) use remap::remap_noweb_entries;
+pub(in crate::noweb) use store_read::ChunkStore;
+pub(in crate::noweb) use types::{ChunkDef, ChunkLocation, NamedChunk};
+pub(in crate::noweb) use writer::ChunkWriter;
 

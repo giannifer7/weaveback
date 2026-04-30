@@ -1,8 +1,10 @@
 // weaveback-api/src/apply_back/resolve.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[allow(clippy::too_many_arguments)]
-fn resolve_patch_source(
+pub(in crate::apply_back) fn resolve_patch_source(
     rel_path: &str,
     out_line_0: u32,
     col: u32,
@@ -103,7 +105,7 @@ fn resolve_patch_source(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn resolve_best_patch_source(
+pub(in crate::apply_back) fn resolve_best_patch_source(
     rel_path: &str,
     out_line_0: u32,
     old_text: &str,
@@ -180,7 +182,7 @@ fn resolve_best_patch_source(
     best.ok_or_else(|| ApplyBackError::Io(std::io::Error::other("no patch source candidates found")))
 }
 
-fn lsp_definition_hint(
+pub(in crate::apply_back) fn lsp_definition_hint(
     rel_path: &str,
     out_line_0: u32,
     col_1: u32,

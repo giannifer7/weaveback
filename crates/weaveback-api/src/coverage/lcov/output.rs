@@ -1,10 +1,12 @@
 // weaveback-api/src/coverage/lcov/output.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Print unmapped line ranges for one unattributed file.
 /// Reads `unmapped_ranges` from the pre-computed JSON field.
 /// When `show_content` is true and the file is readable, prints source lines.
-fn explain_unattributed_file(
+pub(in crate::coverage) fn explain_unattributed_file(
     file: &serde_json::Value,
     show_content: bool,
     out: &mut impl Write,
@@ -42,7 +44,7 @@ fn explain_unattributed_file(
     Ok(())
 }
 
-fn print_coverage_summary_to_writer(
+pub(in crate::coverage) fn print_coverage_summary_to_writer(
     summary: &serde_json::Value,
     top_sources: usize,
     top_sections: usize,

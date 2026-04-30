@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/locations.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn parse_generated_location_accepts_line_and_optional_col() {
     assert_eq!(

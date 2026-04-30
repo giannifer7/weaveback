@@ -7,8 +7,8 @@ Clip construction, read/query facade methods, and in-memory tangle check.
 ```rust
 // <[noweb-clip-core]>=
 pub struct Clip {
-    store: ChunkStore,
-    writer: SafeFileWriter,
+    pub(super) store: ChunkStore,
+    pub(super) writer: SafeFileWriter,
 }
 
 impl Clip {

@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/merge.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Escape a string for use inside a SQLite single-quoted string literal.
 fn sqlite_string_literal(s: &str) -> String {
     s.replace('\'', "''")

@@ -8,10 +8,11 @@ and test concerns stay physically separate.
 // weaveback-serve/src/tests.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-include!("tests/helpers.rs");
-include!("tests/core.rs");
-include!("tests/edge_cases.rs");
-include!("tests/editing.rs");
+mod helpers;
+use helpers::*;
+mod core;
+mod edge_cases;
+mod editing;
 
 // @
 ```
@@ -33,6 +34,8 @@ include!("tests/editing.rs");
 // weaveback-serve/src/tests/core.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[serve-tests-core]>
 
 // @
@@ -44,6 +47,8 @@ include!("tests/editing.rs");
 // weaveback-serve/src/tests/edge_cases.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[serve-tests-edge-cases]>
 
 // @
@@ -54,6 +59,8 @@ include!("tests/editing.rs");
 // <[@file weaveback-serve/src/tests/editing.rs]>=
 // weaveback-serve/src/tests/editing.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[serve-tests-editing]>
 

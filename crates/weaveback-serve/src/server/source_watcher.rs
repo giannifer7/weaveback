@@ -1,7 +1,9 @@
 // weaveback-serve/src/server/source_watcher.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-fn find_docgen_bin() -> PathBuf {
+use super::*;
+
+pub(crate) fn find_docgen_bin() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.with_file_name("weaveback-docgen");
         if sibling.exists() { return sibling; }
@@ -58,7 +60,7 @@ fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
     let _ = cmd.status();
 }
 
-fn spawn_source_watcher(project_root: PathBuf) {
+pub(in crate::server) fn spawn_source_watcher(project_root: PathBuf) {
     use std::time::Duration;
     thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();

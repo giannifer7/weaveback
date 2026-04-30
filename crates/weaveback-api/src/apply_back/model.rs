@@ -1,6 +1,8 @@
 // weaveback-api/src/apply_back/model.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[derive(Clone)]
 pub struct ApplyBackOptions {
     pub db_path: PathBuf,
@@ -13,7 +15,7 @@ pub struct ApplyBackOptions {
 }
 
 /// Where a patch lands and how to apply it.
-enum PatchSource {
+pub(in crate::apply_back) enum PatchSource {
     /// Hunk from noweb-level expanded text (no macro attribution available).
     Noweb { src_file: String, src_line: usize, len: usize },
     /// Literal text from the original literate source — safe to auto-patch.
@@ -37,7 +39,7 @@ enum PatchSource {
 }
 
 impl PatchSource {
-    fn src_file(&self) -> &str {
+    pub(in crate::apply_back) fn src_file(&self) -> &str {
         match self {
             PatchSource::Noweb              { src_file, .. }
             | PatchSource::Literal          { src_file, .. }
@@ -49,7 +51,7 @@ impl PatchSource {
     }
 }
 
-fn patch_source_rank(source: &PatchSource) -> i32 {
+pub(in crate::apply_back) fn patch_source_rank(source: &PatchSource) -> i32 {
     match source {
         PatchSource::MacroArg { .. } => 50,
         PatchSource::Literal { .. } => 40,
@@ -60,7 +62,7 @@ fn patch_source_rank(source: &PatchSource) -> i32 {
     }
 }
 
-fn patch_source_location(source: &PatchSource) -> (&str, usize) {
+pub(in crate::apply_back) fn patch_source_location(source: &PatchSource) -> (&str, usize) {
     match source {
         PatchSource::Noweb { src_file, src_line, .. }
         | PatchSource::Literal { src_file, src_line, .. }
@@ -71,61 +73,61 @@ fn patch_source_location(source: &PatchSource) -> (&str, usize) {
     }
 }
 
-struct Patch {
-    source: PatchSource,
+pub(in crate::apply_back) struct Patch {
+    pub(in crate::apply_back) source: PatchSource,
     /// Indent-stripped baseline gen/ text (may be multiple lines).
-    old_text: String,
+    pub(in crate::apply_back) old_text: String,
     /// Indent-stripped modified gen/ text (may be multiple lines).
-    new_text: String,
+    pub(in crate::apply_back) new_text: String,
     /// 0-indexed first line in the macro-expanded intermediate.
-    expanded_line: u32,
+    pub(in crate::apply_back) expanded_line: u32,
 }
 
-struct CandidateResolution {
-    line_idx: usize,
-    new_line: String,
-    score: i32,
+pub(in crate::apply_back) struct CandidateResolution {
+    pub(in crate::apply_back) line_idx: usize,
+    pub(in crate::apply_back) new_line: String,
+    pub(in crate::apply_back) score: i32,
 }
 
 #[derive(Clone)]
-struct LspDefinitionHint {
-    src_file: String,
-    src_line: usize,
+pub(in crate::apply_back) struct LspDefinitionHint {
+    pub(in crate::apply_back) src_file: String,
+    pub(in crate::apply_back) src_line: usize,
 }
 
-struct MacroArgSearch<'a> {
-    db: &'a WeavebackDb,
-    lines: &'a [String],
-    hinted_line: usize,
-    src_col: u32,
-    old_text: &'a str,
-    new_text: &'a str,
-    eval_config: &'a EvalConfig,
-    src_path: &'a std::path::Path,
-    expanded_line: u32,
+pub(in crate::apply_back) struct MacroArgSearch<'a> {
+    pub(in crate::apply_back) db: &'a WeavebackDb,
+    pub(in crate::apply_back) lines: &'a [String],
+    pub(in crate::apply_back) hinted_line: usize,
+    pub(in crate::apply_back) src_col: u32,
+    pub(in crate::apply_back) old_text: &'a str,
+    pub(in crate::apply_back) new_text: &'a str,
+    pub(in crate::apply_back) eval_config: &'a EvalConfig,
+    pub(in crate::apply_back) src_path: &'a std::path::Path,
+    pub(in crate::apply_back) expanded_line: u32,
 }
 
-struct MacroBodySearch<'a> {
-    db: &'a WeavebackDb,
-    lines: &'a [String],
-    hinted_line: usize,
-    body_template: Option<&'a str>,
-    old_text: &'a str,
-    new_text: &'a str,
-    sigil: char,
-    eval_config: &'a EvalConfig,
-    src_path: &'a std::path::Path,
-    expanded_line: u32,
+pub(in crate::apply_back) struct MacroBodySearch<'a> {
+    pub(in crate::apply_back) db: &'a WeavebackDb,
+    pub(in crate::apply_back) lines: &'a [String],
+    pub(in crate::apply_back) hinted_line: usize,
+    pub(in crate::apply_back) body_template: Option<&'a str>,
+    pub(in crate::apply_back) old_text: &'a str,
+    pub(in crate::apply_back) new_text: &'a str,
+    pub(in crate::apply_back) sigil: char,
+    pub(in crate::apply_back) eval_config: &'a EvalConfig,
+    pub(in crate::apply_back) src_path: &'a std::path::Path,
+    pub(in crate::apply_back) expanded_line: u32,
 }
 
-struct MacroCallSearch<'a> {
-    lines: &'a [String],
-    macro_name: &'a str,
-    sigil: char,
-    old_text: &'a str,
-    new_text: &'a str,
-    eval_config: &'a EvalConfig,
-    src_path: &'a std::path::Path,
-    expanded_line: u32,
+pub(in crate::apply_back) struct MacroCallSearch<'a> {
+    pub(in crate::apply_back) lines: &'a [String],
+    pub(in crate::apply_back) macro_name: &'a str,
+    pub(in crate::apply_back) sigil: char,
+    pub(in crate::apply_back) old_text: &'a str,
+    pub(in crate::apply_back) new_text: &'a str,
+    pub(in crate::apply_back) eval_config: &'a EvalConfig,
+    pub(in crate::apply_back) src_path: &'a std::path::Path,
+    pub(in crate::apply_back) expanded_line: u32,
 }
 

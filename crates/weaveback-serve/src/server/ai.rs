@@ -1,13 +1,15 @@
 // weaveback-serve/src/server/ai.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 use std::process::Stdio;
 
 // ── AsciiDoc source helpers ───────────────────────────────────────────────────
 
 /// Return the heading depth if `line` is an AsciiDoc `=`-style heading
 /// (1 = `=`, 2 = `==`, …), otherwise `None`.
-pub fn heading_level(line: &str) -> Option<usize> {
+pub(crate) fn heading_level(line: &str) -> Option<usize> {
     let t = line.trim_end();
     if t.is_empty() { return None; }
     let count = t.bytes().take_while(|&b| b == b'=').count();
@@ -22,7 +24,7 @@ pub fn heading_level(line: &str) -> Option<usize> {
 /// section that contains line `def_start`.  The section starts at the nearest
 /// heading above `def_start` and ends just before the next heading at the same
 /// or shallower nesting level.
-pub fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
+pub(crate) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
     let mut sec_start = 0usize;
     let mut sec_level = 1usize;
     for i in (0..def_start).rev() {
@@ -45,7 +47,7 @@ pub fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
 /// Build the heading breadcrumb trail leading to `def_start`.
 /// Returns titles from outermost to innermost, e.g.
 /// `["Module overview", "Parsing", "Error recovery"]`.
-pub fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
+pub(crate) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     let mut chain: Vec<(usize, String)> = Vec::new();
     for line in lines.iter().take(def_start) {
         if let Some(level) = heading_level(line) {
@@ -67,7 +69,7 @@ pub fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
 /// extraction still encounters raw chunk markers in section text, that is a
 /// source-structure problem and should eventually be reported by a linter
 /// rather than silently normalized by every downstream consumer.
-pub fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
+pub(crate) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;
     let mut in_chunk = false;
@@ -146,7 +148,7 @@ pub fn git_log_for_file(project_root: &Path, src_file: &str) -> Vec<String> {
 
 // ── Context builder ───────────────────────────────────────────────────────────
 
-pub fn build_chunk_context(
+pub(crate) fn build_chunk_context(
     project_root: &Path,
     file: &str,
     name: &str,
@@ -209,14 +211,14 @@ pub fn build_chunk_context(
     })
 }
 
-struct AiChannelReader {
+pub(crate) struct AiChannelReader {
     rx:  std::sync::mpsc::Receiver<String>,
     buf: Vec<u8>,
     pos: usize,
 }
 
 impl AiChannelReader {
-    fn new(rx: std::sync::mpsc::Receiver<String>) -> Self {
+    pub(crate) fn new(rx: std::sync::mpsc::Receiver<String>) -> Self {
         // Prime with a keepalive comment so EventSource confirms the connection.
         Self { rx, buf: b": weaveback-ai\n\n".to_vec(), pos: 0 }
     }
@@ -239,7 +241,7 @@ impl Read for AiChannelReader {
     }
 }
 
-fn sse_headers() -> Vec<Header> {
+pub(crate) fn sse_headers() -> Vec<Header> {
     vec![
         Header::from_bytes("Content-Type",               "text/event-stream").unwrap(),
         Header::from_bytes("Cache-Control",              "no-cache").unwrap(),
@@ -593,7 +595,7 @@ fn call_openai_api(
     let _ = tx.send("event: done\ndata:\n\n".to_string());
 }
 
-fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
+pub(in crate::server) fn handle_ai(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     let mut body_str = String::new();
     if request.as_reader().read_to_string(&mut body_str).is_err() {
         let _ = request.respond(json_resp(serde_json::json!({"ok":false,"error":"io_error"})));

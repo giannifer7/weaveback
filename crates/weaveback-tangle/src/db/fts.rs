@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/fts.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// A single result from `search_prose`.
 #[derive(Debug, Clone)]
 pub struct FtsResult {

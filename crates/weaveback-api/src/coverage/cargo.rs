@@ -1,10 +1,12 @@
 // weaveback-api/src/coverage/cargo.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[derive(Debug, serde::Deserialize)]
-struct CargoMessageEnvelope {
-    reason: String,
-    message: Option<CargoDiagnostic>,
+pub(in crate::coverage) struct CargoMessageEnvelope {
+    pub(in crate::coverage) reason: String,
+    pub(in crate::coverage) message: Option<CargoDiagnostic>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -97,7 +99,7 @@ pub fn collect_cargo_span_attributions(
     records
 }
 
-fn trace_generated_location(
+pub(in crate::coverage) fn trace_generated_location(
     file_name: &str,
     line: u32,
     col: u32,

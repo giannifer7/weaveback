@@ -1,7 +1,9 @@
 // weaveback-tangle/src/noweb/paths.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-fn expand_tilde(path: &str) -> String {
+use super::*;
+
+pub(in crate::noweb) fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
     }
@@ -12,7 +14,7 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
+pub(in crate::noweb) fn path_is_safe(path: &str) -> Result<(), SafeWriterError> {
     let p = Path::new(path);
     if p.is_absolute() {
         return Err(SafeWriterError::SecurityViolation(

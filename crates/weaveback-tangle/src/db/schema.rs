@@ -1,7 +1,7 @@
 // weaveback-tangle/src/db/schema.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-const CREATE_SCHEMA: &str = "
+pub(in crate::db) const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS files (
     id   INTEGER PRIMARY KEY,
     path TEXT    NOT NULL UNIQUE

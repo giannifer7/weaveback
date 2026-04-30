@@ -83,9 +83,9 @@ The noweb parser and expander are split by concern under
 
 ¤h2(¤[Assembly¤])
 
-`noweb.rs` remains the public parser/expander module facade.  It includes
-focused generated files in a single module so private helper visibility and the
-public API stay stable.
+`noweb.rs` remains the public parser/expander module facade.  It declares
+focused generated files as real Rust modules and re-exports the narrow internal
+surface sibling modules need.
 
 ¤rust_file(weaveback-tangle/src/noweb.rs, ¤[
 use memchr;
@@ -101,54 +101,81 @@ use crate::WeavebackError;
 use crate::SafeFileWriter;
 use log::debug;
 
-include!("noweb/types.rs");
-include!("noweb/paths.rs");
-include!("noweb/store_read.rs");
-include!("noweb/expand.rs");
-include!("noweb/utils.rs");
-include!("noweb/writer.rs");
-include!("noweb/clip.rs");
-include!("noweb/remap.rs");
-include!("noweb/write_files.rs");
+mod types;
+mod paths;
+mod store_read;
+mod expand;
+mod utils;
+mod writer;
+mod clip;
+mod remap;
+mod write_files;
+
+pub use clip::{tangle_check, Clip};
+pub use types::{ChunkDefinitionMatch, ChunkError, NowebSyntax};
+
+pub(in crate::noweb) use paths::{expand_tilde, path_is_safe};
+pub(in crate::noweb) use remap::remap_noweb_entries;
+pub(in crate::noweb) use store_read::ChunkStore;
+pub(in crate::noweb) use types::{ChunkDef, ChunkLocation, NamedChunk};
+pub(in crate::noweb) use writer::ChunkWriter;
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/types.rs, ¤[
+use super::*;
+
 // <[noweb-chunk-def]>
 // <[noweb-errors]>
 // <[noweb-named-chunk]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/paths.rs, ¤[
+use super::*;
+
 // <[noweb-path-utils]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/store_read.rs, ¤[
+use super::*;
+
 // <[noweb-chunkstore-struct]>
 // <[noweb-chunkstore-new]>
 // <[noweb-chunkstore-read]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/expand.rs, ¤[
+use super::*;
+
 // <[noweb-chunkstore-expand]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/utils.rs, ¤[
+use super::*;
+
 // <[noweb-chunkstore-utils]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/writer.rs, ¤[
+use super::*;
+
 // <[noweb-chunkwriter]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/clip.rs, ¤[
+use super::*;
+
 // <[noweb-clip-core]>
 // <[noweb-tangle-check]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/remap.rs, ¤[
+use super::*;
+
 // <[noweb-remap]>
 ¤])
 
 ¤rust_file(weaveback-tangle/src/noweb/write_files.rs, ¤[
+use super::*;
+
 // <[noweb-clip-write]>
 ¤])

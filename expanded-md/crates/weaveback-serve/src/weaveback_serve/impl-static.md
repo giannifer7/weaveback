@@ -10,7 +10,7 @@ appending `index.html` for directory requests.
 
 ```rust
 // <[serve-static]>=
-fn content_type(path: &Path) -> &'static str {
+pub(crate) fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("html") => "text/html; charset=utf-8",
         Some("css")  => "text/css; charset=utf-8",
@@ -23,7 +23,7 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
-fn safe_path(html_dir: &Path, url_path: &str) -> Option<PathBuf> {
+pub(crate) fn safe_path(html_dir: &Path, url_path: &str) -> Option<PathBuf> {
     let rel = url_path.trim_start_matches('/');
     if rel.split('/').any(|c| c == "..") {
         return None;
@@ -39,7 +39,7 @@ fn safe_path(html_dir: &Path, url_path: &str) -> Option<PathBuf> {
     }
 }
 
-fn serve_static(request: Request, url: &str, html_dir: &Path) {
+pub(in crate::server) fn serve_static(request: Request, url: &str, html_dir: &Path) {
     let url_path = url.split('?').next().unwrap_or(url);
 
     // Redirect bare "/" to "/docs/index.html" so the browser's base URL is

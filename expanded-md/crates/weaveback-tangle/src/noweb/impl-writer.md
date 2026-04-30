@@ -17,7 +17,7 @@ time.  It dispatches on whether the expanded path is absolute or relative:
 
 ```rust
 // <[noweb-chunkwriter]>=
-pub struct ChunkWriter<'a> {
+pub(in crate::noweb) struct ChunkWriter<'a> {
     safe_file_writer: &'a mut SafeFileWriter,
 }
 

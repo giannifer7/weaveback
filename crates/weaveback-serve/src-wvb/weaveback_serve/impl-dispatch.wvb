@@ -7,7 +7,7 @@ HTTP endpoint dispatch and response routing.
 `handle_request` routes each request to the appropriate handler.
 
 ¤rust_chunk(serve-dispatch, ¤[
-fn handle_request(
+pub(in crate::server) fn handle_request(
     request: Request,
     html_dir: &Path,
     senders: &SseSenders,

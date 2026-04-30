@@ -83,13 +83,13 @@ loads sibling files unchanged, injects the new content for the modified
 file, and delegates to `tangle_check`.
 
 ¤rust_chunk(serve-apply, ¤[
-fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
+pub(crate) fn json_resp(val: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(val.to_string())
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
         .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap())
 }
 
-fn tangle_oracle(
+pub(crate) fn tangle_oracle(
     project_root: &Path,
     modified_file: &str,
     new_content: &str,
@@ -137,7 +137,7 @@ fn tangle_oracle(
         .map_err(|e| e.to_string())
 }
 
-fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
+pub(in crate::server) fn handle_apply(mut request: Request, project_root: &Path, cfg: &TangleConfig) {
     // Read and parse request body.
     let mut body_str = String::new();
     if let Err(e) = request.as_reader().read_to_string(&mut body_str) {

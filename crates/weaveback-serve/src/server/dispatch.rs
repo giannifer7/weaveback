@@ -1,7 +1,9 @@
 // weaveback-serve/src/server/dispatch.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-fn handle_request(
+use super::*;
+
+pub(in crate::server) fn handle_request(
     request: Request,
     html_dir: &Path,
     senders: &SseSenders,

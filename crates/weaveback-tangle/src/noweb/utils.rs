@@ -1,6 +1,8 @@
 // weaveback-tangle/src/noweb/utils.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl ChunkStore {
     pub fn get_file_chunks(&self) -> &[String] {
         &self.file_chunks

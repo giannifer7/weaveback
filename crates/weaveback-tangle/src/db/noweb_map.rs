@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/noweb_map.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl WeavebackDb {
     pub fn set_noweb_entries(
         &mut self,

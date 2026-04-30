@@ -1,18 +1,7 @@
 // weaveback-api/src/apply_back/types.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-use weaveback_macro::evaluator::{EvalConfig, Evaluator};
-use weaveback_macro::macro_api::process_string;
-use weaveback_tangle::db::{WeavebackDb, DbError, NowebMapEntry};
-use weaveback_tangle::lookup::find_best_noweb_entry;
-use weaveback_core::PathResolver;
-use weaveback_lsp::LspClient;
-use regex::Regex;
-use similar::TextDiff;
-use std::collections::HashMap;
-use std::io::Write;
-use std::path::PathBuf;
-
+use weaveback_tangle::db::DbError;
 use crate::lookup;
 
 #[derive(Debug)]

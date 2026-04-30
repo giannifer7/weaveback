@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/cargo_extra.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn collect_cargo_attributions_maps_generated_span_back_to_source() {
     let mut db = WeavebackDb::open_temp().expect("db");

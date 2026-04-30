@@ -1,6 +1,8 @@
 // weaveback-tangle/src/noweb/expand.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Mutable state threaded through the recursive chunk expansion.
 struct ExpandState {
     seen: HashSet<String>,

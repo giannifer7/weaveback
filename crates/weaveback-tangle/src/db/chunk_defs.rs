@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/chunk_defs.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl WeavebackDb {
     pub fn set_chunk_defs(&mut self, entries: &[ChunkDefEntry]) -> Result<(), DbError> {
         if entries.is_empty() {

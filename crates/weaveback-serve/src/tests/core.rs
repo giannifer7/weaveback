@@ -1,6 +1,8 @@
 // weaveback-serve/src/tests/core.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn content_type_and_safe_path_handle_common_cases() {
     let workspace = TestWorkspace::new();

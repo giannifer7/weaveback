@@ -20,7 +20,7 @@ comparing it to the un-indented source.
 /// Try to apply one line replacement to `lines` at `src_line`.
 /// Falls back to fuzzy search in a ±15-line window.
 #[allow(clippy::too_many_arguments)]
-fn do_patch(
+pub(in crate::apply_back) fn do_patch(
     src_file: &str,
     src_line: usize,
     old_len: usize,
@@ -100,18 +100,18 @@ fn do_patch(
     }
 }
 
-struct FilePatchContext<'a> {
-    db: &'a WeavebackDb,
-    src_file: &'a str,
-    src_root: &'a std::path::Path,
-    patches: &'a [Patch],
-    dry_run: bool,
-    eval_config: Option<EvalConfig>,
-    snapshot: Option<&'a [u8]>,
-    sigil: char,
+pub(in crate::apply_back) struct FilePatchContext<'a> {
+    pub(in crate::apply_back) db: &'a WeavebackDb,
+    pub(in crate::apply_back) src_file: &'a str,
+    pub(in crate::apply_back) src_root: &'a std::path::Path,
+    pub(in crate::apply_back) patches: &'a [Patch],
+    pub(in crate::apply_back) dry_run: bool,
+    pub(in crate::apply_back) eval_config: Option<EvalConfig>,
+    pub(in crate::apply_back) snapshot: Option<&'a [u8]>,
+    pub(in crate::apply_back) sigil: char,
 }
 
-fn apply_patches_to_file(
+pub(in crate::apply_back) fn apply_patches_to_file(
     ctx: FilePatchContext,
     skipped: &mut usize,
     out: &mut dyn Write,
@@ -276,7 +276,7 @@ fn apply_patches_to_file(
     Ok(())
 }
 
-fn strip_indent<'a>(line: &'a str, indent: &str) -> &'a str {
+pub(in crate::apply_back) fn strip_indent<'a>(line: &'a str, indent: &str) -> &'a str {
     line.strip_prefix(indent).unwrap_or(line)
 }
 // @

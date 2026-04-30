@@ -1,7 +1,9 @@
 // weaveback-serve/src/server/run.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-fn find_project_root() -> PathBuf {
+use super::*;
+
+pub(crate) fn find_project_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("cannot determine cwd");
     loop {
         let cargo_toml = dir.join("Cargo.toml");

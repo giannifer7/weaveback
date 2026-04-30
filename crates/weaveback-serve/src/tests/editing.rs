@@ -1,6 +1,8 @@
 // weaveback-serve/src/tests/editing.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // ── tangle_oracle with chunk syntax ───────────────────────────────────
 
 #[test]

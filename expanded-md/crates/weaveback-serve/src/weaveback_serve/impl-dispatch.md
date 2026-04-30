@@ -8,7 +8,7 @@ HTTP endpoint dispatch and response routing.
 
 ```rust
 // <[serve-dispatch]>=
-fn handle_request(
+pub(in crate::server) fn handle_request(
     request: Request,
     html_dir: &Path,
     senders: &SseSenders,

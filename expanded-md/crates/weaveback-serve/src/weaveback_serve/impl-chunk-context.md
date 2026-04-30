@@ -22,7 +22,7 @@ line numbers of the chunk header and close marker, stored verbatim from the DB.
 
 ```rust
 // <[serve-chunk]>=
-fn handle_chunk(request: Request, url: &str, project_root: &Path) {
+pub(in crate::server) fn handle_chunk(request: Request, url: &str, project_root: &Path) {
     let params = parse_query(url);
     let file = params.get("file").map(|s| s.as_str()).unwrap_or("").to_string();
     let name = params.get("name").map(|s| s.as_str()).unwrap_or("").to_string();

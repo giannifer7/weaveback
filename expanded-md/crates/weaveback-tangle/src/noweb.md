@@ -85,9 +85,9 @@ The noweb parser and expander are split by concern under
 
 ## Assembly
 
-`noweb.rs` remains the public parser/expander module facade.  It includes
-focused generated files in a single module so private helper visibility and the
-public API stay stable.
+`noweb.rs` remains the public parser/expander module facade.  It declares
+focused generated files as real Rust modules and re-exports the narrow internal
+surface sibling modules need.
 
 ```rust
 // <[@file weaveback-tangle/src/noweb.rs]>=
@@ -107,15 +107,24 @@ use crate::WeavebackError;
 use crate::SafeFileWriter;
 use log::debug;
 
-include!("noweb/types.rs");
-include!("noweb/paths.rs");
-include!("noweb/store_read.rs");
-include!("noweb/expand.rs");
-include!("noweb/utils.rs");
-include!("noweb/writer.rs");
-include!("noweb/clip.rs");
-include!("noweb/remap.rs");
-include!("noweb/write_files.rs");
+mod types;
+mod paths;
+mod store_read;
+mod expand;
+mod utils;
+mod writer;
+mod clip;
+mod remap;
+mod write_files;
+
+pub use clip::{tangle_check, Clip};
+pub use types::{ChunkDefinitionMatch, ChunkError, NowebSyntax};
+
+pub(in crate::noweb) use paths::{expand_tilde, path_is_safe};
+pub(in crate::noweb) use remap::remap_noweb_entries;
+pub(in crate::noweb) use store_read::ChunkStore;
+pub(in crate::noweb) use types::{ChunkDef, ChunkLocation, NamedChunk};
+pub(in crate::noweb) use writer::ChunkWriter;
 
 // @
 ```
@@ -125,6 +134,8 @@ include!("noweb/write_files.rs");
 // <[@file weaveback-tangle/src/noweb/types.rs]>=
 // weaveback-tangle/src/noweb/types.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[noweb-chunk-def]>
 // <[noweb-errors]>
@@ -139,6 +150,8 @@ include!("noweb/write_files.rs");
 // weaveback-tangle/src/noweb/paths.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[noweb-path-utils]>
 
 // @
@@ -149,6 +162,8 @@ include!("noweb/write_files.rs");
 // <[@file weaveback-tangle/src/noweb/store_read.rs]>=
 // weaveback-tangle/src/noweb/store_read.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[noweb-chunkstore-struct]>
 // <[noweb-chunkstore-new]>
@@ -163,6 +178,8 @@ include!("noweb/write_files.rs");
 // weaveback-tangle/src/noweb/expand.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[noweb-chunkstore-expand]>
 
 // @
@@ -173,6 +190,8 @@ include!("noweb/write_files.rs");
 // <[@file weaveback-tangle/src/noweb/utils.rs]>=
 // weaveback-tangle/src/noweb/utils.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[noweb-chunkstore-utils]>
 
@@ -185,6 +204,8 @@ include!("noweb/write_files.rs");
 // weaveback-tangle/src/noweb/writer.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[noweb-chunkwriter]>
 
 // @
@@ -195,6 +216,8 @@ include!("noweb/write_files.rs");
 // <[@file weaveback-tangle/src/noweb/clip.rs]>=
 // weaveback-tangle/src/noweb/clip.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[noweb-clip-core]>
 // <[noweb-tangle-check]>
@@ -208,6 +231,8 @@ include!("noweb/write_files.rs");
 // weaveback-tangle/src/noweb/remap.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[noweb-remap]>
 
 // @
@@ -218,6 +243,8 @@ include!("noweb/write_files.rs");
 // <[@file weaveback-tangle/src/noweb/write_files.rs]>=
 // weaveback-tangle/src/noweb/write_files.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[noweb-clip-write]>
 

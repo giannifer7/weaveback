@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/snapshots_defs.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl WeavebackDb {
     pub fn get_src_snapshot(&self, path: &str) -> Result<Option<Vec<u8>>, DbError> {
         Ok(self

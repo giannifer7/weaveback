@@ -1,7 +1,9 @@
 // weaveback-serve/src/server/chunk_context.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-fn handle_chunk(request: Request, url: &str, project_root: &Path) {
+use super::*;
+
+pub(in crate::server) fn handle_chunk(request: Request, url: &str, project_root: &Path) {
     let params = parse_query(url);
     let file = params.get("file").map(|s| s.as_str()).unwrap_or("").to_string();
     let name = params.get("name").map(|s| s.as_str()).unwrap_or("").to_string();

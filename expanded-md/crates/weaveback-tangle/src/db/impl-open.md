@@ -28,11 +28,11 @@ running `CREATE_SCHEMA`.
 ```rust
 // <[db-open]>=
 pub struct WeavebackDb {
-    conn: Connection,
+    pub(super) conn: Connection,
 }
 
 /// Intern a file path: insert if not present, return the row id.
-fn intern_file(conn: &Connection, path: &str) -> Result<i64, DbError> {
+pub(in crate::db) fn intern_file(conn: &Connection, path: &str) -> Result<i64, DbError> {
     conn.execute("INSERT OR IGNORE INTO files (path) VALUES (?1)", params![path])?;
     Ok(conn.query_row(
         "SELECT id FROM files WHERE path = ?1",
@@ -61,7 +61,7 @@ fn needs_prose_fts_tags_migration(conn: &Connection) -> Result<bool, DbError> {
     Ok(count == 0)
 }
 
-fn apply_schema(conn: &Connection) -> Result<(), DbError> {
+pub(in crate::db) fn apply_schema(conn: &Connection) -> Result<(), DbError> {
     // If the db was created with the old TEXT-based file columns, drop those
     // tables so CREATE_SCHEMA recreates them with integer IDs.  The db is a
     // disposable build artefact; gen_baselines and src_snapshots (which store

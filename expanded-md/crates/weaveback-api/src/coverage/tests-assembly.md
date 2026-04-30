@@ -7,13 +7,21 @@ The generated coverage test module includes focused generated test bodies.
 // weaveback-api/src/coverage/tests_coverage.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-include!("tests_coverage/helpers.rs");
-include!("tests_coverage/locations.rs");
-include!("tests_coverage/cargo.rs");
-include!("tests_coverage/lcov_summary.rs");
-include!("tests_coverage/summary_output.rs");
-include!("tests_coverage/location_errors.rs");
-include!("tests_coverage/cargo_extra.rs");
+use super::*;
+use rusqlite;
+use serde_json::json;
+use tempfile::tempdir;
+use weaveback_tangle::db::{Confidence, NowebMapEntry, WeavebackDb};
+
+mod helpers;
+use helpers::*;
+mod locations;
+mod cargo;
+use cargo::CARGO_TEST_MUTEX;
+mod lcov_summary;
+mod summary_output;
+mod location_errors;
+mod cargo_extra;
 
 // @
 ```
@@ -35,6 +43,8 @@ include!("tests_coverage/cargo_extra.rs");
 // weaveback-api/src/coverage/tests_coverage/locations.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[coverage-tests-locations]>
 
 // @
@@ -45,6 +55,8 @@ include!("tests_coverage/cargo_extra.rs");
 // <[@file weaveback-api/src/coverage/tests_coverage/cargo.rs]>=
 // weaveback-api/src/coverage/tests_coverage/cargo.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[coverage-tests-cargo]>
 
@@ -57,6 +69,8 @@ include!("tests_coverage/cargo_extra.rs");
 // weaveback-api/src/coverage/tests_coverage/lcov_summary.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[coverage-tests-lcov-summary]>
 
 // @
@@ -67,6 +81,8 @@ include!("tests_coverage/cargo_extra.rs");
 // <[@file weaveback-api/src/coverage/tests_coverage/summary_output.rs]>=
 // weaveback-api/src/coverage/tests_coverage/summary_output.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[coverage-tests-summary-output]>
 
@@ -79,6 +95,8 @@ include!("tests_coverage/cargo_extra.rs");
 // weaveback-api/src/coverage/tests_coverage/location_errors.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // <[coverage-tests-location-errors]>
 
 // @
@@ -89,6 +107,8 @@ include!("tests_coverage/cargo_extra.rs");
 // <[@file weaveback-api/src/coverage/tests_coverage/cargo_extra.rs]>=
 // weaveback-api/src/coverage/tests_coverage/cargo_extra.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 // <[coverage-tests-cargo-extra]>
 

@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/locations.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn open_db(db_path: &Path) -> std::result::Result<weaveback_tangle::db::WeavebackDb, CoverageApiError> {
     if !db_path.exists() {
         return Err(CoverageApiError::Io(std::io::Error::new(

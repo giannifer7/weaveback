@@ -13,7 +13,7 @@ so the expander uses the in-memory patched string) and checks that line
 ¤rust_chunk(applyback-oracle, ¤[
 /// Re-evaluate `src_content` and check that line `expanded_line` of the output
 /// equals `desired`.  Returns `true` on match, `false` on mismatch or error.
-fn verify_candidate(
+pub(in crate::apply_back) fn verify_candidate(
     src_content: &str,
     src_path: &std::path::Path,
     eval_config: &EvalConfig,
@@ -32,7 +32,7 @@ fn verify_candidate(
 }
 
 /// Splice one line in `lines`, join back to a string, and return it.
-fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newline: bool) -> String {
+pub(in crate::apply_back) fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newline: bool) -> String {
     let mut out: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
     out[idx] = new_line;
     let mut s = out.join("\n");
@@ -40,7 +40,7 @@ fn splice_line(lines: &[String], idx: usize, new_line: &str, had_trailing_newlin
     s
 }
 
-fn token_overlap_score(text: &str, old_text: &str, new_text: &str) -> i32 {
+pub(in crate::apply_back) fn token_overlap_score(text: &str, old_text: &str, new_text: &str) -> i32 {
     fn tokens(s: &str) -> Vec<String> {
         s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
             .filter(|t| !t.is_empty())
@@ -58,7 +58,7 @@ fn token_overlap_score(text: &str, old_text: &str, new_text: &str) -> i32 {
     score
 }
 
-fn differing_token_pair(old_text: &str, new_text: &str) -> Option<(String, String)> {
+pub(in crate::apply_back) fn differing_token_pair(old_text: &str, new_text: &str) -> Option<(String, String)> {
     fn tokens(s: &str) -> Vec<String> {
         s.split(|ch: char| !ch.is_alphanumeric() && ch != '_')
             .filter(|t| !t.is_empty())

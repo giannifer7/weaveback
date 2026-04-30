@@ -1,6 +1,8 @@
 // weaveback-api/src/apply_back/heuristics.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// For a `MacroArg` span: replace the changed portion at or after byte column `src_col`.
 ///
 /// Primary strategy: exact match of `old_text` at `src_col` (works when `old_text` is
@@ -12,7 +14,7 @@
 /// `old_text` is the full expanded output line, not just the argument value — and
 /// avoids false suffix matches when the old string is a suffix of the new one
 /// (e.g. `literate` vs `illiterate`).
-fn attempt_macro_arg_patch(
+pub(in crate::apply_back) fn attempt_macro_arg_patch(
     lines: &[String],
     src_line: usize,
     src_col: u32,
@@ -74,7 +76,7 @@ fn attempt_macro_arg_patch(
 ///  2. Walk `old_expanded` to extract the runtime value of each variable.
 ///  3. Walk `new_expanded` to extract the new literal parts (variable values held fixed).
 ///  4. Rebuild body using original variable references and new literals.
-fn attempt_macro_body_fix(
+pub(in crate::apply_back) fn attempt_macro_body_fix(
     body_line: &str,
     old_expanded: &str,
     new_expanded: &str,
@@ -179,7 +181,7 @@ fn candidate_line_indices(
     indices
 }
 
-fn rank_candidate(
+pub(in crate::apply_back) fn rank_candidate(
     hinted: usize,
     idx: usize,
     current_line: &str,
@@ -196,7 +198,7 @@ fn rank_candidate(
     score
 }
 
-fn choose_best_candidate(
+pub(in crate::apply_back) fn choose_best_candidate(
     mut candidates: Vec<CandidateResolution>,
 ) -> Option<CandidateResolution> {
     candidates.sort_by(|left, right| {
@@ -231,7 +233,7 @@ fn chunk_context_bonus(
     }
 }
 
-fn resolve_noweb_entry(
+pub(in crate::apply_back) fn resolve_noweb_entry(
     db: &WeavebackDb,
     out_file: &str,
     out_line_0: u32,
@@ -248,7 +250,7 @@ fn resolve_noweb_entry(
         .map_err(ApplyBackError::Db)
 }
 
-fn search_macro_arg_candidate(request: MacroArgSearch<'_>) -> Option<CandidateResolution> {
+pub(in crate::apply_back) fn search_macro_arg_candidate(request: MacroArgSearch<'_>) -> Option<CandidateResolution> {
     let candidate_indices = candidate_line_indices(
         request.lines,
         request.hinted_line,
@@ -299,7 +301,7 @@ fn search_macro_arg_candidate(request: MacroArgSearch<'_>) -> Option<CandidateRe
     choose_best_candidate(candidates)
 }
 
-fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<CandidateResolution> {
+pub(in crate::apply_back) fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<CandidateResolution> {
     let anchor = request.body_template.unwrap_or(request.old_text);
     let candidate_indices = candidate_line_indices(
         request.lines,
@@ -351,7 +353,7 @@ fn search_macro_body_candidate(request: MacroBodySearch<'_>) -> Option<Candidate
     choose_best_candidate(candidates)
 }
 
-fn search_macro_call_candidate(request: MacroCallSearch<'_>) -> Option<CandidateResolution> {
+pub(in crate::apply_back) fn search_macro_call_candidate(request: MacroCallSearch<'_>) -> Option<CandidateResolution> {
     let needle = format!("{}{}(", request.sigil, request.macro_name);
     let mut candidates = Vec::new();
     let token_pair = differing_token_pair(request.old_text, request.new_text);

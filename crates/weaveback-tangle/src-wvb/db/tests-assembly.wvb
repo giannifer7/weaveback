@@ -3,7 +3,9 @@
 The generated DB test module includes focused generated test bodies.
 
 ¤rust_file(weaveback-tangle/src/db/tests.rs, ¤[
-include!("tests/merge.rs");
+use super::*;
+
+mod merge;
 ¤])
 
 ¤rust_file(weaveback-tangle/src/db/tests/merge.rs, ¤[

@@ -1,10 +1,12 @@
 // weaveback-serve/src/server/watcher.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
-type ReloadVersion = Arc<AtomicU64>;
+use super::*;
 
-fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion) {
+pub(in crate::server) type SseSenders = Arc<Mutex<Vec<std::sync::mpsc::SyncSender<()>>>>;
+pub(in crate::server) type ReloadVersion = Arc<AtomicU64>;
+
+pub(in crate::server) fn spawn_watcher(watch_dir: PathBuf, senders: SseSenders, version: ReloadVersion) {
     thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut watcher = match notify::recommended_watcher(tx) {

@@ -4,19 +4,27 @@
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::path::Path;
 
-include!("db/schema.rs");
-include!("db/types.rs");
-include!("db/open.rs");
-include!("db/baselines.rs");
-include!("db/noweb_map.rs");
-include!("db/chunk_deps.rs");
-include!("db/chunk_defs.rs");
-include!("db/macro_map.rs");
-include!("db/config.rs");
-include!("db/source_blocks.rs");
-include!("db/merge.rs");
-include!("db/snapshots_defs.rs");
-include!("db/fts.rs");
+mod schema;
+mod types;
+mod open;
+mod baselines;
+mod noweb_map;
+mod chunk_deps;
+mod chunk_defs;
+mod macro_map;
+mod config;
+mod source_blocks;
+mod merge;
+mod snapshots_defs;
+mod fts;
+
+pub use fts::{BlockForEmbedding, FtsResult, TaggedBlock};
+pub use types::BlockForTagging;
+pub use open::WeavebackDb;
+pub use types::*;
+
+pub(in crate::db) use open::{apply_schema, intern_file};
+pub(in crate::db) use schema::CREATE_SCHEMA;
 
 #[cfg(test)]
 mod tests;

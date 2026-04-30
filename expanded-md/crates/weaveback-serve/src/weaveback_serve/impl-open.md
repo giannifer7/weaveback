@@ -10,7 +10,7 @@ VS Code uses `--goto FILE:LINE`.
 
 ```rust
 // <[serve-open]>=
-fn open_in_editor(file: &str, line: u32, project_root: &Path) {
+pub(in crate::server) fn open_in_editor(file: &str, line: u32, project_root: &Path) {
     let editor = std::env::var("VISUAL")
         .or_else(|_| std::env::var("EDITOR"))
         .unwrap_or_else(|_| "vi".to_string());
@@ -30,7 +30,7 @@ fn open_in_editor(file: &str, line: u32, project_root: &Path) {
     let _ = std::process::Command::new(&editor).args(&args).spawn();
 }
 
-fn parse_query(url: &str) -> HashMap<String, String> {
+pub(crate) fn parse_query(url: &str) -> HashMap<String, String> {
     let query = url.split_once('?').map(|x| x.1).unwrap_or("");
     query
         .split('&')
@@ -46,7 +46,7 @@ fn parse_query(url: &str) -> HashMap<String, String> {
         .collect()
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut i = 0usize;

@@ -1,6 +1,8 @@
 // weaveback-serve/src/tests/edge_cases.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 // ── content_type extended ─────────────────────────────────────────────
 
 #[test]

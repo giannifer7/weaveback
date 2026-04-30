@@ -1,14 +1,16 @@
 // weaveback-serve/src/server/sse.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-struct SseReader {
+use super::*;
+
+pub(crate) struct SseReader {
     rx: std::sync::mpsc::Receiver<()>,
     buf: Vec<u8>,
     pos: usize,
 }
 
 impl SseReader {
-    fn new(rx: std::sync::mpsc::Receiver<()>) -> Self {
+    pub(crate) fn new(rx: std::sync::mpsc::Receiver<()>) -> Self {
         // Prime the buffer with a keepalive comment so the SSE connection is
         // established immediately.
         Self {

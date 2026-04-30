@@ -1,6 +1,8 @@
 // weaveback-tangle/src/db/chunk_deps.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl WeavebackDb {
     /// Write direct chunk→chunk dependency edges.
     /// Each tuple is `(from_chunk, to_chunk, src_file)`.

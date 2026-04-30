@@ -4,10 +4,11 @@ The generated `tests.rs` file includes focused generated test bodies so runtime
 and test concerns stay physically separate.
 
 ¤rust_file(weaveback-serve/src/tests.rs, ¤[
-include!("tests/helpers.rs");
-include!("tests/core.rs");
-include!("tests/edge_cases.rs");
-include!("tests/editing.rs");
+mod helpers;
+use helpers::*;
+mod core;
+mod edge_cases;
+mod editing;
 ¤])
 
 ¤rust_file(weaveback-serve/src/tests/helpers.rs, ¤[
@@ -15,13 +16,19 @@ include!("tests/editing.rs");
 ¤])
 
 ¤rust_file(weaveback-serve/src/tests/core.rs, ¤[
+use super::*;
+
 // <[serve-tests-core]>
 ¤])
 
 ¤rust_file(weaveback-serve/src/tests/edge_cases.rs, ¤[
+use super::*;
+
 // <[serve-tests-edge-cases]>
 ¤])
 
 ¤rust_file(weaveback-serve/src/tests/editing.rs, ¤[
+use super::*;
+
 // <[serve-tests-editing]>
 ¤])

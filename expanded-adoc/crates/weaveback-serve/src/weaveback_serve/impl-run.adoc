@@ -11,7 +11,7 @@ blocking other clients during SSE streaming.
 [source,rust]
 ----
 // <[serve-run]>=
-fn find_project_root() -> PathBuf {
+pub(crate) fn find_project_root() -> PathBuf {
     let mut dir = std::env::current_dir().expect("cannot determine cwd");
     loop {
         let cargo_toml = dir.join("Cargo.toml");
@@ -127,7 +127,7 @@ Events inside `docs/html/` and `target/` are ignored to avoid feedback loops.
 [source,rust]
 ----
 // <[serve-source-watcher]>=
-fn find_docgen_bin() -> PathBuf {
+pub(crate) fn find_docgen_bin() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.with_file_name("weaveback-docgen");
         if sibling.exists() { return sibling; }
@@ -184,7 +184,7 @@ fn run_rebuild(project_root: &Path, tangle: bool, theme: bool) {
     let _ = cmd.status();
 }
 
-fn spawn_source_watcher(project_root: PathBuf) {
+pub(in crate::server) fn spawn_source_watcher(project_root: PathBuf) {
     use std::time::Duration;
     thread::spawn(move || {
         let (tx, rx) = std::sync::mpsc::channel();

@@ -22,7 +22,7 @@ See [weaveback.adoc](lib.adoc) for the module map.
 ///
 /// Returns the 0-indexed line index on a unique match; `None` if not found or
 /// ambiguous.
-fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize) -> Option<usize> {
+pub(in crate::apply_back) fn fuzzy_find_line(lines: &[String], center: usize, needle: &str, window: usize) -> Option<usize> {
     let trimmed = needle.trim();
     if trimmed.is_empty() { return None; }
 

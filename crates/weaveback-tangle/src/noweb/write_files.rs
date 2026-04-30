@@ -1,6 +1,8 @@
 // weaveback-tangle/src/noweb/write_files.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 impl Clip {
     /// Write all `@file` chunks, skipping those whose name is in `skip`.
     /// Skipped chunks do not expand or write; the source-map and chunk_deps

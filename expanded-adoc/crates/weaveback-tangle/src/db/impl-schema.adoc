@@ -13,7 +13,7 @@ the redundant path storage on every row.  Indexes on `chunk_deps(to_chunk)` and
 [source,rust]
 ----
 // <[db-schema]>=
-const CREATE_SCHEMA: &str = "
+pub(in crate::db) const CREATE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS files (
     id   INTEGER PRIMARY KEY,
     path TEXT    NOT NULL UNIQUE

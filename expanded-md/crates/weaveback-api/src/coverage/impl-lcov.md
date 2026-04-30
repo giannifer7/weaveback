@@ -52,6 +52,8 @@ pub fn parse_lcov_records(text: &str) -> Vec<(String, u32, u64)> {
 // weaveback-api/src/coverage/lcov/summary.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn build_coverage_summary(
     records: &[(String, u32, u64)],
     db: &weaveback_tangle::db::WeavebackDb,
@@ -413,7 +415,7 @@ pub fn build_coverage_summary(
     })
 }
 
-fn find_noweb_entries_for_generated_file(
+pub(in crate::coverage) fn find_noweb_entries_for_generated_file(
     db: &weaveback_tangle::db::WeavebackDb,
     file_name: &str,
     project_root: &Path,
@@ -450,7 +452,7 @@ fn find_noweb_entries_for_generated_file(
 /// Returns a JSON array of `{start, end, missed_count}` objects so the
 /// result can be embedded directly in the summary JSON and consumed by
 /// both agents (via JSON output) and humans (via `--summary`).
-fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
+pub(in crate::coverage) fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json::Value {
     let mut lines: Vec<(u64, bool)> = generated_lines
         .iter()
         .filter_map(|r| {
@@ -496,10 +498,12 @@ fn compute_unmapped_ranges(generated_lines: &[serde_json::Value]) -> serde_json:
 // weaveback-api/src/coverage/lcov/output.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 /// Print unmapped line ranges for one unattributed file.
 /// Reads `unmapped_ranges` from the pre-computed JSON field.
 /// When `show_content` is true and the file is readable, prints source lines.
-fn explain_unattributed_file(
+pub(in crate::coverage) fn explain_unattributed_file(
     file: &serde_json::Value,
     show_content: bool,
     out: &mut impl Write,
@@ -537,7 +541,7 @@ fn explain_unattributed_file(
     Ok(())
 }
 
-fn print_coverage_summary_to_writer(
+pub(in crate::coverage) fn print_coverage_summary_to_writer(
     summary: &serde_json::Value,
     top_sources: usize,
     top_sections: usize,
@@ -689,6 +693,8 @@ pub fn build_coverage_summary_view(
 // <[@file weaveback-api/src/coverage/lcov/run.rs]>=
 // weaveback-api/src/coverage/lcov/run.rs
 // I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
 
 pub fn run_coverage(
     summary_only: bool,

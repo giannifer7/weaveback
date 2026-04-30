@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/text.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 pub fn collect_text_attributions(
     text: &str,
     db: Option<&weaveback_tangle::db::WeavebackDb>,

@@ -1,6 +1,8 @@
 // weaveback-api/src/coverage/tests_coverage/summary_output.rs
 // I'd Really Rather You Didn't edit this generated file.
 
+use super::*;
+
 #[test]
 fn print_coverage_summary_shows_attributed_vs_total() {
     let summary = json!({

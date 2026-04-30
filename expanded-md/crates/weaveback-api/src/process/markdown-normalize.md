@@ -8,7 +8,7 @@ blocks after macro expansion: uniform header tables become Markdown pipe
 tables, while structurally richer tables fall back to HTML.
 
 ```rust
-// <[process-markdown-normalize]>=
+// <[process-markdown-ext]>=
 pub(super) fn is_markdown_ext(expanded_ext: Option<&str>) -> bool {
     matches!(
         expanded_ext.unwrap_or_default().trim_start_matches('.'),
@@ -16,14 +16,19 @@ pub(super) fn is_markdown_ext(expanded_ext: Option<&str>) -> bool {
     )
 }
 
-fn is_asciidoc_ext(expanded_ext: Option<&str>) -> bool {
+pub(in crate::process::markdown_normalize) fn is_asciidoc_ext(expanded_ext: Option<&str>) -> bool {
     matches!(
         expanded_ext.unwrap_or_default().trim_start_matches('.'),
         "adoc" | "asciidoc"
     )
 }
+// @
+```
 
-fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
+
+```rust
+// <[process-adoc-table-types]>=
+pub(in crate::process::markdown_normalize) fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
     let attr = attr?;
     let cols_pos = attr.find("cols=")?;
     let after = &attr[cols_pos + "cols=".len()..];
@@ -41,7 +46,7 @@ fn adoc_table_col_count(attr: Option<&str>) -> Option<usize> {
     (count > 0).then_some(count)
 }
 
-fn adoc_table_has_header(attr: Option<&str>) -> bool {
+pub(in crate::process::markdown_normalize) fn adoc_table_has_header(attr: Option<&str>) -> bool {
     attr.map(|attr| {
         let compact = attr.replace(' ', "");
         compact.contains("options=\"header\"")
@@ -53,7 +58,7 @@ fn adoc_table_has_header(attr: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-fn split_adoc_cells(line: &str) -> Vec<String> {
+pub(in crate::process::markdown_normalize) fn split_adoc_cells(line: &str) -> Vec<String> {
     line.trim_start()
         .trim_start_matches('|')
         .split('|')
@@ -62,13 +67,13 @@ fn split_adoc_cells(line: &str) -> Vec<String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AdocTable {
-    has_header: bool,
-    rows: Vec<Vec<String>>,
-    complex: bool,
+pub(in crate::process::markdown_normalize) struct AdocTable {
+    pub(in crate::process::markdown_normalize) has_header: bool,
+    pub(in crate::process::markdown_normalize) rows: Vec<Vec<String>>,
+    pub(in crate::process::markdown_normalize) complex: bool,
 }
 
-fn parse_adoc_table(attr: Option<&str>, body: &[&str]) -> Option<AdocTable> {
+pub(in crate::process::markdown_normalize) fn parse_adoc_table(attr: Option<&str>, body: &[&str]) -> Option<AdocTable> {
     let mut expected_cols = adoc_table_col_count(attr);
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut row: Vec<String> = Vec::new();
@@ -127,12 +132,17 @@ fn parse_adoc_table(attr: Option<&str>, body: &[&str]) -> Option<AdocTable> {
         complex,
     })
 }
+// @
+```
 
-fn escape_markdown_table_cell(cell: &str) -> String {
+
+```rust
+// <[process-adoc-to-markdown]>=
+pub(in crate::process::markdown_normalize) fn escape_markdown_table_cell(cell: &str) -> String {
     cell.replace('\n', " ").replace('|', "\\|").trim().to_string()
 }
 
-fn render_markdown_table(table: &AdocTable) -> Option<String> {
+pub(in crate::process::markdown_normalize) fn render_markdown_table(table: &AdocTable) -> Option<String> {
     if table.complex || !table.has_header || table.rows.is_empty() {
         return None;
     }
@@ -163,7 +173,7 @@ fn render_markdown_table(table: &AdocTable) -> Option<String> {
     Some(out.trim_end().to_string())
 }
 
-fn escape_html_cell(cell: &str) -> String {
+pub(in crate::process::markdown_normalize) fn escape_html_cell(cell: &str) -> String {
     cell.chars()
         .flat_map(|ch| match ch {
             '&' => "&amp;".chars().collect::<Vec<_>>(),
@@ -177,7 +187,7 @@ fn escape_html_cell(cell: &str) -> String {
         .collect()
 }
 
-fn render_html_table(table: &AdocTable) -> String {
+pub(in crate::process::markdown_normalize) fn render_html_table(table: &AdocTable) -> String {
     let mut out = String::from("<table>\n");
     for (idx, row) in table.rows.iter().enumerate() {
         let tag = if idx == 0 && table.has_header { "th" } else { "td" };
@@ -197,79 +207,7 @@ fn render_html_table(table: &AdocTable) -> String {
     out
 }
 
-fn is_markdown_table_separator_cell(cell: &str) -> bool {
-    let cell = cell.trim();
-    let cell = cell.trim_matches(':');
-    !cell.is_empty() && cell.chars().all(|ch| ch == '-')
-}
-
-fn split_markdown_table_row(line: &str) -> Option<Vec<String>> {
-    let trimmed = line.trim();
-    if !trimmed.starts_with('|') || !trimmed.ends_with('|') {
-        return None;
-    }
-    Some(
-        trimmed
-            .trim_matches('|')
-            .split('|')
-            .map(|cell| cell.trim().replace("\\|", "|"))
-            .collect(),
-    )
-}
-
-fn parse_markdown_pipe_table(input: &str) -> Option<Vec<Vec<String>>> {
-    let rows: Vec<Vec<String>> = input
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(split_markdown_table_row)
-        .collect::<Option<Vec<_>>>()?;
-    if rows.len() < 2 {
-        return None;
-    }
-    let cols = rows.first()?.len();
-    if cols == 0 || rows.iter().any(|row| row.len() != cols) {
-        return None;
-    }
-    if !rows[1].iter().all(|cell| is_markdown_table_separator_cell(cell)) {
-        return None;
-    }
-    let mut out = Vec::with_capacity(rows.len() - 1);
-    out.push(rows[0].clone());
-    out.extend(rows.into_iter().skip(2));
-    Some(out)
-}
-
-fn render_asciidoc_table_from_rows(rows: &[Vec<String>]) -> String {
-    let cols = rows.first().map(Vec::len).unwrap_or_default();
-    let mut out = format!(
-        "[cols=\"{}\",options=\"header\"]\n|===\n",
-        std::iter::repeat_n("1", cols).collect::<Vec<_>>().join(",")
-    );
-    for (idx, row) in rows.iter().enumerate() {
-        if idx == 1 {
-            out.push('\n');
-        }
-        out.push('|');
-        for (cell_idx, cell) in row.iter().enumerate() {
-            if cell_idx > 0 {
-                out.push_str(" |");
-            }
-            out.push(' ');
-            out.push_str(cell);
-        }
-        out.push('\n');
-    }
-    out.push_str("|===");
-    out
-}
-
-fn normalize_markdown_table_for_asciidoc(input: &str) -> String {
-    parse_markdown_pipe_table(input)
-        .map(|rows| render_asciidoc_table_from_rows(&rows))
-        .unwrap_or_else(|| input.to_string())
-}
-
-fn render_adoc_table_for_markdown(attr: Option<&str>, body: &[&str], original: &[&str]) -> String {
+pub(in crate::process::markdown_normalize) fn render_adoc_table_for_markdown(attr: Option<&str>, body: &[&str], original: &[&str]) -> String {
     let Some(table) = parse_adoc_table(attr, body) else {
         return original.join("\n");
     };
@@ -345,8 +283,90 @@ pub(crate) fn normalize_adoc_tables_for_markdown(input: &str) -> String {
     }
     rendered
 }
+// @
+```
 
-fn render_explicit_table_block(expanded_ext: Option<&str>, format: &str, body: &str) -> String {
+
+```rust
+// <[process-markdown-to-adoc]>=
+pub(in crate::process::markdown_normalize) fn is_markdown_table_separator_cell(cell: &str) -> bool {
+    let cell = cell.trim();
+    let cell = cell.trim_matches(':');
+    !cell.is_empty() && cell.chars().all(|ch| ch == '-')
+}
+
+pub(in crate::process::markdown_normalize) fn split_markdown_table_row(line: &str) -> Option<Vec<String>> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('|') || !trimmed.ends_with('|') {
+        return None;
+    }
+    Some(
+        trimmed
+            .trim_matches('|')
+            .split('|')
+            .map(|cell| cell.trim().replace("\\|", "|"))
+            .collect(),
+    )
+}
+
+pub(in crate::process::markdown_normalize) fn parse_markdown_pipe_table(input: &str) -> Option<Vec<Vec<String>>> {
+    let rows: Vec<Vec<String>> = input
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(split_markdown_table_row)
+        .collect::<Option<Vec<_>>>()?;
+    if rows.len() < 2 {
+        return None;
+    }
+    let cols = rows.first()?.len();
+    if cols == 0 || rows.iter().any(|row| row.len() != cols) {
+        return None;
+    }
+    if !rows[1].iter().all(|cell| is_markdown_table_separator_cell(cell)) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(rows.len() - 1);
+    out.push(rows[0].clone());
+    out.extend(rows.into_iter().skip(2));
+    Some(out)
+}
+
+pub(in crate::process::markdown_normalize) fn render_asciidoc_table_from_rows(rows: &[Vec<String>]) -> String {
+    let cols = rows.first().map(Vec::len).unwrap_or_default();
+    let mut out = format!(
+        "[cols=\"{}\",options=\"header\"]\n|===\n",
+        std::iter::repeat_n("1", cols).collect::<Vec<_>>().join(",")
+    );
+    for (idx, row) in rows.iter().enumerate() {
+        if idx == 1 {
+            out.push('\n');
+        }
+        out.push('|');
+        for (cell_idx, cell) in row.iter().enumerate() {
+            if cell_idx > 0 {
+                out.push_str(" |");
+            }
+            out.push(' ');
+            out.push_str(cell);
+        }
+        out.push('\n');
+    }
+    out.push_str("|===");
+    out
+}
+
+pub(in crate::process::markdown_normalize) fn normalize_markdown_table_for_asciidoc(input: &str) -> String {
+    parse_markdown_pipe_table(input)
+        .map(|rows| render_asciidoc_table_from_rows(&rows))
+        .unwrap_or_else(|| input.to_string())
+}
+// @
+```
+
+
+```rust
+// <[process-explicit-table-blocks]>=
+pub(in crate::process::markdown_normalize) fn render_explicit_table_block(expanded_ext: Option<&str>, format: &str, body: &str) -> String {
     let format = format.trim().to_ascii_lowercase();
     let body = body.trim_matches('\n');
     if is_markdown_ext(expanded_ext) {
@@ -367,7 +387,7 @@ fn render_explicit_table_block(expanded_ext: Option<&str>, format: &str, body: &
     }
 }
 
-fn normalize_explicit_table_blocks(expanded_ext: Option<&str>, input: &str) -> String {
+pub(in crate::process::markdown_normalize) fn normalize_explicit_table_blocks(expanded_ext: Option<&str>, input: &str) -> String {
     const TABLE_START_PREFIX: &str = concat!("<", "!-- weaveback-table:");
     const TABLE_END: &str = concat!("<", "!-- /weaveback-table -->");
 
@@ -442,7 +462,12 @@ fn normalize_explicit_table_blocks(expanded_ext: Option<&str>, input: &str) -> S
     }
     rendered
 }
+// @
+```
 
+
+```rust
+// <[process-normalize-expanded-document]>=
 pub(crate) fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: &[u8]) -> String {
     let expanded = String::from_utf8_lossy(expanded);
     let expanded = normalize_explicit_table_blocks(expanded_ext, &expanded);
@@ -452,7 +477,6 @@ pub(crate) fn normalize_expanded_document(expanded_ext: Option<&str>, expanded: 
         expanded
     }
 }
-
 // @
 ```
 

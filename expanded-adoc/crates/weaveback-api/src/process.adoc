@@ -103,7 +103,57 @@ use weaveback_macro::macro_api::process_string;
 // weaveback-api/src/process/markdown_normalize.rs
 // I'd Really Rather You Didn't edit this generated file.
 
-// <[process-markdown-normalize]>
+// <[process-markdown-ext]>
+mod adoc_table;
+mod explicit_table;
+mod markdown_table;
+
+pub(crate) use adoc_table::normalize_adoc_tables_for_markdown;
+
+use explicit_table::normalize_explicit_table_blocks;
+
+// <[process-normalize-expanded-document]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/markdown_normalize/adoc_table.rs]>=
+// weaveback-api/src/process/markdown_normalize/adoc_table.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[process-adoc-table-types]>
+// <[process-adoc-to-markdown]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/markdown_normalize/markdown_table.rs]>=
+// weaveback-api/src/process/markdown_normalize/markdown_table.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[process-markdown-to-adoc]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-api/src/process/markdown_normalize/explicit_table.rs]>=
+// weaveback-api/src/process/markdown_normalize/explicit_table.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::{is_asciidoc_ext, is_markdown_ext};
+use super::adoc_table::normalize_adoc_tables_for_markdown;
+use super::markdown_table::normalize_markdown_table_for_asciidoc;
+
+// <[process-explicit-table-blocks]>
 
 // @
 ----

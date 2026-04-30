@@ -79,6 +79,10 @@ Completed or materially improved:
   `crates/weaveback-agent-core/src/read_api.rs` is now a small facade over DB
   opening, search, trace reconstruction, and chunk context extraction under
   `crates/weaveback-agent-core/src/read_api/`.
+* `weaveback-api` Markdown normalization has been split at Rust-file level.
+  `crates/weaveback-api/src/process/markdown_normalize.rs` is now a small
+  facade over AsciiDoc table parsing/rendering, Markdown table conversion, and
+  explicit table block handling under `src/process/markdown_normalize/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -108,6 +112,7 @@ File | Lines | Status
 `crates/weaveback-api/src/process.rs` | 22 | Completed; facade now includes focused `src/process/*.rs` files.
 `crates/weaveback-api/src/lint.rs` | 73 | Completed; facade now includes focused `src/lint/*.rs` files.
 `crates/weaveback-agent-core/src/read_api.rs` | 64 | Completed; facade now includes focused `src/read_api/*.rs` files.
+`crates/weaveback-api/src/process/markdown_normalize.rs` | 34 | Completed; facade now includes focused `src/process/markdown_normalize/*.rs` files.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 
 These numbers are not themselves the rule.  The rule is whether a maintainer can

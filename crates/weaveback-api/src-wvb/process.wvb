@@ -66,7 +66,33 @@ use weaveback_macro::macro_api::process_string;
 ¤])
 
 ¤rust_file(weaveback-api/src/process/markdown_normalize.rs, ¤[
-// <[process-markdown-normalize]>
+// <[process-markdown-ext]>
+mod adoc_table;
+mod explicit_table;
+mod markdown_table;
+
+pub(crate) use adoc_table::normalize_adoc_tables_for_markdown;
+
+use explicit_table::normalize_explicit_table_blocks;
+
+// <[process-normalize-expanded-document]>
+¤])
+
+¤rust_file(weaveback-api/src/process/markdown_normalize/adoc_table.rs, ¤[
+// <[process-adoc-table-types]>
+// <[process-adoc-to-markdown]>
+¤])
+
+¤rust_file(weaveback-api/src/process/markdown_normalize/markdown_table.rs, ¤[
+// <[process-markdown-to-adoc]>
+¤])
+
+¤rust_file(weaveback-api/src/process/markdown_normalize/explicit_table.rs, ¤[
+use super::{is_asciidoc_ext, is_markdown_ext};
+use super::adoc_table::normalize_adoc_tables_for_markdown;
+use super::markdown_table::normalize_markdown_table_for_asciidoc;
+
+// <[process-explicit-table-blocks]>
 ¤])
 
 ¤rust_file(weaveback-api/src/process/expanded_paths.rs, ¤[

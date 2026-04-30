@@ -4,10 +4,7 @@
 
 [source,rust]
 ----
-// <[@file weaveback-agent-core/src/read_api.rs]>=
-// weaveback-agent-core/src/read_api.rs
-// I'd Really Rather You Didn't edit this generated file.
-
+// <[read-api-core]>=
 use crate::workspace::WorkspaceConfig;
 use serde::{Deserialize, Serialize};
 use weaveback_core::PathResolver;
@@ -52,8 +49,14 @@ pub struct ChunkContext {
     pub direct_dependencies: Vec<String>,
     pub outputs: Vec<String>,
 }
+// @
+----
 
-fn open_db(config: &WorkspaceConfig) -> Result<WeavebackDb, String> {
+
+[source,rust]
+----
+// <[read-api-db]>=
+pub(in crate::read_api) fn open_db(config: &WorkspaceConfig) -> Result<WeavebackDb, String> {
     if !config.db_path.exists() {
         return Err(format!(
             "Database not found at {}. Run weaveback on your source files first.",
@@ -63,11 +66,17 @@ fn open_db(config: &WorkspaceConfig) -> Result<WeavebackDb, String> {
     WeavebackDb::open_read_only(&config.db_path).map_err(|e| e.to_string())
 }
 
-fn build_eval_config() -> EvalConfig {
+pub(in crate::read_api) fn build_eval_config() -> EvalConfig {
     EvalConfig::default()
 }
+// @
+----
 
-fn span_at_line<'a>(
+
+[source,rust]
+----
+// <[read-api-trace-helpers]>=
+pub(in crate::read_api) fn span_at_line<'a>(
     expanded: &str,
     ranges: &'a [SpanRange],
     line_0: u32,
@@ -100,7 +109,7 @@ fn span_at_line<'a>(
     PreciseTracingOutput::span_at_byte(ranges, line_start + byte_col)
 }
 
-fn trace_result_from_span(result: &mut TraceResult, span: &SourceSpan, evaluator: &Evaluator) {
+pub(in crate::read_api) fn trace_result_from_span(result: &mut TraceResult, span: &SourceSpan, evaluator: &Evaluator) {
     let source_manager = evaluator.sources();
     let Some(src_path) = source_manager.source_files().get(span.src as usize) else {
         return;
@@ -134,8 +143,14 @@ fn trace_result_from_span(result: &mut TraceResult, span: &SourceSpan, evaluator
         SpanKind::VarBinding { .. } | SpanKind::Literal | SpanKind::Computed => {}
     }
 }
+// @
+----
 
-fn heading_level(line: &str) -> Option<usize> {
+
+[source,rust]
+----
+// <[read-api-context-helpers]>=
+pub(in crate::read_api) fn heading_level(line: &str) -> Option<usize> {
     let trimmed = line.trim_end();
     if trimmed.is_empty() {
         return None;
@@ -148,7 +163,7 @@ fn heading_level(line: &str) -> Option<usize> {
     }
 }
 
-fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
+pub(in crate::read_api) fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
     let mut sec_start = 0usize;
     let mut sec_level = 1usize;
     for idx in (0..def_start).rev() {
@@ -170,7 +185,7 @@ fn section_range(lines: &[&str], def_start: usize) -> (usize, usize) {
     (sec_start, sec_end)
 }
 
-fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
+pub(in crate::read_api) fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     let mut chain = Vec::new();
     for line in lines.iter().take(def_start) {
         if let Some(level) = heading_level(line) {
@@ -182,7 +197,7 @@ fn title_chain(lines: &[&str], def_start: usize) -> Vec<String> {
     chain.into_iter().map(|(_, title)| title).collect()
 }
 
-fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
+pub(in crate::read_api) fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
     let end = end.min(lines.len());
     let mut in_fence = false;
     let mut in_chunk = false;
@@ -216,8 +231,14 @@ fn extract_prose(lines: &[&str], start: usize, end: usize) -> String {
 
     out.join("\n")
 }
+// @
+----
 
-fn prepare_fts_query(query: &str) -> String {
+
+[source,rust]
+----
+// <[read-api-search]>=
+pub(in crate::read_api) fn prepare_fts_query(query: &str) -> String {
     if query.contains('"')
         || query.contains(" AND ")
         || query.contains(" OR ")
@@ -242,11 +263,11 @@ fn prepare_fts_query(query: &str) -> String {
         .join(" ")
 }
 
-fn reciprocal_rank(rank: usize) -> f64 {
+pub(in crate::read_api) fn reciprocal_rank(rank: usize) -> f64 {
     1.0 / (60.0 + rank as f64)
 }
 
-fn call_openai_embeddings(
+pub(in crate::read_api) fn call_openai_embeddings(
     api_key: Option<&str>,
     base_url: &str,
     model: &str,
@@ -281,7 +302,7 @@ fn call_openai_embeddings(
         .collect()
 }
 
-fn call_gemini_embeddings(
+pub(in crate::read_api) fn call_gemini_embeddings(
     api_key: &str,
     model: &str,
     inputs: &[String],
@@ -325,7 +346,7 @@ fn call_gemini_embeddings(
         .collect()
 }
 
-fn embed_query(db: &WeavebackDb, query: &str) -> Result<Option<Vec<f32>>, String> {
+pub(in crate::read_api) fn embed_query(db: &WeavebackDb, query: &str) -> Result<Option<Vec<f32>>, String> {
     let Some(model) = db.get_run_config("semantic.model").map_err(|e| e.to_string())? else {
         return Ok(None);
     };
@@ -435,7 +456,13 @@ pub fn search(config: &WorkspaceConfig, query: &str, limit: usize) -> Result<Vec
     hits.truncate(limit);
     Ok(hits)
 }
+// @
+----
 
+
+[source,rust]
+----
+// <[read-api-trace]>=
 pub fn trace(
     config: &WorkspaceConfig,
     out_file: &str,
@@ -492,7 +519,13 @@ pub fn trace(
 
     Ok(Some(result))
 }
+// @
+----
 
+
+[source,rust]
+----
+// <[read-api-chunk-context]>=
 pub fn chunk_context(
     config: &WorkspaceConfig,
     file: &str,
@@ -536,8 +569,94 @@ pub fn chunk_context(
         outputs,
     })
 }
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-agent-core/src/read_api.rs]>=
+// weaveback-agent-core/src/read_api.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+// <[read-api-core]>
+mod context;
+mod db;
+mod search;
+mod trace;
+
+pub use context::chunk_context;
+pub use search::search;
+pub use trace::trace;
+
+#[cfg(test)]
+use context::{extract_prose, heading_level, section_range, title_chain};
+#[cfg(test)]
+use search::{prepare_fts_query, reciprocal_rank};
+
 #[cfg(test)]
 mod tests;
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-agent-core/src/read_api/db.rs]>=
+// weaveback-agent-core/src/read_api/db.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+
+// <[read-api-db]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-agent-core/src/read_api/search.rs]>=
+// weaveback-agent-core/src/read_api/search.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::db::open_db;
+
+// <[read-api-search]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-agent-core/src/read_api/trace.rs]>=
+// weaveback-agent-core/src/read_api/trace.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::db::{build_eval_config, open_db};
+
+// <[read-api-trace-helpers]>
+// <[read-api-trace]>
+
+// @
+----
+
+
+[source,rust]
+----
+// <[@file weaveback-agent-core/src/read_api/context.rs]>=
+// weaveback-agent-core/src/read_api/context.rs
+// I'd Really Rather You Didn't edit this generated file.
+
+use super::*;
+use super::db::open_db;
+
+// <[read-api-context-helpers]>
+// <[read-api-chunk-context]>
 
 // @
 ----

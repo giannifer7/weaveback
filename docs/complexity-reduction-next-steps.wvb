@@ -70,6 +70,10 @@ Completed or materially improved:
   `crates/weaveback-api/src/lint.rs` is now a small facade over configuration,
   filesystem scanning, lint rules, and the CLI runner under
   `crates/weaveback-api/src/lint/`.
+* `weaveback-agent-core` read API has been split at Rust-file level.
+  `crates/weaveback-agent-core/src/read_api.rs` is now a small facade over DB
+  opening, search, trace reconstruction, and chunk context extraction under
+  `crates/weaveback-agent-core/src/read_api/`.
 * A clean DB retangle exposed stale generated fixes that had not been preserved
   in canonical sources.  The small canonical catch-ups are now recorded in
   `lint.wvb`, `process.wvb`, the LSP manifest, workflow docs, and `project.adoc`.
@@ -99,6 +103,7 @@ File | Lines | Status
 `crates/weaveback-tangle/src/noweb.rs` | 26 | Completed; facade now includes focused `src/noweb/*.rs` files.
 `crates/weaveback-api/src/process.rs` | 22 | Completed; facade now includes focused `src/process/*.rs` files.
 `crates/weaveback-api/src/lint.rs` | 73 | Completed; facade now includes focused `src/lint/*.rs` files.
+`crates/weaveback-agent-core/src/read_api.rs` | 64 | Completed; facade now includes focused `src/read_api/*.rs` files.
 `crates/weaveback-macro/src/evaluator/core.rs` | 886 | Large but not first priority.
 ¤])
 

@@ -45,7 +45,7 @@ But as *reasoning vocabulary* they still matter:
 An agent can generate the pattern-shaped code. It cannot remove the need for a
 human to judge whether the pattern is justified.
 
-That is why the old motto remains true: `Pensare non ha sostituti`.
+That is why the old motto remains true: `Pensare non ha sostituti` (thinking has no substitute!).
 
 Weaveback is worthwhile only if it reduces cognitive load at that level. If it
 is used merely to create clever macro machinery, it is ornament. If it helps a
